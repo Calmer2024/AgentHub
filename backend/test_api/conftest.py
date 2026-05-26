@@ -5,8 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sess
 
 from app.main import app
 from app.database import Base, get_db
-from app.api import chat as chat_module
 from app.agents.base import BaseAgentAdapter, AgentCapability, AgentResponse
+from app.agents.registry import agent_registry
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
@@ -59,13 +59,18 @@ async def test_client(db_session):
 
     app.dependency_overrides[get_db] = override_get_db
 
-    original_agent = chat_module.agent
-    chat_module.agent = MockAgent()
+    mock_agent = MockAgent()
+    original_adapters = dict(agent_registry._adapters)
+    original_is_available = agent_registry.is_available
+
+    agent_registry._adapters = {"claude": mock_agent, "deepseek": mock_agent, "gemini": mock_agent}
+    agent_registry.is_available = lambda name: name in agent_registry._adapters
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         yield client
 
-    chat_module.agent = original_agent
+    agent_registry._adapters = original_adapters
+    agent_registry.is_available = original_is_available
     app.dependency_overrides.clear()
 
 

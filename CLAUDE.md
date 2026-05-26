@@ -68,8 +68,22 @@ Frontend (React) → API Gateway (FastAPI) → Service/Business Logic → Domain
 
 ---
 
+## Debug 质量守则
+
+Debug 不是"让 bug 消失"，而是"让系统更正确"。修复问题时必须遵守：
+
+1. **修根因，不修表象** — 找到问题的系统性原因（如字段命名不一致、架构设计缺陷），不写补丁式修复
+2. **保持代码质量不降级** — 修复不能引入 `any`、绕过类型检查、破坏分层架构、添加临时 hack
+3. **前瞻性** — 修复方案要考虑同一类问题是否在项目中其他地方也存在，一并修复
+4. **全局性** — 一个 bug 修复后，检查相关联的模块是否受影响（运行全量测试，不仅是相关测试）
+5. **安全性** — 不为了"快速修复"而降级 API Key 校验、跳过输入验证、暴露错误详情给前端
+6. **字段命名一致性** — 前后端字段名必须严格一致。后端 Pydantic 模型必须用 `Field(alias="camelCase")` + `populate_by_name=True` 统一输出 camelCase
+7. **每轮修复后全量测试零回归** — `pytest test_api/` + `npx vitest run` + `npx tsc --noEmit` 三者必须全部通过
+
+---
+
 ## Phase Awareness
 
-Currently in **Phase 1 (Walking Skeleton)**. Scope: single-chat full pipeline, Claude only, SSE streaming, no Orchestrator, no WebSocket, no artifacts, no auth.
+Currently in **Phase 2 (Core Features)**. Scope: multi-agent support, group chat, orchestrator, WebSocket, artifact previews. Active module: Agent Management (Module 1).
 
 Before suggesting any code, check which phase we're in and whether the suggestion fits current scope.

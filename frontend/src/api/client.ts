@@ -1,6 +1,28 @@
-import type { Session, Message } from "../types";
+import type { Session, Message, Agent, Settings, SettingsUpdate } from "../types";
 
 const API_BASE = "/api";
+
+export async function fetchAgents(): Promise<Agent[]> {
+  const res = await fetch(`${API_BASE}/agents`);
+  if (!res.ok) throw new Error("Failed to fetch agents");
+  return res.json();
+}
+
+export async function fetchSettings(): Promise<Settings> {
+  const res = await fetch(`${API_BASE}/settings`);
+  if (!res.ok) throw new Error("Failed to fetch settings");
+  return res.json();
+}
+
+export async function updateSettings(data: SettingsUpdate): Promise<Settings> {
+  const res = await fetch(`${API_BASE}/settings`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error("Failed to update settings");
+  return res.json();
+}
 
 export async function fetchSessions(): Promise<Session[]> {
   const res = await fetch(`${API_BASE}/sessions`);
@@ -15,6 +37,16 @@ export async function createSession(title?: string, agentName?: string): Promise
     body: JSON.stringify({ title: title || "新对话", agentName: agentName || "claude" }),
   });
   if (!res.ok) throw new Error("Failed to create session");
+  return res.json();
+}
+
+export async function updateSessionAgent(sessionId: string, agentName: string): Promise<Session> {
+  const res = await fetch(`${API_BASE}/sessions/${sessionId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ agentName }),
+  });
+  if (!res.ok) throw new Error("Failed to update session");
   return res.json();
 }
 

@@ -55,8 +55,8 @@ class TestChatStream:
             if line.startswith("data: "):
                 last_data = json.loads(line[6:])
         assert last_data["done"] is True
-        assert "message_id" in last_data
-        assert last_data["message_id"] is not None
+        assert "messageId" in last_data
+        assert last_data["messageId"] is not None
 
 
 @pytest.mark.asyncio

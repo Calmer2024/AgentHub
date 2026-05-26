@@ -1,16 +1,33 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import select
 
 from .config import settings
-from .database import Base, engine
+from .database import Base, engine, AsyncSessionLocal
 from .api import api_router
+from .models import Agent as DBAgent
+from .agents.registry import agent_registry
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+    async with AsyncSessionLocal() as db:
+        for name in agent_registry.get_agent_names():
+            existing = await db.get(DBAgent, name)
+            if not existing:
+                info = agent_registry.get_adapter(name)
+                db.add(DBAgent(
+                    name=name,
+                    display_name=info.capability.name if info else name,
+                    provider=agent_registry.get_provider(name),
+                    is_active=True,
+                ))
+        await db.commit()
+
     yield
 
 

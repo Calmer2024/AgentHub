@@ -5,7 +5,7 @@ from .base import BaseAgentAdapter, AgentCapability, AgentResponse
 from ..config import settings
 
 
-class DeepSeekAdapter(BaseAgentAdapter):
+class GeminiAdapter(BaseAgentAdapter):
     def __init__(self):
         self._client = None
 
@@ -13,18 +13,18 @@ class DeepSeekAdapter(BaseAgentAdapter):
     def client(self):
         if self._client is None:
             self._client = AsyncOpenAI(
-                api_key=settings.deepseek_api_key,
-                base_url="https://api.deepseek.com",
+                api_key=settings.gemini_api_key,
+                base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
             )
         return self._client
 
     @property
     def capability(self) -> AgentCapability:
         return AgentCapability(
-            name="DeepSeek V3",
+            name="Gemini 2.0 Flash",
             supports_streaming=True,
-            max_context_tokens=128_000,
-            tags=["code", "writing", "general"],
+            max_context_tokens=1_000_000,
+            tags=["code", "writing", "general", "multimodal"],
         )
 
     async def chat(
@@ -38,7 +38,7 @@ class DeepSeekAdapter(BaseAgentAdapter):
         transformed_messages.insert(0, {"role": "system", "content": system_prompt})
 
         stream = await self.client.chat.completions.create(
-            model="deepseek-chat",
+            model="gemini-2.0-flash",
             messages=transformed_messages,
             stream=True,
             max_tokens=4096,
@@ -62,7 +62,7 @@ class DeepSeekAdapter(BaseAgentAdapter):
         transformed_messages.insert(0, {"role": "system", "content": system_prompt})
 
         stream = await self.client.chat.completions.create(
-            model="deepseek-chat",
+            model="gemini-2.0-flash",
             messages=transformed_messages,
             stream=True,
             max_tokens=4096,

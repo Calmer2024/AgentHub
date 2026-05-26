@@ -9,6 +9,19 @@ description: AgentHub 项目标准模块开发流程。当用户要求开发新�
 
 ## 开发流程
 
+### Step 0: 创建开发分支
+1. 确认当前所在 Phase 分支（如 `phase/phase1-walking-skeleton`）
+2. 如果该 Phase 的长期分支不存在，先从 main 或上一 Phase 分支创建：
+   ```
+   git checkout -b phase/phase2-xxx <base-branch>
+   ```
+3. 从 Phase 分支创建功能分支：
+   ```
+   git checkout -b feat/<模块名> phase/phase2-xxx
+   ```
+4. 分支命名遵循 `docs/GIT_PROTOCOL.md` 第 2 节规范
+5. **禁止直接在 phase 分支上开发**——所有开发必须在 `feat/` 或 `fix/` 分支上进行
+
 ### Step 1: 读取 Spec
 1. 在 `docs/specs/` 目录下找到对应模块的 Spec 文档
 2. 如果没有 Spec，**拒绝开始开发**，要求用户先完成 Spec
@@ -47,10 +60,22 @@ description: AgentHub 项目标准模块开发流程。当用户要求开发新�
    - 验收标准: N/N 通过
    - UX 检查: N/N 通过
    - 测试: X passed, 0 failed
-   - 下一步: [建议的 Git commit 或下一个模块]
+   - 下一步: 等待人工验收认可后进入 Step 6 Git 提交
    ```
 
-### Step 6: Git 提交
+### ⛔ Step 5.5: 人工验收闸门（硬性阻断）
+
+**输出 Step 5 完成报告后，必须在此硬性停留，等待用户明确发出"人工验收认可"。**
+
+- **通过口令**: 用户明确说 `人工验收认可` / `验收通过` / `批准提交` / `确认提交` 等确认性语句
+- **拒绝口令**: 用户说 `驳回` / `修改` / `不通过` / `有问题` 等 → 回到对应 Step 修改
+- **AI 行为**: 在此闸门处，AI 仅做以下事项：
+  - 列出变更文件摘要（供用户审查）
+  - 回答用户关于变更的任何问题
+  - 根据用户反馈修改代码并重新运行测试
+  - **绝对禁止**: 在未获得明确验收口令前执行任何 `git add`、`git commit`、`git push` 操作
+
+### Step 6: Git 提交（仅限人工验收认可后执行）
 1. 按 `docs/GIT_PROTOCOL.md` 第 10 节执行三关强制验证
 2. Commit message 格式：`[ai] <type>: <描述>`
 3. 每完成一个函数 = 一个 commit，不攒大 diff
@@ -61,3 +86,4 @@ description: AgentHub 项目标准模块开发流程。当用户要求开发新�
 - 不要写完了才回头补测试——测试和实现一起提交
 - 不要超出 Spec 第 6 节的 Non-Goals 范围
 - 不要让 AI 等待中显示空白 UI——所有加载态必须有指示器
+- **不要在未获得用户人工验收认可前执行任何 Git 提交操作**

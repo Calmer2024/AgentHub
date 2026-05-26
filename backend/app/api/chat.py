@@ -9,17 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
 from ..models import Session as DBSession, Message as DBMessage
-from ..agents import ClaudeAdapter
-from ..agents.deepseek_adapter import DeepSeekAdapter
-from ..config import settings
+from ..agents.registry import agent_registry
 
 router = APIRouter(prefix="", tags=["chat"])
-
-agent = None
-if settings.deepseek_api_key:
-    agent = DeepSeekAdapter()
-elif settings.anthropic_api_key:
-    agent = ClaudeAdapter()
 
 
 class ChatRequest(BaseModel):
@@ -32,8 +24,9 @@ async def generate_chat_stream(
     db: AsyncSession,
     session: DBSession,
 ) -> AsyncGenerator[str, None]:
-    if not agent:
-        yield f"data: {json.dumps({'token': '', 'done': True, 'error': '没有配置 API Key，请在 .env 中设置 DEEPSEEK_API_KEY 或 ANTHROPIC_API_KEY'}, ensure_ascii=False)}\n\n"
+    agent = agent_registry.get_adapter(session.agent_name)
+    if not agent or not agent_registry.is_available(session.agent_name):
+        yield f"data: {json.dumps({'token': '', 'done': True, 'error': f'Agent {session.agent_name} 不可用，请配置对应 API Key'}, ensure_ascii=False)}\n\n"
         return
 
     user_msg_id = str(uuid.uuid4())
@@ -85,7 +78,7 @@ async def generate_chat_stream(
     session.updated_at = datetime.now(timezone.utc)
     await db.commit()
 
-    yield f"data: {json.dumps({'token': '', 'done': True, 'message_id': assistant_msg_id}, ensure_ascii=False)}\n\n"
+    yield f"data: {json.dumps({'token': '', 'done': True, 'messageId': assistant_msg_id}, ensure_ascii=False)}\n\n"
 
 
 @router.post("/sessions/{session_id}/chat")

@@ -6,18 +6,18 @@ import pytest
 class TestCreateSession:
     async def test_create_with_title(self, test_client):
         resp = await test_client.post("/api/sessions", json={
-            "title": "我的会话", "agent_name": "claude"
+            "title": "我的会话", "agentName": "claude"
         })
         assert resp.status_code == 201
         data = resp.json()
         assert data["title"] == "我的会话"
-        assert data["agent_name"] == "claude"
+        assert data["agentName"] == "claude"
         assert "id" in data
-        assert "created_at" in data
+        assert "createdAt" in data
 
     async def test_create_default_title(self, test_client):
         resp = await test_client.post("/api/sessions", json={
-            "agent_name": "claude"
+            "agentName": "claude"
         })
         assert resp.status_code == 201
         data = resp.json()
@@ -29,7 +29,7 @@ class TestCreateSession:
         assert resp.status_code == 201
         data = resp.json()
         assert data["title"] == "新对话"
-        assert data["agent_name"] == "claude"
+        assert data["agentName"] == "claude"
 
 
 @pytest.mark.asyncio
@@ -41,16 +41,16 @@ class TestListSessions:
 
     async def test_list_after_create(self, test_client):
         await test_client.post("/api/sessions", json={
-            "title": "会话1", "agent_name": "claude"
+            "title": "会话1", "agentName": "claude"
         })
         await test_client.post("/api/sessions", json={
-            "title": "会话2", "agent_name": "claude"
+            "title": "会话2", "agentName": "claude"
         })
         resp = await test_client.get("/api/sessions")
         assert resp.status_code == 200
         data = resp.json()
         assert len(data) == 2
-        assert "updated_at" in data[0]
+        assert "updatedAt" in data[0]
 
 
 @pytest.mark.asyncio
