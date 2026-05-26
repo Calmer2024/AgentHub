@@ -6,6 +6,9 @@ from ..config import settings
 
 
 class OpenAIAdapter(BaseAgentAdapter):
+    MODELS = ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo"]
+    DEFAULT_MODEL = "gpt-4o"
+
     def __init__(self):
         self._client = None
 
@@ -31,13 +34,14 @@ class OpenAIAdapter(BaseAgentAdapter):
         messages: list[dict],
         system_prompt: str,
         on_token: Optional[Callable[[str], None]] = None,
+        model: str | None = None,
     ) -> AgentResponse:
         full_content = ""
         transformed = [{"role": m["role"], "content": m["content"]} for m in messages]
         transformed.insert(0, {"role": "system", "content": system_prompt})
 
         stream = await self.client.chat.completions.create(
-            model="gpt-4o",
+            model=model or self.DEFAULT_MODEL,
             messages=transformed,
             stream=True,
             max_tokens=4096,
@@ -56,12 +60,13 @@ class OpenAIAdapter(BaseAgentAdapter):
         self,
         messages: list[dict],
         system_prompt: str,
+        model: str | None = None,
     ) -> AsyncIterator[str]:
         transformed = [{"role": m["role"], "content": m["content"]} for m in messages]
         transformed.insert(0, {"role": "system", "content": system_prompt})
 
         stream = await self.client.chat.completions.create(
-            model="gpt-4o",
+            model=model or self.DEFAULT_MODEL,
             messages=transformed,
             stream=True,
             max_tokens=4096,
