@@ -7,15 +7,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
-from ..models import Session as DBSession
-from ..agents.registry import agent_registry
+from ..models import Session as DBSession, AgentConfig
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
 
 class SessionCreate(BaseModel):
     title: str = "新对话"
-    agent_name: str = Field("claude", alias="agentName")
+    agent_config_id: str | None = Field(None, alias="agentConfigId")
 
     model_config = {"populate_by_name": True}
 
@@ -23,7 +22,7 @@ class SessionCreate(BaseModel):
 class SessionRead(BaseModel):
     id: str
     title: str
-    agent_name: str = Field(alias="agentName")
+    agent_config_id: str | None = Field(None, alias="agentConfigId")
     created_at: datetime = Field(alias="createdAt")
     updated_at: datetime = Field(alias="updatedAt")
 
@@ -31,22 +30,23 @@ class SessionRead(BaseModel):
 
 
 @router.post("", response_model=SessionRead, status_code=201)
-async def create_session(
-    data: SessionCreate,
-    db: AsyncSession = Depends(get_db),
-):
-    if data.agent_name not in agent_registry.get_agent_names():
-        raise HTTPException(status_code=400, detail=f"unknown agent: {data.agent_name}")
+async def create_session(data: SessionCreate, db: AsyncSession = Depends(get_db)):
+    agent_config_id = data.agent_config_id
+    if not agent_config_id:
+        result = await db.execute(select(AgentConfig).where(AgentConfig.is_active == True).limit(1))
+        default_agent = result.scalars().first()
+        if default_agent:
+            agent_config_id = default_agent.id
 
-    new_session = DBSession(
+    session = DBSession(
         id=str(uuid.uuid4()),
         title=data.title,
-        agent_name=data.agent_name,
+        agent_config_id=agent_config_id,
     )
-    db.add(new_session)
+    db.add(session)
     await db.commit()
-    await db.refresh(new_session)
-    return new_session
+    await db.refresh(session)
+    return session
 
 
 @router.get("", response_model=List[SessionRead])
@@ -66,25 +66,22 @@ async def get_session(session_id: str, db: AsyncSession = Depends(get_db)):
 
 
 class SessionUpdate(BaseModel):
-    agent_name: str | None = Field(None, alias="agentName")
+    agent_config_id: str | None = Field(None, alias="agentConfigId")
 
     model_config = {"populate_by_name": True}
 
 
 @router.patch("/{session_id}", response_model=SessionRead)
-async def update_session(
-    session_id: str,
-    data: SessionUpdate,
-    db: AsyncSession = Depends(get_db),
-):
+async def update_session(session_id: str, data: SessionUpdate, db: AsyncSession = Depends(get_db)):
     session = await db.get(DBSession, session_id)
     if not session:
         raise HTTPException(status_code=404, detail="session not found")
 
-    if data.agent_name is not None:
-        if data.agent_name not in agent_registry.get_agent_names():
-            raise HTTPException(status_code=400, detail=f"unknown agent: {data.agent_name}")
-        session.agent_name = data.agent_name
+    if data.agent_config_id is not None:
+        agent = await db.get(AgentConfig, data.agent_config_id)
+        if not agent:
+            raise HTTPException(status_code=400, detail="Agent 不存在")
+        session.agent_config_id = data.agent_config_id
 
     await db.commit()
     await db.refresh(session)

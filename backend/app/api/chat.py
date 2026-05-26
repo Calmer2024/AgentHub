@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
-from ..models import Session as DBSession, Message as DBMessage
+from ..models import Session as DBSession, Message as DBMessage, AgentConfig
 from ..agents.registry import agent_registry
 
 router = APIRouter(prefix="", tags=["chat"])
@@ -24,9 +24,17 @@ async def generate_chat_stream(
     db: AsyncSession,
     session: DBSession,
 ) -> AsyncGenerator[str, None]:
-    agent = agent_registry.get_adapter(session.agent_name)
-    if not agent or not agent_registry.is_available(session.agent_name):
-        yield f"data: {json.dumps({'token': '', 'done': True, 'error': f'Agent {session.agent_name} 不可用，请配置对应 API Key'}, ensure_ascii=False)}\n\n"
+    agent_config = None
+    if session.agent_config_id:
+        agent_config = await db.get(AgentConfig, session.agent_config_id)
+
+    if not agent_config:
+        yield f"data: {json.dumps({'token': '', 'done': True, 'error': '会话未关联 Agent，请创建或选择一个 Agent'}, ensure_ascii=False)}\n\n"
+        return
+
+    adapter = agent_registry.get_adapter(agent_config.provider)
+    if not adapter or not agent_registry.is_available(agent_config.provider):
+        yield f"data: {json.dumps({'token': '', 'done': True, 'error': f'供应商 {agent_config.provider} 不可用，请配置对应 API Key'}, ensure_ascii=False)}\n\n"
         return
 
     user_msg_id = str(uuid.uuid4())
@@ -45,25 +53,22 @@ async def generate_chat_stream(
         .order_by(DBMessage.created_at.asc())
         .limit(50)
     )
-    history_messages = result.scalars().all()
-
-    messages_for_llm = [
-        {"role": m.role, "content": m.content}
-        for m in history_messages
-    ]
+    history_messages = [{"role": m.role, "content": m.content} for m in result.scalars().all()]
 
     assistant_msg_id = str(uuid.uuid4())
     full_response = ""
 
     try:
-        async for token in agent.chat_stream(
-            messages=messages_for_llm,
-            system_prompt="你是一个有帮助的 AI 助手。请用简洁清晰的方式回答用户的问题。",
+        async for token in adapter.chat_stream(
+            messages=history_messages,
+            system_prompt=agent_config.system_prompt,
+            model=agent_config.model or None,
         ):
             full_response += token
             yield f"data: {json.dumps({'token': token, 'done': False}, ensure_ascii=False)}\n\n"
     except Exception as e:
-        yield f"data: {json.dumps({'token': '', 'done': True, 'error': str(e)}, ensure_ascii=False)}\n\n"
+        err_msg = f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
+        yield f"data: {json.dumps({'token': '', 'done': True, 'error': err_msg}, ensure_ascii=False)}\n\n"
         return
 
     assistant_msg = DBMessage(
@@ -82,11 +87,7 @@ async def generate_chat_stream(
 
 
 @router.post("/sessions/{session_id}/chat")
-async def chat(
-    session_id: str,
-    data: ChatRequest,
-    db: AsyncSession = Depends(get_db),
-):
+async def chat(session_id: str, data: ChatRequest, db: AsyncSession = Depends(get_db)):
     if not data.content.strip():
         raise HTTPException(status_code=400, detail="content must not be empty")
 
@@ -108,13 +109,8 @@ async def list_messages(session_id: str, db: AsyncSession = Depends(get_db)):
         .order_by(DBMessage.created_at.asc())
     )
     messages = result.scalars().all()
-    return [
-        {
-            "id": m.id,
-            "sessionId": m.session_id,
-            "role": m.role,
-            "content": m.content,
-            "createdAt": m.created_at.isoformat(),
-        }
-        for m in messages
-    ]
+    return [{
+        "id": m.id, "sessionId": m.session_id,
+        "role": m.role, "content": m.content,
+        "createdAt": m.created_at.isoformat(),
+    } for m in messages]
