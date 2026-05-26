@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from ..config import settings
+from ..agents.registry import agent_registry
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -13,6 +14,23 @@ _ENV_KEY_MAP = {
     "deepseek_api_key": "DEEPSEEK_API_KEY",
     "gemini_api_key": "GEMINI_API_KEY",
     "openai_api_key": "OPENAI_API_KEY",
+    "minimax_api_key": "MINIMAX_API_KEY",
+    "glm_api_key": "GLM_API_KEY",
+}
+
+_API_KEY_FIELDS = ("anthropic_api_key", "deepseek_api_key", "gemini_api_key",
+                   "openai_api_key", "minimax_api_key", "glm_api_key")
+
+_MODEL_FIELDS = ("openai_model", "claude_model", "deepseek_model",
+                 "gemini_model", "minimax_model", "glm_model")
+
+_MODEL_DEFAULTS = {
+    "openai_model": "gpt-4o",
+    "claude_model": "claude-3-5-sonnet-20241022",
+    "deepseek_model": "deepseek-v4-flash",
+    "gemini_model": "gemini-3.5-flash",
+    "minimax_model": "MiniMax-M2.7",
+    "glm_model": "glm-5.1",
 }
 
 
@@ -50,6 +68,14 @@ class SettingsRead(BaseModel):
     deepseek_api_key: str | None = Field(None, alias="deepseekApiKey")
     gemini_api_key: str | None = Field(None, alias="geminiApiKey")
     openai_api_key: str | None = Field(None, alias="openaiApiKey")
+    minimax_api_key: str | None = Field(None, alias="minimaxApiKey")
+    glm_api_key: str | None = Field(None, alias="glmApiKey")
+    openai_model: str = Field("gpt-4o", alias="openaiModel")
+    claude_model: str = Field("claude-3-5-sonnet-20241022", alias="claudeModel")
+    deepseek_model: str = Field("deepseek-v4-flash", alias="deepseekModel")
+    gemini_model: str = Field("gemini-3.5-flash", alias="geminiModel")
+    minimax_model: str = Field("MiniMax-M2.7", alias="minimaxModel")
+    glm_model: str = Field("glm-5.1", alias="glmModel")
 
     model_config = {"populate_by_name": True}
 
@@ -59,35 +85,55 @@ class SettingsUpdate(BaseModel):
     deepseek_api_key: str | None = Field(None, alias="deepseekApiKey")
     gemini_api_key: str | None = Field(None, alias="geminiApiKey")
     openai_api_key: str | None = Field(None, alias="openaiApiKey")
+    minimax_api_key: str | None = Field(None, alias="minimaxApiKey")
+    glm_api_key: str | None = Field(None, alias="glmApiKey")
+    openai_model: str | None = Field(None, alias="openaiModel")
+    claude_model: str | None = Field(None, alias="claudeModel")
+    deepseek_model: str | None = Field(None, alias="deepseekModel")
+    gemini_model: str | None = Field(None, alias="geminiModel")
+    minimax_model: str | None = Field(None, alias="minimaxModel")
+    glm_model: str | None = Field(None, alias="glmModel")
 
     model_config = {"populate_by_name": True}
 
 
-@router.get("", response_model=SettingsRead)
-async def get_settings():
+def _build_settings_read() -> SettingsRead:
     return SettingsRead(
         anthropic_api_key=_mask_key(settings.anthropic_api_key),
         deepseek_api_key=_mask_key(settings.deepseek_api_key),
         gemini_api_key=_mask_key(settings.gemini_api_key),
         openai_api_key=_mask_key(settings.openai_api_key),
+        minimax_api_key=_mask_key(settings.minimax_api_key),
+        glm_api_key=_mask_key(settings.glm_api_key),
+        openai_model=getattr(settings, "openai_model", "gpt-4o"),
+        claude_model=getattr(settings, "claude_model", "claude-3-5-sonnet-20241022"),
+        deepseek_model=getattr(settings, "deepseek_model", "deepseek-v4-flash"),
+        gemini_model=getattr(settings, "gemini_model", "gemini-3.5-flash"),
+        minimax_model=getattr(settings, "minimax_model", "MiniMax-M2.7"),
+        glm_model=getattr(settings, "glm_model", "glm-5.1"),
     )
+
+
+@router.get("", response_model=SettingsRead)
+async def get_settings():
+    return _build_settings_read()
 
 
 @router.put("", response_model=SettingsRead)
 async def update_settings(data: SettingsUpdate):
     env_updates = {}
-    for field_name in ("anthropic_api_key", "deepseek_api_key", "gemini_api_key", "openai_api_key"):
+    for field_name in _API_KEY_FIELDS:
         value = getattr(data, field_name)
         if value is not None:
             setattr(settings, field_name, value)
             env_updates[_ENV_KEY_MAP[field_name]] = value
 
+    for field_name in _MODEL_FIELDS:
+        value = getattr(data, field_name)
+        if value is not None:
+            setattr(settings, field_name, value)
+
     if env_updates:
         _write_env(env_updates)
 
-    return SettingsRead(
-        anthropic_api_key=_mask_key(settings.anthropic_api_key),
-        deepseek_api_key=_mask_key(settings.deepseek_api_key),
-        gemini_api_key=_mask_key(settings.gemini_api_key),
-        openai_api_key=_mask_key(settings.openai_api_key),
-    )
+    return _build_settings_read()
