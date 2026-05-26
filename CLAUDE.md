@@ -39,7 +39,7 @@ Frontend (React) → API Gateway (FastAPI) → Service/Business Logic → Domain
 
 ### Universal
 - All comments and documentation in Chinese.
-- Single file max 300 lines. Split if exceeds.
+- Single file max 300 lines (source code only; protocol/design docs exempt). Split if exceeds.
 - Every module completion → immediately write unit tests.
 - Small commits: each runnable function = one commit.
 

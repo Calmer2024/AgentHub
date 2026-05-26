@@ -29,7 +29,7 @@ Phase 1 实现：会话 CRUD + 消息收发 + Claude SSE 流式对话。
 
 ### 2.1 冒烟测试
 
-#### S1 — 后端模块导入
+#### S1 — 后端模块导入（✅ 已实现）
 
 ```python
 # backend/test_smoke.py
@@ -41,19 +41,13 @@ def test_import_api_routes(): # sessions router, chat router
 def test_import_main_app():   # FastAPI app 实例
 ```
 
-#### S2 — 前端组件导入
+#### S2 — 前端组件导入（Phase 2 实施）
 
-```typescript
-// frontend/src/__tests__/smoke.test.ts
-test("renders App without crashing")
-test("renders ChatWindow without crashing")
-test("renders SessionList without crashing")
-test("renders ChatInput without crashing")
-```
+前端 smoke test 和组件测试基础设施已安装（vitest + testing-library），具体测试用例将在 Phase 2 中编写。
 
 ---
 
-### 2.2 API 测试（后端）
+### 2.2 API 测试（后端） — ✅ 全部实现
 
 #### Sessions API
 

@@ -239,7 +239,6 @@ Desktop.ini
 # === 临时文件 ===
 *.tmp
 *.log
-.trae/
 ```
 
 ---
