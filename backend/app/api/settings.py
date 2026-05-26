@@ -12,6 +12,7 @@ _ENV_KEY_MAP = {
     "anthropic_api_key": "ANTHROPIC_API_KEY",
     "deepseek_api_key": "DEEPSEEK_API_KEY",
     "gemini_api_key": "GEMINI_API_KEY",
+    "openai_api_key": "OPENAI_API_KEY",
 }
 
 
@@ -48,6 +49,7 @@ class SettingsRead(BaseModel):
     anthropic_api_key: str | None = Field(None, alias="anthropicApiKey")
     deepseek_api_key: str | None = Field(None, alias="deepseekApiKey")
     gemini_api_key: str | None = Field(None, alias="geminiApiKey")
+    openai_api_key: str | None = Field(None, alias="openaiApiKey")
 
     model_config = {"populate_by_name": True}
 
@@ -56,6 +58,7 @@ class SettingsUpdate(BaseModel):
     anthropic_api_key: str | None = Field(None, alias="anthropicApiKey")
     deepseek_api_key: str | None = Field(None, alias="deepseekApiKey")
     gemini_api_key: str | None = Field(None, alias="geminiApiKey")
+    openai_api_key: str | None = Field(None, alias="openaiApiKey")
 
     model_config = {"populate_by_name": True}
 
@@ -66,21 +69,18 @@ async def get_settings():
         anthropic_api_key=_mask_key(settings.anthropic_api_key),
         deepseek_api_key=_mask_key(settings.deepseek_api_key),
         gemini_api_key=_mask_key(settings.gemini_api_key),
+        openai_api_key=_mask_key(settings.openai_api_key),
     )
 
 
 @router.put("", response_model=SettingsRead)
 async def update_settings(data: SettingsUpdate):
     env_updates = {}
-    if data.anthropic_api_key is not None:
-        settings.anthropic_api_key = data.anthropic_api_key
-        env_updates[_ENV_KEY_MAP["anthropic_api_key"]] = data.anthropic_api_key
-    if data.deepseek_api_key is not None:
-        settings.deepseek_api_key = data.deepseek_api_key
-        env_updates[_ENV_KEY_MAP["deepseek_api_key"]] = data.deepseek_api_key
-    if data.gemini_api_key is not None:
-        settings.gemini_api_key = data.gemini_api_key
-        env_updates[_ENV_KEY_MAP["gemini_api_key"]] = data.gemini_api_key
+    for field_name in ("anthropic_api_key", "deepseek_api_key", "gemini_api_key", "openai_api_key"):
+        value = getattr(data, field_name)
+        if value is not None:
+            setattr(settings, field_name, value)
+            env_updates[_ENV_KEY_MAP[field_name]] = value
 
     if env_updates:
         _write_env(env_updates)
@@ -89,4 +89,5 @@ async def update_settings(data: SettingsUpdate):
         anthropic_api_key=_mask_key(settings.anthropic_api_key),
         deepseek_api_key=_mask_key(settings.deepseek_api_key),
         gemini_api_key=_mask_key(settings.gemini_api_key),
+        openai_api_key=_mask_key(settings.openai_api_key),
     )

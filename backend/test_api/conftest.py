@@ -63,7 +63,7 @@ async def test_client(db_session):
     original_adapters = dict(agent_registry._adapters)
     original_is_available = agent_registry.is_available
 
-    agent_registry._adapters = {"claude": mock_agent, "deepseek": mock_agent, "gemini": mock_agent}
+    agent_registry._adapters = {"openai": mock_agent, "claude": mock_agent, "deepseek": mock_agent, "gemini": mock_agent}
     agent_registry.is_available = lambda name: name in agent_registry._adapters
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:

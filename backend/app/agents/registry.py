@@ -1,10 +1,11 @@
-from ..agents import ClaudeAdapter, DeepSeekAdapter, GeminiAdapter, BaseAgentAdapter, AgentCapability
+from ..agents import ClaudeAdapter, DeepSeekAdapter, GeminiAdapter, OpenAIAdapter, BaseAgentAdapter
 from ..config import settings
 
 
 class AgentRegistry:
     def __init__(self):
         self._adapters: dict[str, BaseAgentAdapter] = {
+            "openai": OpenAIAdapter(),
             "claude": ClaudeAdapter(),
             "deepseek": DeepSeekAdapter(),
             "gemini": GeminiAdapter(),
@@ -18,6 +19,7 @@ class AgentRegistry:
 
     def is_available(self, name: str) -> bool:
         key = {
+            "openai": settings.openai_api_key,
             "claude": settings.anthropic_api_key,
             "deepseek": settings.deepseek_api_key,
             "gemini": settings.gemini_api_key,
@@ -27,6 +29,7 @@ class AgentRegistry:
             return False
 
         format_rules = {
+            "openai": key.startswith("sk-"),
             "claude": key.startswith("sk-ant-"),
             "deepseek": key.startswith("sk-"),
             "gemini": key.startswith("AIza") or len(key) >= 20,
@@ -58,6 +61,7 @@ class AgentRegistry:
 
     def _unavailable_reason(self, name: str) -> str:
         key = {
+            "openai": settings.openai_api_key,
             "claude": settings.anthropic_api_key,
             "deepseek": settings.deepseek_api_key,
             "gemini": settings.gemini_api_key,
@@ -69,6 +73,7 @@ class AgentRegistry:
     @staticmethod
     def get_provider(name: str) -> str:
         return {
+            "openai": "openai",
             "claude": "anthropic",
             "deepseek": "deepseek",
             "gemini": "google",

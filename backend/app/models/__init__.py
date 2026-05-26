@@ -1,5 +1,5 @@
 from .session import Session
 from .message import Message
-from .agent import Agent
+from .agent_config import AgentConfig
 
-__all__ = ["Session", "Message", "Agent"]
+__all__ = ["Session", "Message", "AgentConfig"]
