@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git init *)",
+      "Bash(git remote *)",
+      "Bash(.\\\\venv\\\\Scripts\\\\python.exe --version)",
+      "PowerShell(python -c \"import sys; print\\(sys.version\\)\")",
+      "PowerShell(conda --version 2>$null)",
+      "PowerShell($oldVenv = \"d:\\\\Files\\\\AI\\\\AgentHub\\\\backend\\\\venv\"; if \\(Test-Path $oldVenv\\) { Remove-Item -Recurse -Force $oldVenv }; python -m venv $oldVenv; & \"$oldVenv\\\\Scripts\\\\python.exe\" --version)",
+      "PowerShell($oldVenv = \"d:\\\\Files\\\\AI\\\\AgentHub\\\\backend\\\\venv\"; $backup = \"d:\\\\Files\\\\AI\\\\AgentHub\\\\backend\\\\venv_old\"; if \\(Test-Path $backup\\) { Remove-Item -Recurse -Force $backup -ErrorAction SilentlyContinue }; Rename-Item $oldVenv \"venv_old\" -ErrorAction SilentlyContinue; python -m venv $oldVenv; & \"$oldVenv\\\\Scripts\\\\python.exe\" --version)",
+      "Bash(curl -s http://127.0.0.1:8000/api/sessions)",
+      "Bash(curl -s --no-buffer -X POST \"http://127.0.0.1:8000/api/sessions/4efca618-c5a9-4a09-a5cb-29e64830736b/chat\" -H \"Content-Type: application/json\" -d '{\"content\":\"say hello in 5 words\"}')",
+      "Bash(.\\\\venv\\\\Scripts\\\\python.exe -m pip install pytest pytest-asyncio httpx -q)",
+      "PowerShell(New-Item -ItemType Directory -Force -Path \"d:\\\\Files\\\\AI\\\\AgentHub\\\\backend\\\\test_api\")",
+      "Bash(Test-Path \"d:\\\\Files\\\\AI\\\\AgentHub\\\\backend\\\\.env\")"
+    ]
+  }
+}
