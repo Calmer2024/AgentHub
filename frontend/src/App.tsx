@@ -1,10 +1,11 @@
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useRef } from "react";
 import { useChatStore } from "./stores/chat";
 import { SessionList } from "./components/SessionList";
 import { ChatWindow } from "./components/ChatWindow";
 import { AgentPanel } from "./components/AgentPanel";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { createSession, fetchSessions, fetchMessages, fetchAgents, fetchProviders, createChatStream, updateSessionAgent } from "./api/client";
+import { WSClient } from "./api/wsClient";
 import type { Message } from "./types";
 
 function App() {
@@ -18,6 +19,32 @@ function App() {
     setSidebarTab, updateSession,
     agents, setAgents, providers, setProviders,
   } = useChatStore();
+
+  const wsRef = useRef<WSClient | null>(null);
+
+  useEffect(() => {
+    if (!currentSessionId) return;
+    const ws = new WSClient();
+    wsRef.current = ws;
+
+    ws.on("token", (data) => {
+      if (data.token && typeof data.token === "string") {
+        appendStreamingToken(data.token);
+      }
+    });
+    ws.on("message.completed", () => {
+      fetchMessages(currentSessionId).then(setMessages);
+    });
+    ws.on("agent.changed", (data) => {
+      if (typeof data.agentConfigId === "string") {
+        updateSession({ ...sessions.find((s) => s.id === currentSessionId)!, agentConfigId: data.agentConfigId });
+      }
+    });
+
+    ws.connect(currentSessionId);
+
+    return () => { ws.disconnect(); };
+  }, [currentSessionId]); // 切换会话时自动断开旧连接 + 建立新连接
 
   const loadData = useCallback(async () => {
     try { setSessions(await fetchSessions()); } catch { /* */ }
