@@ -1,77 +1,68 @@
 import pytest
 
 
-class TestListAgents:
-    async def test_returns_agent_list(self, test_client):
-        res = await test_client.get("/api/agents")
-        assert res.status_code == 200
-        data = res.json()
-        assert isinstance(data, list)
-        assert len(data) >= 1
-
-    async def test_each_agent_has_required_fields(self, test_client):
-        res = await test_client.get("/api/agents")
-        data = res.json()
-        for agent in data:
-            assert "name" in agent
-            assert "displayName" in agent
-            assert "provider" in agent
-            assert "isAvailable" in agent
-            assert "capability" in agent
-            cap = agent["capability"]
-            assert "supportsStreaming" in cap
-            assert "maxContextTokens" in cap
-            assert "tags" in cap
-
-    async def test_claude_is_in_list(self, test_client):
-        res = await test_client.get("/api/agents")
-        names = [a["name"] for a in res.json()]
-        assert "claude" in names
-
-    async def test_deepseek_is_in_list(self, test_client):
-        res = await test_client.get("/api/agents")
-        names = [a["name"] for a in res.json()]
-        assert "deepseek" in names
-
-    async def test_gemini_is_in_list(self, test_client):
-        res = await test_client.get("/api/agents")
-        names = [a["name"] for a in res.json()]
-        assert "gemini" in names
-
-    async def test_unavailable_agent_has_reason(self, test_client):
-        res = await test_client.get("/api/agents")
-        data = res.json()
-        for agent in data:
-            if not agent["isAvailable"]:
-                assert "unavailableReason" in agent
-
-
-class TestSessionAgentValidation:
-    async def test_create_session_with_valid_agent(self, test_client):
-        res = await test_client.post("/api/sessions", json={
-            "title": "测试",
-            "agentName": "claude",
+class TestCreateAgent:
+    async def test_create_with_name(self, test_client):
+        res = await test_client.post("/api/agents", json={
+            "name": "代码审查员",
+            "systemPrompt": "你是代码审查专家。",
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
         })
         assert res.status_code == 201
-        assert res.json()["agentName"] == "claude"
+        data = res.json()
+        assert data["name"] == "代码审查员"
+        assert data["systemPrompt"] == "你是代码审查专家。"
+        assert data["provider"] == "deepseek"
+        assert "id" in data
 
-    async def test_create_session_with_invalid_agent(self, test_client):
-        res = await test_client.post("/api/sessions", json={
-            "title": "测试",
-            "agentName": "nonexistent_agent",
+    async def test_create_defaults(self, test_client):
+        res = await test_client.post("/api/agents", json={"name": "Test"})
+        assert res.status_code == 201
+        data = res.json()
+        assert data["provider"] == "deepseek"
+        assert data["model"] == "deepseek-v4-flash"
+        assert data["temperature"] == 0.7
+
+    async def test_create_invalid_provider(self, test_client):
+        res = await test_client.post("/api/agents", json={
+            "name": "Bad", "provider": "nonexistent"
         })
         assert res.status_code == 400
-        assert "unknown agent" in res.json()["detail"]
 
-    async def test_update_session_agent(self, test_client, test_session):
-        res = await test_client.patch(f"/api/sessions/{test_session}", json={
-            "agentName": "deepseek",
+
+class TestListAgents:
+    async def test_list_empty(self, test_client):
+        res = await test_client.get("/api/agents")
+        assert res.status_code == 200
+        assert res.json() == []
+
+    async def test_list_after_create(self, test_client):
+        await test_client.post("/api/agents", json={"name": "A1"})
+        await test_client.post("/api/agents", json={"name": "A2"})
+        res = await test_client.get("/api/agents")
+        assert len(res.json()) == 2
+
+
+class TestUpdateAgent:
+    async def test_update_name(self, test_client, test_agent):
+        res = await test_client.patch(f"/api/agents/{test_agent.id}", json={
+            "name": "新名称", "temperature": 0.3
         })
         assert res.status_code == 200
-        assert res.json()["agentName"] == "deepseek"
+        data = res.json()
+        assert data["name"] == "新名称"
+        assert data["temperature"] == 0.3
 
-    async def test_update_session_invalid_agent(self, test_client, test_session):
-        res = await test_client.patch(f"/api/sessions/{test_session}", json={
-            "agentName": "invalid_agent",
-        })
-        assert res.status_code == 400
+    async def test_update_nonexistent(self, test_client):
+        res = await test_client.patch("/api/agents/nonexistent", json={"name": "X"})
+        assert res.status_code == 404
+
+
+class TestDeleteAgent:
+    async def test_soft_delete(self, test_client, test_agent):
+        res = await test_client.delete(f"/api/agents/{test_agent.id}")
+        assert res.status_code == 200
+        # 已软删除，列表不再出现
+        r2 = await test_client.get("/api/agents")
+        assert len(r2.json()) == 0

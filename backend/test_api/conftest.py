@@ -1,3 +1,5 @@
+import uuid
+from unittest import mock
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
@@ -7,26 +9,31 @@ from app.main import app
 from app.database import Base, get_db
 from app.agents.base import BaseAgentAdapter, AgentCapability, AgentResponse
 from app.agents.registry import agent_registry
+from app.models import AgentConfig
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
 
 class MockAgent(BaseAgentAdapter):
-    """模拟 Agent，返回固定 token 流，不调用真实 API。"""
+    MODELS = ["mock-model"]
+    DEFAULT_MODEL = "mock-model"
 
     @property
     def capability(self) -> AgentCapability:
-        return AgentCapability(
-            name="mock",
-            supports_streaming=True,
-        )
+        return AgentCapability(name="mock", supports_streaming=True)
 
-    async def chat(self, messages, system_prompt, on_token=None):
+    async def chat(self, messages, system_prompt, on_token=None, model=None):
         return AgentResponse(content="Hello World!", finish_reason="stop")
 
-    async def chat_stream(self, messages, system_prompt):
+    async def chat_stream(self, messages, system_prompt, model=None):
         for token in ["Hello", ", ", "World", "!"]:
             yield token
+
+
+@pytest.fixture(autouse=True)
+def _mock_write_env():
+    with mock.patch("app.api.settings._write_env"):
+        yield
 
 
 @pytest.fixture(scope="session")
@@ -53,7 +60,6 @@ async def db_session(engine, setup_db):
 
 @pytest_asyncio.fixture(loop_scope="function")
 async def test_client(db_session):
-    """测试客户端，DB 和 Agent 已 mock。"""
     async def override_get_db():
         yield db_session
 
@@ -63,7 +69,7 @@ async def test_client(db_session):
     original_adapters = dict(agent_registry._adapters)
     original_is_available = agent_registry.is_available
 
-    agent_registry._adapters = {"openai": mock_agent, "claude": mock_agent, "deepseek": mock_agent, "gemini": mock_agent}
+    agent_registry._adapters = {"openai": mock_agent, "claude": mock_agent, "deepseek": mock_agent, "gemini": mock_agent, "minimax": mock_agent, "glm": mock_agent}
     agent_registry.is_available = lambda name: name in agent_registry._adapters
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -75,13 +81,27 @@ async def test_client(db_session):
 
 
 @pytest_asyncio.fixture
-async def test_session(test_client, db_session):
-    """创建一个可用于后续测试的 session。"""
-    from app.models.session import Session
-    import uuid
+async def test_agent(db_session):
+    """创建一个测试 Agent。"""
+    agent = AgentConfig(
+        id=str(uuid.uuid4()),
+        name="测试 Agent",
+        description="测试",
+        system_prompt="你是一个测试助手。",
+        provider="deepseek",
+        model="deepseek-v4-flash",
+    )
+    db_session.add(agent)
+    await db_session.commit()
+    return agent
 
+
+@pytest_asyncio.fixture
+async def test_session(test_client, db_session, test_agent):
+    """创建一个关联了 Agent 的会话。"""
+    from app.models.session import Session
     sid = str(uuid.uuid4())
-    sess = Session(id=sid, title="测试会话", agent_name="claude")
+    sess = Session(id=sid, title="测试会话", agent_config_id=test_agent.id)
     db_session.add(sess)
     await db_session.commit()
     return sid
