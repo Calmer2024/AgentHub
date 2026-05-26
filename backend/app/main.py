@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import settings
 from .database import Base, engine, AsyncSessionLocal
 from .api import api_router
+from .api.ws import router as ws_router
 from .models import AgentConfig
 
 
@@ -51,6 +52,7 @@ app.add_middleware(
 )
 
 app.include_router(api_router)
+app.include_router(ws_router)
 
 
 @app.get("/")

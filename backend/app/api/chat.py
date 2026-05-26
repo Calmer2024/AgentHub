@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db
 from ..models import Session as DBSession, Message as DBMessage, AgentConfig
 from ..agents.registry import agent_registry
+from .ws_manager import manager as ws_manager
 
 router = APIRouter(prefix="", tags=["chat"])
 
@@ -66,6 +67,7 @@ async def generate_chat_stream(
         ):
             full_response += token
             yield f"data: {json.dumps({'token': token, 'done': False}, ensure_ascii=False)}\n\n"
+            await ws_manager.broadcast(session_id, {"type": "token", "token": token, "messageId": assistant_msg_id})
     except Exception as e:
         err_msg = f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
         yield f"data: {json.dumps({'token': '', 'done': True, 'error': err_msg}, ensure_ascii=False)}\n\n"
@@ -83,6 +85,7 @@ async def generate_chat_stream(
     session.updated_at = datetime.now(timezone.utc)
     await db.commit()
 
+    await ws_manager.broadcast(session_id, {"type": "message.completed", "messageId": assistant_msg_id})
     yield f"data: {json.dumps({'token': '', 'done': True, 'messageId': assistant_msg_id}, ensure_ascii=False)}\n\n"
 
 
