@@ -1,22 +1,30 @@
 from typing import AsyncIterator, Callable, Optional
-
 from anthropic import AsyncAnthropic
 
 from .base import BaseAgentAdapter, AgentCapability, AgentResponse
 from ..config import settings
 
 
-class ClaudeAdapter(BaseAgentAdapter):
-    MODELS = ["claude-3-5-sonnet-20241022", "claude-3-opus-20240229", "claude-3-haiku-20240307"]
-    DEFAULT_MODEL = "claude-3-5-sonnet-20241022"
+class MiniMaxAdapter(BaseAgentAdapter):
+    MODELS = ["MiniMax-M2.7", "MiniMax-M2.7-highspeed", "MiniMax-M2.5", "MiniMax-M2.5-highspeed"]
+    DEFAULT_MODEL = "MiniMax-M2.7"
 
     def __init__(self):
-        self.client = AsyncAnthropic(api_key=settings.anthropic_api_key)
+        self._client = None
+
+    @property
+    def client(self):
+        if self._client is None:
+            self._client = AsyncAnthropic(
+                api_key=settings.minimax_api_key,
+                base_url="https://api.minimaxi.com/anthropic",
+            )
+        return self._client
 
     @property
     def capability(self) -> AgentCapability:
         return AgentCapability(
-            name="Claude 3.5 Sonnet",
+            name="MiniMax M2.7",
             supports_streaming=True,
             max_context_tokens=200_000,
             tags=["code", "writing", "general"],
