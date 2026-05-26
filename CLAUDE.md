@@ -65,6 +65,7 @@ Frontend (React) → API Gateway (FastAPI) → Service/Business Logic → Domain
 - Ending any increment without a demoable frontend.
 - Skipping acceptance criteria verification before marking a phase complete.
 - Adding features outside the current Spec's scope (see Non-Goals section).
+- **执行任何 Git 操作（add/commit/push）前，必须先获得用户明确的"人工验收"确认。** 即使模块开发 Skill 中已进入 Step 6，也必须等待用户说"人工验收认可"/"验收通过"/"批准提交"等确认口令。未获确认前，Git 操作等同于 Spec 之外的功能——禁止执行。
 
 ---
 
