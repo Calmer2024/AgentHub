@@ -1,25 +1,22 @@
 import { describe, it, expect } from "vitest";
 import { useChatStore } from "./chat";
-import type { Agent } from "../types";
+import type { AgentConfig, Provider } from "../types";
 
-const mockAgent: Agent = {
-  name: "claude",
-  displayName: "Claude 4 Opus",
-  provider: "anthropic",
-  isAvailable: true,
-  capability: {
-    supportsStreaming: true,
-    supportsFileInput: false,
-    supportsToolCall: false,
-    maxContextTokens: 200000,
-    tags: ["code"],
-  },
+const mockAgent: AgentConfig = {
+  id: "a1", name: "测试 Agent", description: "", systemPrompt: "",
+  provider: "deepseek", model: "deepseek-v4-flash",
+  temperature: 0.7, isActive: true, createdAt: "", updatedAt: "",
 };
 
-describe("Chat Store - Agent 管理", () => {
+const mockProvider: Provider = {
+  name: "deepseek", displayName: "DeepSeek V3", provider: "deepseek",
+  isAvailable: true, models: ["deepseek-v4-flash"], defaultModel: "deepseek-v4-flash",
+  capability: { supportsStreaming: true, supportsFileInput: false, supportsToolCall: false, maxContextTokens: 128000, tags: [] },
+};
+
+describe("Chat Store", () => {
   it("初始状态 agents 为空数组", () => {
-    const { agents } = useChatStore.getState();
-    expect(agents).toEqual([]);
+    expect(useChatStore.getState().agents).toEqual([]);
   });
 
   it("setAgents 设置 agent 列表", () => {
@@ -27,24 +24,26 @@ describe("Chat Store - Agent 管理", () => {
     expect(useChatStore.getState().agents).toEqual([mockAgent]);
   });
 
-  it("初始状态 settingsOpen 为 false", () => {
-    const { settingsOpen } = useChatStore.getState();
-    expect(settingsOpen).toBe(false);
+  it("初始状态 providers 为空数组", () => {
+    expect(useChatStore.getState().providers).toEqual([]);
   });
 
-  it("setSettingsOpen 切换设置面板", () => {
-    useChatStore.getState().setSettingsOpen(true);
-    expect(useChatStore.getState().settingsOpen).toBe(true);
+  it("setProviders 设置 provider 列表", () => {
+    useChatStore.getState().setProviders([mockProvider]);
+    expect(useChatStore.getState().providers).toEqual([mockProvider]);
+  });
+
+  it("初始状态 sidebarTab 为 sessions", () => {
+    expect(useChatStore.getState().sidebarTab).toBe("sessions");
   });
 
   it("updateSession 更新会话列表", () => {
     useChatStore.getState().setSessions([
-      { id: "s1", title: "旧标题", agentName: "claude", createdAt: "", updatedAt: "" },
+      { id: "s1", title: "旧标题", agentConfigId: "a1", createdAt: "", updatedAt: "" },
     ]);
     useChatStore.getState().updateSession({
-      id: "s1", title: "旧标题", agentName: "deepseek", createdAt: "", updatedAt: "",
+      id: "s1", title: "旧标题", agentConfigId: "a2", createdAt: "", updatedAt: "",
     });
-    const sessions = useChatStore.getState().sessions;
-    expect(sessions[0].agentName).toBe("deepseek");
+    expect(useChatStore.getState().sessions[0].agentConfigId).toBe("a2");
   });
 });

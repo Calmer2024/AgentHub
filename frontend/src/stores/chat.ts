@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Session, Message, Agent } from "../types";
+import type { Session, Message, AgentConfig, Provider } from "../types";
 
 interface ChatState {
   sessions: Session[];
@@ -7,8 +7,9 @@ interface ChatState {
   messages: Message[];
   isStreaming: boolean;
   streamingError: string | null;
-  agents: Agent[];
-  settingsOpen: boolean;
+  agents: AgentConfig[];
+  providers: Provider[];
+  sidebarTab: "sessions" | "agents" | "settings";
   setSessions: (sessions: Session[]) => void;
   setCurrentSessionId: (id: string | null) => void;
   setMessages: (messages: Message[]) => void;
@@ -16,8 +17,9 @@ interface ChatState {
   appendStreamingToken: (token: string) => void;
   setIsStreaming: (v: boolean) => void;
   setStreamingError: (error: string | null) => void;
-  setAgents: (agents: Agent[]) => void;
-  setSettingsOpen: (open: boolean) => void;
+  setAgents: (agents: AgentConfig[]) => void;
+  setProviders: (providers: Provider[]) => void;
+  setSidebarTab: (tab: "sessions" | "agents" | "settings") => void;
   updateSession: (session: Session) => void;
 }
 
@@ -28,7 +30,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   isStreaming: false,
   streamingError: null,
   agents: [],
-  settingsOpen: false,
+  providers: [],
+  sidebarTab: "sessions",
   setSessions: (sessions) => set({ sessions }),
   setCurrentSessionId: (id) => set({ currentSessionId: id }),
   setMessages: (messages) => set({ messages }),
@@ -36,19 +39,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
   appendStreamingToken: (token) => set((s) => {
     const lastMsg = s.messages[s.messages.length - 1];
     if (lastMsg && lastMsg.role === "assistant" && get().isStreaming) {
-      return {
-        messages: [
-          ...s.messages.slice(0, -1),
-          { ...lastMsg, content: lastMsg.content + token },
-        ],
-      };
+      return { messages: [...s.messages.slice(0, -1), { ...lastMsg, content: lastMsg.content + token }] };
     }
     return s;
   }),
   setIsStreaming: (v) => set({ isStreaming: v, streamingError: v ? get().streamingError : null }),
   setStreamingError: (error) => set({ streamingError: error }),
   setAgents: (agents) => set({ agents }),
-  setSettingsOpen: (open) => set({ settingsOpen: open }),
+  setProviders: (providers) => set({ providers }),
+  setSidebarTab: (tab) => set({ sidebarTab: tab }),
   updateSession: (session) => set((s) => ({
     sessions: s.sessions.map((sess) => sess.id === session.id ? session : sess),
   })),
