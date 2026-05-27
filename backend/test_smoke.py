@@ -58,7 +58,22 @@ def test_import_chat_router():
     assert isinstance(router, APIRouter)
 
 
-def test_import_sessions_router():
-    from app.api.sessions import router
-    from fastapi import APIRouter
-    assert isinstance(router, APIRouter)
+def test_import_event_bus():
+    from app.event_bus import EventBus, InMemoryEventBus, EventType
+    assert EventBus is not None
+    assert InMemoryEventBus is not None
+    assert hasattr(EventType, "MESSAGE_COMPLETED")
+
+
+def test_import_services():
+    from app.services import MessageService, ChatService, SessionService
+    from app.services.schemas import MessageCreate, MessageRead, SessionCreate, SessionRead
+    assert MessageService is not None
+    assert ChatService is not None
+    assert SessionService is not None
+
+
+def test_import_migration_runner():
+    from migrations.migration_runner import run, ensure_history_table
+    assert run is not None
+    assert ensure_history_table is not None
