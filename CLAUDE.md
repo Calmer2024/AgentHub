@@ -4,6 +4,8 @@
 
 IM-style chat platform where users converse with AI agents (Claude, Codex, etc.), with group chat orchestration and artifact previews.
 
+> **项目全局上下文**：见 [CONTEXT.md](CONTEXT.md)（领域术语、架构总览、开发方法论、文档索引）。首次参与本项目的开发者/Agent 建议先阅读 CONTEXT.md。
+
 ---
 
 ## Architecture Constraints
@@ -38,7 +40,7 @@ Frontend (React) → API Gateway (FastAPI) → Service/Business Logic → Domain
 ## Code Rules
 
 ### Universal
-- All comments and documentation in Chinese.
+- All code comments in Chinese. AI-facing docs (CLAUDE.md, Skills, ADRs) in English for efficient agent consumption. Human-facing docs (design docs, dev logs, specs) in Chinese.
 - Single file max 300 lines (source code only; protocol/design docs exempt). Split if exceeds.
 - Every module completion → immediately write unit tests.
 - Small commits: each runnable function = one commit.
@@ -56,6 +58,18 @@ Frontend (React) → API Gateway (FastAPI) → Service/Business Logic → Domain
 - Zustand for state management. One store per domain (chat, sessions, etc.).
 - Components: shadcn/ui primitives only. Custom styling via Tailwind classes.
 - API client: typed fetch wrapper, SSE via EventSource with reconnect logic.
+
+---
+
+## Documentation Rules
+
+All project documentation follows **progressive disclosure**:
+
+1. **Layer by detail depth, not by topic.** Entry docs (CLAUDE.md, CONTEXT.md) provide overview and link to details. ADRs explain decisions. Specs define exact requirements. Dev logs record history.
+2. **Summarize, don't duplicate.** A downstream doc may summarize an upstream concept with a link, but never copy-paste the full content. One authoritative source per fact.
+3. **Cross-reference, never repeat.** If a rule/decision already exists in another doc, link to it instead of restating.
+4. **Index before detail.** Every doc directory has an index (CONTEXT.md "Key Documents", ADR numbering, Spec template) so readers can find what they need without reading everything.
+5. **New docs must earn their place.** Before creating a new doc, ask: does this fit in an existing doc? If yes, amend; if no, create and add to the index.
 
 ---
 
@@ -87,6 +101,7 @@ Debug 不是"让 bug 消失"，而是"让系统更正确"。修复问题时必�
 
 ## Phase Awareness
 
-Currently in **Phase 2 (Core Features)**. Scope: multi-agent support, group chat, orchestrator, WebSocket, artifact previews.
+Currently in **Phase 2 (Core Features) — completed**. Phase 3 (Enhancements) in planning.
 
-Before suggesting any code, check which phase we're in and whether the suggestion fits current scope.
+Phase 2 scope: multi-agent support, group chat, orchestrator, WebSocket, artifact previews.
+Phase 3 scope: Orchestrator upgrade (intent + task decomposition + agent chains), artifact versioning + Diff + inline editing, message reply/regenerate/pin/search.

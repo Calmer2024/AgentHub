@@ -1,5 +1,19 @@
 # AgentHub Context
 
+> **这是 AgentHub 项目的全局上下文文档。** 首次参与本项目的开发者/Agent 建议先阅读此文件，建立全局认知后再深入各子文档。
+> 
+> 本项目文档采用**渐进式披露**策略：入口层概述 → 决策层解释 → 规格层定义 → 协议层约束 → 记录层沉淀。每层总结并向下链接，不跨层复制内容。详见 [CLAUDE.md](CLAUDE.md) Documentation Rules。
+
+## 从哪里开始
+
+| 阅读顺序 | 文档 | 用途 |
+|---------|------|------|
+| 1 | [AgentHub-多Agent协作平台设计.md](AgentHub-多Agent协作平台设计.md) | 项目背景、核心功能、考察要点 |
+| 2 | [CONTEXT.md](CONTEXT.md)（本文件） | 领域术语、架构总览、文档索引 |
+| 3 | [CLAUDE.md](CLAUDE.md) | AI 行为规则：能做什么、不能做什么 |
+| 4 | [docs/adr/](docs/adr/) | 关键架构决策及原因 |
+| 5 | [docs/specs/](docs/specs/) | 各阶段功能规格与验收标准 |
+
 ## Domain Glossary
 
 ### Core Concepts
@@ -44,13 +58,13 @@ Frontend (React + shadcn/ui + Zustand)
 
 ### Five Phases
 
-| Phase | Duration | Deliverable |
+| Phase | Deliverable |
 |-------|----------|-------------|
-| **Phase 0** (Prep) | 2-3 days | Interface contracts, target architecture, skeleton definition, priority matrix |
-| **Phase 1** (Walking Skeleton) | 3-5 days | Single-chat full pipeline: frontend → API → Claude → SQLite, streaming works |
-| **Phase 2** (Core Features) | 1-2 weeks | Multi-agent, group chat + Orchestrator, artifact previews |
-| **Phase 3** (Enhancements) | 1-2 weeks | P1 features: deployment, richer artifacts, multi-platform |
-| **Phase 4** (Polish) | 3-5 days | Bug fixes, demo video, presentation prep |
+| **Phase 0** (Prep) | Interface contracts, target architecture, skeleton definition, priority matrix |
+| **Phase 1** (Walking Skeleton) | Single-chat full pipeline: frontend → API → Claude → SQLite, streaming works |
+| **Phase 2** (Core Features) | Multi-agent, group chat + Orchestrator, artifact previews |
+| **Phase 3** (Enhancements) | Orchestrator 智能升级、产物版本管理+Diff+局部修改、消息引用+重生成+Pin+搜索 |
+| **Phase 4** (Polish) | Bug fixes, demo video, presentation prep |
 
 ### Core Principles
 1. **Architecture on demand** — don't build all 7 layers on Day 1
@@ -59,10 +73,8 @@ Frontend (React + shadcn/ui + Zustand)
 4. **ADR documents every architectural decision** — why now, what alternatives were considered
 
 ### Forbidden
-- ❌ Writing module code without an interface contract first
-- ❌ Building abstractions "we might need later"
-- ❌ Ending an increment with a non-demoable frontend
-- ❌ Skipping Phase 0 (interface contracts and skeleton definition)
+
+详见 [CLAUDE.md](CLAUDE.md) 第 "Forbidden" 节（权威源）。核心原则：无契约不写代码、不提前建抽象、每个增量可演示、不跳过 Phase 0、Git 操作前必须人工作业验收。
 
 ---
 
@@ -98,11 +110,13 @@ Frontend (React + shadcn/ui + Zustand)
 | [Spec Template](docs/specs/SPEC_TEMPLATE.md) | Feature specification template (standard format for all module specs) |
 | [Phase 1 Spec](docs/specs/phase1-skeleton-spec.md) | Phase 1 walking skeleton spec |
 | [Phase 2 Spec](docs/specs/phase2-core-features-spec.md) | Phase 2 core features: multi-agent, group chat, orchestrator, WebSocket, artifacts |
-| [Phase 2 Dev Log](docs/phase2-dev-log.md) | Phase 2 development log: timeline, bugs, lessons learned |
-| [CLAUDE.md](CLAUDE.md) | Project-level AI behavior guide (loaded automatically by Claude Code) |
+| [Phase 3 Spec](docs/specs/phase3-enhancements-spec.md) | Phase 3 智能增强：Orchestrator 升级、产物深化、体验闭环 |
+| [Phase 1 Dev Log](docs/phase1-dev-log.md) | Phase 1 开发日志：时间线、Bug 与教训 |
+| [Phase 2 Dev Log](docs/phase2-dev-log.md) | Phase 2 开发日志：时间线、Bug 与教训 |
+| [CLAUDE.md](CLAUDE.md) | 项目级 AI 行为指南（Claude Code 每次对话自动加载） |
 | [Test Protocol](docs/TEST_PROTOCOL.md) | 通用测试协议：金字塔、工具链、环境、Bug 修复流程 |
 | [UX Test Spec](docs/testing/UX_TEST_SPEC.md) | UX 交互体验测试规范：6 状态模型、Chat 检查清单、P0-P3 分级 |
-| [Phase 1 Test Plan](docs/testing/phase1-test-plan.md) | Phase 1 测试计划：29 条测试用例清单 |
+| [Phase 1 Test Plan](docs/testing/phase1-test-plan.md) | Phase 1 测试计划：28 条测试用例清单 |
 | [Git Protocol](docs/GIT_PROTOCOL.md) | Git 协作规范：分支策略、Commit 格式、PR 流程、AI 提交规则 |
 | [Skill: module-dev](.claude/skills/agenthub-module-dev/SKILL.md) | Standardized module development workflow |
 | [Skill: code-review](.claude/skills/agenthub-code-review/SKILL.md) | Standardized code review checklist |

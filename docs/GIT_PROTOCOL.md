@@ -38,9 +38,9 @@ main ─────────────────────────
 | 分支前缀 | 用途 | 命名示例 | 生命周期 |
 |---------|------|---------|---------|
 | `phase/` | 阶段性开发主线（长期分支） | `phase/phase1-walking-skeleton` | 整个 Phase |
-| `feat/` | 新功能开发（基于 `phase/` 分支） | `feat/sse-chat-endpoint` | 1-3 天 |
-| `fix/` | Bug 修复 | `fix/sse-json-single-quotes` | 几小时-1 天 |
-| `refactor/` | 重构（不改变行为） | `refactor/extract-chat-service` | 1-2 天 |
+| `feat/` | 新功能开发（基于 `phase/` 分支） | `feat/sse-chat-endpoint` | 功能完成即可 |
+| `fix/` | Bug 修复 | `fix/sse-json-single-quotes` | 修复完成即可 |
+| `refactor/` | 重构（不改变行为） | `refactor/extract-chat-service` | 重构完成即可 |
 | `docs/` | 文档变更 | `docs/test-protocol` | 几小时 |
 | `hotfix/` | 紧急修复（基于 `main`） | `hotfix/api-key-leak` | 几小时 |
 

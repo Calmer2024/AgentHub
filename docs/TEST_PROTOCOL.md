@@ -199,10 +199,10 @@ Phase 完成前:
 
 ### 4.3 Phase 测试计划
 
-每个 Phase 新建 Spec 时，必须同步创建对应的测试计划目录：
+每个 Phase 新建 Spec 时，应同步创建对应的测试计划：
 
 ```
-docs/testing/phase{N}-test-plan.md    ← 本 Phase 的具体测试用例清单
+docs/testing/phase{N}-test-plan.md    ← 本 Phase 的具体测试用例清单（Phase 1 起创建，Phase 2 测试覆盖记录见 phase2-dev-log.md）
 backend/test_smoke.py                  ← 更新，添加新模块的导入检查
 backend/test_api/                      ← API 测试，按模块分文件
   test_sessions.py
