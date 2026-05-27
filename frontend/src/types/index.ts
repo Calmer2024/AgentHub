@@ -12,6 +12,7 @@ export interface Message {
   sessionId: string;
   role: "user" | "assistant" | "system";
   content: string;
+  agentName: string | null;
   createdAt: string;
 }
 
@@ -76,6 +77,17 @@ export interface Settings {
   geminiModel: string;
   minimaxModel: string;
   glmModel: string;
+}
+
+export interface Artifact {
+  id: string;
+  sessionId: string;
+  messageId: string;
+  type: "code_diff" | "web_preview" | "document";
+  title: string;
+  content: string;
+  status: "rendering" | "ready" | "error";
+  createdAt: string;
 }
 
 export interface SettingsUpdate {

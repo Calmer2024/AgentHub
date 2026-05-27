@@ -1,21 +1,30 @@
-import { useState, useRef, type FormEvent, type KeyboardEvent } from "react";
+import { useState, useRef, useEffect, type FormEvent, type KeyboardEvent } from "react";
 import type { AgentConfig } from "../types";
 
 interface Props {
   onSubmit: (content: string, mentions: string[]) => void;
   disabled?: boolean;
   agents: AgentConfig[];
+  mentionableAgents: AgentConfig[];
 }
 
-export function ChatInput({ onSubmit, disabled, agents }: Props) {
+export function ChatInput({ onSubmit, disabled, mentionableAgents }: Props) {
   const [content, setContent] = useState("");
   const [showMentions, setShowMentions] = useState(false);
   const [mentionFilter, setMentionFilter] = useState("");
   const [mentionIndex, setMentionIndex] = useState(0);
   const [mentionPos, setMentionPos] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
-  const filteredAgents = agents.filter((a) =>
+  useEffect(() => {
+    if (showMentions && listRef.current) {
+      const active = listRef.current.children[mentionIndex] as HTMLElement | undefined;
+      active?.scrollIntoView({ block: "nearest" });
+    }
+  }, [mentionIndex, showMentions]);
+
+  const filteredAgents = mentionableAgents.filter((a) =>
     a.name.toLowerCase().includes(mentionFilter.toLowerCase())
   );
 
@@ -29,7 +38,7 @@ export function ChatInput({ onSubmit, disabled, agents }: Props) {
       setMentionFilter(atMatch[1]);
       setMentionPos(atMatch.index!);
       setMentionIndex(0);
-      setShowMentions(agents.length > 0);
+      setShowMentions(mentionableAgents.length > 0);
     } else {
       setShowMentions(false);
     }
@@ -66,7 +75,7 @@ export function ChatInput({ onSubmit, disabled, agents }: Props) {
     const regex = /@(\S+)/g;
     let match;
     while ((match = regex.exec(text)) !== null) {
-      const agent = agents.find((a) => a.name === match![1]);
+      const agent = mentionableAgents.find((a) => a.name === match![1]);
       if (agent) mentions.push(agent.id);
     }
     return mentions;
@@ -83,7 +92,7 @@ export function ChatInput({ onSubmit, disabled, agents }: Props) {
   return (
     <form onSubmit={handleSubmit} className="p-4 border-t border-gray-200 relative">
       {showMentions && (
-        <div className="absolute bottom-full left-4 mb-1 w-64 max-h-40 overflow-y-auto bg-white border border-gray-200 rounded-xl shadow-lg z-10">
+        <div ref={listRef} className="absolute bottom-full left-4 mb-1 w-64 max-h-40 overflow-y-auto bg-white border border-gray-200 rounded-xl shadow-lg z-10">
           {filteredAgents.length === 0 ? (
             <div className="px-3 py-2 text-xs text-gray-400">无匹配 Agent</div>
           ) : (

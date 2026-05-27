@@ -15,6 +15,7 @@ interface ChatState {
   setMessages: (messages: Message[]) => void;
   appendMessage: (msg: Message) => void;
   appendStreamingToken: (token: string) => void;
+  appendAgentStreamingToken: (localId: string, agentName: string, token: string) => void;
   setIsStreaming: (v: boolean) => void;
   setStreamingError: (error: string | null) => void;
   setAgents: (agents: AgentConfig[]) => void;
@@ -42,6 +43,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
       return { messages: [...s.messages.slice(0, -1), { ...lastMsg, content: lastMsg.content + token }] };
     }
     return s;
+  }),
+  appendAgentStreamingToken: (localId, agentName, token) => set((s) => {
+    const msgs = [...s.messages];
+    const idx = msgs.findIndex((m) => m.id === localId);
+    if (idx >= 0) {
+      msgs[idx] = { ...msgs[idx], content: msgs[idx].content + token, agentName };
+    }
+    return { messages: msgs };
   }),
   setIsStreaming: (v) => set({ isStreaming: v, streamingError: v ? get().streamingError : null }),
   setStreamingError: (error) => set({ streamingError: error }),

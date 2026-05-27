@@ -70,6 +70,29 @@ export async function createSession(title?: string, agentConfigId?: string): Pro
   return res.json();
 }
 
+export async function deleteSession(sessionId: string): Promise<void> {
+  await fetch(`${API_BASE}/sessions/${sessionId}`, { method: "DELETE" });
+}
+
+export async function renameSession(sessionId: string, title: string): Promise<Session> {
+  const res = await fetch(`${API_BASE}/sessions/${sessionId}`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title }),
+  });
+  return res.json();
+}
+
+export async function fetchSessionMembers(sessionId: string): Promise<Array<{ agentConfigId: string; agentName: string }>> {
+  const res = await fetch(`${API_BASE}/sessions/${sessionId}/members`);
+  if (!res.ok) return [];
+  return res.json();
+}
+
+export async function summarizeSession(sessionId: string): Promise<Session> {
+  const res = await fetch(`${API_BASE}/sessions/${sessionId}/summarize`, { method: "POST" });
+  return res.json();
+}
+
 export async function updateSessionAgent(sessionId: string, agentConfigId: string): Promise<Session> {
   const res = await fetch(`${API_BASE}/sessions/${sessionId}`, {
     method: "PATCH",
@@ -93,6 +116,8 @@ export function createChatStream(
   mentions: string[],
   onToken: (token: string) => void,
   onDone: (messageId?: string, error?: string) => void,
+  onRoute?: (agents: Array<{ id: string; name: string }>) => void,
+  onAgentToken?: (agentId: string, agentName: string, token: string) => void,
 ): () => void {
   const url = `${API_BASE}/sessions/${sessionId}/chat`;
   const abortCtrl = new AbortController();
@@ -126,7 +151,16 @@ export function createChatStream(
         if (line.startsWith("data: ")) {
           try {
             const data = JSON.parse(line.slice(6));
-            if (data.token) onToken(data.token);
+            if (data.type === "orchestrator.route" && onRoute) {
+              onRoute(data.agents);
+              continue;
+            }
+            if (data.type === "agent.start" && onRoute) continue;
+            if (data.agentId && data.token && onAgentToken) {
+              onAgentToken(data.agentId, data.agentName, data.token);
+            } else if (data.token) {
+              onToken(data.token);
+            }
             if (data.done) { completed = true; onDone(data.messageId, data.error); return; }
           } catch { /* parse error */ }
         }

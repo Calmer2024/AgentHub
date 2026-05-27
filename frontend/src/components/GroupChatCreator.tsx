@@ -3,7 +3,7 @@ import type { AgentConfig } from "../types";
 
 interface Props {
   agents: AgentConfig[];
-  onConfirm: (selectedIds: string[]) => void;
+  onConfirm: (title: string, selectedIds: string[]) => void;
   onCancel: () => void;
 }
 
@@ -43,7 +43,7 @@ export function GroupChatCreator({ agents, onConfirm, onCancel }: Props) {
 
         <div className="flex gap-3">
           <button onClick={onCancel} className="flex-1 py-2.5 text-gray-600 border border-gray-300 rounded-xl hover:bg-gray-50 text-sm">取消</button>
-          <button onClick={() => onConfirm([...selected])} disabled={selected.size < 2 || selected.size > 5}
+          <button onClick={() => onConfirm(title, [...selected])} disabled={selected.size < 2 || selected.size > 5}
             className="flex-1 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm">
             创建 ({selected.size})
           </button>

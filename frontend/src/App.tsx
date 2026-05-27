@@ -5,9 +5,9 @@ import { ChatWindow } from "./components/ChatWindow";
 import { AgentPanel } from "./components/AgentPanel";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { GroupChatCreator } from "./components/GroupChatCreator";
-import { createSession, createGroupSession, fetchSessions, fetchMessages, fetchAgents, fetchProviders, createChatStream, updateSessionAgent } from "./api/client";
+import { createSession, createGroupSession, fetchSessions, fetchMessages, fetchAgents, fetchProviders, createChatStream, updateSessionAgent, deleteSession, renameSession, summarizeSession, fetchSessionMembers } from "./api/client";
 import { WSClient } from "./api/wsClient";
-import type { Message } from "./types";
+import type { Message, AgentConfig } from "./types";
 
 function App() {
   const {
@@ -15,7 +15,7 @@ function App() {
     isStreaming, streamingError,
     sidebarTab,
     setSessions, setCurrentSessionId, setMessages,
-    appendMessage, appendStreamingToken,
+    appendMessage, appendStreamingToken, appendAgentStreamingToken,
     setIsStreaming, setStreamingError,
     setSidebarTab, updateSession,
     agents, setAgents, providers, setProviders,
@@ -23,6 +23,8 @@ function App() {
 
   const wsRef = useRef<WSClient | null>(null);
   const [showGroupCreator, setShowGroupCreator] = useState(false);
+  const [routeAgents, setRouteAgents] = useState<Array<{ id: string; name: string }> | null>(null);
+  const [sessionMembers, setSessionMembers] = useState<AgentConfig[]>([]);
 
   useEffect(() => {
     if (!currentSessionId) return;
@@ -57,9 +59,22 @@ function App() {
   useEffect(() => { loadData(); }, [loadData]);
 
   const handleSelectSession = async (id: string) => {
+    const sess = sessions.find((s) => s.id === id);
     setCurrentSessionId(id);
+    setMessages([]);
     setStreamingError(null);
+    setRouteAgents(null);
     try { setMessages(await fetchMessages(id)); } catch { /* */ }
+    if (sess?.mode === "group") {
+      try {
+        const members = await fetchSessionMembers(id);
+        setSessionMembers(members.map((m: { agentConfigId: string; agentName: string }) => ({
+          id: m.agentConfigId, name: m.agentName,
+        } as AgentConfig)));
+      } catch { setSessionMembers([]); }
+    } else {
+      setSessionMembers([]);
+    }
   };
 
   const handleNewSession = async () => {
@@ -70,13 +85,29 @@ function App() {
     setStreamingError(null);
   };
 
-  const handleCreateGroup = async (selectedIds: string[]) => {
+  const handleCreateGroup = async (title: string, selectedIds: string[]) => {
     setShowGroupCreator(false);
-    const s = await createGroupSession("群聊", selectedIds);
+    const s = await createGroupSession(title || "群聊", selectedIds);
     setSessions([s, ...sessions]);
     setCurrentSessionId(s.id);
     setMessages([]);
     setStreamingError(null);
+  };
+
+  const handleDeleteSession = async (id: string) => {
+    await deleteSession(id);
+    setSessions(sessions.filter((s) => s.id !== id));
+    if (currentSessionId === id) { setCurrentSessionId(null); setMessages([]); }
+  };
+
+  const handleRenameSession = async (id: string, title: string) => {
+    const updated = await renameSession(id, title);
+    updateSession(updated);
+  };
+
+  const handleSummarizeSession = async (id: string) => {
+    const updated = await summarizeSession(id);
+    updateSession(updated);
   };
 
   const handleSwitchAgent = async (agentId: string) => {
@@ -87,20 +118,17 @@ function App() {
   const handleSend = async (content: string, mentions: string[]) => {
     if (!currentSessionId) return;
     setStreamingError(null);
+    setRouteAgents(null);
 
     const userMsg: Message = {
       id: `local-${Date.now()}`, sessionId: currentSessionId,
-      role: "user", content, createdAt: new Date().toISOString(),
+      role: "user", content, agentName: null, createdAt: new Date().toISOString(),
     };
     appendMessage(userMsg);
 
-    appendMessage({
-      id: `local-ai-${Date.now()}`, sessionId: currentSessionId,
-      role: "assistant", content: "", createdAt: new Date().toISOString(),
-    });
-    setIsStreaming(true);
+    const agentPlaceholders = new Map<string, string>();
 
-    createChatStream(currentSessionId, content, mentions,
+    const cleanup = createChatStream(currentSessionId, content, mentions,
       (token) => appendStreamingToken(token),
       (messageId, error) => {
         setIsStreaming(false);
@@ -111,11 +139,40 @@ function App() {
         }
         if (messageId) fetchMessages(currentSessionId).then(setMessages);
       },
+      (agents) => {
+        setRouteAgents(agents);
+        agents.forEach((a) => {
+          const localId = `local-agent-${a.id}-${Date.now()}`;
+          agentPlaceholders.set(a.id, localId);
+          appendMessage({
+            id: localId, sessionId: currentSessionId!,
+            role: "assistant", content: "", agentName: a.name,
+            createdAt: new Date().toISOString(),
+          });
+        });
+        setIsStreaming(true);
+      },
+      (agentId, agentName, token) => {
+        const localId = agentPlaceholders.get(agentId);
+        if (localId) appendAgentStreamingToken(localId, agentName, token);
+      },
     );
+    cleanup; // prevent unused warning
+
+    if (currentMode !== "group") {
+      const localId = `local-ai-${Date.now()}`;
+      appendMessage({
+        id: localId, sessionId: currentSessionId!,
+        role: "assistant", content: "", agentName: null,
+        createdAt: new Date().toISOString(),
+      });
+      setIsStreaming(true);
+    }
   };
 
   const currentSession = sessions.find((s) => s.id === currentSessionId);
   const currentAgent = agents.find((a) => a.id === currentSession?.agentConfigId) ?? null;
+  const currentMode = currentSession?.mode ?? "single";
 
   const tabs = [
     { key: "sessions" as const, label: "会话" },
@@ -142,6 +199,9 @@ function App() {
             agents={agents} onSelectSession={handleSelectSession}
             onNewSession={handleNewSession}
             onNewGroupSession={() => setShowGroupCreator(true)}
+            onDeleteSession={handleDeleteSession}
+            onRenameSession={handleRenameSession}
+            onSummarizeSession={handleSummarizeSession}
           />
         )}
         {sidebarTab === "agents" && (
@@ -160,7 +220,8 @@ function App() {
         <ChatWindow
           messages={messages} isStreaming={isStreaming}
           streamingError={streamingError}
-          currentAgent={currentAgent} agents={agents}
+          currentAgent={currentAgent} agents={agents} mode={currentMode}
+          routeAgents={routeAgents} mentionableAgents={currentMode === "group" ? sessionMembers : agents}
           onSend={handleSend}
           onDismissError={() => setStreamingError(null)}
           onSwitchAgent={handleSwitchAgent}

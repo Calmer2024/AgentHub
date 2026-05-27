@@ -8,10 +8,16 @@ interface Props {
   onSelectSession: (id: string) => void;
   onNewSession: () => void;
   onNewGroupSession: () => void;
+  onDeleteSession: (id: string) => void;
+  onRenameSession: (id: string, title: string) => void;
+  onSummarizeSession: (id: string) => void;
 }
 
-export function SessionList({ sessions, currentSessionId, agents, onSelectSession, onNewSession, onNewGroupSession }: Props) {
+export function SessionList({ sessions, currentSessionId, agents, onSelectSession, onNewSession, onNewGroupSession, onDeleteSession, onRenameSession, onSummarizeSession }: Props) {
   const [creating, setCreating] = useState(false);
+  const [menuOpen, setMenuOpen] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [renameTitle, setRenameTitle] = useState("");
 
   const handleCreate = async () => {
     setCreating(true);
@@ -19,9 +25,12 @@ export function SessionList({ sessions, currentSessionId, agents, onSelectSessio
     finally { setCreating(false); }
   };
 
-  const getAgentName = (session: Session) => {
-    if (!session.agentConfigId) return "";
-    return agents.find((a) => a.id === session.agentConfigId)?.name ?? "";
+  const getSessionInfo = (session: Session) => {
+    if (session.mode === "group") {
+      return { label: "群聊", sub: "" };
+    }
+    const name = agents.find((a) => a.id === session.agentConfigId)?.name ?? "";
+    return { label: name, sub: "" };
   };
 
   return (
@@ -54,20 +63,54 @@ export function SessionList({ sessions, currentSessionId, agents, onSelectSessio
           </div>
         ) : (
           sessions.map((session) => (
-            <button
-              key={session.id} onClick={() => onSelectSession(session.id)}
-              className={`w-full text-left px-3 py-3 mb-1 rounded-xl transition-colors ${
-                currentSessionId === session.id ? "bg-blue-100 text-blue-900" : "hover:bg-gray-200 text-gray-700"
-              }`}
-            >
-              <p className="font-medium truncate">{session.title}</p>
-              <div className="flex items-center justify-between mt-0.5">
-                <p className="text-xs text-gray-500">
-                  {new Date(session.updatedAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}
-                </p>
-                {getAgentName(session) && <p className="text-xs text-gray-400">{getAgentName(session)}</p>}
-              </div>
-            </button>
+            <div key={session.id} className="relative group mb-1">
+              <button
+                onClick={() => onSelectSession(session.id)}
+                className={`w-full text-left px-3 py-3 rounded-xl transition-colors ${
+                  currentSessionId === session.id ? "bg-blue-100 text-blue-900" : "hover:bg-gray-200 text-gray-700"
+                }`}
+              >
+                {renaming === session.id ? (
+                  <input
+                    value={renameTitle} onChange={(e) => setRenameTitle(e.target.value)}
+                    onBlur={() => { if (renameTitle.trim()) onRenameSession(session.id, renameTitle.trim()); setRenaming(null); }}
+                    onKeyDown={(e) => { if (e.key === "Enter") { if (renameTitle.trim()) onRenameSession(session.id, renameTitle.trim()); setRenaming(null); } }}
+                    onClick={(e) => e.stopPropagation()}
+                    className="w-full px-2 py-1 border border-blue-300 rounded text-sm"
+                    autoFocus
+                  />
+                ) : (
+                  <>
+                    <div className="flex items-center gap-1.5">
+                      {session.mode === "group" && <span className="text-xs">👥</span>}
+                      <p className="font-medium truncate">{session.title}</p>
+                    </div>
+                    <div className="flex items-center justify-between mt-0.5">
+                      <p className="text-xs text-gray-500">
+                        {new Date(session.updatedAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                      </p>
+                      <p className="text-xs text-gray-400">{getSessionInfo(session).label}</p>
+                    </div>
+                  </>
+                )}
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); setMenuOpen(menuOpen === session.id ? null : session.id); }}
+                className="absolute right-1 top-2 p-1 text-gray-400 hover:text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity"
+              >
+                ···
+              </button>
+              {menuOpen === session.id && (
+                <div className="absolute right-0 top-8 z-10 bg-white border border-gray-200 rounded-xl shadow-lg py-1 w-36">
+                  <button onClick={() => { setRenaming(session.id); setRenameTitle(session.title); setMenuOpen(null); }}
+                    className="w-full text-left px-3 py-1.5 text-sm hover:bg-gray-50">重命名</button>
+                  <button onClick={() => { onSummarizeSession(session.id); setMenuOpen(null); }}
+                    className="w-full text-left px-3 py-1.5 text-sm hover:bg-gray-50">AI 总结标题</button>
+                  <button onClick={() => { onDeleteSession(session.id); setMenuOpen(null); }}
+                    className="w-full text-left px-3 py-1.5 text-sm text-red-500 hover:bg-red-50">删除</button>
+                </div>
+              )}
+            </div>
           ))
         )}
       </div>
