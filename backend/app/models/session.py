@@ -15,7 +15,8 @@ class Session(Base):
     id = Column(String, primary_key=True)
     title = Column(String, nullable=False, default="新对话")
     agent_config_id = Column(String, ForeignKey("agent_configs.id"), nullable=True)
-    agent_name = Column(String, nullable=True)  # 兼容旧数据，待迁移完成后删除
+    agent_name = Column(String, nullable=True)
+    mode = Column(String, nullable=False, default="single")  # "single" | "group"
     created_at = Column(DateTime, nullable=False, default=_utcnow)
     updated_at = Column(DateTime, nullable=False, default=_utcnow, onupdate=_utcnow)
 
