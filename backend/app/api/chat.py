@@ -45,9 +45,13 @@ async def generate_chat_stream(
             yield f"data: {json.dumps({'token': '', 'done': True, 'error': msg}, ensure_ascii=False)}\n\n"
             return
 
+        route_info = [{"id": a.id, "name": a.name} for a in targets]
+        yield f"data: {json.dumps({'type': 'orchestrator.route', 'agents': route_info}, ensure_ascii=False)}\n\n"
+
         async def invoke_one(agent: AgentConfig):
             aid = str(uuid.uuid4())
             full = ""
+            yield f"data: {json.dumps({'type': 'agent.start', 'agentId': agent.id, 'agentName': agent.name, 'messageId': aid}, ensure_ascii=False)}\n\n"
             try:
                 adapter = agent_registry.get_adapter(agent.provider)
                 async for token in adapter.chat_stream(messages=history, system_prompt=agent.system_prompt, model=agent.model or None):
@@ -55,9 +59,9 @@ async def generate_chat_stream(
                     yield f"data: {json.dumps({'token': token, 'agentId': agent.id, 'agentName': agent.name, 'done': False}, ensure_ascii=False)}\n\n"
             except Exception as e:
                 err = f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
-                full = f"[{agent.name} 错误: {err}]"
+                full = f"{err}"
                 yield f"data: {json.dumps({'token': full, 'agentId': agent.id, 'agentName': agent.name, 'done': False}, ensure_ascii=False)}\n\n"
-            db.add(DBMessage(id=aid, session_id=session_id, role="assistant", content=f"[{agent.name}]: {full}"))
+            db.add(DBMessage(id=aid, session_id=session_id, role="assistant", content=full, agent_name=agent.name))
             await db.commit()
             yield f"data: {json.dumps({'token': '', 'agentId': agent.id, 'agentName': agent.name, 'done': True, 'messageId': aid}, ensure_ascii=False)}\n\n"
 
@@ -91,7 +95,7 @@ async def generate_chat_stream(
         yield f"data: {json.dumps({'token': '', 'done': True, 'error': err_msg}, ensure_ascii=False)}\n\n"
         return
 
-    db.add(DBMessage(id=assistant_msg_id, session_id=session_id, role="assistant", content=full_response))
+    db.add(DBMessage(id=assistant_msg_id, session_id=session_id, role="assistant", content=full_response, agent_name=agent_config.name))
     from datetime import datetime, timezone
     session.updated_at = datetime.now(timezone.utc)
     await db.commit()
@@ -154,5 +158,6 @@ async def list_messages(session_id: str, db: AsyncSession = Depends(get_db)):
     return [{
         "id": m.id, "sessionId": m.session_id,
         "role": m.role, "content": m.content,
+        "agentName": m.agent_name,
         "createdAt": m.created_at.isoformat(),
     } for m in messages]

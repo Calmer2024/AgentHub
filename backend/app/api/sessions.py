@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
-from ..models import Session as DBSession, AgentConfig, SessionMember
+from ..models import Session as DBSession, AgentConfig, SessionMember, Message
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -76,7 +76,7 @@ async def create_session(data: SessionCreate, db: AsyncSession = Depends(get_db)
 @router.get("", response_model=List[SessionRead])
 async def list_sessions(db: AsyncSession = Depends(get_db)):
     result = await db.execute(
-        select(DBSession).order_by(DBSession.updated_at.desc())
+        select(DBSession).where(DBSession.is_active == "1").order_by(DBSession.updated_at.desc())
     )
     return result.scalars().all()
 
@@ -107,6 +107,7 @@ async def list_members(session_id: str, db: AsyncSession = Depends(get_db)):
 
 
 class SessionUpdate(BaseModel):
+    title: str | None = None
     agent_config_id: str | None = Field(None, alias="agentConfigId")
 
     model_config = {"populate_by_name": True}
@@ -118,12 +119,64 @@ async def update_session(session_id: str, data: SessionUpdate, db: AsyncSession 
     if not session:
         raise HTTPException(status_code=404, detail="session not found")
 
+    if data.title is not None:
+        session.title = data.title
     if data.agent_config_id is not None:
         agent = await db.get(AgentConfig, data.agent_config_id)
         if not agent:
             raise HTTPException(status_code=400, detail="Agent 不存在")
         session.agent_config_id = data.agent_config_id
 
+    await db.commit()
+    await db.refresh(session)
+    return session
+
+
+@router.delete("/{session_id}")
+async def delete_session(session_id: str, db: AsyncSession = Depends(get_db)):
+    session = await db.get(DBSession, session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="session not found")
+    session.is_active = "0"
+    await db.commit()
+    return {"ok": True}
+
+
+@router.post("/{session_id}/summarize", response_model=SessionRead)
+async def summarize_session(session_id: str, db: AsyncSession = Depends(get_db)):
+    session = await db.get(DBSession, session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="session not found")
+
+    result = await db.execute(
+        select(Message).where(Message.session_id == session_id).order_by(Message.created_at.desc()).limit(3)
+    )
+    msgs = list(result.scalars().all())
+    if not msgs:
+        raise HTTPException(status_code=400, detail="无消息可总结")
+
+    agent_config = None
+    if session.agent_config_id:
+        agent_config = await db.get(AgentConfig, session.agent_config_id)
+    if not agent_config:
+        result2 = await db.execute(select(AgentConfig).where(AgentConfig.is_active == True).limit(1))
+        agent_config = result2.scalars().first()
+    if not agent_config:
+        raise HTTPException(status_code=400, detail="无可用 Agent")
+
+    from ..agents.registry import agent_registry
+    adapter = agent_registry.get_adapter(agent_config.provider)
+    if not adapter:
+        raise HTTPException(status_code=400, detail="Agent 不可用")
+
+    history = [{"role": m.role, "content": m.content} for m in reversed(msgs)]
+    history.append({"role": "user", "content": "请用不超过10个字总结以上对话内容，只输出总结文本。"})
+
+    title = ""
+    async for token in adapter.chat_stream(messages=history, system_prompt="你是一个标题生成器。", model=agent_config.model or None):
+        title += token
+
+    session.title = title.strip()[:20] or "新对话"
     await db.commit()
     await db.refresh(session)
     return session

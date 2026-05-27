@@ -19,6 +19,8 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE sessions ADD COLUMN agent_config_id VARCHAR",
             "ALTER TABLE sessions ADD COLUMN model_name VARCHAR",
             "ALTER TABLE sessions ADD COLUMN mode VARCHAR DEFAULT 'single'",
+            "ALTER TABLE sessions ADD COLUMN is_active VARCHAR DEFAULT '1'",
+            "ALTER TABLE messages ADD COLUMN agent_name VARCHAR",
         ]:
             try:
                 await conn.run_sync(lambda c, s=sql: c.exec_driver_sql(s))
