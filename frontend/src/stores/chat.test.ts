@@ -39,10 +39,10 @@ describe("Chat Store", () => {
 
   it("updateSession 更新会话列表", () => {
     useChatStore.getState().setSessions([
-      { id: "s1", title: "旧标题", agentConfigId: "a1", createdAt: "", updatedAt: "" },
+      { id: "s1", title: "旧标题", agentConfigId: "a1", mode: "single", createdAt: "", updatedAt: "" },
     ]);
     useChatStore.getState().updateSession({
-      id: "s1", title: "旧标题", agentConfigId: "a2", createdAt: "", updatedAt: "",
+      id: "s1", title: "旧标题", agentConfigId: "a2", mode: "single", createdAt: "", updatedAt: "",
     });
     expect(useChatStore.getState().sessions[0].agentConfigId).toBe("a2");
   });
