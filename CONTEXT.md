@@ -96,11 +96,14 @@ Frontend (React + shadcn/ui + Zustand)
 | [ADR-0006](docs/adr/0006-phase1-walking-skeleton.md) | Phase 1 detailed plan, acceptance criteria, directory layout |
 | [ADR-0007](docs/adr/0007-ai-collaboration-system.md) | AI collaboration system: Rules/Spec/Skill three-tier design, accumulation roadmap |
 | [Spec Template](docs/specs/SPEC_TEMPLATE.md) | Feature specification template (standard format for all module specs) |
-| [Phase 1 Spec](docs/specs/phase1-skeleton-spec.md) | Phase 1 walking skeleton spec (example using the template) |
+| [Phase 1 Spec](docs/specs/phase1-skeleton-spec.md) | Phase 1 walking skeleton spec |
+| [Phase 2 Spec](docs/specs/phase2-core-features-spec.md) | Phase 2 core features: multi-agent, group chat, orchestrator, WebSocket, artifacts |
+| [Phase 2 Dev Log](docs/phase2-dev-log.md) | Phase 2 development log: timeline, bugs, lessons learned |
 | [CLAUDE.md](CLAUDE.md) | Project-level AI behavior guide (loaded automatically by Claude Code) |
 | [Test Protocol](docs/TEST_PROTOCOL.md) | 通用测试协议：金字塔、工具链、环境、Bug 修复流程 |
 | [UX Test Spec](docs/testing/UX_TEST_SPEC.md) | UX 交互体验测试规范：6 状态模型、Chat 检查清单、P0-P3 分级 |
 | [Phase 1 Test Plan](docs/testing/phase1-test-plan.md) | Phase 1 测试计划：29 条测试用例清单 |
 | [Git Protocol](docs/GIT_PROTOCOL.md) | Git 协作规范：分支策略、Commit 格式、PR 流程、AI 提交规则 |
-| [Skill: module-dev](.claude/skills/agenthub-module-dev.md) | Standardized module development workflow skill |
-| [Skill: code-review](.claude/skills/agenthub-code-review.md) | Standardized code review checklist skill |
+| [Skill: module-dev](.claude/skills/agenthub-module-dev/SKILL.md) | Standardized module development workflow |
+| [Skill: code-review](.claude/skills/agenthub-code-review/SKILL.md) | Standardized code review checklist |
+| [Skill: phase-wrapup](.claude/skills/agenthub-phase-wrapup/SKILL.md) | Phase wrapup workflow |

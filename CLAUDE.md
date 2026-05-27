@@ -87,8 +87,6 @@ Debug 不是"让 bug 消失"，而是"让系统更正确"。修复问题时必�
 
 ## Phase Awareness
 
-Currently **Phase 2 已完成**。Phase 1+2 已合并到 `phase/main` 集成分支。
-
-开发流程：新 Module → `feat/<module>` → 人工验收通过 → squash merge 到 `phase/main`。
+Currently in **Phase 2 (Core Features)**. Scope: multi-agent support, group chat, orchestrator, WebSocket, artifact previews.
 
 Before suggesting any code, check which phase we're in and whether the suggestion fits current scope.

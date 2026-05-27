@@ -77,39 +77,9 @@ description: AgentHub 阶段收尾标准流程。当用户说"阶段验收通过
 
 ---
 
-## Step 3: 准备下一阶段文档
+## Step 3: Skill 审计与更新
 
-### 3.1 创建下一阶段 Spec（草稿）
-
-基于本阶段成果和 ADR-0005 的架构演进计划，创建 `docs/specs/phase{N+1}-xxx-spec.md`：
-
-- 目标：下个阶段要打通什么？
-- 输入输出：新增/修改的 API 端点、数据模型、接口定义
-- 行为规格：正常流程、异常流程、边界条件
-- 验收标准
-- 依赖状态
-- 不在范围内（Non-Goals）
-
-### 3.2 更新 CONTEXT.md
-
-- 更新「当前开发阶段」指向新 Phase
-- 更新 Key Documents 索引表，添加新的 Spec 和文档
-
-### 3.3 更新 CLAUDE.md
-
-- 更新「Phase Awareness」中的当前阶段信息
-- 更新范围说明
-
-### 3.4 交付物
-- `docs/specs/phase{N+1}-xxx-spec.md` (Draft)
-- 更新后的 CONTEXT.md
-- 更新后的 CLAUDE.md
-
----
-
-## Step 4: Skill 审计与更新
-
-### 4.1 审计现有 Skills
+### 3.1 审计现有 Skills
 
 检查 `.claude/skills/` 下的每个 skill：
 - 是否引用了仍存在的文件？
@@ -131,7 +101,7 @@ description: AgentHub 阶段收尾标准流程。当用户说"阶段验收通过
 
 ---
 
-## Step 5: 可沉淀资产检查
+## Step 4: 可沉淀资产检查
 
 ### 5.1 候选 Skill 识别
 
@@ -156,34 +126,9 @@ description: AgentHub 阶段收尾标准流程。当用户说"阶段验收通过
 
 ---
 
-## Step 6: Git 操作
-
-### 6.1 提交本阶段收尾变更
-
-```
-按 GIT_PROTOCOL.md 三关验证后提交：
-- docs/ 下的文档变更
-- .claude/skills/ 下的 skill 更新
-- CONTEXT.md / CLAUDE.md 更新
-```
-
-### 6.2 Phase 完成合并
-
-```
-1. git checkout phase/phase{N}-xxx
-2. 确认所有 PR 已合并
-3. 全量测试通过
-4. git checkout main
-5. git merge --no-ff phase/phase{N}-xxx
-6. git tag -a v0.{N}.0 -m "Phase N: [阶段名称]"
-7. git push origin main --tags
-```
-
----
-
 ## 收尾完成报告
 
-全部 6 步完成后，输出：
+全部 5 步完成后，输出：
 
 ```
 ## Phase N 收尾完成
@@ -211,9 +156,4 @@ description: AgentHub 阶段收尾标准流程。当用户说"阶段验收通过
 ### 资产沉淀
 - 新 Skill: [列表] (如果无: 本阶段无可沉淀资产)
 - 新 Rule: [列表] (如果无: 本阶段无可沉淀规则)
-
-### Git
-- Commit: X 个
-- Tag: v0.{N}.0
-- 推送: origin/main ✓
 ```
