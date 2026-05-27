@@ -1,0 +1,1 @@
+ALTER TABLE artifacts ADD COLUMN version INTEGER DEFAULT 1;
