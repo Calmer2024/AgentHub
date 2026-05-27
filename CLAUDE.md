@@ -49,6 +49,7 @@ Frontend (React) → API Gateway (FastAPI) → Service/Business Logic → Domain
 - Async everywhere: `async def` for all route handlers and service methods.
 - Environment variables via `python-dotenv`. Never hardcode API keys.
 - Follow `BaseAgentAdapter` contract from ADR-0005 for all agent adapters.
+- 测试使用内存数据库（`sqlite+aiosqlite:///:memory:`），不依赖真实数据库文件。每个测试自己创建所需 fixtures，不假设 DB 中已有数据。
 
 ### TypeScript (Frontend)
 - No `any` type. Use `unknown` if truly uncertain, then narrow.
@@ -80,6 +81,7 @@ Debug 不是"让 bug 消失"，而是"让系统更正确"。修复问题时必�
 5. **安全性** — 不为了"快速修复"而降级 API Key 校验、跳过输入验证、暴露错误详情给前端
 6. **字段命名一致性** — 前后端字段名必须严格一致。后端 Pydantic 模型必须用 `Field(alias="camelCase")` + `populate_by_name=True` 统一输出 camelCase
 7. **每轮修复后全量测试零回归** — `pytest test_api/` + `npx vitest run` + `npx tsc --noEmit` 三者必须全部通过
+8. **主动发现问题** — 用户的验收反馈是片面的，不应只修复用户提出的问题。必须从用户的反馈延申出去，主动审查相关功能是否存在同类设计缺陷、UI/UX 问题、边界条件遗漏。从"这段代码还能怎么出问题"的角度思考，而不是"用户说了什么我就修什么"。
 
 ---
 
