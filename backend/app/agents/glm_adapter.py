@@ -47,6 +47,7 @@ class GLMAdapter(BaseAgentAdapter):
         system_prompt: str,
         on_token: Optional[Callable[[str], None]] = None,
         model: str | None = None,
+        tools: list[dict] | None = None,
     ) -> AgentResponse:
         full_content = ""
         built = self._build_messages(messages, system_prompt)
@@ -66,6 +67,7 @@ class GLMAdapter(BaseAgentAdapter):
         messages: list[dict],
         system_prompt: str,
         model: str | None = None,
+        tools: list[dict] | None = None,
     ) -> AsyncIterator[str]:
         built = self._build_messages(messages, system_prompt)
         response = await asyncio.to_thread(self._sync_stream, model or self.DEFAULT_MODEL, built)

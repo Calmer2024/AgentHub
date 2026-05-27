@@ -17,6 +17,8 @@ class Message(Base):
     role = Column(String, nullable=False)
     content = Column(String, nullable=False, default="")
     agent_name = Column(String, nullable=True)
+    parent_message_id = Column(String, nullable=True)
+    is_pinned = Column(String, nullable=False, default="0")
     created_at = Column(DateTime, nullable=False, default=_utcnow)
 
     session = relationship("Session", back_populates="messages")

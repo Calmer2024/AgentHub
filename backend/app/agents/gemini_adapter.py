@@ -45,6 +45,7 @@ class GeminiAdapter(BaseAgentAdapter):
         system_prompt: str,
         on_token: Optional[Callable[[str], None]] = None,
         model: str | None = None,
+        tools: list[dict] | None = None,
     ) -> AgentResponse:
         converted = self._merge_tokens_to_messages(messages, system_prompt)
         full_content = ""
@@ -66,6 +67,7 @@ class GeminiAdapter(BaseAgentAdapter):
         messages: list[dict],
         system_prompt: str,
         model: str | None = None,
+        tools: list[dict] | None = None,
     ) -> AsyncIterator[str]:
         converted = self._merge_tokens_to_messages(messages, system_prompt)
 

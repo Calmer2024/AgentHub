@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
 
 from ..database import Base
 
@@ -18,4 +18,6 @@ class Artifact(Base):
     title = Column(String, nullable=False, default="")
     content = Column(String, nullable=False, default="")
     status = Column(String, nullable=False, default="rendering")  # "rendering" | "ready" | "error"
+    version = Column(Integer, nullable=False, default=1)
+    parent_artifact_id = Column(String, nullable=True)
     created_at = Column(DateTime, nullable=False, default=_utcnow)

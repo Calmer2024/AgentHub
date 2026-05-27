@@ -36,6 +36,7 @@ class MiniMaxAdapter(BaseAgentAdapter):
         system_prompt: str,
         on_token: Optional[Callable[[str], None]] = None,
         model: str | None = None,
+        tools: list[dict] | None = None,
     ) -> AgentResponse:
         full_content = ""
 
@@ -57,6 +58,7 @@ class MiniMaxAdapter(BaseAgentAdapter):
         messages: list[dict],
         system_prompt: str,
         model: str | None = None,
+        tools: list[dict] | None = None,
     ) -> AsyncIterator[str]:
         async with self.client.messages.stream(
             model=model or self.DEFAULT_MODEL,

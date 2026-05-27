@@ -36,6 +36,7 @@ class DeepSeekAdapter(BaseAgentAdapter):
         system_prompt: str,
         on_token: Optional[Callable[[str], None]] = None,
         model: str | None = None,
+        tools: list[dict] | None = None,
     ) -> AgentResponse:
         full_content = ""
         transformed_messages = [{"role": m["role"], "content": m["content"]} for m in messages]
@@ -62,6 +63,7 @@ class DeepSeekAdapter(BaseAgentAdapter):
         messages: list[dict],
         system_prompt: str,
         model: str | None = None,
+        tools: list[dict] | None = None,
     ) -> AsyncIterator[str]:
         transformed_messages = [{"role": m["role"], "content": m["content"]} for m in messages]
         transformed_messages.insert(0, {"role": "system", "content": system_prompt})
