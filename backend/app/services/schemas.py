@@ -1,0 +1,69 @@
+"""Service 层 Pydantic 模型 —— 跨 Service 和 API 层共享。
+
+字段命名统一使用 camelCase alias，与前端 TypeScript interface 严格对齐。
+"""
+
+from datetime import datetime
+
+from pydantic import BaseModel, Field
+
+
+class MessageCreate(BaseModel):
+    session_id: str = Field(alias="sessionId")
+    role: str = "user"
+    content: str
+    content_type: str = Field(default="text", alias="contentType")
+    parent_message_id: str | None = Field(default=None, alias="parentMessageId")
+    metadata: dict | None = None
+
+    model_config = {"populate_by_name": True}
+
+
+class MessageRead(BaseModel):
+    id: str
+    session_id: str = Field(alias="sessionId")
+    role: str
+    content: str
+    content_type: str = Field(default="text", alias="contentType")
+    agent_name: str | None = Field(default=None, alias="agentName")
+    parent_message_id: str | None = Field(default=None, alias="parentMessageId")
+    is_pinned: bool = False
+    created_at: datetime = Field(alias="createdAt")
+    metadata: dict | None = None
+
+    model_config = {"from_attributes": True, "populate_by_name": True}
+
+
+class SessionCreate(BaseModel):
+    title: str = "新对话"
+    agent_config_id: str | None = Field(default=None, alias="agentConfigId")
+    mode: str = "single"
+    agent_config_ids: list[str] | None = Field(default=None, alias="agentConfigIds")
+
+    model_config = {"populate_by_name": True}
+
+
+class SessionRead(BaseModel):
+    id: str
+    title: str
+    agent_config_id: str | None = Field(default=None, alias="agentConfigId")
+    mode: str = "single"
+    created_at: datetime = Field(alias="createdAt")
+    updated_at: datetime = Field(alias="updatedAt")
+
+    model_config = {"from_attributes": True, "populate_by_name": True}
+
+
+class SessionUpdate(BaseModel):
+    title: str | None = None
+    agent_config_id: str | None = Field(default=None, alias="agentConfigId")
+
+    model_config = {"populate_by_name": True}
+
+
+class MemberRead(BaseModel):
+    agent_config_id: str = Field(alias="agentConfigId")
+    agent_name: str = Field(alias="agentName")
+    joined_at: datetime = Field(alias="joinedAt")
+
+    model_config = {"populate_by_name": True}

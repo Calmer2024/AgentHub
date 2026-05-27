@@ -22,10 +22,10 @@ class MockAgent(BaseAgentAdapter):
     def capability(self) -> AgentCapability:
         return AgentCapability(name="mock", supports_streaming=True)
 
-    async def chat(self, messages, system_prompt, on_token=None, model=None):
+    async def chat(self, messages, system_prompt, on_token=None, model=None, tools=None):
         return AgentResponse(content="Hello World!", finish_reason="stop")
 
-    async def chat_stream(self, messages, system_prompt, model=None):
+    async def chat_stream(self, messages, system_prompt, model=None, tools=None):
         for token in ["Hello", ", ", "World", "!"]:
             yield token
 
