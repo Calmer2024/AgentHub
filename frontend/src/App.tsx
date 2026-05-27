@@ -1,10 +1,11 @@
-import { useEffect, useCallback, useRef } from "react";
+import { useEffect, useCallback, useRef, useState } from "react";
 import { useChatStore } from "./stores/chat";
 import { SessionList } from "./components/SessionList";
 import { ChatWindow } from "./components/ChatWindow";
 import { AgentPanel } from "./components/AgentPanel";
 import { SettingsPanel } from "./components/SettingsPanel";
-import { createSession, fetchSessions, fetchMessages, fetchAgents, fetchProviders, createChatStream, updateSessionAgent } from "./api/client";
+import { GroupChatCreator } from "./components/GroupChatCreator";
+import { createSession, createGroupSession, fetchSessions, fetchMessages, fetchAgents, fetchProviders, createChatStream, updateSessionAgent } from "./api/client";
 import { WSClient } from "./api/wsClient";
 import type { Message } from "./types";
 
@@ -21,6 +22,7 @@ function App() {
   } = useChatStore();
 
   const wsRef = useRef<WSClient | null>(null);
+  const [showGroupCreator, setShowGroupCreator] = useState(false);
 
   useEffect(() => {
     if (!currentSessionId) return;
@@ -68,12 +70,21 @@ function App() {
     setStreamingError(null);
   };
 
+  const handleCreateGroup = async (selectedIds: string[]) => {
+    setShowGroupCreator(false);
+    const s = await createGroupSession("群聊", selectedIds);
+    setSessions([s, ...sessions]);
+    setCurrentSessionId(s.id);
+    setMessages([]);
+    setStreamingError(null);
+  };
+
   const handleSwitchAgent = async (agentId: string) => {
     if (!currentSessionId) return;
     try { updateSession(await updateSessionAgent(currentSessionId, agentId)); } catch { /* */ }
   };
 
-  const handleSend = async (content: string) => {
+  const handleSend = async (content: string, mentions: string[]) => {
     if (!currentSessionId) return;
     setStreamingError(null);
 
@@ -89,7 +100,7 @@ function App() {
     });
     setIsStreaming(true);
 
-    createChatStream(currentSessionId, content,
+    createChatStream(currentSessionId, content, mentions,
       (token) => appendStreamingToken(token),
       (messageId, error) => {
         setIsStreaming(false);
@@ -130,6 +141,7 @@ function App() {
             sessions={sessions} currentSessionId={currentSessionId}
             agents={agents} onSelectSession={handleSelectSession}
             onNewSession={handleNewSession}
+            onNewGroupSession={() => setShowGroupCreator(true)}
           />
         )}
         {sidebarTab === "agents" && (
@@ -157,6 +169,13 @@ function App() {
         <div className="flex-1 flex items-center justify-center text-gray-500 text-lg">
           点击左侧"新建对话"开始
         </div>
+      )}
+      {showGroupCreator && (
+        <GroupChatCreator
+          agents={agents}
+          onConfirm={handleCreateGroup}
+          onCancel={() => setShowGroupCreator(false)}
+        />
       )}
     </div>
   );

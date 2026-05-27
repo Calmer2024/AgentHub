@@ -7,9 +7,10 @@ interface Props {
   agents: AgentConfig[];
   onSelectSession: (id: string) => void;
   onNewSession: () => void;
+  onNewGroupSession: () => void;
 }
 
-export function SessionList({ sessions, currentSessionId, agents, onSelectSession, onNewSession }: Props) {
+export function SessionList({ sessions, currentSessionId, agents, onSelectSession, onNewSession, onNewGroupSession }: Props) {
   const [creating, setCreating] = useState(false);
 
   const handleCreate = async () => {
@@ -25,13 +26,19 @@ export function SessionList({ sessions, currentSessionId, agents, onSelectSessio
 
   return (
     <div className="w-72 h-full bg-gray-50 border-r border-gray-200 flex flex-col">
-      <div className="p-4">
+      <div className="p-4 space-y-2">
         <button
           onClick={handleCreate} disabled={creating}
           className="w-full py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium text-sm flex items-center justify-center gap-2"
         >
           {creating && <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
-          {creating ? "创建中..." : "+ 新建对话"}
+          {creating ? "..." : "+ 新建对话"}
+        </button>
+        <button
+          onClick={onNewGroupSession}
+          className="w-full py-2 bg-blue-50 text-blue-700 border border-blue-200 rounded-xl hover:bg-blue-100 text-sm"
+        >
+          + 新建群聊
         </button>
       </div>
 

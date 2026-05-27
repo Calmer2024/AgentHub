@@ -9,7 +9,7 @@ interface Props {
   streamingError: string | null;
   currentAgent: AgentConfig | null;
   agents: AgentConfig[];
-  onSend: (content: string) => void;
+  onSend: (content: string, mentions: string[]) => void;
   onDismissError: () => void;
   onSwitchAgent: (agentId: string) => void;
 }
@@ -84,7 +84,7 @@ export function ChatWindow({
         </select>
       </div>
 
-      <ChatInput onSubmit={onSend} disabled={isStreaming || !currentAgent} />
+      <ChatInput onSubmit={onSend} disabled={isStreaming || !currentAgent} agents={agents} />
     </div>
   );
 }

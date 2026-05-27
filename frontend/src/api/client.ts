@@ -48,6 +48,16 @@ export async function fetchSessions(): Promise<Session[]> {
   return res.json();
 }
 
+export async function createGroupSession(title: string, agentConfigIds: string[]): Promise<Session> {
+  const res = await fetch(`${API_BASE}/sessions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title: title || "群聊", mode: "group", agentConfigIds }),
+  });
+  if (!res.ok) throw new Error("Failed to create group session");
+  return res.json();
+}
+
 export async function createSession(title?: string, agentConfigId?: string): Promise<Session> {
   const body: Record<string, string> = { title: title || "新对话" };
   if (agentConfigId) body.agentConfigId = agentConfigId;
@@ -80,6 +90,7 @@ export async function fetchMessages(sessionId: string): Promise<Message[]> {
 export function createChatStream(
   sessionId: string,
   content: string,
+  mentions: string[],
   onToken: (token: string) => void,
   onDone: (messageId?: string, error?: string) => void,
 ): () => void {
@@ -87,10 +98,12 @@ export function createChatStream(
   const abortCtrl = new AbortController();
 
   (async () => {
+    const body: Record<string, unknown> = { content };
+    if (mentions.length > 0) body.mentions = mentions;
     const response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content }),
+      body: JSON.stringify(body),
       signal: abortCtrl.signal,
     });
 

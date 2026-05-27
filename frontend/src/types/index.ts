@@ -2,6 +2,7 @@ export interface Session {
   id: string;
   title: string;
   agentConfigId: string | null;
+  mode: string;
   createdAt: string;
   updatedAt: string;
 }
