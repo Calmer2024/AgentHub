@@ -1,6 +1,5 @@
 from datetime import datetime, timezone
 from sqlalchemy import Column, String, DateTime, ForeignKey
-from sqlalchemy.orm import relationship
 
 from ..database import Base
 
@@ -9,14 +8,14 @@ def _utcnow():
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
-class Message(Base):
-    __tablename__ = "messages"
+class Artifact(Base):
+    __tablename__ = "artifacts"
 
     id = Column(String, primary_key=True)
     session_id = Column(String, ForeignKey("sessions.id"), nullable=False)
-    role = Column(String, nullable=False)
+    message_id = Column(String, ForeignKey("messages.id"), nullable=False)
+    type = Column(String, nullable=False)  # "code_diff" | "web_preview" | "document"
+    title = Column(String, nullable=False, default="")
     content = Column(String, nullable=False, default="")
-    agent_name = Column(String, nullable=True)
+    status = Column(String, nullable=False, default="rendering")  # "rendering" | "ready" | "error"
     created_at = Column(DateTime, nullable=False, default=_utcnow)
-
-    session = relationship("Session", back_populates="messages")

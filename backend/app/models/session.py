@@ -16,7 +16,8 @@ class Session(Base):
     title = Column(String, nullable=False, default="新对话")
     agent_config_id = Column(String, ForeignKey("agent_configs.id"), nullable=True)
     agent_name = Column(String, nullable=True)
-    mode = Column(String, nullable=False, default="single")  # "single" | "group"
+    mode = Column(String, nullable=False, default="single")
+    is_active = Column(String, nullable=False, default="1")  # "1"=active, "0"=soft-deleted
     created_at = Column(DateTime, nullable=False, default=_utcnow)
     updated_at = Column(DateTime, nullable=False, default=_utcnow, onupdate=_utcnow)
 
