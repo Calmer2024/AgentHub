@@ -33,6 +33,7 @@ class BaseAgentAdapter(ABC):
         messages: List[dict],
         system_prompt: str,
         on_token: Optional[Callable[[str], None]] = None,
+        model: Optional[str] = None,
     ) -> AgentResponse:
         ...
 
@@ -41,5 +42,6 @@ class BaseAgentAdapter(ABC):
         self,
         messages: List[dict],
         system_prompt: str,
+        model: Optional[str] = None,
     ) -> AsyncIterator[str]:
         ...

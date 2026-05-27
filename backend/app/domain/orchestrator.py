@@ -1,50 +1,33 @@
 import asyncio
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from ..models import SessionMember, AgentConfig
+from ..models import AgentConfig
 
 
 class Orchestrator:
     async def route(
         self,
-        session_id: str,
         mentions: list[str] | None,
-        db: AsyncSession,
+        member_agents: list[AgentConfig],
     ) -> list[AgentConfig]:
+        """决定消息路由到哪些 Agent。member_agents 由调用方从 DB 查询后传入。"""
         if mentions:
-            agents = []
-            for agent_id in mentions:
-                agent = await db.get(AgentConfig, agent_id)
-                if agent and agent.is_active:
-                    agents.append(agent)
-            return agents
+            mention_set = set(mentions)
+            return [a for a in member_agents if a.id in mention_set]
 
-        result = await db.execute(
-            select(AgentConfig).join(
-                SessionMember, SessionMember.agent_config_id == AgentConfig.id
-            ).where(
-                SessionMember.session_id == session_id,
-                AgentConfig.is_active == True,
-            )
-        )
-        return list(result.scalars().all())
+        return member_agents
 
     async def coordinate(
         self,
-        session_id: str,
+        agents: list[AgentConfig],
         messages: list[dict],
-        db: AsyncSession,
         adapter_factory,
     ) -> list[dict]:
-        agents = await self.route(session_id, mentions=None, db=db)
         if not agents:
             return []
 
         async def invoke(agent: AgentConfig) -> dict | None:
             try:
                 adapter = adapter_factory(agent.provider)
-                if not adapter or not hasattr(adapter, 'chat_stream'):
+                if not adapter or not hasattr(adapter, "chat_stream"):
                     return {"agent_id": agent.id, "agent_name": agent.name, "content": f"[{agent.name} 不可用]", "error": True}
                 full = ""
                 async for token in adapter.chat_stream(

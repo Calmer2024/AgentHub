@@ -27,15 +27,6 @@ class GeminiAdapter(BaseAgentAdapter):
             tags=["code", "writing", "general", "multimodal"],
         )
 
-    def _build_contents(self, messages: list[dict], system_prompt: str) -> list:
-        parts = []
-        if system_prompt:
-            parts.append({"text": f"[System: {system_prompt}]"})
-        for m in messages:
-            role = "user" if m["role"] == "user" else "model"
-            parts.append({"text": m["content"]})
-        return parts
-
     def _merge_tokens_to_messages(
         self, messages: list[dict], system_prompt: str
     ) -> list[dict]:

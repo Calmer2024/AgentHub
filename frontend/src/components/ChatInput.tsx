@@ -4,7 +4,6 @@ import type { AgentConfig } from "../types";
 interface Props {
   onSubmit: (content: string, mentions: string[]) => void;
   disabled?: boolean;
-  agents: AgentConfig[];
   mentionableAgents: AgentConfig[];
 }
 

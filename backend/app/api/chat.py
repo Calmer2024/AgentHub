@@ -3,12 +3,13 @@ import uuid
 from typing import AsyncGenerator
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from typing import List
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
-from ..models import Session as DBSession, Message as DBMessage, AgentConfig
+from ..models import Session as DBSession, Message as DBMessage, AgentConfig, SessionMember
 from ..agents.registry import agent_registry
 from ..domain.orchestrator import orchestrator
 from .ws_manager import manager as ws_manager
@@ -19,6 +20,17 @@ router = APIRouter(prefix="", tags=["chat"])
 class ChatRequest(BaseModel):
     content: str
     mentions: list[str] | None = None
+
+
+class MessageRead(BaseModel):
+    id: str
+    session_id: str = Field(alias="sessionId")
+    role: str
+    content: str
+    agent_name: str | None = Field(None, alias="agentName")
+    created_at: str = Field(alias="createdAt")
+
+    model_config = {"populate_by_name": True}
 
 
 async def generate_chat_stream(
@@ -39,7 +51,11 @@ async def generate_chat_stream(
     history = [{"role": m.role, "content": m.content} for m in result.scalars().all()]
 
     if session.mode == "group":
-        targets = await orchestrator.route(session_id, mentions, db)
+        member_rows = (await db.execute(
+            select(AgentConfig).join(SessionMember, SessionMember.agent_config_id == AgentConfig.id)
+            .where(SessionMember.session_id == session_id, AgentConfig.is_active == True)
+        )).scalars().all()
+        targets = await orchestrator.route(mentions, list(member_rows))
         if not targets:
             msg = "没有合适的 Agent 处理此请求，请尝试 @ 指定 Agent"
             yield f"data: {json.dumps({'token': '', 'done': True, 'error': msg}, ensure_ascii=False)}\n\n"
@@ -147,17 +163,14 @@ async def chat(session_id: str, data: ChatRequest, db: AsyncSession = Depends(ge
     )
 
 
-@router.get("/sessions/{session_id}/messages")
+@router.get("/sessions/{session_id}/messages", response_model=List[MessageRead])
 async def list_messages(session_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(DBMessage)
         .where(DBMessage.session_id == session_id)
         .order_by(DBMessage.created_at.asc())
     )
-    messages = result.scalars().all()
-    return [{
-        "id": m.id, "sessionId": m.session_id,
-        "role": m.role, "content": m.content,
-        "agentName": m.agent_name,
-        "createdAt": m.created_at.isoformat(),
-    } for m in messages]
+    return [MessageRead(
+        id=m.id, session_id=m.session_id, role=m.role, content=m.content,
+        agent_name=m.agent_name, created_at=m.created_at.isoformat() if m.created_at else "",
+    ) for m in result.scalars().all()]

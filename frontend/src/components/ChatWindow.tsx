@@ -101,7 +101,7 @@ export function ChatWindow({
         </div>
       )}
 
-      <ChatInput onSubmit={onSend} disabled={isStreaming || (!isGroup && !currentAgent)} agents={agents} mentionableAgents={isGroup ? mentionableAgents : agents} />
+      <ChatInput onSubmit={onSend} disabled={isStreaming || (!isGroup && !currentAgent)} mentionableAgents={isGroup ? mentionableAgents : agents} />
     </div>
   );
 }
