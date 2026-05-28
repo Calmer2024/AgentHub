@@ -8,14 +8,20 @@ from .database import Base, engine, AsyncSessionLocal
 from .api import api_router
 from .api.ws import router as ws_router
 from .models import AgentConfig
+from .event_bus import InMemoryEventBus
+
+_event_bus = InMemoryEventBus()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    async with engine.begin() as conn:
+    async with engine.connect() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await conn.commit()
         from migrations.migration_runner import run as run_migrations
         await run_migrations(conn)
+
+    await _event_bus.start()
 
     async with AsyncSessionLocal() as db:
         from sqlalchemy import select
@@ -31,7 +37,13 @@ async def lifespan(app: FastAPI):
             ))
             await db.commit()
 
+    # 注入 EventBus 到 Orchestrator
+    from .domain.orchestrator import orchestrator
+    orchestrator._event_bus = _event_bus
+
     yield
+
+    await _event_bus.stop()
 
 
 app = FastAPI(title="AgentHub API", lifespan=lifespan)
