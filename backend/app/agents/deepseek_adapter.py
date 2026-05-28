@@ -26,6 +26,7 @@ class DeepSeekAdapter(BaseAgentAdapter):
         return AgentCapability(
             name="DeepSeek V3",
             supports_streaming=True,
+            supports_tool_call=True,
             max_context_tokens=128_000,
             tags=["code", "writing", "general"],
         )

@@ -23,6 +23,7 @@ class GeminiAdapter(BaseAgentAdapter):
         return AgentCapability(
             name="Gemini 3.5 Flash",
             supports_streaming=True,
+            supports_tool_call=True,
             max_context_tokens=1_000_000,
             tags=["code", "writing", "general", "multimodal"],
         )
