@@ -38,7 +38,7 @@
 |------|------|------|
 | Backend 单元/集成 | pytest + pytest-asyncio | 异步测试 |
 | Backend API | httpx (ASGITransport) | 无网络开销的 API 测试 |
-| Backend 数据库 | SQLite 内存数据库 + SQLAlchemy | 隔离的 DB 测试 |
+| Backend 数据库 | SQLite 文件数据库（临时目录）+ 真实迁移 | 真实 schema，与生产一致 |
 | Frontend 单元 | Vitest | 组件/状态/工具函数 |
 | Frontend 组件 | Vitest + @testing-library/react | 组件渲染验证 |
 | Frontend E2E | Playwright | 浏览器自动化 |
@@ -141,18 +141,16 @@ test("user can create session and send a message", async ({ page }) => {
 
 ### 3.1 后端
 
-```bash
-# 测试专用配置文件
-backend/.env.test:
-
-ANTHROPIC_API_KEY=test-key-placeholder
-DEEPSEEK_API_KEY=
-DATABASE_URL=sqlite+aiosqlite:///:memory:
-APP_ENV=test
+```python
+# backend/conftest.py — 在所有 app 模块导入前设置环境变量
+os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{temp_db_path}"
+os.environ.setdefault("DEEPSEEK_API_KEY", "sk-test-dummy-key-...")  # 虚拟 key
 ```
 
-- 测试环境使用 SQLite **内存数据库**，不污染开发/生产数据。
-- Agent Adapter 在测试中 **必须 Mock**，不得调用真实 API。
+- 测试使用 **文件数据库**（系统临时目录），执行完整 lifespan（create_all + migrations + EventBus）。
+- API Key 使用虚拟值（通过 `is_available()` 格式校验但不发起真实网络请求）。
+- Agent Adapter 使用真实实例注册，仅 `chat/chat_stream` 方法用 MockAgent 替代。
+- WAL 模式避免多连接锁冲突，每测试后 DELETE 清理数据。
 - 所有测试异步 (`pytest-asyncio`)。
 
 ### 3.2 前端
@@ -222,14 +220,16 @@ e2e/                                   ← E2E 测试（从 Phase 2 开始强制
 ### 5.1 后端 Mock
 
 ```python
-# 使用 pytest.monkeypatch 或 fixture 覆盖依赖
-@pytest.fixture
-def mock_agent():
-    class FakeAgent(BaseAgentAdapter):
-        async def chat_stream(self, messages, system_prompt):
-            for token in ["Hello", " World", "!"]:
-                yield token
-    return FakeAgent()
+# MockAgent 实现 BaseAgentAdapter，通过真实 registry 注册
+# registry 结构保持完整，is_available() 走真实代码路径
+class MockAgent(BaseAgentAdapter):
+    async def chat_stream(self, messages, system_prompt, model=None, tools=None):
+        for token in ["Hello", ", ", "World", "!"]:
+            yield token
+
+# 在 test_client fixture 中逐 adapter 替换，保留 registry 结构
+for provider in agent_registry._adapters:
+    agent_registry._adapters[provider] = mock_agent
 ```
 
 ### 5.2 前端 Mock
@@ -298,7 +298,7 @@ async def test_sse_events_are_valid_json(client, db_session):
 
 - [ ] 所有 `async def` 端点用 `pytest-asyncio` 测试
 - [ ] 外部依赖（Agent、数据库）正确 Mock
-- [ ] 测试用内存数据库，不写磁盘
+- [ ] 测试用文件数据库（临时目录），执行完整迁移，每测试后清理
 - [ ] 每个新的 Pydantic Model 有序列化/反序列化测试
 
 ### 前端专项（功能）
@@ -330,6 +330,9 @@ async def test_sse_events_are_valid_json(client, db_session):
 | 前端 `EventSource` 用 GET | 405 Method Not Allowed | API 测试只测 POST |
 | 组件 key 使用 index | 列表重排时状态混乱 | 检查 React DevTools 的 key 警告 |
 | async session 未 await | 数据未持久化 | 测试中显式查询数据库验证 |
+| `engine.begin()` DDL in lifespan | 启动时 SQLite 报错，生产不可用 | 测试触发 lifespan，立即失败 |
+| 文件 DB 跨测试数据泄漏 | 测试之间互相影响结果 | `_cleanup_db` autouse fixture DELETE 所有表 |
+| FTS5 触发器影响 DELETE | SQL logic error | 清理前 `PRAGMA foreign_keys=OFF` |
 
 ---
 
@@ -337,4 +340,5 @@ async def test_sse_events_are_valid_json(client, db_session):
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
+| 2026-05-27 | v2.0 | 测试策略升级：内存DB→文件DB+真实迁移+lifespan触发，Mock→真实registry注册 |
 | 2026-05-26 | v1.0 | 初始版本，覆盖 Phase 1 测试规范 |

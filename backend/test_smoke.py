@@ -77,3 +77,18 @@ def test_import_migration_runner():
     from migrations.migration_runner import run, ensure_history_table
     assert run is not None
     assert ensure_history_table is not None
+
+
+def test_all_migration_files_exist():
+    from migrations.migration_runner import MIGRATIONS_DIR
+    files = [f for f in MIGRATIONS_DIR.iterdir() if f.suffix == ".sql"]
+    assert len(files) == 6, f"预期 6 个迁移文件，实际 {len(files)}"
+
+
+def test_test_db_is_file_not_memory():
+    """验证测试使用文件数据库而非内存数据库。"""
+    from app.config import settings
+    assert ":memory:" not in settings.database_url, \
+        f"测试数据库应为文件模式，实际: {settings.database_url}"
+    assert "agenthub_test_" in settings.database_url, \
+        f"测试数据库路径应包含 test 标识，实际: {settings.database_url}"

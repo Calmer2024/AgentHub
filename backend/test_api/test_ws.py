@@ -1,16 +1,13 @@
 import json
 import pytest
-from httpx import AsyncClient, ASGITransport
 
 
 @pytest.mark.asyncio
 class TestWebSocket:
-    async def test_nonexistent_session_returns_error(self):
+    async def test_nonexistent_session_returns_error(self, test_client):
         """不存在的会话应返回错误。"""
-        from app.main import app
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-            r = await c.get("/ws/sessions/nonexistent-id")
-            assert r.status_code in (404, 426, 400)
+        r = await test_client.get("/ws/sessions/nonexistent-id")
+        assert r.status_code in (404, 426, 400)
 
 class TestWSManager:
     async def test_broadcast_does_not_crash_on_empty(self):

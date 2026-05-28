@@ -14,25 +14,28 @@ class TestCreateSession:
         assert "id" in data
         assert "createdAt" in data
 
-    async def test_create_defaults(self, test_client, test_agent):
-        """传空 JSON 时自动使用第一个可用 Agent。"""
+    async def test_create_defaults(self, test_client):
+        """传空 JSON 时自动使用 lifespan 种子的默认 Agent。"""
         resp = await test_client.post("/api/sessions", json={})
         assert resp.status_code == 201
         data = resp.json()
         assert data["title"] == "新对话"
-        assert data["agentConfigId"] == test_agent.id
+        assert data["agentConfigId"] is not None  # lifespan 种子
 
-    async def test_create_without_agent(self, test_client, db_session):
-        """没有 Agent 时创建会话，agentConfigId 为空。"""
-        resp = await test_client.post("/api/sessions", json={"title": "X"})
+    async def test_create_with_agent(self, test_client, test_agent):
+        """指定 agentConfigId 创建会话。"""
+        resp = await test_client.post("/api/sessions", json={
+            "title": "X", "agentConfigId": test_agent.id,
+        })
         assert resp.status_code == 201
         data = resp.json()
-        assert data["agentConfigId"] is None
+        assert data["agentConfigId"] == test_agent.id
 
 
 @pytest.mark.asyncio
 class TestListSessions:
     async def test_empty_list(self, test_client):
+        """事务隔离下初始无会话（lifespan 不创建会话）。"""
         resp = await test_client.get("/api/sessions")
         assert resp.status_code == 200
         assert resp.json() == []

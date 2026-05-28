@@ -32,16 +32,20 @@ class TestCreateAgent:
 
 
 class TestListAgents:
-    async def test_list_empty(self, test_client):
+    async def test_list_has_default_seed(self, test_client):
+        """lifespan 创建默认 Agent，列表非空。"""
         res = await test_client.get("/api/agents")
         assert res.status_code == 200
-        assert res.json() == []
+        agents = res.json()
+        assert len(agents) >= 1  # lifespan 种子的默认助手
 
     async def test_list_after_create(self, test_client):
+        res_before = await test_client.get("/api/agents")
+        count_before = len(res_before.json())
         await test_client.post("/api/agents", json={"name": "A1"})
         await test_client.post("/api/agents", json={"name": "A2"})
         res = await test_client.get("/api/agents")
-        assert len(res.json()) == 2
+        assert len(res.json()) == count_before + 2
 
 
 class TestUpdateAgent:
@@ -61,8 +65,8 @@ class TestUpdateAgent:
 
 class TestDeleteAgent:
     async def test_soft_delete(self, test_client, test_agent):
+        before = (await test_client.get("/api/agents")).json()
         res = await test_client.delete(f"/api/agents/{test_agent.id}")
         assert res.status_code == 200
-        # 已软删除，列表不再出现
         r2 = await test_client.get("/api/agents")
-        assert len(r2.json()) == 0
+        assert len(r2.json()) == len(before) - 1  # 软删除后少一个
