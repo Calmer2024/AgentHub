@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { useChatStore } from "./chat";
+import { useChatStore } from "./chatStore";
+import { useSessionStore } from "./sessionStore";
 import type { AgentConfig, Provider } from "../types";
 
 const mockAgent: AgentConfig = {
@@ -14,36 +15,49 @@ const mockProvider: Provider = {
   capability: { supportsStreaming: true, supportsFileInput: false, supportsToolCall: false, maxContextTokens: 128000, tags: [] },
 };
 
-describe("Chat Store", () => {
-  it("初始状态 agents 为空数组", () => {
-    expect(useChatStore.getState().agents).toEqual([]);
+describe("Chat Store (split)", () => {
+  it("chatStore 初始状态 messages 为空数组", () => {
+    expect(useChatStore.getState().messages).toEqual([]);
   });
 
-  it("setAgents 设置 agent 列表", () => {
-    useChatStore.getState().setAgents([mockAgent]);
-    expect(useChatStore.getState().agents).toEqual([mockAgent]);
+  it("chatStore 初始 isStreaming 为 false", () => {
+    expect(useChatStore.getState().isStreaming).toBe(false);
   });
 
-  it("初始状态 providers 为空数组", () => {
-    expect(useChatStore.getState().providers).toEqual([]);
+  it("chatStore appendStreamingToken", () => {
+    useChatStore.setState({
+      messages: [{ id: "1", sessionId: "s", role: "assistant", content: "Hi", agentName: null, createdAt: "" }],
+      isStreaming: true,
+    });
+    useChatStore.getState().appendStreamingToken(" there");
+    expect(useChatStore.getState().messages[0].content).toBe("Hi there");
   });
 
-  it("setProviders 设置 provider 列表", () => {
-    useChatStore.getState().setProviders([mockProvider]);
-    expect(useChatStore.getState().providers).toEqual([mockProvider]);
+  it("sessionStore 初始 agents 为空数组", () => {
+    expect(useSessionStore.getState().agents).toEqual([]);
   });
 
-  it("初始状态 sidebarTab 为 sessions", () => {
-    expect(useChatStore.getState().sidebarTab).toBe("sessions");
+  it("sessionStore setAgents 设置 agent 列表", () => {
+    useSessionStore.getState().setAgents([mockAgent]);
+    expect(useSessionStore.getState().agents).toEqual([mockAgent]);
   });
 
-  it("updateSession 更新会话列表", () => {
-    useChatStore.getState().setSessions([
+  it("sessionStore setProviders 设置 provider 列表", () => {
+    useSessionStore.getState().setProviders([mockProvider]);
+    expect(useSessionStore.getState().providers).toEqual([mockProvider]);
+  });
+
+  it("sessionStore 初始 sidebarTab 为 sessions", () => {
+    expect(useSessionStore.getState().sidebarTab).toBe("sessions");
+  });
+
+  it("sessionStore updateSession 更新会话列表", () => {
+    useSessionStore.getState().setSessions([
       { id: "s1", title: "旧标题", agentConfigId: "a1", mode: "single", createdAt: "", updatedAt: "" },
     ]);
-    useChatStore.getState().updateSession({
+    useSessionStore.getState().updateSession({
       id: "s1", title: "旧标题", agentConfigId: "a2", mode: "single", createdAt: "", updatedAt: "",
     });
-    expect(useChatStore.getState().sessions[0].agentConfigId).toBe("a2");
+    expect(useSessionStore.getState().sessions[0].agentConfigId).toBe("a2");
   });
 });

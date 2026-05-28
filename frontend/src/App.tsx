@@ -1,30 +1,36 @@
 import { useEffect, useCallback, useRef, useState } from "react";
-import { useChatStore } from "./stores/chat";
+import { useChatStore } from "./stores/chatStore";
+import { useSessionStore } from "./stores/sessionStore";
 import { SessionList } from "./components/SessionList";
 import { ChatWindow } from "./components/ChatWindow";
 import { AgentPanel } from "./components/AgentPanel";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { GroupChatCreator } from "./components/GroupChatCreator";
+import { CollabProgressCard } from "./components/CollabProgressCard";
+import type { CollabTask } from "./components/CollabProgressCard";
 import { createSession, createGroupSession, fetchSessions, fetchMessages, fetchAgents, fetchProviders, createChatStream, updateSessionAgent, deleteSession, renameSession, summarizeSession, fetchSessionMembers } from "./api/client";
 import { WSClient } from "./api/wsClient";
 import type { Message, AgentConfig } from "./types";
 
 function App() {
   const {
-    sessions, currentSessionId, messages,
-    isStreaming, streamingError,
-    sidebarTab,
-    setSessions, setCurrentSessionId, setMessages,
+    currentSessionId, messages, isStreaming, streamingError,
+    setCurrentSessionId, setMessages,
     appendMessage, appendStreamingToken, appendAgentStreamingToken,
     setIsStreaming, setStreamingError,
-    setSidebarTab, updateSession,
-    agents, setAgents, providers, setProviders,
   } = useChatStore();
+
+  const {
+    sessions, agents, providers, sidebarTab,
+    setSessions, setAgents, setProviders, setSidebarTab, updateSession,
+  } = useSessionStore();
 
   const wsRef = useRef<WSClient | null>(null);
   const [showGroupCreator, setShowGroupCreator] = useState(false);
   const [routeAgents, setRouteAgents] = useState<Array<{ id: string; name: string }> | null>(null);
   const [sessionMembers, setSessionMembers] = useState<AgentConfig[]>([]);
+  const [collabTasks, setCollabTasks] = useState<CollabTask[]>([]);
+  const [orchestratorIntent, setOrchestratorIntent] = useState<string | null>(null);
 
   useEffect(() => {
     if (!currentSessionId) return;
@@ -41,14 +47,17 @@ function App() {
     });
     ws.on("agent.changed", (data) => {
       if (typeof data.agentConfigId === "string") {
-        updateSession({ ...sessions.find((s) => s.id === currentSessionId)!, agentConfigId: data.agentConfigId });
+        const sess = sessions.find((s) => s.id === currentSessionId);
+        if (sess) {
+          updateSession({ ...sess, agentConfigId: data.agentConfigId });
+        }
       }
     });
 
     ws.connect(currentSessionId);
 
     return () => { ws.disconnect(); };
-  }, [currentSessionId]); // 切换会话时自动断开旧连接 + 建立新连接
+  }, [currentSessionId]);
 
   const loadData = useCallback(async () => {
     try { setSessions(await fetchSessions()); } catch { /* */ }
@@ -64,6 +73,8 @@ function App() {
     setMessages([]);
     setStreamingError(null);
     setRouteAgents(null);
+    setCollabTasks([]);
+    setOrchestratorIntent(null);
     try { setMessages(await fetchMessages(id)); } catch { /* */ }
     if (sess?.mode === "group") {
       try {
@@ -119,6 +130,8 @@ function App() {
     if (!currentSessionId) return;
     setStreamingError(null);
     setRouteAgents(null);
+    setCollabTasks([]);
+    setOrchestratorIntent(null);
 
     const userMsg: Message = {
       id: `local-${Date.now()}`, sessionId: currentSessionId,
@@ -141,6 +154,12 @@ function App() {
       },
       (agents) => {
         setRouteAgents(agents);
+        const tasks: CollabTask[] = agents.map((a) => ({
+          task: "协作中",
+          agentName: a.name,
+          status: "running" as const,
+        }));
+        setCollabTasks(tasks);
         agents.forEach((a) => {
           const localId = `local-agent-${a.id}-${Date.now()}`;
           agentPlaceholders.set(a.id, localId);
@@ -157,8 +176,9 @@ function App() {
         if (localId) appendAgentStreamingToken(localId, agentName, token);
       },
     );
-    cleanup; // prevent unused warning
+    cleanup;
 
+    const currentMode = sessions.find((s) => s.id === currentSessionId)?.mode ?? "single";
     if (currentMode !== "group") {
       const localId = `local-ai-${Date.now()}`;
       appendMessage({
@@ -231,6 +251,16 @@ function App() {
           点击左侧"新建对话"开始
         </div>
       )}
+
+      {collabTasks.length > 0 && (
+        <div className="absolute top-16 left-96 right-0 z-10">
+          <CollabProgressCard
+            title={orchestratorIntent ? `智能协作 — ${orchestratorIntent}` : "Agent 协作进行中"}
+            tasks={collabTasks}
+          />
+        </div>
+      )}
+
       {showGroupCreator && (
         <GroupChatCreator
           agents={agents}
