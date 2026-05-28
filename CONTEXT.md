@@ -110,7 +110,10 @@ Frontend (React + shadcn/ui + Zustand)
 | [Spec Template](docs/specs/SPEC_TEMPLATE.md) | Feature specification template (standard format for all module specs) |
 | [Phase 1 Spec](docs/specs/phase1-skeleton-spec.md) | Phase 1 walking skeleton spec |
 | [Phase 2 Spec](docs/specs/phase2-core-features-spec.md) | Phase 2 core features: multi-agent, group chat, orchestrator, WebSocket, artifacts |
-| [Phase 3 Spec](docs/specs/phase3-enhancements-spec.md) | Phase 3 智能增强：Orchestrator 升级、产物深化、体验闭环 |
+| [Phase 3 Spec](docs/specs/phase3-enhancements-spec.md) | Phase 3 智能增强 (完整技术规格) |
+| [Phase 3 Modules](docs/specs/phase3-modules.md) | Phase 3 模块化拆解 + 依赖图 + 复杂度矩阵 |
+| [Phase 3 Parallel Guide](docs/specs/phase3-parallel-guide.md) | Phase 3 并行开发指南 (团队协作) |
+| [ADR-0008](docs/adr/0008-orchestrator-architecture.md) | Orchestrator 深度架构设计 (Pipeline 四阶段) |
 | [Phase 1 Dev Log](docs/phase1-dev-log.md) | Phase 1 开发日志：时间线、Bug 与教训 |
 | [Phase 2 Dev Log](docs/phase2-dev-log.md) | Phase 2 开发日志：时间线、Bug 与教训 |
 | [CLAUDE.md](CLAUDE.md) | 项目级 AI 行为指南（Claude Code 每次对话自动加载） |
