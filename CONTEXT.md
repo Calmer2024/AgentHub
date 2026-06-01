@@ -8,20 +8,29 @@
 
 | 阅读顺序 | 文档 | 用途 |
 |---------|------|------|
-| 1 | [AgentHub-多Agent协作平台设计.md](AgentHub-多Agent协作平台设计.md) | 项目背景、核心功能、考察要点 |
+| 1 | [ONBOARDING.md](ONBOARDING.md) | **新成员首选** — 项目概览、目录结构、启动命令、Skill 说明 |
 | 2 | [CONTEXT.md](CONTEXT.md)（本文件） | 领域术语、架构总览、文档索引 |
 | 3 | [CLAUDE.md](CLAUDE.md) | AI 行为规则：能做什么、不能做什么 |
 | 4 | [docs/adr/](docs/adr/) | 关键架构决策及原因 |
 | 5 | [docs/specs/](docs/specs/) | 各阶段功能规格与验收标准 |
+| 6 | [FIRST_ISSUES.md](FIRST_ISSUES.md) | **新成员推荐优先 Issue** — 分三个难度等级 |
 
 ## Domain Glossary
 
 ### Core Concepts
 - **AgentHub**: 多 Agent 协作平台，采用 IM 聊天作为核心交互范式
-- **Agent**: 聊天中的"联系人"，具备特定能力的 AI 角色
-- **Orchestrator**: 主 Agent 协调器，负责任务拆解和子 Agent 调度
+- **Agent**: 用户创建的"AI联系人"，具有自定义名称、描述、system_prompt。多个 Agent 可能使用同一家模型厂商（DeepSeek/Gemini/GLM/MiniMax），但能力标签不同。Agent ≠ 模型厂商。
+- **Provider (模型厂商)**: 提供底层 LLM API 的服务商。当前可用: DeepSeek、Gemini、GLM（智谱）、MiniMax。Agent 通过 AgentConfig.provider 字段选择底层模型。
+- **Orchestrator**: 主 Agent 协调器，负责意图分析 → Agent 选择 → 任务拆解 → 角色分配 → 执行调度。**自动化优先**: 链式协作、角色分配等复杂决策由后端自动完成，不暴露给用户配置。
 - **单聊模式**: 1v1 与单个 Agent 对话
 - **群聊模式**: 一个对话中包含多个 Agent，支持 @ 指定，Orchestrator 自动协调分工
+- **链式协作**: 多 Agent 按阶段顺序协作（规划→执行→审查→综合），由 Orchestrator 自动触发，动态分配角色
+- **协作角色**: 6 种模板角色 — planner/executor/reviewer/researcher/synthesizer/critic，Phase 3 模板驱动，Phase 4 升级 LLM 动态分配
+- **协作 DAG**: 有向无环图，描述一次协作中 Phase 间的依赖关系。Phase 间串行，Phase 内可并行。由 `SubTask.depends_on` 声明依赖，`ExecutionPlanner` 拓扑排序后分配 Phase。
+- **共享上下文 (SharedContext)**: 所有 Agent 可读的对话历史，Agent 完成后其产出自动追加。链式依赖的 Agent 额外接收前驱产出的定向注入。
+- **CollaborationPanel**: 前端 DAG 可视化面板，展示协作流程的各 Phase 及其实时状态，替代当前的 CollaborationView。
+- **对话流共享**: Agent 产出实时追加到共享对话历史，后续 Agent 像群聊成员一样"看到前面的人说了什么"。
+- **定向注入**: Chain 模式下，依赖链上前驱的完整产出以 structured prompt 形式注入后继 Agent 的输入。
 - **产物**: Agent 生成的富媒体内容，包括代码 Diff、网页预览、文档等
 
 ### Technical Terms
@@ -70,7 +79,8 @@ Frontend (React + shadcn/ui + Zustand)
 1. **Architecture on demand** — don't build all 7 layers on Day 1
 2. **Interface before implementation** — define contracts first, iterate on implementation freely
 3. **Every increment is demoable** — no "backend done but frontend not connected" intermediate states
-4. **ADR documents every architectural decision** — why now, what alternatives were considered
+4. **自动化优先** — 任何功能设计让任务尽量自动化处理，不要让用户做太多配置。复杂决策（链式触发、角色分配、Agent 选择）由后端自动完成。
+5. **ADR documents every architectural decision** — why now, what alternatives were considered
 
 ### Forbidden
 
@@ -113,7 +123,8 @@ Frontend (React + shadcn/ui + Zustand)
 | [Phase 3 Spec](docs/specs/phase3-enhancements-spec.md) | Phase 3 智能增强 (完整技术规格) |
 | [Phase 3 Modules](docs/specs/phase3-modules.md) | Phase 3 模块化拆解 + 依赖图 + 复杂度矩阵 |
 | [Phase 3 Parallel Guide](docs/specs/phase3-parallel-guide.md) | Phase 3 并行开发指南 (团队协作) |
-| [ADR-0008](docs/adr/0008-orchestrator-architecture.md) | Orchestrator 深度架构设计 (Pipeline 四阶段) |
+| [ADR-0008](docs/adr/0008-orchestrator-architecture.md) | Orchestrator 架构决策记录 (Pipeline 四阶段 + 最终交互设计) |
+| [Orchestrator Docs](docs/specs/orchestrator/README.md) | **Orchestrator 完整设计文档 (9 篇)** — 架构/Agent选择/任务拆解/执行引擎/协作交互/SSE协议/前端/开发计划/日志 |
 | [Phase 1 Dev Log](docs/phase1-dev-log.md) | Phase 1 开发日志：时间线、Bug 与教训 |
 | [Phase 2 Dev Log](docs/phase2-dev-log.md) | Phase 2 开发日志：时间线、Bug 与教训 |
 | [CLAUDE.md](CLAUDE.md) | 项目级 AI 行为指南（Claude Code 每次对话自动加载） |
@@ -124,3 +135,4 @@ Frontend (React + shadcn/ui + Zustand)
 | [Skill: module-dev](.claude/skills/agenthub-module-dev/SKILL.md) | Standardized module development workflow |
 | [Skill: code-review](.claude/skills/agenthub-code-review/SKILL.md) | Standardized code review checklist |
 | [Skill: phase-wrapup](.claude/skills/agenthub-phase-wrapup/SKILL.md) | Phase wrapup workflow |
+| [Skill: qa-audit](.claude/skills/agenthub-qa-audit/SKILL.md) | Enterprise QA audit: real-world testing, E2E chain verification, UX heuristic inspection |
