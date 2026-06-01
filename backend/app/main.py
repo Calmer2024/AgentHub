@@ -37,10 +37,6 @@ async def lifespan(app: FastAPI):
             ))
             await db.commit()
 
-    # 注入 EventBus 到 Orchestrator
-    from .domain.orchestrator import orchestrator
-    orchestrator._event_bus = _event_bus
-
     yield
 
     await _event_bus.stop()
