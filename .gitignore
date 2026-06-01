@@ -35,6 +35,13 @@ data/
 # Environment
 .env
 .env.local
+.claude/settings.local.json
+
+# Legacy venv
+backend/venv_old/
+
+# E2E artifacts
+e2e/screenshots/
 
 # IDE
 .vscode/
