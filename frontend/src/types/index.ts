@@ -90,6 +90,34 @@ export interface Artifact {
   createdAt: string;
 }
 
+// === Orchestrator / Collaboration types ===
+
+export interface RouteAgent {
+  id: string;
+  name: string;
+}
+
+export interface CollabTask {
+  name: string;
+  role: string;
+  agent: string;
+  status: "pending" | "running" | "completed" | "error";
+  summary?: string;
+}
+
+export interface ChainStep {
+  step: number;
+  agent: string;
+  role: string;
+  total: number;
+  status: "running" | "completed" | "interrupted";
+}
+
+export interface ChainConfigInput {
+  chainName?: string;
+  agentOrder?: string[];
+}
+
 export interface SettingsUpdate {
   anthropicApiKey?: string;
   deepseekApiKey?: string;

@@ -1,16 +1,19 @@
 import { useEffect, useCallback, useRef, useState } from "react";
-import { useChatStore } from "./stores/chatStore";
+import { useChatStore, type CollabSnapshot } from "./stores/chatStore";
 import { useSessionStore } from "./stores/sessionStore";
 import { SessionList } from "./components/SessionList";
 import { ChatWindow } from "./components/ChatWindow";
 import { AgentPanel } from "./components/AgentPanel";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { GroupChatCreator } from "./components/GroupChatCreator";
-import { CollabProgressCard } from "./components/CollabProgressCard";
-import type { CollabTask } from "./components/CollabProgressCard";
 import { createSession, createGroupSession, fetchSessions, fetchMessages, fetchAgents, fetchProviders, createChatStream, updateSessionAgent, deleteSession, renameSession, summarizeSession, fetchSessionMembers } from "./api/client";
 import { WSClient } from "./api/wsClient";
 import type { Message, AgentConfig } from "./types";
+
+/** 从 store 读取当前会话的协作状态（零值 = 空快照）。 */
+function emptyCollab(): CollabSnapshot {
+  return { routeAgents: null, collabTasks: [], chainSteps: [], orchestratorIntent: null, collabCompleted: false, collabSummary: null };
+}
 
 function App() {
   const {
@@ -18,6 +21,7 @@ function App() {
     setCurrentSessionId, setMessages,
     appendMessage, appendStreamingToken, appendAgentStreamingToken,
     setIsStreaming, setStreamingError,
+    collabSnapshots, getCollab, saveCollab, clearCollab,
   } = useChatStore();
 
   const {
@@ -25,12 +29,20 @@ function App() {
     setSessions, setAgents, setProviders, setSidebarTab, updateSession,
   } = useSessionStore();
 
+  // --- 协作状态的读写桥接 (store ↔ 组件) ---
+  const collabKey = currentSessionId ?? "__none__";
+  const collab = collabSnapshots[collabKey] ?? emptyCollab();
+
+  const routeAgents = collab.routeAgents;
+  const collabTasks = collab.collabTasks;
+  const chainSteps = collab.chainSteps;
+  const orchestratorIntent = collab.orchestratorIntent;
+  const collabCompleted = collab.collabCompleted;
+  const collabSummary = collab.collabSummary;
+
   const wsRef = useRef<WSClient | null>(null);
   const [showGroupCreator, setShowGroupCreator] = useState(false);
-  const [routeAgents, setRouteAgents] = useState<Array<{ id: string; name: string }> | null>(null);
   const [sessionMembers, setSessionMembers] = useState<AgentConfig[]>([]);
-  const [collabTasks, setCollabTasks] = useState<CollabTask[]>([]);
-  const [orchestratorIntent, setOrchestratorIntent] = useState<string | null>(null);
 
   useEffect(() => {
     if (!currentSessionId) return;
@@ -67,15 +79,16 @@ function App() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  // === 会话切换 (协作状态持久化) ===
   const handleSelectSession = async (id: string) => {
-    const sess = sessions.find((s) => s.id === id);
     setCurrentSessionId(id);
+    // 协作状态不清零 —— 由 store 按 sessionId 自动恢复
+    // 切换到目标会话后，collab 会自动从 collabSnapshots[id] 读取
     setMessages([]);
     setStreamingError(null);
-    setRouteAgents(null);
-    setCollabTasks([]);
-    setOrchestratorIntent(null);
     try { setMessages(await fetchMessages(id)); } catch { /* */ }
+    // 加载群成员
+    const sess = sessions.find((s) => s.id === id);
     if (sess?.mode === "group") {
       try {
         const members = await fetchSessionMembers(id);
@@ -103,12 +116,17 @@ function App() {
     setCurrentSessionId(s.id);
     setMessages([]);
     setStreamingError(null);
+    clearCollab(s.id); // 新会话无协作历史
   };
 
   const handleDeleteSession = async (id: string) => {
     await deleteSession(id);
     setSessions(sessions.filter((s) => s.id !== id));
-    if (currentSessionId === id) { setCurrentSessionId(null); setMessages([]); }
+    if (currentSessionId === id) {
+      setCurrentSessionId(null);
+      setMessages([]);
+    }
+    clearCollab(id);
   };
 
   const handleRenameSession = async (id: string, title: string) => {
@@ -126,12 +144,14 @@ function App() {
     try { updateSession(await updateSessionAgent(currentSessionId, agentId)); } catch { /* */ }
   };
 
+  // === 发送消息 ===
   const handleSend = async (content: string, mentions: string[]) => {
     if (!currentSessionId) return;
     setStreamingError(null);
-    setRouteAgents(null);
-    setCollabTasks([]);
-    setOrchestratorIntent(null);
+    // 重置当前会话的协作状态
+    saveCollab(collabKey, emptyCollab());
+
+    const currentMode = sessions.find((s) => s.id === currentSessionId)?.mode ?? "single";
 
     const userMsg: Message = {
       id: `local-${Date.now()}`, sessionId: currentSessionId,
@@ -139,11 +159,21 @@ function App() {
     };
     appendMessage(userMsg);
 
+    if (currentMode !== "group") {
+      const localId = `local-ai-${Date.now()}`;
+      appendMessage({
+        id: localId, sessionId: currentSessionId!,
+        role: "assistant", content: "", agentName: null,
+        createdAt: new Date().toISOString(),
+      });
+    }
+
     const agentPlaceholders = new Map<string, string>();
 
-    const cleanup = createChatStream(currentSessionId, content, mentions,
-      (token) => appendStreamingToken(token),
-      (messageId, error) => {
+    // SSE 回调中通过 saveCollab 持久化协作状态
+    createChatStream(currentSessionId, content, mentions, {
+      onToken: (token) => appendStreamingToken(token),
+      onDone: (messageId, error) => {
         setIsStreaming(false);
         if (error) {
           setStreamingError(error === "Stream ended unexpectedly"
@@ -152,40 +182,67 @@ function App() {
         }
         if (messageId) fetchMessages(currentSessionId).then(setMessages);
       },
-      (agents) => {
-        setRouteAgents(agents);
-        const tasks: CollabTask[] = agents.map((a) => ({
-          task: "协作中",
-          agentName: a.name,
-          status: "running" as const,
-        }));
-        setCollabTasks(tasks);
-        agents.forEach((a) => {
-          const localId = `local-agent-${a.id}-${Date.now()}`;
-          agentPlaceholders.set(a.id, localId);
-          appendMessage({
-            id: localId, sessionId: currentSessionId!,
-            role: "assistant", content: "", agentName: a.name,
-            createdAt: new Date().toISOString(),
-          });
-        });
+      onRoute: (agents) => {
+        saveCollab(collabKey, { ...emptyCollab(), routeAgents: agents });
         setIsStreaming(true);
       },
-      (agentId, agentName, token) => {
+      onTaskStarted: (tasks, intent) => {
+        const snap = getCollab(collabKey);
+        saveCollab(collabKey, {
+          ...(snap ?? emptyCollab()),
+          collabTasks: tasks,
+          orchestratorIntent: intent,
+        });
+        tasks.forEach((t) => {
+          const agent = agents.find((a) => a.name === t.agent);
+          if (agent) {
+            const localId = `local-agent-${agent.id}-${Date.now()}`;
+            agentPlaceholders.set(agent.id, localId);
+            appendMessage({
+              id: localId, sessionId: currentSessionId!,
+              role: "assistant", content: "", agentName: t.agent,
+              createdAt: new Date().toISOString(),
+            });
+          }
+        });
+      },
+      onChainStep: (step) => {
+        const snap = getCollab(collabKey);
+        const existing = (snap?.chainSteps ?? []).filter((s) => s.step !== step.step);
+        const updatedSteps = [...existing, step].sort((a, b) => a.step - b.step);
+        const updatedTasks = (snap?.collabTasks ?? []).map((t, i) => {
+          if (i === step.step) {
+            return {
+              ...t,
+              status: step.status === "interrupted" ? "error" as const
+                : step.status === "completed" ? "completed" as const
+                : "running" as const,
+            };
+          }
+          return t;
+        });
+        saveCollab(collabKey, {
+          ...(snap ?? emptyCollab()),
+          chainSteps: updatedSteps,
+          collabTasks: updatedTasks,
+        });
+      },
+      onTaskCompleted: (summary) => {
+        const snap = getCollab(collabKey);
+        saveCollab(collabKey, {
+          ...(snap ?? emptyCollab()),
+          collabCompleted: true,
+          collabSummary: summary,
+          collabTasks: (snap?.collabTasks ?? []).map((t) => ({ ...t, status: "completed" as const })),
+        });
+      },
+      onAgentToken: (agentId, agentName, token) => {
         const localId = agentPlaceholders.get(agentId);
         if (localId) appendAgentStreamingToken(localId, agentName, token);
       },
-    );
-    cleanup;
+    });
 
-    const currentMode = sessions.find((s) => s.id === currentSessionId)?.mode ?? "single";
     if (currentMode !== "group") {
-      const localId = `local-ai-${Date.now()}`;
-      appendMessage({
-        id: localId, sessionId: currentSessionId!,
-        role: "assistant", content: "", agentName: null,
-        createdAt: new Date().toISOString(),
-      });
       setIsStreaming(true);
     }
   };
@@ -241,7 +298,12 @@ function App() {
           messages={messages} isStreaming={isStreaming}
           streamingError={streamingError}
           currentAgent={currentAgent} agents={agents} mode={currentMode}
-          routeAgents={routeAgents} mentionableAgents={currentMode === "group" ? sessionMembers : agents}
+          routeAgents={routeAgents} orchestratorIntent={orchestratorIntent}
+          mentionableAgents={currentMode === "group" ? sessionMembers : agents}
+          collabTasks={collabTasks}
+          chainSteps={chainSteps}
+          collabCompleted={collabCompleted}
+          collabSummary={collabSummary}
           onSend={handleSend}
           onDismissError={() => setStreamingError(null)}
           onSwitchAgent={handleSwitchAgent}
@@ -249,15 +311,6 @@ function App() {
       ) : (
         <div className="flex-1 flex items-center justify-center text-gray-500 text-lg">
           点击左侧"新建对话"开始
-        </div>
-      )}
-
-      {collabTasks.length > 0 && (
-        <div className="absolute top-16 left-96 right-0 z-10">
-          <CollabProgressCard
-            title={orchestratorIntent ? `智能协作 — ${orchestratorIntent}` : "Agent 协作进行中"}
-            tasks={collabTasks}
-          />
         </div>
       )}
 
