@@ -9,13 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db
 from ..models import Session as DBSession, Message as DBMessage
 from ..services.chat_service_impl import ChatServiceImpl
+from ..services.schemas import ChatRequest, ChainConfigSchema
 
 router = APIRouter(prefix="", tags=["chat"])
-
-
-class ChatRequest(BaseModel):
-    content: str
-    mentions: list[str] | None = None
 
 
 class MessageRead(BaseModel):
@@ -45,7 +41,11 @@ async def chat(session_id: str, data: ChatRequest, db: AsyncSession = Depends(ge
 
     svc = _chat_svc(db)
     return StreamingResponse(
-        svc.send_message_stream(session_id, data.content, data.mentions),
+        svc.send_message_stream(
+            session_id, data.content, data.mentions,
+            parent_message_id=data.parent_message_id,
+            chain_config=data.chain_config,
+        ),
         media_type="text/event-stream",
     )
 
