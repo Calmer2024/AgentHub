@@ -44,6 +44,7 @@ Frontend (React) → API Gateway (FastAPI) → Service/Business Logic → Domain
 - Single file max 300 lines (source code only; protocol/design docs exempt). Split if exceeds.
 - Every module completion → immediately write unit tests.
 - Small commits: each runnable function = one commit.
+- **自动化优先**: 任何功能设计在前端上的体现是让任务尽量可以自动化处理，不要让用户做太多配置。便利化用户交互逻辑，复杂决策由后端自动完成。例如：Orchestrator 链式协作应自动触发，不应要求用户手动配置开关。
 
 ### Python (Backend)
 - Use Pydantic v2 for request/response validation.
