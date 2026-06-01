@@ -1,7 +1,8 @@
 # 测试协议 (Test Protocol)
 
-**版本**: v1.0
+**版本**: v2.1
 **创建日期**: 2026-05-26
+**最后更新**: 2026-06-01
 **适用范围**: AgentHub 所有开发阶段
 
 ---
@@ -15,6 +16,7 @@
 - **即时暴露**：每次代码变更后必须跑相关测试，不得积累到阶段末。
 - **回归防护**：任何已发现的 bug 修复后必须加入对应的回归测试。
 - **功能正确是底线，体验正确是标准**：UX 交互体验测试与功能测试同等权重。详见 [UX_TEST_SPEC.md](testing/UX_TEST_SPEC.md)。
+- **Mock 不改变代码路径**：Mock 只能替换外部依赖的返回值，不能跳过被测试的业务代码。如果 mock 让某条 `if` 分支、某个函数调用不被执行，那就在测试盲区里制造了虚假的安全感。
 
 ### 1.2 测试金字塔
 
@@ -61,14 +63,17 @@
 // 验证所有新组件能成功渲染，无运行时错误
 ```
 
-### 2.2 API 测试 —— 每个端点必须覆盖
+### 2.2 API 测试 —— 每个端点 + 每个模式变体必须覆盖
 
 | 覆盖类型 | 最低要求 |
 |---------|---------|
-| Happy Path | 每个端点至少 1 条 |
+| Happy Path | 每个端点 **× 每个模式变体** 至少 1 条 |
 | 参数校验 | 空输入、超长输入、非法类型 |
 | 错误传播 | 资源不存在 (404)、业务错误 (400)、外部服务错误 (502) |
 | 边界值 | 最小值、最大值、刚好越界 |
+| **模式变体** | **每个端点如果存在条件分支（如 `mode=single` vs `mode=group`），每条分支必须独立覆盖** |
+
+> ⚠️ **教训 (2026-06-01)**：`POST /sessions/{id}/chat` 在 `mode=single` 和 `mode=group` 下走完全不同的代码路径（前者直接调 adapter，后者走 AgentExecutor 四阶段 Pipeline）。Phase 3 期间，group chat 消息发送路径未被任何测试覆盖，导致 `asyncio.wait_for(async_generator)` 致命 Bug 漏到人工验收。此后，任何端点的任何模式变体必须有独立测试。
 
 **API 测试模板**：
 
@@ -290,6 +295,7 @@ async def test_sse_events_are_valid_json(client, db_session):
 - [ ] `backend/test_smoke.py` 通过（含本 Phase 新增的所有模块）
 - [ ] `frontend/src/__tests__/smoke.test.ts` 通过
 - [ ] 本 Phase 所有 API 端点有至少 1 个 happy path 测试
+- [ ] **本 Phase 所有 API 端点的每个模式变体（single/group、不同 role 等）都有独立测试覆盖**
 - [ ] 本 Phase 所有 API 端点的异常分支（400/404/500）有覆盖
 - [ ] Spec 第 4 节所有验收标准已通过（自动或手动）
 - [ ] 上一 Phase 的测试全部仍通过（无回归）
@@ -333,6 +339,8 @@ async def test_sse_events_are_valid_json(client, db_session):
 | `engine.begin()` DDL in lifespan | 启动时 SQLite 报错，生产不可用 | 测试触发 lifespan，立即失败 |
 | 文件 DB 跨测试数据泄漏 | 测试之间互相影响结果 | `_cleanup_db` autouse fixture DELETE 所有表 |
 | FTS5 触发器影响 DELETE | SQL logic error | 清理前 `PRAGMA foreign_keys=OFF` |
+| `asyncio.wait_for(async_gen)` | 全部 Agent 抛 `TypeError: 'async for' requires __aiter__` | **任何对 async generator 添加超时的位置必须用 `async with asyncio.timeout(seconds):` 而非 `asyncio.wait_for(generator, timeout)`。** `wait_for()` 只接受 coroutine (有 `__await__`)，不接受 async generator (有 `__aiter__`)。此 Bug 难以被 mock 发现 — MockAgent 的 `chat_stream` 同样是 async generator，但只有 group chat 路径经过 `AgentExecutor._execute_single()` 才会触发，single chat 路径直接调 adapter 不受影响。检测方式：对 group chat 发送消息的 API 测试 (MockAgent + SSE token 累积验证)。 |
+| 测试只覆盖一条模式分支 | 所有测试通过但人工验收崩溃 | **列出端点内所有 if/switch 分支（如 `mode=single` vs `mode=group`），逐条确认每个分支都有至少 1 个测试。** 仅靠 "单聊测试" 不能保证 "群聊" 也正常 — 它们走的是不同的代码路径。**检查方法**: 阅读端点的源码，圈出所有 `if mode ==` / `if session.mode ==` 分支，在测试文件中搜索对应的测试用例名。 |
 
 ---
 
@@ -340,5 +348,6 @@ async def test_sse_events_are_valid_json(client, db_session):
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
+| 2026-06-01 | v2.1 | 复盘 Orchestrator 测试盲区: 新增"Mock 不改变代码路径"原则、模式变体强制覆盖、`asyncio.wait_for` 陷阱、分支覆盖检查清单 |
 | 2026-05-27 | v2.0 | 测试策略升级：内存DB→文件DB+真实迁移+lifespan触发，Mock→真实registry注册 |
 | 2026-05-26 | v1.0 | 初始版本，覆盖 Phase 1 测试规范 |

@@ -78,34 +78,35 @@ async def get_pinned_messages(session_id: str) -> list[MessageRead]
 async def search_messages(session_id: str, query: str, limit: int = 20) -> list[MessageRead]
 ```
 
-### Module 4: Orchestrator 核心 🔴 高复杂度
+### Module 4: Orchestrator 核心 ✅ 已交付 (Phase 3.4/3.5)
 
 | 维度 | 内容 |
 |------|------|
-| **范围** | Pipeline 四阶段, L1 意图识别, L2 任务拆解, Agent 评分, SSE 生命周期事件, ContextManager 集成 |
-| **设计文档** | **[ADR-0008](../adr/0008-orchestrator-architecture.md)** — 深度架构设计 |
-| **依赖** | Module 1 (EventBus, ContextManager) |
-| **复杂度** | **XL** |
-| **不可并行** | 需要 1 人专注开发 |
+| **范围** | Pipeline 四阶段, 意图分析, Agent 元数据匹配, 任务拆解+6角色, 自动链式, SSE 生命周期事件, ContextManager 集成 |
+| **设计文档** | **[docs/specs/orchestrator/](orchestrator/README.md)** — 9 篇完整设计文档 |
+| **架构 ADR** | **[ADR-0008](../adr/0008-orchestrator-architecture.md)** |
+| **状态** | ✅ **Phase 3.4 + 3.5 已交付** (Pipeline + 组件 + Chain + 错误处理) |
+| **测试** | 122 backend + 9 frontend + 23 E2E = 154 条 |
+| **遗留** | Phase 3.6 DAG 混合调度 (见 [orchestrator/08-dev-plan.md](orchestrator/08-dev-plan.md)) |
 
-核心工作:
-1. 完善 `orchestrator_v2.py` 的 Pipeline（当前为 V1 原型）
-2. `AgentExecutor` 的三种执行模式 (single/parallel/chain)
-3. ContextManager 全量集成（Token 预算 + Pin 优先级 + FIFO 截断）
-4. SSE 事件标准化：`orchestrator.task_started/completed`, `agent.call_started/completed`
-5. 前端：`OrchestratorBanner` 增强、`CollabProgressCard` 完成态更新
+已完成:
+1. ✅ 4 组件独立 (IntentAnalyzer, AgentSelector, TaskDecomposer, ExecutionPlanner)
+2. ✅ AgentExecutor 三种执行模式 (single/parallel/chain) + 60s 超时 + 中断 + 全失败兜底
+3. ✅ SSE 6 种事件标准化 (route/task_started/agent.start/chain_step/task_completed/error)
+4. ✅ 前端 CollaborationView + Orchestrator 横幅 + 删除链式开关
+5. ✅ 协作状态持久化 (Zustand chatStore per-session)
+6. ✅ 上下文截断检测 + Pin 优先级
 
-详细设计见 **[ADR-0008: Orchestrator 架构设计](../adr/0008-orchestrator-architecture.md)**
+待实现 (Phase 3.6):
+- ❌ 混合 DAG 调度 (Phase 间串行, Phase 内并行)
+- ❌ 上下文共享 (SharedContext) + 定向注入
+- ❌ CollaborationPanel (DAG 流程图)
+- ❌ Agent 聊天气泡角色标签
+- ❌ AgentExecutor._execute_dag()
 
-### Module 5: 链式协作
+### Module 5: 链式协作 → 已合并入 Module 4
 
-| 维度 | 内容 |
-|------|------|
-| **范围** | Chain pipeline: Agent A 产出 → Agent B 输入（摘要模式展示） |
-| **前端** | `CollabProgressCard.tsx` 增强 (展开查看中间过程) |
-| **依赖** | Module 4 (Orchestrator Core, AgentExecutor.execute_chain) |
-| **复杂度** | M |
-| **关键挑战** | 中间产物格式化；超长内容截断注入 prompt；前端折叠/展开动画 |
+M5 的链式协作功能已在 M4 中完成。详见 [orchestrator/04-execution-engine.md](orchestrator/04-execution-engine.md)。
 
 ### Module 6: 产物版本 + Diff
 
@@ -167,8 +168,8 @@ async def search_messages(session_id: str, query: str, limit: int = 20) -> list[
 | M1 | M | 10 | 0 | 0 | 68 |
 | M2 | M | 2 | 2 | 4 | 20 |
 | M3 | S | 1 | 1 | 1 | 10 |
-| M4 | **XL** | 4 | 2 | 0 | 35 |
-| M5 | M | 1 | 1 | 0 | 12 |
+| M4 | **XL** (✅ Phase 3.4+3.5 已交付) | 9 | 4 | 0 | 154 |
+| M5 | M (← 已合并入 M4) | - | - | - | - |
 | M6 | L | 2 | 2 | 2 | 18 |
 | M7 | **XL** | 3 | 3 | 1 | 25 |
 | M8 | S | 0 | 4 | 0 | 8 |

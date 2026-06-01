@@ -175,8 +175,8 @@ class ArtifactService:
 | M1 | [phase3.1-infrastructure-spec.md](phase3.1-infrastructure-spec.md) | ADR-0005 |
 | M2 | [phase3.2-message-actions-spec.md](phase3.2-message-actions-spec.md) | - |
 | M3 | [phase3.3-message-search-spec.md](phase3.3-message-search-spec.md) | - |
-| M4 | [phase3.4-orchestrator-core-spec.md](phase3.4-orchestrator-core-spec.md) | **[ADR-0008](../adr/0008-orchestrator-architecture.md)** |
-| M5 | [phase3.5-chain-collab-spec.md](phase3.5-chain-collab-spec.md) | ADR-0008 §4.4 |
+| M4 | [orchestrator/01-architecture.md](orchestrator/01-architecture.md) | **[ADR-0008](../adr/0008-orchestrator-architecture.md)** |
+| M5 | [orchestrator/04-execution-engine.md](orchestrator/04-execution-engine.md) | ADR-0008 §4.4 |
 | M6 | [phase3.6-artifact-versioning-spec.md](phase3.6-artifact-versioning-spec.md) | - |
 | M7 | [phase3.7-artifact-editing-spec.md](phase3.7-artifact-editing-spec.md) | ADR-0005 §3 (BaseAgentAdapter tools) |
 | M8 | [phase3.8-integration-spec.md](phase3.8-integration-spec.md) | - |
