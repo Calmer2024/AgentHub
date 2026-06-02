@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, type FormEvent } from "react";
 import { fetchSettings, updateSettings } from "../api/client";
 import type { Provider } from "../types";
+import { OrchestratorModelSettings } from "./OrchestratorModelSettings";
 
 interface ProviderDef {
   key: string;
@@ -10,11 +11,12 @@ interface ProviderDef {
   settingsModelKey: string;
   settingsApiKey: string | null;
   models: string[];
+  defaultModel: string;
 }
 
 function buildProviders(providers: Provider[], keys: Record<string, string | null>): ProviderDef[] {
   const providerMap = new Map(providers.map((p) => [p.name, p]));
-  const defaults: Omit<ProviderDef, "settingsModelKey" | "settingsApiKey" | "models">[] = [
+  const defaults: Omit<ProviderDef, "settingsModelKey" | "settingsApiKey" | "models" | "defaultModel">[] = [
     { key: "openai", label: "OpenAI", icon: "🤖", placeholder: "sk-..." },
     { key: "claude", label: "Anthropic Claude", icon: "🧠", placeholder: "sk-ant-..." },
     { key: "deepseek", label: "DeepSeek", icon: "🔍", placeholder: "sk-..." },
@@ -27,6 +29,7 @@ function buildProviders(providers: Provider[], keys: Record<string, string | nul
     settingsModelKey: `${d.key}Model`,
     settingsApiKey: keys[d.key] ?? null,
     models: providerMap.get(d.key)?.models ?? [],
+    defaultModel: providerMap.get(d.key)?.defaultModel ?? "",
   }));
 }
 
@@ -144,6 +147,8 @@ export function SettingsPanel({ providers, onSaved }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [keys, setKeys] = useState<Record<string, string | null>>({});
   const [models, setModels] = useState<Record<string, string>>({});
+  const [orchestratorProvider, setOrchestratorProvider] = useState("deepseek");
+  const [orchestratorModel, setOrchestratorModel] = useState("deepseek-v4-flash");
   const [savingKey, setSavingKey] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -161,6 +166,8 @@ export function SettingsPanel({ providers, onSaved }: Props) {
         deepseek: s.deepseekModel, gemini: s.geminiModel,
         minimax: s.minimaxModel, glm: s.glmModel,
       });
+      setOrchestratorProvider(s.orchestratorProvider);
+      setOrchestratorModel(s.orchestratorModel);
     } catch {
       setError("无法加载设置");
     } finally {
@@ -201,6 +208,26 @@ export function SettingsPanel({ providers, onSaved }: Props) {
     await load();
   };
 
+  const preferredModelFor = (providerKey: string) => {
+    const p = providerDefs.find((x) => x.key === providerKey);
+    return models[providerKey] || p?.defaultModel || p?.models[0] || "";
+  };
+
+  const handleSelectOrchestratorProvider = async (providerKey: string) => {
+    const model = preferredModelFor(providerKey);
+    setSavingKey("orchestrator");
+    await updateSettings({ orchestratorProvider: providerKey, orchestratorModel: model });
+    setSavingKey(null);
+    await load();
+  };
+
+  const handleSelectOrchestratorModel = async (model: string) => {
+    setSavingKey("orchestrator");
+    await updateSettings({ orchestratorModel: model });
+    setSavingKey(null);
+    await load();
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -221,6 +248,15 @@ export function SettingsPanel({ providers, onSaved }: Props) {
 
   return (
     <div className="p-4 space-y-3">
+      <OrchestratorModelSettings
+        providers={providerDefs}
+        models={models}
+        currentProvider={orchestratorProvider}
+        currentModel={orchestratorModel}
+        saving={savingKey === "orchestrator"}
+        onSelectProvider={handleSelectOrchestratorProvider}
+        onSelectModel={handleSelectOrchestratorModel}
+      />
       <h2 className="text-sm font-semibold text-gray-900 px-1">模型供应商</h2>
       <p className="text-xs text-gray-500 px-1 -mt-2 mb-1">配置 API Key 后即可在对话中选择对应模型</p>
       {providerDefs.map((p) => (

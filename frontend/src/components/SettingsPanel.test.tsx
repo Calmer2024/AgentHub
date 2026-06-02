@@ -19,6 +19,7 @@ vi.mock("../api/client", () => ({
     openaiModel: "gpt-4o", claudeModel: "claude-3-5-sonnet-20241022",
     deepseekModel: "deepseek-v4-flash", geminiModel: "gemini-3.5-flash",
     minimaxModel: "MiniMax-M2.7", glmModel: "glm-5.1",
+    orchestratorProvider: "deepseek", orchestratorModel: "deepseek-v4-flash",
   }),
   updateSettings: vi.fn().mockResolvedValue({}),
 }));
@@ -26,7 +27,8 @@ vi.mock("../api/client", () => ({
 describe("SettingsPanel", () => {
   it("显示供应商卡片", async () => {
     render(<SettingsPanel providers={mockProviders} onSaved={vi.fn()} />);
-    expect(await screen.findByText("OpenAI")).toBeInTheDocument();
-    expect(screen.getByText("Anthropic Claude")).toBeInTheDocument();
+    expect((await screen.findAllByText("OpenAI")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Anthropic Claude").length).toBeGreaterThan(0);
+    expect(screen.getByText("Orchestrator 中枢")).toBeInTheDocument();
   });
 });
