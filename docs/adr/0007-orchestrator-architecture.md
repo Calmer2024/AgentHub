@@ -416,25 +416,26 @@ class TestAgentExecutor:
 
 ## 9. 渐进实现路径
 
-### Phase 3 Module 4 (当前目标)
+### Phase 3 Module 4 (已完成)
 
 **Week 1: Pipeline 完善**
-- [ ] IntentAnalyzer 接口抽象（当前为关键词，定义 ABC 为未来 LLM 预留）
-- [ ] AgentSelector 从 orchestrator_v2 中独立
-- [ ] ExecutionPlanner 明确三种模式决策逻辑
-- [ ] ContextManager 集成到 Stage 1
+- [x] IntentAnalyzer 独立组件（当前为关键词规则；按最终决议暂不定义 ABC）
+- [x] AgentSelector 从 orchestrator_v2 中独立
+- [x] ExecutionPlanner 明确模式决策逻辑，并支持 DAG Phase 分配
+- [x] ContextManager 集成到 Stage 1
 
 **Week 2: AgentExecutor 完善**
-- [ ] single 模式：错误处理完善
-- [ ] parallel 模式：StreamMerger + 部分失败处理
-- [ ] chain 模式：上一步输出注入 prompt + 截断保护
-- [ ] EventBus 生命周期事件完整覆盖
+- [x] single 模式：错误处理完善
+- [x] parallel 模式：StreamMerger + 部分失败处理
+- [x] chain 模式：上一步输出注入 prompt + 截断保护
+- [x] dag 模式：SharedContext + Phase 间串行/Phase 内并行
+- [x] EventBus 生命周期事件覆盖成功和失败路径
 
 **Week 3: 测试 + 前端**
-- [ ] 30+ 条单元/集成测试
-- [ ] CollabProgressCard 完成态更新
-- [ ] Orchestrator 进度横幅增强
-- [ ] 全量回归 + E2E 验证
+- [x] 30+ 条单元/集成测试
+- [x] CollaborationPanel 替代 CollabProgressCard
+- [x] Orchestrator 进度横幅增强
+- [x] 全量回归 + 真实 API/UI/Mobile 验证
 
 ### Future: Phase 4+ 演进
 
@@ -454,9 +455,11 @@ class TestAgentExecutor:
 | 并行上限 | 3 vs. 5 vs. 无限 | **5** | 平衡并发成本和响应速度 |
 | 链式触发方式 | 手动开关 vs. 自动判断 | **自动判断** | 自动化优先原则；Phase 3 模板驱动 + Phase 4 LLM 动态 |
 | 角色分配 | 硬编码 producer/reviewer vs. 模板枚举 vs. LLM动态 | **模板枚举 (Phase 3)** | 6 种角色模板覆盖常见场景，Phase 4 升级 LLM 动态 |
-| 协作展示 | 多气泡 vs. 协作面板 vs. 折叠卡片 | **独立协作面板** | CollaborationView 展示每个 Agent 思考/计划/工具调用，最终合成一个结果气泡 |
+| 协作展示 | 多气泡 vs. 协作面板 vs. 折叠卡片 | **面板 + Agent气泡 + 中枢总结** | 保留每个 Agent 的可追溯产出；DAG/chain 等结构化协作由 Orchestrator 汇总成最终答复 |
 | 执行器位置 | Domain 层 vs. Service 层 | **Service 层** | Agent 调用涉及 I/O，应在 Service 层 |
 | 自动化程度 | 用户配置 vs. 自动处理 | **自动化优先** | 复杂决策由后端 Orchestrator 自动完成，不暴露给用户 |
+| 消息来源建模 | agentName 字符串 vs. 一等来源字段 | **sourceType/contentType/metadata** | 支持系统整理、产物归属、审计和后续重新综合 |
+| Orchestrator 模型 | 借用成员 Agent vs. 独立配置 | **独立 orchestratorProvider/orchestratorModel** | 中枢是编排层能力，不应受某个成员 Agent 的模型身份影响 |
 
 ---
 
@@ -575,6 +578,7 @@ class TokenEvent:
 | 4 | 并行气泡 | **同时流式 + 角色排序** — 同一 Phase 的 Agent 气泡同时出现，独立流式，完成后按角色优先级排列 |
 | 5 | 调度策略 | **DAG 依赖拓扑** — SubTask.depends_on 声明依赖，ExecutionPlanner 分配 Phase，AgentExecutor._execute_dag() 按拓扑执行 |
 | 6 | SSE 协议 | **task_started v2 (含 phases DAG) + phase_change 事件** |
+| 7 | 最终答复 | **Orchestrator 中枢总结** — DAG/chain 且至少 2 个 Agent 成功产出后，由独立 Orchestrator 模型配置生成一条系统整理消息 |
 
 ### 14.3 协作体验示意
 
@@ -599,7 +603,8 @@ class TokenEvent:
   18.5s @代码审查员 [审查者] 气泡出现, 流式 "审查结果: 前端缺少表单验证..."
   25s   @代码审查员 完成 ✅
 
-  25s   协作完成, Panel 折叠, 最终合成消息显示
+  25s   Orchestrator 中枢总结气泡出现, 流式整合各 Agent 产出
+  30s   协作完成, Panel 折叠, 最终答复显示
 ```
 
 ### 14.4 当前实现 vs 最终目标
@@ -614,6 +619,7 @@ class TokenEvent:
 | SSE 事件 | task_started(tasks) + chain_step | **task_started(phases DAG) + phase_change** |
 | 前端组件 | CollaborationView (面板) | **CollaborationPanel (DAG 图 + 进度)** |
 | Agent 气泡 | 同时创建, 独立渲染 | **同时创建 + 角色标签 + Phase 分组** |
+| 最终答复 | 无明确来源 | **结构化协作: 中枢总结气泡 + sourceType=orchestrator** |
 | 协作感 | 无 — Agent 互不知晓 | **有 — 对话流共享 + 定向注入** |
 
 ---
@@ -622,6 +628,8 @@ class TokenEvent:
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
+| 2026-06-01 | v1.5 | Grill Part 4: Orchestrator 中枢独立模型配置 |
+| 2026-06-01 | v1.4 | Grill Part 3: 自动项目小队、中枢总结、消息来源一等建模 |
 | 2026-06-01 | v1.3 | Grill Part 2: 混合 DAG、上下文共享、面板+气泡、phase_change 协议、最终交互设计 |
 | 2026-06-01 | v1.2 | 5 Step 实现完成: 组件独立化、Agent 元数据匹配、6 角色模板、自动链式、CollaborationView、超时/中断/全失败 |
 | 2026-06-01 | v1.1 | Grill 决议: 组件拆分, 链式运行时传递, V1 删除, 优先级链, 事件协议, 错误处理, 开发步骤 |

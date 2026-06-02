@@ -22,12 +22,15 @@
 - **Agent**: 用户创建的"AI联系人"，具有自定义名称、描述、system_prompt。多个 Agent 可能使用同一家模型厂商（DeepSeek/Gemini/GLM/MiniMax），但能力标签不同。Agent ≠ 模型厂商。
 - **Provider (模型厂商)**: 提供底层 LLM API 的服务商。当前可用: DeepSeek、Gemini、GLM（智谱）、MiniMax。Agent 通过 AgentConfig.provider 字段选择底层模型。
 - **Orchestrator**: 主 Agent 协调器，负责意图分析 → Agent 选择 → 任务拆解 → 角色分配 → 执行调度。**自动化优先**: 链式协作、角色分配等复杂决策由后端自动完成，不暴露给用户配置。
+- **自动项目小队**: Orchestrator 驱动的用户心智模型，一组 Agent 被组织成面向任务目标的临时协作团队。避免将其描述为普通群聊、手动链式开关或可编辑工作流。
 - **单聊模式**: 1v1 与单个 Agent 对话
 - **群聊模式**: 一个对话中包含多个 Agent，支持 @ 指定，Orchestrator 自动协调分工
 - **链式协作**: 多 Agent 按阶段顺序协作（规划→执行→审查→综合），由 Orchestrator 自动触发，动态分配角色
 - **协作角色**: 6 种模板角色 — planner/executor/reviewer/researcher/synthesizer/critic，Phase 3 模板驱动，Phase 4 升级 LLM 动态分配
 - **协作 DAG**: 有向无环图，描述一次协作中 Phase 间的依赖关系。Phase 间串行，Phase 内可并行。由 `SubTask.depends_on` 声明依赖，`ExecutionPlanner` 拓扑排序后分配 Phase。
 - **共享上下文 (SharedContext)**: 所有 Agent 可读的对话历史，Agent 完成后其产出自动追加。链式依赖的 Agent 额外接收前驱产出的定向注入。
+- **中枢总结**: Orchestrator 只在 DAG/chain 等多 Agent 结构化协作完成后生成的系统整理消息，用于汇总、去重、合并冲突并形成最终答复。中枢总结不是某个 Agent 的发言，普通并列群聊回复不自动追加。
+- **Orchestrator 模型配置**: Orchestrator 中枢使用独立的 `orchestratorProvider/orchestratorModel` 配置生成中枢总结，不借用任何成员 Agent 的 provider/model。
 - **CollaborationPanel**: 前端 DAG 可视化面板，展示协作流程的各 Phase 及其实时状态，替代当前的 CollaborationView。
 - **对话流共享**: Agent 产出实时追加到共享对话历史，后续 Agent 像群聊成员一样"看到前面的人说了什么"。
 - **定向注入**: Chain 模式下，依赖链上前驱的完整产出以 structured prompt 形式注入后继 Agent 的输入。
