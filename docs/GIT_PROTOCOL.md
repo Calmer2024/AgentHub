@@ -1,7 +1,8 @@
 # Git 协作规范
 
-**版本**: v1.0
+**版本**: v2.0
 **创建日期**: 2026-05-26
+**最后更新**: 2026-06-02
 **适用范围**: AgentHub 所有开发者（人类 + AI Agent）
 
 ---
@@ -22,40 +23,48 @@
 ### 2.1 分支模型
 
 ```
-main ─────────────────────────────────────────────────────▶
-  │
-  ├── phase/phase1-walking-skeleton ──── (当前)
-  │       └── feat/xxx
-  │       └── fix/xxx
-  │
-  ├── phase/phase2-xxx ──── (未来)
-  │
-  └── hotfix/xxx ──── (紧急修复，直接基于 main)
+main ───────────────────────────────────────────────────────────▶
+  │                                                              ↑
+  ├── phase/main ─────────────────────────────────────▶         │
+  │       │                                              │       │
+  │       ├── phase/phase3-smart-collab ──── (已完成)     │       │
+  │       │                                              │       │
+  │       ├── phase/phase4-xxx ──── (未来开发)            │       │
+  │       │       └── feat/xxx (小粒度功能)               │       │
+  │       │                                              │       │
+  │       └── fix/xxx (Bug 修复，基于 phase/main)         │       │
+  │                                                      │       │
+  └── hotfix/xxx ──── (紧急修复，基于 main) ─────────────┘       │
+                                                                  │
+  Phase 阶段验收通过后: phase/main ──merge commit──▶ main ───────┘
 ```
 
 ### 2.2 分支类型
 
 | 分支前缀 | 用途 | 命名示例 | 生命周期 |
 |---------|------|---------|---------|
-| `phase/` | 阶段性开发主线（长期分支） | `phase/phase1-walking-skeleton` | 整个 Phase |
-| `feat/` | 新功能开发（基于 `phase/` 分支） | `feat/sse-chat-endpoint` | 功能完成即可 |
-| `fix/` | Bug 修复 | `fix/sse-json-single-quotes` | 修复完成即可 |
-| `refactor/` | 重构（不改变行为） | `refactor/extract-chat-service` | 重构完成即可 |
+| `main` | 生产稳定分支 | `main` | 永久 |
+| `phase/main` | **唯一集成分支**，所有 Phase 开发的汇合点 | `phase/main` | 永久 |
+| `phase/<name>` | Phase 级功能开发（基于 `phase/main`） | `phase/phase3-smart-collab` | 功能完成、合并后删除 |
+| `feat/` | 小粒度新功能（基于 `phase/main` 或 `phase/<name>`） | `feat/sse-chat-endpoint` | 功能完成即可删除 |
+| `fix/` | Bug 修复 | `fix/sse-json-single-quotes` | 修复完成即可删除 |
+| `refactor/` | 重构（不改变行为） | `refactor/extract-chat-service` | 重构完成即可删除 |
 | `docs/` | 文档变更 | `docs/test-protocol` | 几小时 |
 | `hotfix/` | 紧急修复（基于 `main`） | `hotfix/api-key-leak` | 几小时 |
 
 ### 2.3 分支生命周期
 
 ```
-1. 从 phase/ 分支切出 feat/ 或 fix/
-2. 本地开发 → 小 commit 迭代
-3. 推到远程 → 创建 PR → Code Review
-4. 合并到 phase/ 分支（squash 或 rebase）
-5. 删除 feat/fix 分支
+开发阶段:
+1. 从 phase/main 切出 phase/<phase-name> 开发分支
+2. 本地开发 → 小 commit 迭代 → 推送到远程
+3. 开发完成后合并回 phase/main（fast-forward 或 merge commit）
+4. 删除 phase/<phase-name> 分支（本地 + 远程）
 
-Phase 完成时:
-6. phase/ 分支合并到 main（保留完整 history，merge commit）
-7. 在 main 上打 tag
+Phase 阶段验收通过后:
+5. phase/main 合并到 main（merge commit，保留完整 history）
+6. 在 main 上打 tag（如 v0.3.0）
+7. phase/main 继续作为下一 Phase 的集成分支
 ```
 
 ---
@@ -159,10 +168,10 @@ Phase 完成时:
 
 | 场景 | 策略 | 原因 |
 |------|------|------|
-| `feat/` → `phase/` | **Squash & Merge** | 保持 phase 分支历史干净 |
-| `phase/` → `main` | **Merge Commit** | 保留 Phase 级别的完整历史 |
+| `phase/<name>` → `phase/main` | **Fast-forward 或 Merge Commit** | 保留开发分支完整历史，合并后删除源分支 |
+| `phase/main` → `main` | **Merge Commit** (`--no-ff`) | 保留 Phase 级别的完整历史，可追溯版本演进 |
 | `hotfix/` → `main` | **Merge Commit** | 紧急修复必须可追溯 |
-| `main` 回退到 `phase/` | **Merge main → phase/** | 同步 hotfix 到开发分支 |
+| `hotfix/` 同步回 `phase/main` | **Merge main → phase/main** | 同步 hotfix 到集成分支 |
 
 ---
 
@@ -245,48 +254,74 @@ Desktop.ini
 
 ## 8. 常见场景操作指南
 
-### 8.1 开始新功能
+### 8.1 开始新 Phase 开发
 
 ```bash
-git checkout phase/phase1-walking-skeleton
-git pull
-git checkout -b feat/my-new-feature
-# 开发 → 多次 commit → 推送到远程
-git push -u origin feat/my-new-feature
-# 在 GitHub 创建 PR → base: phase/phase1-walking-skeleton
+# 1. 从 phase/main 切出开发分支
+git checkout phase/main
+git pull origin phase/main
+git checkout -b phase/phase4-new-feature
+
+# 2. 开发 → 多次 commit → 推送到远程
+git push -u origin phase/phase4-new-feature
+
+# 3. 在 GitHub 创建 PR → base: phase/main
 ```
 
-### 8.2 Phase 完成合并
+### 8.2 Phase 开发完成，合并回 phase/main
 
 ```bash
-# 1. 确保 phase 分支所有 PR 已合并
-git checkout phase/phase1-walking-skeleton
-git pull
+# 1. 确保开发分支所有改动已提交
+git checkout phase/phase4-new-feature
+git status  # 必须干净
 
 # 2. 运行全量测试
-cd backend && pytest test_api/ test_smoke.py -q
+cd backend && pytest test_api/ test_unit/ test_smoke.py -q
 cd frontend && npx tsc --noEmit && npx vitest run
 
-# 3. 合并到 main
+# 3. 合并到 phase/main
+git checkout phase/main
+git pull origin phase/main
+git merge phase/phase4-new-feature
+
+# 4. 推送并清理
+git push origin phase/main
+git branch -d phase/phase4-new-feature
+git push origin --delete phase/phase4-new-feature
+```
+
+### 8.3 阶段验收通过，phase/main → main
+
+```bash
+# 1. 确保 phase/main 是最新状态
+git checkout phase/main
+git pull origin phase/main
+
+# 2. 运行全量测试（再次验证）
+cd backend && pytest test_api/ test_unit/ test_smoke.py -q
+cd frontend && npx tsc --noEmit && npx vitest run
+
+# 3. 合并到 main（merge commit，保留完整历史）
 git checkout main
-git merge --no-ff phase/phase1-walking-skeleton -m "merge: Phase 1 行走骨架完成"
+git pull origin main
+git merge --no-ff phase/main -m "merge: Phase 3 增强功能完成"
 
 # 4. 打 tag
-git tag -a v0.1.0 -m "Phase 1: 行走骨架"
+git tag -a v0.3.0 -m "Phase 3: 智能协作 — Orchestrator V2 + DAG + 群聊流式"
 
 # 5. 推送
 git push origin main --tags
 ```
 
-### 8.3 紧急 Hotfix
+### 8.4 紧急 Hotfix
 
 ```bash
 git checkout main
 git checkout -b hotfix/urgent-fix
 # 修复 → commit → push → PR
 # 合并到 main 后:
-git checkout phase/phase1-walking-skeleton
-git merge main  # 同步 hotfix 到开发分支
+git checkout phase/main
+git merge main  # 同步 hotfix 到集成分支
 ```
 
 ### 8.4 撤销错误 commit（未推送）
@@ -439,3 +474,4 @@ AI Agent 在执行任何 Git 操作时，在上述三关之外还必须：
 | 日期 | 版本 | 变更 |
 |------|------|------|
 | 2026-05-26 | v1.0 | 初始版本，定义分支策略、Commit 规范、PR 流程、AI 提交规则 |
+| 2026-06-02 | v2.0 | 简化分支模型：`phase/main` 为唯一集成分支，所有 Phase 开发基于 `phase/main` 切分支，最终 `phase/main` → `main` |

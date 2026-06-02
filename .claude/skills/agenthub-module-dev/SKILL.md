@@ -10,17 +10,18 @@ description: AgentHub 项目标准模块开发流程。当用户要求开发新�
 ## 开发流程
 
 ### Step 0: 创建开发分支
-1. 确认当前所在 Phase 分支（如 `phase/phase1-walking-skeleton`）
-2. 如果该 Phase 的长期分支不存在，先从 main 或上一 Phase 分支创建：
+1. 确认当前在 `phase/main` 集成分支上，拉取最新代码：
    ```
-   git checkout -b phase/phase2-xxx <base-branch>
+   git checkout phase/main && git pull origin phase/main
    ```
-3. 从 Phase 分支创建功能分支：
+2. 从 `phase/main` 创建 Phase 开发分支（命名使用 `phase/` 前缀，而非 `feat/`）：
    ```
-   git checkout -b feat/<模块名> phase/phase2-xxx
+   git checkout -b phase/<phase-name> phase/main
    ```
+   示例：`phase/phase4-artifact-editing`、`phase/phase3-smart-collab`
+3. 小粒度功能可在 Phase 开发分支上再切 `feat/` 或 `fix/` 分支
 4. 分支命名遵循 `docs/GIT_PROTOCOL.md` 第 2 节规范
-5. **禁止直接在 phase 分支上开发**——所有开发必须在 `feat/` 或 `fix/` 分支上进行
+5. **禁止直接在 `phase/main` 上开发**——所有开发必须在 `phase/<name>` 分支上进行，开发完成后合并回 `phase/main`
 
 ### Step 1: 读取 Spec
 1. 在 `docs/specs/` 目录下找到对应模块的 Spec 文档
