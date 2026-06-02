@@ -21,6 +21,8 @@ Frontend (React) → API Gateway (FastAPI) → Service/Business Logic → Domain
 - Domain layer is pure logic: zero framework dependencies (no FastAPI, no SQLAlchemy).
 - Architecture grows on demand: Phase 1 only has 3 layers. New layers are introduced only when complexity forces it (see ADR-0004 trigger conditions).
 - Interface contracts (ADR-0005) are stable; implementations can change freely.
+- PRD-01 is the authority for the bottom agent architecture: AgentHub's target is CLI-wrapper orchestration of real physical tools such as Anthropic's `claude` CLI and open-source `opencode`, not a bare HTTP LLM API proxy. Current HTTP adapters are transitional/coexisting implementations until Phase 6.
+- Message actions must be real agent context, not UI-only state. Reply stores a quoted-message snapshot and injects `[Reply context]` into the prompt; Pin injects `[Pinned message]` via `ContextManager`.
 
 ---
 

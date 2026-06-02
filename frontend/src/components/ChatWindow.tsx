@@ -1,14 +1,16 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Message, AgentConfig, CollabTask, ChainStep, DAGPhase } from "../types";
 import { MessageBubble } from "./MessageBubble";
 import { ChatInput } from "./ChatInput";
 import { CollaborationPanel } from "./CollaborationPanel";
+import { SearchPanel } from "./SearchPanel";
 
 interface Props {
   messages: Message[];
   isStreaming: boolean;
   streamingError: string | null;
   currentAgent: AgentConfig | null;
+  currentSessionId: string;
   agents: AgentConfig[];
   mode: string;
   routeAgents: Array<{ id: string; name: string }> | null;
@@ -24,6 +26,9 @@ interface Props {
   onSend: (content: string, mentions: string[]) => void;
   onDismissError: () => void;
   onSwitchAgent: (agentId: string) => void;
+  onReply: (message: Message) => void;
+  onRegenerate: (message: Message) => void;
+  onTogglePin: (message: Message) => void;
 }
 
 const INTENT_LABELS: Record<string, string> = {
@@ -35,19 +40,41 @@ const INTENT_LABELS: Record<string, string> = {
 
 export function ChatWindow({
   messages, isStreaming, streamingError,
-  currentAgent, agents, mode, routeAgents, orchestratorIntent, planSummary, mentionableAgents,
+  currentAgent, currentSessionId, agents, mode, routeAgents, orchestratorIntent, planSummary, mentionableAgents,
   collabTasks, dagPhases, collabCompleted, collabSummary,
-  onSend, onDismissError, onSwitchAgent,
+  onSend, onDismissError, onSwitchAgent, onReply, onRegenerate, onTogglePin,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages, collabTasks, dagPhases]);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setSearchOpen(true);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const isGroup = mode === "group";
+  const messageById = useMemo(() => new Map(messages.map((m) => [m.id, m])), [messages]);
+
+  const jumpToMessage = (messageId: string) => {
+    const el = messageRefs.current[messageId];
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    setHighlightedMessageId(messageId);
+    window.setTimeout(() => setHighlightedMessageId((id) => (id === messageId ? null : id)), 2000);
+  };
 
   return (
-    <div className="flex-1 h-full min-h-0 flex flex-col">
+    <div className="relative flex-1 h-full min-h-0 flex flex-col overflow-hidden">
       {/* Header */}
       <div className="px-6 py-3 border-b border-gray-200 bg-white flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -58,6 +85,13 @@ export function ChatWindow({
           {isGroup && <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded">@提及 Agent</span>}
         </div>
         <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setSearchOpen(true)}
+            className="rounded-md border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
+          >
+            搜索
+          </button>
           {isStreaming && (
             <span className="inline-flex items-center gap-2 text-sm text-blue-600">
               <span className="relative flex h-2.5 w-2.5">
@@ -122,17 +156,36 @@ export function ChatWindow({
       )}
 
       {/* Messages area (scrollable) */}
-      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 bg-white">
+      <div ref={scrollRef} className="relative flex-1 min-h-0 overflow-y-auto p-4 md:p-6 bg-white">
         {messages.length === 0 && collabTasks.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-gray-500">
             <p className="text-lg">{isGroup ? "群聊开始，输入 @ 提及 Agent" : "开始对话吧"}</p>
           </div>
         ) : (
           messages.map((msg) => (
-            <MessageBubble key={msg.id} message={msg} isStreaming={isStreaming} />
+            <div key={msg.id} ref={(el) => { messageRefs.current[msg.id] = el; }}>
+              <MessageBubble
+                message={msg}
+                isStreaming={isStreaming}
+                parentMessage={msg.parentMessageId ? messageById.get(msg.parentMessageId) ?? null : null}
+                highlighted={highlightedMessageId === msg.id}
+                onReply={onReply}
+                onRegenerate={onRegenerate}
+                onTogglePin={onTogglePin}
+                onCopy={(content) => navigator.clipboard?.writeText(content)}
+                onJumpToMessage={jumpToMessage}
+              />
+            </div>
           ))
         )}
       </div>
+
+      <SearchPanel
+        sessionId={currentSessionId}
+        open={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        onJump={(_, messageId) => jumpToMessage(messageId)}
+      />
 
       {/* Agent selector (single chat only) */}
       {!isGroup && (

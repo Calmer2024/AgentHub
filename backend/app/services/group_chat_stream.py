@@ -31,7 +31,7 @@ class GroupChatStream:
 
     async def send(
         self, session_id: str, content: str, mentions: list[str] | None,
-        history: list[dict], session: DBSession, chain_config=None,
+        history: list[dict], pinned_message_ids: list[str], session: DBSession, chain_config=None,
     ) -> AsyncGenerator[str, None]:
         member_agents = await self._member_agents(session_id)
         if not member_agents:
@@ -50,6 +50,7 @@ class GroupChatStream:
             content=content,
             mentions=mentions,
             messages=history,
+            pinned_message_ids=pinned_message_ids,
             member_agents=member_agents,
             system_prompt="",
             context_budget=100_000,

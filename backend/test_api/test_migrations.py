@@ -5,13 +5,15 @@ from sqlalchemy import text
 
 @pytest.mark.asyncio
 async def test_all_migrations_applied(test_client):
-    """lifespan 触发后，7 个迁移全部记录在 _migrations_history。"""
+    """lifespan 触发后，全部迁移都记录在 _migrations_history。"""
     from app.database import AsyncSessionLocal
+    from migrations.migration_runner import MIGRATIONS_DIR
 
     async with AsyncSessionLocal() as s:
         r = await s.execute(text("SELECT COUNT(*) FROM _migrations_history"))
         count = r.scalar()
-        assert count == 7, f"预期 7 条迁移记录，实际 {count}"
+        expected = len([f for f in MIGRATIONS_DIR.iterdir() if f.suffix == ".sql"])
+        assert count == expected, f"预期 {expected} 条迁移记录，实际 {count}"
 
 
 @pytest.mark.asyncio
@@ -36,6 +38,11 @@ async def test_fts_triggers_created(test_client):
         triggers = {row[0] for row in r.fetchall()}
         for name in ("messages_fts_insert", "messages_fts_delete", "messages_fts_update"):
             assert name in triggers, f"触发器 {name} 缺失"
+
+        r = await s.execute(text(
+            "SELECT sql FROM sqlite_master WHERE type='trigger' AND name='messages_fts_update'"
+        ))
+        assert "AFTER UPDATE OF content" in (r.scalar() or "")
 
 
 @pytest.mark.asyncio

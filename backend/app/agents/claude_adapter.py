@@ -32,12 +32,13 @@ class ClaudeAdapter(BaseAgentAdapter):
         tools: list[dict] | None = None,
     ) -> AgentResponse:
         full_content = ""
+        transformed = [{"role": m["role"], "content": m["content"]} for m in messages]
 
         async with self.client.messages.stream(
             model=model or self.DEFAULT_MODEL,
             max_tokens=4096,
             system=system_prompt,
-            messages=messages,
+            messages=transformed,
         ) as stream:
             async for text in stream.text_stream:
                 full_content += text
@@ -53,11 +54,13 @@ class ClaudeAdapter(BaseAgentAdapter):
         model: str | None = None,
         tools: list[dict] | None = None,
     ) -> AsyncIterator[str]:
+        transformed = [{"role": m["role"], "content": m["content"]} for m in messages]
+
         async with self.client.messages.stream(
             model=model or self.DEFAULT_MODEL,
             max_tokens=4096,
             system=system_prompt,
-            messages=messages,
+            messages=transformed,
         ) as stream:
             async for text in stream.text_stream:
                 yield text

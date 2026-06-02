@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect, type FormEvent, type KeyboardEvent } from "react";
 import type { AgentConfig } from "../types";
+import { useChatStore } from "../stores/chatStore";
+import { ReplyPreview } from "./ReplyPreview";
 
 interface Props {
   onSubmit: (content: string, mentions: string[]) => void;
@@ -15,6 +17,7 @@ export function ChatInput({ onSubmit, disabled, mentionableAgents }: Props) {
   const [mentionPos, setMentionPos] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const { replyTarget, setReplyTarget } = useChatStore();
 
   useEffect(() => {
     if (showMentions && listRef.current) {
@@ -109,6 +112,11 @@ export function ChatInput({ onSubmit, disabled, mentionableAgents }: Props) {
               </button>
             ))
           )}
+        </div>
+      )}
+      {replyTarget && (
+        <div className="mb-3">
+          <ReplyPreview message={replyTarget} onClear={() => setReplyTarget(null)} />
         </div>
       )}
       <div className="flex gap-3">

@@ -64,6 +64,9 @@ class TestAssemble:
             pinned_message_ids=["2"], max_tokens=100000,
         ))
         assert "2" in result.pinned_included
+        pinned_msg = [m for m in result.assembled_messages if m.get("id") == "2"][0]
+        assert "[Pinned message]" in pinned_msg["content"]
+        assert "important" in pinned_msg["content"]
 
     def test_pin_budget_limit(self):
         cm = ContextManager()
@@ -75,6 +78,34 @@ class TestAssemble:
         ))
         # 不是所有 pin 都能放进去（token 预算有限）
         assert len(result.pinned_included) < 10
+
+    def test_current_reply_reference_survives_history_truncation(self):
+        cm = ContextManager()
+        msgs = [
+            {"role": "user", "content": "old " * 800, "id": "old"},
+            {
+                "role": "user",
+                "content": "[Reply context]\n用户引用了以下历史消息。\n内容:\n关键引用内容",
+                "id": "reply-context-current",
+                "context_priority": "current_reference",
+            },
+            {
+                "role": "user",
+                "content": "当前问题",
+                "id": "current",
+                "context_priority": "current_turn",
+            },
+        ]
+        result = cm.assemble(PromptAssemblyInput(
+            session_id="s1", system_prompt="sys", messages=msgs,
+            max_tokens=80, reserve_tokens=0,
+        ))
+
+        prompt_text = "\n".join(m["content"] for m in result.assembled_messages)
+        assert "old old" not in prompt_text
+        assert "关键引用内容" in prompt_text
+        assert "当前问题" in prompt_text
+        assert result.truncated
 
 
 class TestEdgeCases:

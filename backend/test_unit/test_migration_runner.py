@@ -69,22 +69,24 @@ class TestMigrationRunner:
         assert result.fetchone() is not None
 
     async def test_run_applies_all_migrations(self, conn):
-        from migrations.migration_runner import run
+        from migrations.migration_runner import MIGRATIONS_DIR, run
         await run(conn)
 
         result = await conn.execute(text("SELECT filename FROM _migrations_history ORDER BY filename"))
         executed = [row[0] for row in result.fetchall()]
-        assert len(executed) == 7
+        expected = [f.name for f in sorted(MIGRATIONS_DIR.iterdir()) if f.suffix == ".sql"]
+        assert executed == expected
         assert executed[0] == "001_add_message_parent_id.sql"
 
     async def test_rerun_skips_already_executed(self, conn):
-        from migrations.migration_runner import run
+        from migrations.migration_runner import MIGRATIONS_DIR, run
         await run(conn)
         await run(conn)
 
         result = await conn.execute(text("SELECT COUNT(*) FROM _migrations_history"))
         count = result.fetchone()[0]
-        assert count == 7
+        expected_count = len([f for f in MIGRATIONS_DIR.iterdir() if f.suffix == ".sql"])
+        assert count == expected_count
 
     async def test_migrations_add_expected_columns(self, conn):
         from migrations.migration_runner import run
@@ -123,3 +125,9 @@ class TestMigrationRunner:
         assert "messages_fts_insert" in triggers
         assert "messages_fts_delete" in triggers
         assert "messages_fts_update" in triggers
+
+        result = await conn.execute(text(
+            "SELECT sql FROM sqlite_master WHERE type='trigger' AND name='messages_fts_update'"
+        ))
+        trigger_sql = result.scalar() or ""
+        assert "AFTER UPDATE OF content" in trigger_sql

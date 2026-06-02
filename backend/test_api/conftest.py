@@ -44,6 +44,8 @@ async def _lifespan():
             await conn.exec_driver_sql("PRAGMA journal_mode=WAL")
             await conn.commit()
         yield
+    from app.database import engine
+    await engine.dispose()
 
 
 @pytest_asyncio.fixture(loop_scope="function", autouse=True)
@@ -102,6 +104,7 @@ async def test_client(_lifespan, _cleanup_db):
             yield client
 
             app.dependency_overrides.clear()
+            await session.close()
 
     agent_registry._adapters = original_adapters
 
@@ -114,6 +117,7 @@ async def db_session(test_client):
     async with engine.connect() as conn:
         s = AsyncSession(bind=conn, expire_on_commit=False)
         yield s
+        await s.close()
 
 
 @pytest_asyncio.fixture

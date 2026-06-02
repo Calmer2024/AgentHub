@@ -2,11 +2,20 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
-import type { Message } from "../types";
+import type { Message, ReplyReference } from "../types";
+import { MessageActions } from "./MessageActions";
+import { ReplyPreview } from "./ReplyPreview";
 
 interface Props {
   message: Message;
   isStreaming: boolean;
+  parentMessage?: Message | null;
+  highlighted?: boolean;
+  onReply: (message: Message) => void;
+  onRegenerate: (message: Message) => void;
+  onTogglePin: (message: Message) => void;
+  onCopy: (content: string) => void;
+  onJumpToMessage: (messageId: string) => void;
 }
 
 const ROLE_LABELS: Record<string, string> = {
@@ -27,6 +36,24 @@ const ROLE_STYLES: Record<string, string> = {
   critic: "border-red-400 bg-red-50 text-red-700",
 };
 
+function replyReference(message: Message): ReplyReference | null {
+  const ref = message.metadata?.replyReference;
+  if (!ref || typeof ref !== "object") return null;
+  const data = ref as Record<string, unknown>;
+  if (typeof data.id !== "string" || typeof data.content !== "string") return null;
+  const role = data.role === "user" || data.role === "assistant" || data.role === "system"
+    ? data.role
+    : undefined;
+  return {
+    id: data.id,
+    role,
+    content: data.content,
+    agentName: typeof data.agentName === "string" ? data.agentName : null,
+    sourceName: typeof data.sourceName === "string" ? data.sourceName : null,
+    createdAt: typeof data.createdAt === "string" ? data.createdAt : undefined,
+  };
+}
+
 function TypingIndicator() {
   return (
     <span className="inline-flex items-center gap-1 px-1 py-1">
@@ -37,7 +64,10 @@ function TypingIndicator() {
   );
 }
 
-export function MessageBubble({ message, isStreaming }: Props) {
+export function MessageBubble({
+  message, isStreaming, parentMessage, highlighted = false,
+  onReply, onRegenerate, onTogglePin, onCopy, onJumpToMessage,
+}: Props) {
   const isUser = message.role === "user";
   const isEmpty = message.content === "";
   const showTyping = !isUser && isEmpty && isStreaming;
@@ -56,12 +86,28 @@ export function MessageBubble({ message, isStreaming }: Props) {
   const agentColors = ["bg-green-100 text-green-700", "bg-orange-100 text-orange-700", "bg-purple-100 text-purple-700", "bg-pink-100 text-pink-700", "bg-teal-100 text-teal-700", "bg-indigo-100 text-indigo-700", "bg-cyan-100 text-cyan-700", "bg-amber-100 text-amber-700"];
   const colorIdx = message.agentName ? [...message.agentName].reduce((s, c) => s + c.charCodeAt(0), 0) % agentColors.length : 0;
   const agentColor = agentColors[colorIdx];
+  const hasPreviousVersion = Array.isArray(message.metadata?.versions)
+    && message.metadata.versions.length > 0;
+  const versions = (message.metadata?.versions ?? []) as Array<{ content?: string }>;
+  const previousVersion = hasPreviousVersion
+    ? String(versions[versions.length - 1]?.content ?? "")
+    : "";
+  const referencedMessage = parentMessage ?? replyReference(message);
 
   return (
-    <div className={`flex mb-4 ${isUser ? "justify-end" : "justify-start"}`}>
-      <div className={`${isSummary ? "max-w-[92%]" : "max-w-[80%]"} ${
+    <div className={`group relative flex mb-4 scroll-mt-6 ${isUser ? "justify-end" : "justify-start"} ${
+      highlighted ? "rounded-xl bg-yellow-100/70 ring-2 ring-yellow-300" : ""
+    }`}>
+      <div className={`${isSummary ? "max-w-[92%]" : "max-w-[80%]"} relative ${
         isSummary ? summaryClass : isCollaborating && !isUser ? `border-l-4 ${roleStyle}` : bgClass
       } ${roundClass}`}>
+        <MessageActions
+          message={message}
+          onReply={onReply}
+          onRegenerate={onRegenerate}
+          onTogglePin={onTogglePin}
+          onCopy={onCopy}
+        />
         {!isUser && isSummary && (
           <div className="sticky top-0 z-10 px-3 py-2 text-xs font-semibold rounded-t-2xl bg-indigo-100/95 text-indigo-900 border-b border-indigo-200 shadow-sm">
             <span>系统整理</span>
@@ -82,6 +128,18 @@ export function MessageBubble({ message, isStreaming }: Props) {
           </div>
         )}
         <div className="px-4 py-3">
+        {message.isPinned && (
+          <div className={`mb-2 text-xs font-medium ${isUser ? "text-blue-100" : "text-blue-600"}`}>
+            Pin
+          </div>
+        )}
+        {message.parentMessageId && (
+          <ReplyPreview
+            message={referencedMessage}
+            compact
+            onJump={onJumpToMessage}
+          />
+        )}
         {showTyping ? (
           <TypingIndicator />
         ) : isEmpty ? (
@@ -130,6 +188,12 @@ export function MessageBubble({ message, isStreaming }: Props) {
               {message.content}
             </ReactMarkdown>
           </div>
+        )}
+        {hasPreviousVersion && previousVersion && (
+          <details className="mt-3 rounded-md bg-white/70 px-3 py-2 text-xs text-slate-600">
+            <summary className="cursor-pointer font-medium">查看原版</summary>
+            <p className="mt-2 whitespace-pre-wrap">{previousVersion}</p>
+          </details>
         )}
         </div>
       </div>

@@ -1,7 +1,10 @@
-# Spec: Phase 3.8 — Store 拆分 + 体验收尾
+# Spec: Phase 7D — Store 拆分 + 体验收尾
 
-**版本**: v1.0 | **状态**: Draft
-**依赖**: Module 2-7 全部完成
+**版本**: v2.0
+**创建日期**: 2026-05-28 (v1.0), 2026-06-02 (v2.0 重组)
+**状态**: Draft
+**关联**: [PRD-03: User Experience](../../PRD/03-User_Experience.md)
+**依赖**: Phase 4 + Phase 5 + Phase 6 全部完成
 
 ## 1. 范围
 

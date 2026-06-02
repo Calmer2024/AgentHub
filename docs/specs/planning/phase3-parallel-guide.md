@@ -1,8 +1,11 @@
-# Phase 3 并行开发指南
+# Phase 3 并行开发指南 (历史参考)
+
+> ⚠️ **本文档为历史规划文档**，内容已被 [ADR-0008](../../adr/0008-revised-development-strategy.md) 替代。
+> 并行开发策略已被**功能板块制**取代——每个 Phase 独立串行完成，不再使用跨模块并行模式。
 
 **版本**: v1.0
 **创建日期**: 2026-05-28
-**目标读者**: 开发团队成员、AI Agent
+**状态**: Superseded by ADR-0008
 
 ---
 
@@ -175,8 +178,8 @@ class ArtifactService:
 | M1 | [phase3.1-infrastructure-spec.md](phase3.1-infrastructure-spec.md) | ADR-0005 |
 | M2 | [phase3.2-message-actions-spec.md](phase3.2-message-actions-spec.md) | - |
 | M3 | [phase3.3-message-search-spec.md](phase3.3-message-search-spec.md) | - |
-| M4 | [orchestrator/01-architecture.md](orchestrator/01-architecture.md) | **[ADR-0008](../adr/0008-orchestrator-architecture.md)** |
-| M5 | [orchestrator/04-execution-engine.md](orchestrator/04-execution-engine.md) | ADR-0008 §4.4 |
+| M4 | [orchestrator/01-architecture.md](orchestrator/01-architecture.md) | **[ADR-0007](../adr/0007-orchestrator-architecture.md)** |
+| M5 | [orchestrator/04-execution-engine.md](orchestrator/04-execution-engine.md) | ADR-0007 §4.4 |
 | M6 | [phase3.6-artifact-versioning-spec.md](phase3.6-artifact-versioning-spec.md) | - |
 | M7 | [phase3.7-artifact-editing-spec.md](phase3.7-artifact-editing-spec.md) | ADR-0005 §3 (BaseAgentAdapter tools) |
 | M8 | [phase3.8-integration-spec.md](phase3.8-integration-spec.md) | - |

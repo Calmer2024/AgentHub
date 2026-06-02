@@ -56,11 +56,14 @@ class ContextManager:
 
         # 分类消息
         pinned = []
+        priority = []
         normal = []
         pin_ids = set(input.pinned_message_ids)
         for m in input.messages:
             if m.get("id") in pin_ids:
                 pinned.append(m)
+            elif m.get("context_priority") in {"current_reference", "current_turn"}:
+                priority.append(m)
             else:
                 normal.append(m)
 
@@ -69,6 +72,7 @@ class ContextManager:
 
         result = []
         total_tokens = 0
+        truncated = False
         pinned_included: list[str] = []
 
         # System prompt
@@ -77,15 +81,30 @@ class ContextManager:
 
         # Pin 消息（保留最近的消息优先）
         for m in reversed(pinned):
-            t = self.estimate_tokens([m])
+            marked = self._pinned_context_message(m)
+            t = self.estimate_tokens([marked])
             if total_tokens + t > pinned_budget:
                 break
-            result.insert(0, m)
+            result.insert(0, marked)
             total_tokens += t
             pinned_included.append(m.get("id", ""))
 
+        # 当前用户消息和当前引用块优先保留，确保用户显式操作能被 Agent 感知。
+        for m in reversed(priority):
+            t = self.estimate_tokens([m])
+            if total_tokens + t > available:
+                truncated = True
+                clipped = self._clip_message_to_remaining(m, available - total_tokens)
+                if not clipped:
+                    continue
+                m = clipped
+                t = self.estimate_tokens([m])
+                if total_tokens + t > available:
+                    continue
+            result.insert(0, m)
+            total_tokens += t
+
         # 非 Pin 消息按 FIFO 从最近开始填充
-        truncated = False
         for m in reversed(normal):
             t = self.estimate_tokens([m])
             if total_tokens + t > available:
@@ -103,3 +122,33 @@ class ContextManager:
             truncated=truncated,
             pinned_included=pinned_included,
         )
+
+    @staticmethod
+    def _pinned_context_message(message: dict) -> dict:
+        marked = dict(message)
+        content = str(marked.get("content", ""))
+        marked["content"] = (
+            "[Pinned message]\n"
+            "用户固定了这条历史消息。回答时请把它视为长期重要上下文，"
+            "尤其在上下文被截断时仍应优先参考。\n"
+            f"{content}"
+        )
+        marked["is_pinned_context"] = True
+        return marked
+
+    def _clip_message_to_remaining(
+        self, message: dict, remaining_tokens: int | float,
+    ) -> dict | None:
+        if remaining_tokens <= 1:
+            return None
+        max_chars = int(remaining_tokens * self.CHARS_PER_TOKEN) - 80
+        if max_chars <= 0:
+            return None
+        clipped = dict(message)
+        content = str(clipped.get("content", ""))
+        clipped["content"] = (
+            content[:max_chars].rstrip()
+            + "\n[内容因 token 预算被截断]"
+        )
+        clipped["context_truncated"] = True
+        return clipped

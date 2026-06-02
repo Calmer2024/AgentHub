@@ -180,6 +180,52 @@ class TestGroupSession:
         assert not any(m.get("sourceType") == "orchestrator" for m in msgs)
         assert not any(m.get("contentType") == "orchestrator_summary" for m in msgs)
 
+    async def test_group_chat_passes_pinned_ids_to_orchestrator(
+        self, test_client, test_agent, db_session, monkeypatch,
+    ):
+        """Phase 4: 群聊也必须把 Pin 消息接入 Orchestrator ContextAssembly。"""
+        from app.models import AgentConfig, Message
+        from app.domain.orchestrator_v2 import OrchestratorV2
+
+        agent2 = AgentConfig(id=str(uuid.uuid4()), name="A2", provider="deepseek", model="d")
+        db_session.add(agent2)
+        await db_session.commit()
+
+        res = await test_client.post("/api/sessions", json={
+            "mode": "group", "agentConfigIds": [test_agent.id, agent2.id],
+        })
+        sid = res.json()["id"]
+        pinned = Message(
+            id=str(uuid.uuid4()),
+            session_id=sid,
+            role="user",
+            content="必须保留的背景",
+            source_type="user",
+            source_name="用户",
+            is_pinned="1",
+        )
+        db_session.add(pinned)
+        await db_session.commit()
+
+        seen: list[list[str]] = []
+        original_run = OrchestratorV2.run
+
+        async def spy_run(self, req):
+            seen.append(list(req.pinned_message_ids))
+            return await original_run(self, req)
+
+        monkeypatch.setattr(OrchestratorV2, "run", spy_run)
+
+        resp = await test_client.post(
+            f"/api/sessions/{sid}/chat",
+            json={"content": "Hello"},
+        )
+        assert resp.status_code == 200
+        async for _line in resp.aiter_lines():
+            pass
+
+        assert seen and pinned.id in seen[0]
+
     async def test_group_chat_dag_sse_protocol(self, test_client, test_agent, db_session):
         """复杂多阶段请求应返回 DAG task_started + phase_change 协议。"""
         from app.models import AgentConfig

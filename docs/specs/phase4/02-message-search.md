@@ -1,9 +1,11 @@
-# Spec: Phase 3.3 — 消息搜索
+# Spec: Phase 4B — 消息搜索
 
-**版本**: v1.0 | **状态**: Draft
-**关联**: [Phase 3 Spec](phase3-enhancements-spec.md) §5.3.4
-**依赖**: Module 1 (FTS5 虚拟表 + 触发器)
-**可并行**: ✅ 与 Module 2
+**版本**: v2.0
+**创建日期**: 2026-05-28 (v1.0), 2026-06-02 (v2.0 重组)
+**状态**: Completed
+**完成日期**: 2026-06-02
+**关联**: [PRD-04: Data & API](../../PRD/04-Data_API_Contracts.md) §4 (全文检索 FTS5)
+**依赖**: Phase 3 (FTS5 虚拟表 + 触发器已在迁移中创建)
 
 ## 1. API
 
@@ -34,6 +36,8 @@ async def search_messages(session_id, query, limit=20) -> list[MessageRead]:
         )
 ```
 
+实际实现还会在 FTS5 返回空结果时尝试 LIKE fallback，以保证中文关键词在 `unicode61` 分词边界下仍可检索。
+
 ## 3. 前端: SearchPanel.tsx
 
 - 快捷键 `Ctrl+K` / `Cmd+K` 打开
@@ -43,13 +47,14 @@ async def search_messages(session_id, query, limit=20) -> list[MessageRead]:
 
 ## 4. 验收标准
 
-- [ ] 输入关键词 → 匹配结果显示高亮片段
-- [ ] 点击结果 → 跳转到对应消息并闪烁
-- [ ] FTS5 异常 → LIKE fallback 仍可用
-- [ ] 快捷键 Ctrl+K 打开搜索面板
+- [x] 输入关键词 → 匹配结果显示高亮片段
+- [x] 点击结果 → 跳转到对应消息并闪烁
+- [x] FTS5 异常/空结果 → LIKE fallback 仍可用
+- [x] 快捷键 Ctrl+K 打开搜索面板
 
 ## 5. 测试
 
 - API: FTS5 搜索、LIKE fallback、空结果
 - 前端: SearchPanel 渲染、结果列表、点击跳转
-- 目标: 10 条
+- 已覆盖: `test_messages_phase4.py`, `test_phase4_acceptance.py`, `SearchPanel.test.tsx`
+- 真实验收: `e2e/phase4_real_acceptance.py`

@@ -1,0 +1,144 @@
+# AgentHub 文档中心
+
+> 本文档是 `docs/` 目录的总索引，说明每一份文档和子目录的作用，帮助新成员快速定位所需信息。
+
+---
+
+## 目录结构
+
+```
+docs/
+├── README.md                    ← 本文件
+├── GIT_PROTOCOL.md              ← Git 协作规范
+├── TEST_PROTOCOL.md             ← 通用测试协议
+│
+├── PRD/                         ← 产品需求文档 (权威需求源)
+├── adr/                         ← 架构决策记录
+├── specs/                       ← 功能规格文档 (按 Phase 组织)
+├── dev-logs/                    ← 开发日志
+├── audit/                       ← 阶段性审计报告
+├── testing/                     ← 测试规范
+└── archive/                     ← 已废弃的历史文档
+```
+
+---
+
+## 快速导航
+
+### 我想了解产品要做什么
+→ 从 [PRD/00-Master_Hub.md](PRD/00-Master_Hub.md) 开始，然后按编号阅读其余 4 篇。
+
+### 我想了解项目现在的状态
+→ 看 [CONTEXT.md](../CONTEXT.md) 的 Phase 表格，然后看 [audit/phase3-audit-report.md](audit/phase3-audit-report.md)。
+
+### 我要开发 Phase 5
+→ 进入 [specs/phase5/](specs/phase5/) 目录，先读 README.md 了解验收标准，再读具体 Spec 了解接口契约。
+
+### 我想理解为什么要这样设计
+→ 进入 [adr/](adr/) 目录，按编号顺序阅读架构决策记录。
+
+### 我想跑测试
+→ 看 [TEST_PROTOCOL.md](TEST_PROTOCOL.md)（通用协议）+ [testing/UX_TEST_SPEC.md](testing/UX_TEST_SPEC.md)（UX 测试规范）。
+
+---
+
+## 各目录详解
+
+### PRD/ — 产品需求文档
+
+**权威级别**: 最高。所有功能开发的最终依据。
+
+| 文件 | 内容 | 读者 |
+|------|------|------|
+| [00-Master_Hub.md](PRD/00-Master_Hub.md) | 产品愿景、北极星指标、成功衡量、非目标边界 | 所有人 |
+| [01-Architecture_Adapter.md](PRD/01-Architecture_Adapter.md) | CLI Agent 封装：PTY 进程管理、ANSI 清洗、交互拦截 | 架构师、后端 |
+| [02-Orchestrator_Engine.md](PRD/02-Orchestrator_Engine.md) | 调度引擎：DAG 拆解、状态机、Human-in-the-loop | 后端、AI 工程师 |
+| [03-User_Experience.md](PRD/03-User_Experience.md) | 界面原型：三栏布局、资产卡片、产物抽屉、审批卡片 | 设计师、前端 |
+| [04-Data_API_Contracts.md](PRD/04-Data_API_Contracts.md) | 数据模型 (agents/sessions/messages/tasks)、REST/SSE API | 全栈开发 |
+
+### adr/ — 架构决策记录
+
+**权威级别**: 高。记录"做了什么决策 + 为什么"，是架构演进的审计线索。
+
+| 编号 | 文件 | 决策主题 |
+|------|------|---------|
+| ADR-0001 | [0001-tech-stack-selection.md](adr/0001-tech-stack-selection.md) | 技术栈选型 (React/FastAPI/SQLite) |
+| ADR-0002 | [0002-directory-structure.md](adr/0002-directory-structure.md) | 项目目录结构规范 |
+| ADR-0003 | [0003-vibe-coding-philosophy.md](adr/0003-vibe-coding-philosophy.md) | 结构化 Vibe Coding 模式 |
+| ADR-0004 | [0004-development-methodology.md](adr/0004-development-methodology.md) | 架构跑道 + 行走骨架 + 增量交付 |
+| ADR-0005 | [0005-target-architecture.md](adr/0005-target-architecture.md) | 7 层目标架构 + 核心接口契约 |
+| ADR-0006 | [0006-ai-collaboration-system.md](adr/0006-ai-collaboration-system.md) | AI 协作体系: Rules/Spec/Skill |
+| ADR-0007 | [0007-orchestrator-architecture.md](adr/0007-orchestrator-architecture.md) | Orchestrator 架构: Pipeline + DAG |
+| ADR-0008 | [0008-revised-development-strategy.md](adr/0008-revised-development-strategy.md) | **🆕** 功能板块制 + Phase 4-7 路线图 |
+
+**阅读建议**: 新成员按编号顺序读。开发者遇到设计疑问时，先查对应 ADR 是否有记录。
+
+### specs/ — 功能规格文档
+
+**权威级别**: 高。每个 Phase 的"完工标准"，人和 AI 共同的验收依据。
+
+| 目录 | Phase | 状态 | 一句话描述 |
+|------|-------|------|-----------|
+| [phase1/](specs/phase1/) | Walking Skeleton | ✅ | 单聊全链路可运行 |
+| [phase2/](specs/phase2/) | Core Features | ✅ | 多 Agent + 群聊 + 产物基础 |
+| [phase3/](specs/phase3/) | Orchestrator + Infrastructure | ✅ | EventBus + Pipeline + DAG + CollaborationPanel |
+| [phase4/](specs/phase4/) | 消息交互闭环 | ✅ | Reply/Regenerate/Pin + FTS5 搜索 |
+| [phase5/](specs/phase5/) | 产物深度管理 | 📋 | 版本链 + Diff + 在线编辑 |
+| [phase6/](specs/phase6/) | CLI 适配器 | 📋 | PTY 进程管理 + ANSI 清洗 + 交互拦截 |
+| [phase7/](specs/phase7/) | UX 体验闭环 | 📋 | 三栏布局 + 产物抽屉 + 审批卡片 |
+| [planning/](specs/planning/) | 历史规划 | 📦 | 旧的 Phase 3 模块化计划 (已被 ADR-0008 取代) |
+
+每个 Phase 目录下都有独立的 `README.md`，包含验收标准清单和子模块索引。
+
+**Spec 模板**: [SPEC_TEMPLATE.md](specs/SPEC_TEMPLATE.md) — 新建模块 Spec 时照此填写。
+
+### dev-logs/ — 开发日志
+
+记录每个 Phase 的时间线、关键决策、Bug 与教训。用于复盘和知识传承。
+
+| 文件 | 内容 |
+|------|------|
+| [phase1-dev-log.md](dev-logs/phase1-dev-log.md) | Phase 1: 时间线、Bug (camelCase/snake_case 不一致、测试污染 .env) |
+| [phase2-dev-log.md](dev-logs/phase2-dev-log.md) | Phase 2: WebSocket 心跳、群聊 token 路由、Orchestrator V1 架构违规 |
+| [phase3-dev-log.md](dev-logs/phase3-dev-log.md) | Phase 3: 6 天时间线、6 个关键 Bug、4 次 Grill Session、测试覆盖演变 |
+
+### audit/ — 审计报告
+
+阶段性质量审计，对照 PRD 检查完成度、架构符合性和文档健康度。
+
+| 文件 | 内容 |
+|------|------|
+| [phase3-audit-report.md](audit/phase3-audit-report.md) | Phase 3 全面审计：PRD 符合性矩阵、架构偏离分析、模块完成度、文档债 |
+
+### testing/ — 测试规范
+
+| 文件 | 内容 |
+|------|------|
+| [UX_TEST_SPEC.md](testing/UX_TEST_SPEC.md) | UX 交互测试：6 状态模型 (空/加载/正常/完成/错误/边界)、Chat 检查清单、P0-P3 缺陷分级 |
+
+### archive/ — 历史文档归档
+
+存放已被取代或不再适用的文档，仅作历史参考。
+
+| 文件 | 原用途 | 取代者 |
+|------|--------|--------|
+| AgentHub-多Agent协作平台设计.md | 早期课题设计文档 | PRD/ 目录 |
+| Trae.md | Trae IDE 使用说明 | 不再维护 |
+
+---
+
+## 根目录文件
+
+### GIT_PROTOCOL.md
+Git 协作规范：分支策略 (phase/main 唯一集成分支)、Commit 格式 (`[ai] type: desc`)、AI 提交前必须人工验收的规则。
+
+### TEST_PROTOCOL.md
+通用测试协议：测试金字塔定义、工具链 (pytest/vitest/Playwright)、环境要求、Bug 修复后回归测试流程、Mock 使用原则。
+
+---
+
+## 相关入口
+
+- 项目入口：[CONTEXT.md](../CONTEXT.md) — 领域术语、架构总览、完整文档索引
+- AI 规则：[CLAUDE.md](../CLAUDE.md) — AI Agent 行为约束
+- 人看的总览：[PROJECT_OVERVIEW.md](../PROJECT_OVERVIEW.md) — 项目是什么、怎么做

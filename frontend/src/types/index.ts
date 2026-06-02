@@ -1,3 +1,12 @@
+export interface ReplyReference {
+  id: string;
+  role?: "user" | "assistant" | "system";
+  content: string;
+  agentName?: string | null;
+  sourceName?: string | null;
+  createdAt?: string;
+}
+
 export interface Session {
   id: string;
   title: string;
@@ -22,6 +31,9 @@ export interface Message {
   phase?: number | null;
   taskName?: string | null;
   isCollaborating?: boolean;
+  parentMessageId?: string | null;
+  isPinned?: boolean;
+  highlight?: string | null;
   createdAt: string;
 }
 

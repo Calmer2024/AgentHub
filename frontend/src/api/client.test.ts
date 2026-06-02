@@ -58,6 +58,24 @@ describe("createChatStream", () => {
     expect(onTaskStarted.mock.calls[0][3]).toBe("已安排: 先由@架构师规划。");
   });
 
+  it("发送引用消息时带上 parentMessageId", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(sseResponse([
+      JSON.stringify({ token: "", done: true, messageId: "m2" }),
+    ]));
+
+    createChatStream("s1", "hello", [], {
+      onToken: vi.fn(),
+      onDone: vi.fn(),
+    }, undefined, "m-parent");
+
+    await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
+    const init = vi.mocked(globalThis.fetch).mock.calls[0][1] as RequestInit;
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      content: "hello",
+      parentMessageId: "m-parent",
+    });
+  });
+
   it("解析 Orchestrator 中枢总结流", async () => {
     const onStart = vi.fn();
     const onToken = vi.fn();

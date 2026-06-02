@@ -1,9 +1,14 @@
-# Phase 3 模块化开发计划
+# Phase 3 模块化开发计划 (历史参考)
+
+> ⚠️ **本文档为历史规划文档**，内容已被 [ADR-0008](../../adr/0008-revised-development-strategy.md) 替代。
+> 其中的 `phase3-enhancements-spec.md` 从未作为独立文件创建——Phase 3 的实际 Spec 分散在 `phase3.1-3.8` 各独立文件中，
+> 现在位于 [docs/specs/phase3/](../phase3/) 和 [docs/specs/phase4/](../phase4/) 等目录。
+> 保留此文档仅供了解 Phase 3 开发过程的历史背景。
 
 **版本**: v1.0
 **创建日期**: 2026-05-28
-**状态**: Draft
-**关联**: [Phase 3 Spec](phase3-enhancements-spec.md), ADR-0005, ADR-0008
+**状态**: Superseded by ADR-0008
+**关联**: [ADR-0008](../../adr/0008-revised-development-strategy.md), ADR-0005, ADR-0007
 
 ---
 
@@ -19,7 +24,7 @@
 Module 1 ─── 基础设施 (已完成)
   ├─ Module 2 ─── 消息操作 (reply/regenerate/pin)
   ├─ Module 3 ─── 消息搜索 (FTS5)         ← 可与 Module 2 并行
-  ├─ Module 4 ─── Orchestrator 核心        ← 高复杂度，需 ADR-0008
+  ├─ Module 4 ─── Orchestrator 核心        ← 高复杂度，需 ADR-0007
   │     ├─ Module 5 ─── 链式协作
   │     └─ (ContextManager 集成内嵌于 M4)
   ├─ Module 6 ─── 产物版本 + Diff
@@ -84,7 +89,7 @@ async def search_messages(session_id: str, query: str, limit: int = 20) -> list[
 |------|------|
 | **范围** | Pipeline 四阶段, 意图分析, Agent 元数据匹配, 任务拆解+6角色, 自动链式, SSE 生命周期事件, ContextManager 集成 |
 | **设计文档** | **[docs/specs/orchestrator/](orchestrator/README.md)** — 9 篇完整设计文档 |
-| **架构 ADR** | **[ADR-0008](../adr/0008-orchestrator-architecture.md)** |
+| **架构 ADR** | **[ADR-0007](../adr/0007-orchestrator-architecture.md)** |
 | **状态** | ✅ **Phase 3.4 + 3.5 已交付** (Pipeline + 组件 + Chain + 错误处理) |
 | **测试** | 122 backend + 9 frontend + 23 E2E = 154 条 |
 | **遗留** | Phase 3.6 DAG 混合调度 (见 [orchestrator/08-dev-plan.md](orchestrator/08-dev-plan.md)) |
@@ -204,7 +209,7 @@ Developer B: M3 (搜索, 与 M2 同时) → M6 (产物版本) → M7 (产物编�
 | M1 | 保留在 `phase3-enhancements-spec.md` §2-4,§7,§13 |
 | M2 | 保留在 `phase3-enhancements-spec.md` §3.1(消息操作),§5.3.1-5.3.3 |
 | M3 | 保留在 `phase3-enhancements-spec.md` §3.1(搜索),§5.3.4 |
-| M4 | **→ [ADR-0008](../adr/0008-orchestrator-architecture.md)** (独立深度设计) |
+| M4 | **→ [ADR-0007](../adr/0007-orchestrator-architecture.md)** (独立深度设计) |
 | M5 | 保留在 `phase3-enhancements-spec.md` §5.1.3 |
 | M6 | 保留在 `phase3-enhancements-spec.md` §3.1(产物),§5.2.1 |
 | M7 | 保留在 `phase3-enhancements-spec.md` §5.2.2-5.2.3 |

@@ -45,6 +45,7 @@ const findPhaseTasks = (phases: DAGPhase[], event: PhaseChangeEvent): CollabTask
 export function useSendMessage() {
   const {
     currentSessionId,
+    replyTarget,
     appendMessage,
     appendStreamingToken,
     appendAgentStreamingToken,
@@ -53,6 +54,7 @@ export function useSendMessage() {
     setStreamingError,
     getCollab,
     saveCollab,
+    setReplyTarget,
   } = useChatStore();
   const { sessions } = useSessionStore();
 
@@ -66,6 +68,7 @@ export function useSendMessage() {
     const userMsg: Message = {
       id: `local-${Date.now()}`, sessionId: currentSessionId,
       role: "user", content, agentName: null, createdAt: new Date().toISOString(),
+      parentMessageId: replyTarget?.id ?? null,
     };
     appendMessage(userMsg);
 
@@ -101,6 +104,9 @@ export function useSendMessage() {
       });
       return localId;
     };
+
+    const parentMessageId = replyTarget?.id ?? null;
+    setReplyTarget(null);
 
     createChatStream(currentSessionId, content, mentions, {
       onToken: (token) => appendStreamingToken(token),
@@ -219,12 +225,12 @@ export function useSendMessage() {
           ?? agentPlaceholders.get(agentId);
         if (localId) appendAgentStreamingToken(localId, agentName, token);
       },
-    });
+    }, undefined, parentMessageId);
 
     if (currentMode !== "group") setIsStreaming(true);
   }, [
     currentSessionId, sessions, appendMessage, appendStreamingToken,
     appendAgentStreamingToken, setMessages, setIsStreaming, setStreamingError,
-    getCollab, saveCollab,
+    getCollab, saveCollab, replyTarget, setReplyTarget,
   ]);
 }

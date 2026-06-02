@@ -8,7 +8,7 @@
 
 一句话：**做一个 AI 版的 Slack**。
 
-用户打开网页，像用微信/飞书一样，创建对话、发消息。对话的对象不是人，是 AI Agent（比如 DeepSeek、Claude、Gemini 等）。核心玩法：
+用户打开网页，像用微信/飞书一样，创建对话、发消息。对话的对象不是人，是 AI Agent。长期架构里，Agent 不是简单的 HTTP LLM API 调用，而是后端封装的真实工具实例，例如 Anthropic 官方 `claude` CLI、开源 `opencode` 等；现有 DeepSeek、Claude、Gemini 等 HTTP 适配器是过渡/并存能力。核心玩法：
 
 - **单聊**：选一个 Agent，1v1 对话
 - **群聊**：拉多个 Agent 进同一个群，用 @ 指定谁来回，或者让 Orchestrator（协调器）自动分配任务
@@ -24,7 +24,7 @@
 前端：React 18 + TypeScript + Vite + Tailwind CSS + shadcn/ui + Zustand
 后端：Python FastAPI + SQLAlchemy 2.0 (async) + SQLite
 通信：SSE（流式推送） + WebSocket（实时双向）
-AI  ：6 家适配器（DeepSeek / Claude / Gemini / OpenAI / GLM / MiniMax）
+AI  ：HTTP API 适配器（DeepSeek / Claude / Gemini / OpenAI / GLM / MiniMax）+ 规划中的 CLI Wrapper（claude / opencode 等真实工具）
 ```
 
 前后端分离，后端是 API 服务器，前端是 SPA。SQLite 是文件数据库，不需要装额外的数据库服务。
@@ -63,7 +63,7 @@ AgentHub/
 
 ## 已经做完了什么？
 
-项目分 5 个阶段，目前 Phase 1、Phase 2 已全部完成，Phase 3 完成了一部分。
+项目按 Phase 1-7 推进，目前 Phase 1-4 已完成，Phase 5-7 处于计划中。
 
 ### Phase 1：单聊全链路 ✅
 
@@ -87,57 +87,51 @@ AgentHub/
 - 前端重构：三 Tab 布局（聊天/Agent/设置）+ Markdown 渲染 + @提及补全
 - 测试：72 条后端 + 7 条前端
 
-### Phase 3 部分完成（3/8 模块）
+### Phase 3：Orchestrator + 基础设施 ✅
 
-Phase 3 是"智能增强"，拆成 8 个模块：
+Phase 3 聚焦多 Agent 协作基础设施与 Orchestrator 深化。
 
 | 模块 | 内容 | 状态 |
 |------|------|------|
 | M1 | 基础设施（EventBus + DB 迁移 + Service ABC） | ✅ 完成 |
-| M2 | 消息操作（引用/重新生成/Pin） | ⏳ 待开发 |
-| M3 | 消息搜索（FTS5 全文检索） | ⏳ 待开发 |
 | M4 | Orchestrator 核心（意图分析 + Agent 选择 + 任务拆解 + 执行引擎） | ✅ 完成 |
 | M5 | 链式协作（A 产出 → B Review） | ✅ 合并进 M4 |
-| M6 | 产物版本 + Diff | ⏳ 待开发 |
-| M7 | 产物在线编辑 | ⏳ 待开发 |
-| M8 | Store 拆分 + 体验收尾 | ⏳ 待开发 |
 
----
-
-## 接下来要做什么？（Phase 3 剩余）
-
-### M2：消息操作（引用/重新生成/Pin）
+### Phase 4：消息交互闭环 ✅
 
 用户在聊天里能做的事：
 
-- **引用回复**：hover 消息 → 点"引用" → 输入框上方出现引用卡片 → 发送后气泡显示引用预览
-- **重新生成**：hover AI 消息 → 点"重新生成" → 后端用相同上下文重新调用 Agent → 原地替换旧内容
-- **Pin 消息**：hover 消息 → 点"Pin" → 图钉图标 → 后续对话中 Pin 的消息始终包含在上下文里
+- **引用回复**：hover 消息 → 点"引用" → 输入框上方出现引用卡片 → 发送后气泡显示引用预览；真实 `/chat` 请求携带 `parentMessageId`，后端保存引用快照并注入 Agent Prompt
+- **重新生成**：hover AI 消息 → 点"重新生成" → 后端用相同上下文重新调用 Agent → 原地流式替换旧内容，并可查看原版
+- **Pin 消息**：hover 消息 → 点"Pin" → Pin 标记 → 后续单聊/群聊上下文中优先注入
+- **消息搜索**：`Ctrl+K` 打开搜索 → 中文关键词高亮 → 点击结果跳转原消息
 
-涉及 4 个新 API 端点、2 个新前端组件、修改 MessageBubble。
+人工验收已通过：真实 UI 中引用 4 天 3 夜攻略并要求改成一周，Agent 最终回复能复述只存在于被引用消息里的唯一代号，证明引用内容已进入 Agent 输入链路。
 
-### M3：消息搜索
+---
 
-- FTS5 全文搜索（SQLite 内置，不需要外部服务）
-- 快捷键 Ctrl+K 打开搜索面板
-- 搜索结果高亮、点击跳转到对应消息
-- FTS5 不可用时降级为 LIKE 查询
+## 接下来要做什么？（Phase 5-7）
 
-### M6：产物版本 + Diff
+### Phase 5：产物深度管理
 
 - 每次重新生成产物 → 版本号 +1，形成版本链
 - 任意两个版本之间做 Diff 对比
 - 前端用 `react-diff-viewer-continued` 展示
 
-### M7：产物在线编辑（最复杂）
+### Phase 5：产物在线编辑（最复杂）
 
 - 用户在产物代码中选中片段 → 描述修改意图 → Agent 返回修改结果 → Diff 确认 → 应用
 - 支持 tool calling 的 Agent 走工具调用，不支持的降级为上下文注入
 
-### M8：收尾
+### Phase 6：CLI Agent 适配器
+
+- 通过 PTY/subprocess 管理 Claude Code、opencode 等真实 CLI 工具
+- stdout 流式推送、ANSI 清洗、交互式确认拦截
+
+### Phase 7：体验闭环
 
 - Zustand Store 拆分（chat / session / search）
-- 全局 UX 润色
+- 三栏动态布局、产物抽屉、审批卡片、全局 UX 润色
 
 ---
 
@@ -177,7 +171,7 @@ API 路由层 (FastAPI)
 | `session_members` | 群聊成员关联表 |
 | `agent_configs` | Agent 配置（名称、描述、system_prompt、厂商、模型） |
 | `artifacts` | 产物（代码、网页预览等，支持版本链） |
-| `messages_fts` | FTS5 全文搜索虚拟表（M3 待用） |
+| `messages_fts` | FTS5 全文搜索虚拟表 |
 
 ---
 
@@ -208,7 +202,7 @@ GET    /api/sessions/{id}/artifacts   会话产物列表
 WS     /ws/sessions/{id}          实时通信
 ```
 
-### M2 新增
+### Phase 4 新增
 
 ```
 POST   /api/messages/{id}/reply       引用回复
@@ -217,7 +211,7 @@ POST   /api/messages/{id}/pin         Pin
 DELETE /api/messages/{id}/pin         取消 Pin
 ```
 
-### M3 新增
+### Phase 4 搜索
 
 ```
 GET    /api/messages/search?session_id=&q=&limit=   消息搜索
@@ -279,18 +273,18 @@ python e2e/full_ui_audit.py
 | 文档 | 位置 | 为什么 |
 |------|------|--------|
 | **本文档** | `PROJECT_OVERVIEW.md` | 你正在看的 |
-| **Phase 3.2 Spec** | `docs/specs/phase3.2-message-actions-spec.md` | 你要做的功能规格 |
-| **Phase 3.3 Spec** | `docs/specs/phase3.3-message-search-spec.md` | 你要做的功能规格 |
-| **Phase 3 模块总览** | `docs/specs/phase3-modules.md` | 了解所有模块的依赖关系 |
+| **Phase 4 Spec** | `docs/specs/phase4/README.md` | 消息交互闭环的权威规格与验收记录 |
+| **Phase 5 Spec** | `docs/specs/phase5/README.md` | 下一阶段产物深度管理规格 |
+| **Docs Index** | `docs/README.md` | 查看所有文档入口 |
 
 ### 按需查阅
 
 | 文档 | 位置 | 什么时候看 |
 |------|------|-----------|
-| MessageService 接口定义 | `backend/app/services/message_service.py` | 写 M2/M3 后端时 |
+| MessageService 接口定义 | `backend/app/services/message_service.py` | 理解 Phase 4 消息操作契约 |
 | ChatService 接口定义 | `backend/app/services/chat_service.py` | 参考已有实现模式 |
 | SessionService 实现 | `backend/app/services/session_service.py` | 参考 Service 层写法 |
-| ContextManager | `backend/app/domain/context_manager.py` | M2 Pin 消息需要联动 |
+| ContextManager | `backend/app/domain/context_manager.py` | 理解 Reply/Pin 上下文注入 |
 | EventBus | `backend/app/event_bus/event_bus.py` | 理解事件解耦机制 |
 | 测试协议 | `docs/TEST_PROTOCOL.md` | 写测试时看规范 |
 | Git 规范 | `docs/GIT_PROTOCOL.md` | 提交代码时看格式 |
@@ -303,7 +297,6 @@ python e2e/full_ui_audit.py
 | 全局上下文 | `CONTEXT.md` | 领域术语、架构总览、完整文档索引 |
 | AI 协作规则 | `CLAUDE.md` | 代码规范、禁止事项 |
 | 架构决策记录 | `docs/adr/` | 8 篇 ADR，解释"为什么这样设计" |
-| Orchestrator 设计 | `docs/specs/orchestrator/` | 9 篇文档，M4 的完整设计 |
-| 新成员上手 | `docs/ONBOARDING.md` | 更详细的项目介绍 |
-| Phase 1 Spec | `docs/specs/phase1-skeleton-spec.md` | Phase 1 功能规格 |
-| Phase 2 Spec | `docs/specs/phase2-core-features-spec.md` | Phase 2 功能规格 |
+| Orchestrator 设计 | `docs/specs/phase3/02-orchestrator/` | 9 篇文档，Phase 3 Orchestrator 的完整设计 |
+| Phase 1 Spec | `docs/specs/phase1/01-skeleton-spec.md` | Phase 1 功能规格 |
+| Phase 2 Spec | `docs/specs/phase2/01-core-features-spec.md` | Phase 2 功能规格 |

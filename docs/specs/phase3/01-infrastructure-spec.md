@@ -1,7 +1,7 @@
 # Spec: Phase 3.1 — 基础设施
 
 **版本**: v1.0 | **状态**: ✅ COMPLETED
-**关联**: [Phase 3 模块总览](phase3-modules.md), ADR-0005, ADR-0008
+**关联**: [Phase 3 模块总览](../planning/phase3-modules.md) (历史), ADR-0005, ADR-0007
 
 ## 1. 范围
 

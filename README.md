@@ -6,6 +6,8 @@
 
 AgentHub 采用 IM 聊天作为核心交互范式，用户通过新建对话、发送消息的方式与不同 AI Agent 进行交互。支持单聊、群聊（@Agent）、Orchestrator 自动协调、产物预览等能力。
 
+底层 Agent 架构以 [PRD-01 CLI Adapter](docs/PRD/01-Architecture_Adapter.md) 为准：目标不是裸调 HTTP LLM API，而是由后端封装真实 CLI 工具，例如 Anthropic 官方 `claude` CLI、开源 `opencode` 等。当前 DeepSeek/Gemini/GLM/MiniMax/Claude/OpenAI HTTP 适配器是过渡/并存能力，Phase 6 会补齐 CLI Wrapper。
+
 **技术栈**：React + FastAPI + SQLite + WebSocket/SSE
 
 ## 快速启动
@@ -63,21 +65,20 @@ AgentHub/
 |------|------|------|
 | Phase 1 | 单聊全链路（SSE 流式） | ✅ 已完成 |
 | Phase 2 | 多 Agent + 群聊 + Orchestrator + WebSocket + 产物预览 | ✅ 已完成 |
-| Phase 3 | 智能增强（Orchestrator 升级 + 产物深化 + 体验闭环） | 🔧 进行中 |
-| Phase 4 | 收尾（Bug 修复 + Demo 视频 + 答辩准备） | ⏳ 待开始 |
+| Phase 3 | Orchestrator v2 + EventBus + DAG 协作面板 | ✅ 已完成 |
+| Phase 4 | 消息交互闭环（Reply/Regenerate/Pin/Search） | ✅ 已完成 |
+| Phase 5 | 产物深度管理（版本链 + Diff + 在线编辑） | 📋 计划中 |
+| Phase 6 | CLI Agent 适配器 | 📋 计划中 |
+| Phase 7 | UX 体验闭环 | 📋 计划中 |
 
-### Phase 3 模块进度
+### Phase 4 能力
 
-| 模块 | 内容 | 状态 |
-|------|------|------|
-| M1 | 基础设施（EventBus + DB迁移 + Service ABC） | ✅ |
-| M2 | 消息操作（引用/重新生成/Pin） | ⏳ 待开发 |
-| M3 | 消息搜索（FTS5 全文检索） | ⏳ 待开发 |
-| M4 | Orchestrator 核心（Pipeline + 意图分析 + 任务拆解） | ✅ |
-| M5 | 链式协作（已合并入 M4） | ✅ |
-| M6 | 产物版本 + Diff | ⏳ 待开发 |
-| M7 | 产物在线编辑 | ⏳ 待开发 |
-| M8 | Store 拆分 + 体验收尾 | ⏳ 待开发 |
+| 能力 | 状态 |
+|------|------|
+| 引用回复 + 引用预览 + 跳转原消息 + Agent Prompt 引用上下文注入 | ✅ |
+| AI 回复重新生成 + SSE 流式替换 + 原版保留 | ✅ |
+| Pin/Unpin + `[Pinned message]` 长期上下文单聊/群聊优先注入 | ✅ |
+| FTS5 全文搜索 + 中文 LIKE fallback + 结果跳转高亮 | ✅ |
 
 ## 测试
 
@@ -90,6 +91,9 @@ cd frontend && npx tsc --noEmit && npx vitest run
 
 # E2E 浏览器测试（需先启动前后端）
 python e2e/full_ui_audit.py
+
+# Phase 4 真实 HTTP 验收（自动启动临时后端）
+backend\venv\Scripts\python.exe e2e\phase4_real_acceptance.py
 ```
 
 ## 分支说明
@@ -98,18 +102,17 @@ python e2e/full_ui_audit.py
 |------|------|
 | `main` | Phase 1 基线 |
 | `phase/main` | 阶段集成分支 |
-| `phase/phase3-smart-collab` | **当前开发分支** |
+| `phase/phase3-smart-collab` | 历史开发分支 |
 
 ## 文档导航
 
 | 想了解... | 看这个 |
 |----------|--------|
-| 项目背景和核心功能 | [AgentHub-多Agent协作平台设计.md](AgentHub-多Agent协作平台设计.md) |
+| 项目背景和核心功能 | [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) |
 | 领域术语 + 架构总览 | [CONTEXT.md](CONTEXT.md) |
 | AI 协作规则 | [CLAUDE.md](CLAUDE.md) |
 | 架构决策 | [docs/adr/](docs/adr/) |
-| Phase 3 模块计划 | [docs/specs/phase3-modules.md](docs/specs/phase3-modules.md)（phase3 分支） |
-| Orchestrator 设计 | [docs/specs/orchestrator/](docs/specs/orchestrator/)（phase3 分支） |
-| 新成员上手 | [docs/ONBOARDING.md](docs/ONBOARDING.md)（phase3 分支） |
+| Phase 4 消息交互闭环 | [docs/specs/phase4/README.md](docs/specs/phase4/README.md) |
+| Orchestrator 设计 | [docs/specs/phase3/02-orchestrator/](docs/specs/phase3/02-orchestrator/) |
 | 测试协议 | [docs/TEST_PROTOCOL.md](docs/TEST_PROTOCOL.md) |
 | Git 规范 | [docs/GIT_PROTOCOL.md](docs/GIT_PROTOCOL.md) |

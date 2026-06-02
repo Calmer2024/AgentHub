@@ -1,4 +1,4 @@
-# ADR-0008: Orchestrator 架构设计
+# ADR-0007: Orchestrator 架构设计
 
 **Date**: 2026-05-28
 **Status**: Accepted (finalized 2026-06-01)

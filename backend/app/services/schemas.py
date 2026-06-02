@@ -30,9 +30,10 @@ class MessageRead(BaseModel):
     source_id: str | None = Field(default=None, alias="sourceId")
     source_name: str | None = Field(default=None, alias="sourceName")
     parent_message_id: str | None = Field(default=None, alias="parentMessageId")
-    is_pinned: bool = False
+    is_pinned: bool = Field(default=False, alias="isPinned")
     created_at: datetime = Field(alias="createdAt")
     metadata: dict | None = None
+    highlight: str | None = None
 
     model_config = {"from_attributes": True, "populate_by_name": True}
 

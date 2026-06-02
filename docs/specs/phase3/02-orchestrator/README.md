@@ -1,7 +1,7 @@
 # AgentHub Orchestrator — 设计文档总览
 
 **最后更新**: 2026-06-01
-**架构决策**: [ADR-0008](../../adr/0008-orchestrator-architecture.md)
+**架构决策**: [ADR-0007](../../adr/0007-orchestrator-architecture.md)
 **当前分支**: `phase/phase3-smart-collab`
 
 ---
@@ -20,7 +20,7 @@
 | 8 | [08-dev-plan.md](08-dev-plan.md) | 开发计划: 已完成 vs 待实现，下一步 Step 计划 | 开发者 |
 | 9 | [09-dev-log.md](09-dev-log.md) | 开发日志: 时间线、Bug 与教训 | 所有人 |
 
-> **ADR-0008** 在 `docs/adr/0008-orchestrator-architecture.md`。收录了所有架构决策的"是什么 + 为什么"。本文档集只描述"是什么 + 怎么做"，不重复决策理由。
+> **ADR-0007** 在 `docs/adr/0007-orchestrator-architecture.md`。收录了所有架构决策的"是什么 + 为什么"。本文档集只描述"是什么 + 怎么做"，不重复决策理由。
 
 ---
 
@@ -57,6 +57,6 @@
 | Phase 3.4 | Orchestrator 核心 (Pipeline + 组件 + ContextManager) | 01, 02, 03, 04 |
 | Phase 3.5 | 链式协作 (Chain + CollabProgressCard) | 04 (chain), 06, 07 |
 | Phase 3.6 | 协作交互设计 (DAG + 上下文共享 + 面板气泡) | 05, 07 |
-| ADR-0008 | 架构决策 | docs/adr/0008-orchestrator-architecture.md |
+| ADR-0007 | 架构决策 | docs/adr/0007-orchestrator-architecture.md |
 
 > 旧 spec 文件 (`phase3.4-*`, `phase3.5-*`, `phase3.6-*`) 标记为 archived，以本文档集为准。

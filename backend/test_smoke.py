@@ -92,7 +92,8 @@ def test_import_migration_runner():
 def test_all_migration_files_exist():
     from migrations.migration_runner import MIGRATIONS_DIR
     files = [f for f in MIGRATIONS_DIR.iterdir() if f.suffix == ".sql"]
-    assert len(files) == 7, f"预期 7 个迁移文件，实际 {len(files)}"
+    assert len(files) >= 8, f"预期至少 8 个迁移文件，实际 {len(files)}"
+    assert any(f.name == "008_fix_messages_fts_update_trigger.sql" for f in files)
 
 
 def test_test_db_is_file_not_memory():

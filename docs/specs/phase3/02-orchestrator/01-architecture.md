@@ -1,6 +1,6 @@
 # 01 — Orchestrator 架构总览
 
-**关联 ADR**: [ADR-0008](../../adr/0008-orchestrator-architecture.md) (决策理由)
+**关联 ADR**: [ADR-0007](../../adr/0007-orchestrator-architecture.md) (决策理由)
 **关联实现**: `backend/app/domain/orchestrator_v2.py`
 
 ---

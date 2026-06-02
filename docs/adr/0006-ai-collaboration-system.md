@@ -1,4 +1,4 @@
-# ADR-0007: AI 协作规范体系 —— Rules / Spec / Skill 三层沉淀
+# ADR-0006: AI 协作规范体系 —— Rules / Spec / Skill 三层沉淀
 
 **Date**: 2026-05-26
 **Status**: Accepted

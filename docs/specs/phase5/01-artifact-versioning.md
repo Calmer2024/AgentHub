@@ -1,8 +1,10 @@
-# Spec: Phase 3.6 — 产物版本 + Diff
+# Spec: Phase 5A — 产物版本 + Diff
 
-**版本**: v1.0 | **状态**: Draft
-**关联**: [Phase 3 Spec](phase3-enhancements-spec.md) §5.2.1
-**依赖**: Module 1 (Artifact 模型: version, parent_artifact_id)
+**版本**: v2.0
+**创建日期**: 2026-05-28 (v1.0), 2026-06-02 (v2.0 重组)
+**状态**: Draft
+**关联**: [PRD-03: User Experience](../../PRD/03-User_Experience.md) §3.3-3.4, [PRD-04: Data & API](../../PRD/04-Data_API_Contracts.md) §3.3
+**依赖**: Phase 3 (Artifact 模型: version, parent_artifact_id)
 
 ## 1. API
 

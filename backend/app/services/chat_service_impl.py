@@ -13,16 +13,19 @@ import uuid
 from datetime import datetime, timezone
 from typing import AsyncGenerator
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Session as DBSession, Message as DBMessage, AgentConfig
 from ..agents.registry import agent_registry
 from ..domain.orchestrator_v2 import OrchestratorV2
-from ..domain.context_manager import ContextManager
+from ..domain.context_manager import ContextManager, PromptAssemblyInput
 from ..services.agent_executor import AgentExecutor
 from ..services.group_chat_stream import GroupChatStream
 from ..api.ws_manager import manager as ws_manager
+from .message_service_sqlalchemy import (
+    SqlAlchemyMessageService,
+    build_reply_reference_metadata,
+)
 
 class ChatServiceImpl:
     """聊天服务 —— thin coordinator。
@@ -33,12 +36,14 @@ class ChatServiceImpl:
     def __init__(self, db: AsyncSession, event_bus=None):
         self.db = db
         self.event_bus = event_bus
+        self._context_manager = ContextManager()
         self._pipeline = OrchestratorV2(
-            context_manager=ContextManager(),
+            context_manager=self._context_manager,
             event_bus=event_bus,
         )
         self._executor = AgentExecutor(event_bus=event_bus)
         self._group_stream = GroupChatStream(db, self._pipeline, self._executor)
+        self._messages = SqlAlchemyMessageService(db, self._context_manager)
 
     async def send_message_stream(
         self,
@@ -53,40 +58,45 @@ class ChatServiceImpl:
             yield self._err("session not found")
             return
 
+        reply_metadata = None
+        if parent_message_id:
+            parent = await self.db.get(DBMessage, parent_message_id)
+            if not parent:
+                yield self._err("quoted message not found")
+                return
+            if parent.session_id != session_id:
+                yield self._err("quoted message belongs to another session")
+                return
+            reply_metadata = build_reply_reference_metadata(parent)
+
         # 持久化用户消息
         user_msg_id = str(uuid.uuid4())
         self.db.add(DBMessage(
             id=user_msg_id, session_id=session_id, role="user",
             content=content, content_type="text", source_type="user",
             source_name="用户", parent_message_id=parent_message_id,
+            metadata_json=json.dumps(reply_metadata, ensure_ascii=False) if reply_metadata else None,
         ))
         await self.db.commit()
 
         # 取历史消息
-        raw = await self.db.execute(
-            select(DBMessage).where(DBMessage.session_id == session_id)
-            .order_by(DBMessage.created_at.asc()).limit(50)
-        )
-        history = [
-            {"role": m.role, "content": m.content, "id": m.id}
-            for m in raw.scalars().all()
-        ]
+        history, pinned_ids = await self._messages.history_for_session(session_id)
 
         # 群聊: 通过 Pipeline 决定路由和执行计划
         if session.mode == "group":
             async for ev in self._group_chat(
-                session_id, content, mentions, history, session, chain_config,
+                session_id, content, mentions, history, pinned_ids, session, chain_config,
             ):
                 yield ev
             return
 
         # 单聊: 直接调用
-        async for ev in self._single_chat(session_id, history, session):
+        async for ev in self._single_chat(session_id, history, pinned_ids, session):
             yield ev
 
     # ---- 单聊 ----
 
-    async def _single_chat(self, session_id, history, session):
+    async def _single_chat(self, session_id, history, pinned_ids, session):
         agent_config = None
         if session.agent_config_id:
             agent_config = await self.db.get(AgentConfig, session.agent_config_id)
@@ -99,13 +109,25 @@ class ChatServiceImpl:
             yield self._err(f"供应商 {agent_config.provider} 不可用")
             return
 
+        assembled = self._context_manager.assemble(PromptAssemblyInput(
+            session_id=session_id,
+            system_prompt=agent_config.system_prompt or "",
+            messages=history,
+            pinned_message_ids=pinned_ids,
+            max_tokens=adapter.capability.max_context_tokens,
+        ))
+        adapter_messages, system_prompt = _split_system_prompt(
+            assembled.assembled_messages,
+            agent_config.system_prompt or "",
+        )
+
         assistant_msg_id = str(uuid.uuid4())
         full = ""
 
         try:
             async for token in adapter.chat_stream(
-                messages=history,
-                system_prompt=agent_config.system_prompt,
+                messages=adapter_messages,
+                system_prompt=system_prompt,
                 model=agent_config.model or None,
             ):
                 full += token
@@ -136,10 +158,10 @@ class ChatServiceImpl:
 
     # ---- 群聊 ----
 
-    async def _group_chat(self, session_id, content, mentions, history, session,
+    async def _group_chat(self, session_id, content, mentions, history, pinned_ids, session,
                           chain_config=None):
         async for ev in self._group_stream.send(
-            session_id, content, mentions, history, session, chain_config,
+            session_id, content, mentions, history, pinned_ids, session, chain_config,
         ):
             yield ev
 
@@ -152,3 +174,9 @@ class ChatServiceImpl:
     @staticmethod
     def _err(msg: str) -> str:
         return f"data: {json.dumps({'token': '', 'done': True, 'error': msg}, ensure_ascii=False)}\n\n"
+
+
+def _split_system_prompt(messages: list[dict], fallback: str) -> tuple[list[dict], str]:
+    if messages and messages[0].get("role") == "system":
+        return messages[1:], str(messages[0].get("content") or fallback)
+    return messages, fallback

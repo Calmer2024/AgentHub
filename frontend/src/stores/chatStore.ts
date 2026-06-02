@@ -31,6 +31,7 @@ interface ChatState {
   messages: Message[];
   isStreaming: boolean;
   streamingError: string | null;
+  replyTarget: Message | null;
 
   // === 协作状态 (per-session persisted) ===
   collabSnapshots: Record<string, CollabSnapshot>;
@@ -44,6 +45,9 @@ interface ChatState {
   appendMessage: (msg: Message) => void;
   appendStreamingToken: (token: string) => void;
   appendAgentStreamingToken: (localId: string, agentName: string, token: string) => void;
+  updateMessage: (id: string, patch: Partial<Message>) => void;
+  replaceMessageContent: (id: string, content: string) => void;
+  setReplyTarget: (message: Message | null) => void;
   setIsStreaming: (v: boolean) => void;
   setStreamingError: (error: string | null) => void;
 }
@@ -53,6 +57,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   messages: [],
   isStreaming: false,
   streamingError: null,
+  replyTarget: null,
   collabSnapshots: {},
 
   getCollab: (sessionId) => get().collabSnapshots[sessionId] ?? emptyCollab(),
@@ -86,6 +91,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }
       return { messages: msgs };
     }),
+  updateMessage: (id, patch) =>
+    set((s) => ({
+      messages: s.messages.map((m) => (m.id === id ? { ...m, ...patch } : m)),
+    })),
+  replaceMessageContent: (id, content) =>
+    set((s) => ({
+      messages: s.messages.map((m) => (m.id === id ? { ...m, content } : m)),
+    })),
+  setReplyTarget: (message) => set({ replyTarget: message }),
   setIsStreaming: (v) => set({ isStreaming: v }),
   setStreamingError: (error) => set({ streamingError: error }),
 }));

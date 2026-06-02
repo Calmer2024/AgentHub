@@ -6,10 +6,14 @@ import { ChatWindow } from "./components/ChatWindow";
 import { AgentPanel } from "./components/AgentPanel";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { GroupChatCreator } from "./components/GroupChatCreator";
-import { createSession, createGroupSession, fetchSessions, fetchMessages, fetchAgents, fetchProviders, updateSessionAgent, deleteSession, renameSession, summarizeSession, fetchSessionMembers } from "./api/client";
+import {
+  createSession, createGroupSession, fetchSessions, fetchMessages, fetchAgents,
+  fetchProviders, updateSessionAgent, deleteSession, renameSession, summarizeSession,
+  fetchSessionMembers, pinMessage, unpinMessage, regenerateMessageStream,
+} from "./api/client";
 import { WSClient } from "./api/wsClient";
 import { useSendMessage } from "./hooks/useSendMessage";
-import type { AgentConfig } from "./types";
+import type { AgentConfig, Message } from "./types";
 
 /** 从 store 读取当前会话的协作状态（零值 = 空快照）。 */
 function emptyCollab(): CollabSnapshot {
@@ -31,6 +35,10 @@ function App() {
     setCurrentSessionId, setMessages,
     appendStreamingToken,
     setStreamingError,
+    setIsStreaming,
+    setReplyTarget,
+    updateMessage,
+    replaceMessageContent,
     collabSnapshots, clearCollab,
   } = useChatStore();
 
@@ -157,6 +165,43 @@ function App() {
     try { updateSession(await updateSessionAgent(currentSessionId, agentId)); } catch { /* */ }
   };
 
+  const handleTogglePin = async (message: Message) => {
+    try {
+      if (message.isPinned) {
+        await unpinMessage(message.id);
+        updateMessage(message.id, { isPinned: false });
+      } else {
+        await pinMessage(message.id);
+        updateMessage(message.id, { isPinned: true });
+      }
+    } catch {
+      setStreamingError("Pin 操作失败，请稍后重试");
+    }
+  };
+
+  const handleRegenerate = (message: Message) => {
+    if (!currentSessionId) return;
+    setStreamingError(null);
+    setIsStreaming(true);
+    replaceMessageContent(message.id, "");
+    regenerateMessageStream(message.id, {
+      onToken: (token) => {
+        const state = useChatStore.getState();
+        const current = state.messages.find((m) => m.id === message.id)?.content ?? "";
+        state.replaceMessageContent(message.id, current + token);
+      },
+      onDone: async (_messageId, error) => {
+        setIsStreaming(false);
+        if (error) {
+          setStreamingError(error === "重新生成超时" ? error : `重新生成失败：${error}`);
+          replaceMessageContent(message.id, message.content);
+          return;
+        }
+        try { setMessages(await fetchMessages(currentSessionId)); } catch { /* */ }
+      },
+    });
+  };
+
   const currentSession = sessions.find((s) => s.id === currentSessionId);
   const currentAgent = agents.find((a) => a.id === currentSession?.agentConfigId) ?? null;
   const currentMode = currentSession?.mode ?? "single";
@@ -207,7 +252,8 @@ function App() {
         <ChatWindow
           messages={messages} isStreaming={isStreaming}
           streamingError={streamingError}
-          currentAgent={currentAgent} agents={agents} mode={currentMode}
+          currentAgent={currentAgent} currentSessionId={currentSessionId}
+          agents={agents} mode={currentMode}
           routeAgents={routeAgents} orchestratorIntent={orchestratorIntent}
           planSummary={planSummary}
           mentionableAgents={currentMode === "group" ? sessionMembers : agents}
@@ -219,6 +265,9 @@ function App() {
           onSend={handleSend}
           onDismissError={() => setStreamingError(null)}
           onSwitchAgent={handleSwitchAgent}
+          onReply={setReplyTarget}
+          onRegenerate={handleRegenerate}
+          onTogglePin={handleTogglePin}
         />
       ) : (
         <div className="flex-1 min-h-0 flex items-center justify-center text-gray-500 text-lg px-6 text-center">

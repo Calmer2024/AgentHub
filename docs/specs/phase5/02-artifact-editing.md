@@ -1,8 +1,10 @@
-# Spec: Phase 3.7 — 产物在线编辑
+# Spec: Phase 5B — 产物在线编辑
 
-**版本**: v1.0 | **状态**: Draft
-**关联**: [Phase 3 Spec](phase3-enhancements-spec.md) §5.2.2-5.2.3
-**依赖**: Module 6 (版本链), Module 1 (BaseAgentAdapter tools 参数)
+**版本**: v2.0
+**创建日期**: 2026-05-28 (v1.0), 2026-06-02 (v2.0 重组)
+**状态**: Draft
+**关联**: [PRD-03: User Experience](../../PRD/03-User_Experience.md) §3.4, [PRD-02: Orchestrator](../../PRD/02-Orchestrator_Engine.md)
+**依赖**: Phase 5A (版本链), Phase 3 (BaseAgentAdapter tools 参数)
 
 ## 1. API
 

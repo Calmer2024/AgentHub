@@ -141,6 +141,7 @@ export function createChatStream(
   mentions: string[],
   callbacks: StreamCallbacks,
   chainConfig?: ChainConfigInput,
+  parentMessageId?: string | null,
 ): () => void {
   const {
     onToken, onDone, onRoute, onTaskStarted, onChainStep, onPhaseChange,
@@ -153,6 +154,7 @@ export function createChatStream(
   (async () => {
     const body: Record<string, unknown> = { content };
     if (mentions.length > 0) body.mentions = mentions;
+    if (parentMessageId) body.parentMessageId = parentMessageId;
     if (chainConfig) {
       body.chainConfig = {
         chainName: chainConfig.chainName,
@@ -309,6 +311,90 @@ export function createChatStream(
       }
     }
     if (!completed) onDone(undefined, "Stream ended unexpectedly");
+  })();
+
+  return () => abortCtrl.abort();
+}
+
+export async function replyToMessage(messageId: string, content: string): Promise<Message> {
+  const res = await fetch(`${API_BASE}/messages/${messageId}/reply`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content }),
+  });
+  if (!res.ok) throw new Error("Failed to reply to message");
+  return res.json();
+}
+
+export async function pinMessage(messageId: string): Promise<{ isPinned: boolean }> {
+  const res = await fetch(`${API_BASE}/messages/${messageId}/pin`, { method: "POST" });
+  if (!res.ok) throw new Error("Failed to pin message");
+  return res.json();
+}
+
+export async function unpinMessage(messageId: string): Promise<{ isPinned: boolean }> {
+  const res = await fetch(`${API_BASE}/messages/${messageId}/pin`, { method: "DELETE" });
+  if (!res.ok) throw new Error("Failed to unpin message");
+  return res.json();
+}
+
+export async function searchMessages(
+  sessionId: string,
+  query: string,
+  limit = 20,
+): Promise<Message[]> {
+  const params = new URLSearchParams({ session_id: sessionId, q: query, limit: String(limit) });
+  const res = await fetch(`${API_BASE}/messages/search?${params.toString()}`);
+  if (!res.ok) throw new Error("Failed to search messages");
+  return res.json();
+}
+
+export async function fetchMessage(messageId: string): Promise<Message> {
+  const res = await fetch(`${API_BASE}/messages/${messageId}`);
+  if (!res.ok) throw new Error("Failed to fetch message");
+  return res.json();
+}
+
+export function regenerateMessageStream(
+  messageId: string,
+  callbacks: Pick<StreamCallbacks, "onToken" | "onDone">,
+): () => void {
+  const abortCtrl = new AbortController();
+
+  (async () => {
+    const response = await fetch(`${API_BASE}/messages/${messageId}/regenerate`, {
+      method: "POST",
+      signal: abortCtrl.signal,
+    });
+    if (!response.ok) {
+      callbacks.onDone(undefined, `HTTP ${response.status}`);
+      return;
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) return;
+
+    const decoder = new TextDecoder("utf-8");
+    let buffer = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        try {
+          const data = JSON.parse(line.slice(6));
+          if (data.token) callbacks.onToken(data.token);
+          if (data.done) {
+            callbacks.onDone(data.messageId, data.error);
+            return;
+          }
+        } catch { /* ignore malformed chunks */ }
+      }
+    }
+    callbacks.onDone(undefined, "Stream ended unexpectedly");
   })();
 
   return () => abortCtrl.abort();
