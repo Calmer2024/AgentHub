@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-3.5-flash"
     minimax_model: str = "MiniMax-M2.7"
     glm_model: str = "glm-5.1"
+    orchestrator_provider: str = "deepseek"
+    orchestrator_model: str = "deepseek-v4-flash"
     database_url: str = "sqlite+aiosqlite:///./data/agenthub.db"
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
