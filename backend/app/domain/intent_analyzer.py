@@ -45,6 +45,7 @@ TECH_TAG_PATTERNS: dict[str, list[str]] = {
     "测试": ["测试", "test", "单元测试", "集成测试"],
     "部署": ["部署", "deploy", "docker", "ci/cd", "发布"],
     "安全": ["安全", "security", "加密", "xss", "csrf"],
+    "审查": ["审查", "评审", "review", "reviewer"],
     "性能": ["性能", "performance", "优化", "缓存", "cache"],
     "架构": ["架构", "architecture", "设计模式", "微服务"],
     "算法": ["算法", "algorithm", "数据结构", "复杂度"],

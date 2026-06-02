@@ -39,7 +39,7 @@ CHAIN_MARKERS: list[str] = [
 ]
 
 
-# ===== 拆解模板 (意图 → 子任务 + 角色) =====
+# ===== 拆解模板 (意图 → 子任务 + 角色 + DAG 依赖) =====
 
 @dataclass
 class SubTask:
@@ -48,19 +48,27 @@ class SubTask:
     role: str                   # 角色: "planner" | "executor" | "reviewer" | ...
     description: str            # 注入 Prompt 的任务描述
     tags: list[str] = field(default_factory=list)  # 匹配 Agent 的能力标签
+    depends_on: list[str] = field(default_factory=list)  # 依赖的上游任务名
+    phase: int = 0              # ExecutionPlanner 拓扑排序后写入
 
 
 TASK_TEMPLATES: dict[str, list[SubTask]] = {
     "code_gen": [
         SubTask("planning", "planner",
-                "分析需求，制定技术方案和架构设计",
+                "分析需求，制定技术方案和架构设计，不写具体代码",
                 ["架构", "设计", "方案"]),
-        SubTask("implementation", "executor",
-                "按照技术方案产出具体实现代码",
-                ["开发", "代码", "编程"]),
+        SubTask("frontend", "executor",
+                "按照技术方案实现前端界面和交互逻辑",
+                ["前端", "React", "UI", "组件"],
+                depends_on=["planning"]),
+        SubTask("backend", "executor",
+                "按照技术方案实现后端 API 和数据库",
+                ["后端", "API", "数据库", "Python"],
+                depends_on=["planning"]),
         SubTask("review", "reviewer",
-                "审查代码质量、安全性和性能",
-                ["审查", "测试", "安全"]),
+                "审查前端和后端代码的质量、安全性和一致性",
+                ["审查", "测试", "安全"],
+                depends_on=["frontend", "backend"]),
     ],
     "research": [
         SubTask("search", "researcher",
@@ -68,10 +76,12 @@ TASK_TEMPLATES: dict[str, list[SubTask]] = {
                 ["搜索", "分析", "调查"]),
         SubTask("synthesize", "synthesizer",
                 "综合多方信息形成结构化结论",
-                ["写作", "总结", "综合"]),
+                ["写作", "总结", "综合"],
+                depends_on=["search"]),
         SubTask("critique", "critic",
                 "审视结论的漏洞和局限性",
-                ["批判", "检查", "验证"]),
+                ["批判", "检查", "验证"],
+                depends_on=["synthesize"]),
     ],
     "design_ui": [
         SubTask("concept", "planner",
@@ -79,10 +89,12 @@ TASK_TEMPLATES: dict[str, list[SubTask]] = {
                 ["设计", "UI", "UX"]),
         SubTask("execution", "executor",
                 "产出具体的 UI 设计和样式代码",
-                ["前端", "CSS", "组件"]),
+                ["前端", "CSS", "组件"],
+                depends_on=["concept"]),
         SubTask("review", "reviewer",
                 "审查设计的可用性和一致性",
-                ["审查", "测试", "UI"]),
+                ["审查", "测试", "UI"],
+                depends_on=["execution"]),
     ],
 }
 
@@ -120,13 +132,18 @@ class TaskDecomposer:
 
         result: list[tuple[SubTask, AgentConfig | None]] = []
         available = list(agents)
+        all_agents = list(agents)
 
-        for subtask in templates:
+        for template in templates:
+            subtask = self._clone_subtask(template)
             matched = self._match_agent_for_subtask(subtask, available)
             if matched:
                 available.remove(matched)
             else:
-                matched = available.pop(0) if available else None
+                matched = available.pop(0) if available else self._match_agent_for_subtask(
+                    subtask, all_agents,
+                )
+                matched = matched or (all_agents[0] if all_agents else None)
             result.append((subtask, matched))
 
         return result
@@ -153,6 +170,18 @@ class TaskDecomposer:
         """只有一个 Agent 或无模板时的降级。"""
         primary = SubTask("primary", "executor", "完成用户的任务", [])
         return [(primary, agents[0] if agents else None)]
+
+    @staticmethod
+    def _clone_subtask(subtask: SubTask) -> SubTask:
+        """复制模板任务，避免 phase 写入污染全局模板。"""
+        return SubTask(
+            name=subtask.name,
+            role=subtask.role,
+            description=subtask.description,
+            tags=list(subtask.tags),
+            depends_on=list(subtask.depends_on),
+            phase=subtask.phase,
+        )
 
     def get_role_prompt(self, role: str) -> str:
         """获取角色对应的 Prompt 注入文本。"""

@@ -3,11 +3,12 @@
 Domain 层纯逻辑，零框架依赖。
 
 模式决策优先级链:
-  1. chain_config 存在 → mode="chain"
-  2. is_chain(content) AND agents >= 2 → mode="chain" (自动链式)
-  3. is_complex(content) AND agents >= 2 → mode="parallel" + decompose
-  4. len(agents) == 1 → mode="single"
-  5. len(agents) >= 2 → mode="parallel" (all primary)
+  1. supplemental=True → mode="single|parallel" (只补充被点名/缺失 Agent)
+  2. chain_config 存在 → mode="chain"
+  3. is_chain(content) AND agents >= 2 → mode="dag" (自动 DAG)
+  4. is_complex(content) AND agents >= 2 → mode="dag" + decompose
+  5. len(agents) == 1 → mode="single"
+  6. len(agents) >= 2 → mode="parallel" (all primary)
 """
 
 from dataclasses import dataclass, field
@@ -24,6 +25,16 @@ class AgentCall:
     role: str = "executor"          # 协作角色
     input_messages: list[dict] = field(default_factory=list)
     role_prompt_override: str | None = None  # 角色 Prompt 注入
+    depends_on: list[str] = field(default_factory=list)
+    phase: int = 0
+
+
+@dataclass
+class DAGPhase:
+    """DAG 执行阶段。Phase 间串行，Phase 内可并行。"""
+    phase: int
+    calls: list[AgentCall]
+    mode: str = "serial"            # "serial" | "parallel"
 
 
 @dataclass
@@ -36,10 +47,11 @@ class ChainConfig:
 @dataclass
 class ExecutionPlan:
     """执行计划。"""
-    mode: str                            # "single" | "parallel" | "chain"
+    mode: str                            # "single" | "parallel" | "chain" | "dag"
     calls: list[AgentCall]
     decomposer_used: bool = False
     chain_auto_triggered: bool = False   # 是否为自动触发的链式
+    dag_phases: list[DAGPhase] = field(default_factory=list)
 
 
 class ExecutionPlanner:
@@ -59,45 +71,54 @@ class ExecutionPlanner:
         content: str,
         messages: list[dict],
         chain_config: ChainConfig | None = None,
+        supplemental: bool = False,
     ) -> ExecutionPlan:
         """根据优先级链决定执行模式并构建调用列表。"""
         if not agents:
             return ExecutionPlan(mode="empty", calls=[])
 
-        # 优先级 1: 显式 chain_config
+        # 优先级 1: 追问补充只调用被点名/缺失 Agent，不重新拆完整 DAG。
+        if supplemental:
+            return self._build_primary_plan(agents, messages)
+
+        # 优先级 2: 显式 chain_config
         if chain_config and len(agents) >= 2:
             return self._build_chain_plan(agents, messages, chain_config,
                                           auto_triggered=False)
 
-        # 优先级 2: 自动链式触发 (多阶段关键词)
+        # 优先级 2: 自动 DAG 触发 (多阶段关键词)
         if self.decomposer.is_chain(content) and len(agents) >= 2:
-            return self._build_auto_chain_plan(agents, content, messages)
-
-        # 优先级 3: 复杂请求拆解
-        if self.decomposer.is_complex(content) and len(agents) >= 2:
-            return self._build_parallel_decompose_plan(agents, content, messages)
-
-        # 优先级 4: 单 Agent
-        if len(agents) == 1:
-            return ExecutionPlan(
-                mode="single",
-                calls=[AgentCall(
-                    agent=agents[0], task="primary", role="executor",
-                    input_messages=list(messages),
-                )],
+            return self._build_dag_plan(
+                agents, content, messages, auto_triggered=True,
             )
 
-        # 优先级 5: 多 Agent 并行 (无拆解)
+        # 优先级 3: 复杂请求拆解为 DAG
+        if self.decomposer.is_complex(content) and len(agents) >= 2:
+            return self._build_dag_plan(
+                agents, content, messages, auto_triggered=False,
+            )
+
+        # 优先级 5: 单 Agent
+        if len(agents) == 1:
+            return self._build_primary_plan(agents, messages)
+
+        # 优先级 6: 多 Agent 并行 (无拆解)
+        return self._build_primary_plan(agents, messages)
+
+    # ---- 内部构建方法 ----
+
+    @staticmethod
+    def _build_primary_plan(
+        agents: list[AgentConfig], messages: list[dict],
+    ) -> ExecutionPlan:
         return ExecutionPlan(
-            mode="parallel",
+            mode="single" if len(agents) == 1 else "parallel",
             calls=[
                 AgentCall(agent=a, task="primary", role="executor",
                           input_messages=list(messages))
                 for a in agents[:5]
             ],
         )
-
-    # ---- 内部构建方法 ----
 
     def _build_chain_plan(
         self, agents: list[AgentConfig], messages: list[dict],
@@ -130,15 +151,15 @@ class ExecutionPlanner:
             chain_auto_triggered=auto_triggered,
         )
 
-    def _build_auto_chain_plan(
+    def _build_dag_plan(
         self, agents: list[AgentConfig], content: str, messages: list[dict],
+        auto_triggered: bool,
     ) -> ExecutionPlan:
-        """自动触发链式: 按意图模板拆解后，按角色顺序串行。"""
-        # 先用朴素意图检测决定 intent
+        """按模板拆解为 DAG 执行计划。"""
         intent = self._detect_intent_simple(content)
-
-        # 拆解获得角色分配
         subtask_pairs = self.decomposer.decompose(intent, agents)
+        subtasks = [s for s, agent in subtask_pairs if agent is not None]
+        self._assign_phases(subtasks)
 
         calls: list[AgentCall] = []
         for subtask, agent in subtask_pairs:
@@ -150,10 +171,11 @@ class ExecutionPlanner:
                 role=subtask.role,
                 input_messages=list(messages),
                 role_prompt_override=self.decomposer.get_role_prompt(subtask.role),
+                depends_on=list(subtask.depends_on),
+                phase=subtask.phase,
             ))
 
         if len(calls) <= 1:
-            # 拆解后只有一个有效 Agent → 降级为 single
             return ExecutionPlan(
                 mode="single",
                 calls=calls if calls else [AgentCall(
@@ -162,43 +184,53 @@ class ExecutionPlanner:
                 )],
             )
 
+        phases = self._group_calls_by_phase(calls)
         return ExecutionPlan(
-            mode="chain", calls=calls,
-            chain_auto_triggered=True,
+            mode="dag",
+            calls=calls,
             decomposer_used=True,
+            chain_auto_triggered=auto_triggered,
+            dag_phases=phases,
         )
 
-    def _build_parallel_decompose_plan(
-        self, agents: list[AgentConfig], content: str, messages: list[dict],
-    ) -> ExecutionPlan:
-        """复杂请求并行拆解。"""
-        intent = self._detect_intent_simple(content)
-        subtask_pairs = self.decomposer.decompose(intent, agents)
+    def _assign_phases(self, subtasks: list[SubTask]) -> None:
+        """拓扑排序并将 phase 写回 SubTask。"""
+        remaining = {t.name: t for t in subtasks}
+        assigned: dict[str, int] = {}
+        phase = 0
 
-        calls: list[AgentCall] = []
-        for subtask, agent in subtask_pairs:
-            if agent is None:
-                continue
-            calls.append(AgentCall(
-                agent=agent,
-                task=subtask.name,
-                role=subtask.role,
-                input_messages=list(messages),
-                role_prompt_override=self.decomposer.get_role_prompt(subtask.role),
-            ))
+        while remaining:
+            ready = [
+                t for t in remaining.values()
+                if all(dep in assigned for dep in t.depends_on)
+            ]
+            if not ready:
+                # 模板被误配置成环或缺依赖时，按原顺序降级为串行。
+                for task in remaining.values():
+                    task.phase = phase
+                    phase += 1
+                return
 
-        if not calls:
-            return ExecutionPlan(
-                mode="parallel",
-                calls=[AgentCall(agent=a, task="primary", role="executor",
-                                 input_messages=list(messages))
-                       for a in agents[:5]],
+            for task in ready:
+                task.phase = phase
+                assigned[task.name] = phase
+                remaining.pop(task.name)
+            phase += 1
+
+    @staticmethod
+    def _group_calls_by_phase(calls: list[AgentCall]) -> list[DAGPhase]:
+        """将调用按 phase 分组，Phase 内多调用则并行。"""
+        phase_map: dict[int, list[AgentCall]] = {}
+        for call in calls:
+            phase_map.setdefault(call.phase, []).append(call)
+        return [
+            DAGPhase(
+                phase=idx,
+                calls=phase_map[idx],
+                mode="parallel" if len(phase_map[idx]) > 1 else "serial",
             )
-
-        return ExecutionPlan(
-            mode="parallel", calls=calls,
-            decomposer_used=True,
-        )
+            for idx in sorted(phase_map)
+        ]
 
     def _assign_chain_role(self, step: int, total: int) -> str:
         """为链式步骤分配角色。"""

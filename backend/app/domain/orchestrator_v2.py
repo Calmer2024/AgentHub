@@ -23,7 +23,8 @@ from ..event_bus import EventType
 from .intent_analyzer import IntentAnalyzer
 from .agent_selector import AgentSelector
 from .task_decomposer import TaskDecomposer
-from .execution_planner import ExecutionPlanner, AgentCall, ChainConfig, ExecutionPlan
+from .execution_planner import ExecutionPlanner, AgentCall, ChainConfig, DAGPhase
+from .plan_summary import build_plan_summary
 
 logger = logging.getLogger(__name__)
 
@@ -43,19 +44,22 @@ class PipelineRequest:
     context_budget: int = 100_000
     reserve_tokens: int = 4096
     chain_config: ChainConfig | None = None  # Phase 3: 链式配置 (运行时)
+    supplemental: bool = False  # 追问补充: 只调用被点名/缺失 Agent，不重跑完整小队
 
 
 @dataclass
 class PipelineResult:
     """Pipeline 输出。"""
     agent_calls: list[AgentCall]
-    execution_mode: str  # "single" | "parallel" | "chain" | "empty"
+    execution_mode: str  # "single" | "parallel" | "chain" | "dag" | "empty"
     assembled_messages: list[dict]
     total_tokens: int
     truncated: bool
     intent: str = "general_qa"
     chain_auto_triggered: bool = False
     decomposer_used: bool = False
+    dag_phases: list[DAGPhase] = field(default_factory=list)
+    plan_summary: str = ""
 
 
 # ===== Pipeline (thin coordinator) =====
@@ -100,6 +104,7 @@ class OrchestratorV2:
             content=req.content,
             messages=assembled,
             chain_config=req.chain_config,
+            supplemental=req.supplemental,
         )
 
         # Stage 5 (原 Stage 4): Lifecycle events
@@ -114,6 +119,8 @@ class OrchestratorV2:
             intent=intent_analysis.intent,
             chain_auto_triggered=plan.chain_auto_triggered,
             decomposer_used=plan.decomposer_used,
+            dag_phases=plan.dag_phases,
+            plan_summary=build_plan_summary(plan.mode, plan.calls, plan.dag_phases),
         )
 
     # ---- Stage: Context Assembly ----
@@ -146,6 +153,9 @@ class OrchestratorV2:
             candidates=req.member_agents,
             mentions=req.mentions,
         )
+        if req.supplemental and not req.mentions:
+            matched = [s for s in scored if s.reason == "tag_match"]
+            return [s.agent for s in matched[:2]]
         return [s.agent for s in scored]
 
     # ---- Lifecycle Events ----
@@ -160,7 +170,8 @@ class OrchestratorV2:
                 "session_id": session_id,
                 "intent": intent,
                 "tasks": [
-                    {"name": c.task, "role": c.role, "agent": c.agent.name}
+                    {"name": c.task, "role": c.role, "agent": c.agent.name,
+                     "phase": c.phase, "depends_on": list(c.depends_on)}
                     for c in calls
                 ],
                 "agents": [c.agent.name for c in calls],
