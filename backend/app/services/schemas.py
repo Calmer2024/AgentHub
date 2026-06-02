@@ -26,6 +26,9 @@ class MessageRead(BaseModel):
     content: str
     content_type: str = Field(default="text", alias="contentType")
     agent_name: str | None = Field(default=None, alias="agentName")
+    source_type: str = Field(default="agent", alias="sourceType")
+    source_id: str | None = Field(default=None, alias="sourceId")
+    source_name: str | None = Field(default=None, alias="sourceName")
     parent_message_id: str | None = Field(default=None, alias="parentMessageId")
     is_pinned: bool = False
     created_at: datetime = Field(alias="createdAt")
