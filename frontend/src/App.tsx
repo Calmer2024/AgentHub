@@ -6,22 +6,32 @@ import { ChatWindow } from "./components/ChatWindow";
 import { AgentPanel } from "./components/AgentPanel";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { GroupChatCreator } from "./components/GroupChatCreator";
-import { createSession, createGroupSession, fetchSessions, fetchMessages, fetchAgents, fetchProviders, createChatStream, updateSessionAgent, deleteSession, renameSession, summarizeSession, fetchSessionMembers } from "./api/client";
+import { createSession, createGroupSession, fetchSessions, fetchMessages, fetchAgents, fetchProviders, updateSessionAgent, deleteSession, renameSession, summarizeSession, fetchSessionMembers } from "./api/client";
 import { WSClient } from "./api/wsClient";
-import type { Message, AgentConfig } from "./types";
+import { useSendMessage } from "./hooks/useSendMessage";
+import type { AgentConfig } from "./types";
 
 /** 从 store 读取当前会话的协作状态（零值 = 空快照）。 */
 function emptyCollab(): CollabSnapshot {
-  return { routeAgents: null, collabTasks: [], chainSteps: [], orchestratorIntent: null, collabCompleted: false, collabSummary: null };
+  return {
+    routeAgents: null,
+    collabTasks: [],
+    dagPhases: [],
+    chainSteps: [],
+    orchestratorIntent: null,
+    planSummary: null,
+    collabCompleted: false,
+    collabSummary: null,
+  };
 }
 
 function App() {
   const {
     currentSessionId, messages, isStreaming, streamingError,
     setCurrentSessionId, setMessages,
-    appendMessage, appendStreamingToken, appendAgentStreamingToken,
-    setIsStreaming, setStreamingError,
-    collabSnapshots, getCollab, saveCollab, clearCollab,
+    appendStreamingToken,
+    setStreamingError,
+    collabSnapshots, clearCollab,
   } = useChatStore();
 
   const {
@@ -35,14 +45,17 @@ function App() {
 
   const routeAgents = collab.routeAgents;
   const collabTasks = collab.collabTasks;
+  const dagPhases = collab.dagPhases;
   const chainSteps = collab.chainSteps;
   const orchestratorIntent = collab.orchestratorIntent;
+  const planSummary = collab.planSummary;
   const collabCompleted = collab.collabCompleted;
   const collabSummary = collab.collabSummary;
 
   const wsRef = useRef<WSClient | null>(null);
   const [showGroupCreator, setShowGroupCreator] = useState(false);
   const [sessionMembers, setSessionMembers] = useState<AgentConfig[]>([]);
+  const handleSend = useSendMessage();
 
   useEffect(() => {
     if (!currentSessionId) return;
@@ -144,109 +157,6 @@ function App() {
     try { updateSession(await updateSessionAgent(currentSessionId, agentId)); } catch { /* */ }
   };
 
-  // === 发送消息 ===
-  const handleSend = async (content: string, mentions: string[]) => {
-    if (!currentSessionId) return;
-    setStreamingError(null);
-    // 重置当前会话的协作状态
-    saveCollab(collabKey, emptyCollab());
-
-    const currentMode = sessions.find((s) => s.id === currentSessionId)?.mode ?? "single";
-
-    const userMsg: Message = {
-      id: `local-${Date.now()}`, sessionId: currentSessionId,
-      role: "user", content, agentName: null, createdAt: new Date().toISOString(),
-    };
-    appendMessage(userMsg);
-
-    if (currentMode !== "group") {
-      const localId = `local-ai-${Date.now()}`;
-      appendMessage({
-        id: localId, sessionId: currentSessionId!,
-        role: "assistant", content: "", agentName: null,
-        createdAt: new Date().toISOString(),
-      });
-    }
-
-    const agentPlaceholders = new Map<string, string>();
-
-    // SSE 回调中通过 saveCollab 持久化协作状态
-    createChatStream(currentSessionId, content, mentions, {
-      onToken: (token) => appendStreamingToken(token),
-      onDone: (messageId, error) => {
-        setIsStreaming(false);
-        if (error) {
-          setStreamingError(error === "Stream ended unexpectedly"
-            ? "连接中断，请检查网络后重试" : `请求失败：${error}`);
-          return;
-        }
-        if (messageId) fetchMessages(currentSessionId).then(setMessages);
-      },
-      onRoute: (agents) => {
-        saveCollab(collabKey, { ...emptyCollab(), routeAgents: agents });
-        setIsStreaming(true);
-      },
-      onTaskStarted: (tasks, intent) => {
-        const snap = getCollab(collabKey);
-        saveCollab(collabKey, {
-          ...(snap ?? emptyCollab()),
-          collabTasks: tasks,
-          orchestratorIntent: intent,
-        });
-        tasks.forEach((t) => {
-          const agent = agents.find((a) => a.name === t.agent);
-          if (agent) {
-            const localId = `local-agent-${agent.id}-${Date.now()}`;
-            agentPlaceholders.set(agent.id, localId);
-            appendMessage({
-              id: localId, sessionId: currentSessionId!,
-              role: "assistant", content: "", agentName: t.agent,
-              createdAt: new Date().toISOString(),
-            });
-          }
-        });
-      },
-      onChainStep: (step) => {
-        const snap = getCollab(collabKey);
-        const existing = (snap?.chainSteps ?? []).filter((s) => s.step !== step.step);
-        const updatedSteps = [...existing, step].sort((a, b) => a.step - b.step);
-        const updatedTasks = (snap?.collabTasks ?? []).map((t, i) => {
-          if (i === step.step) {
-            return {
-              ...t,
-              status: step.status === "interrupted" ? "error" as const
-                : step.status === "completed" ? "completed" as const
-                : "running" as const,
-            };
-          }
-          return t;
-        });
-        saveCollab(collabKey, {
-          ...(snap ?? emptyCollab()),
-          chainSteps: updatedSteps,
-          collabTasks: updatedTasks,
-        });
-      },
-      onTaskCompleted: (summary) => {
-        const snap = getCollab(collabKey);
-        saveCollab(collabKey, {
-          ...(snap ?? emptyCollab()),
-          collabCompleted: true,
-          collabSummary: summary,
-          collabTasks: (snap?.collabTasks ?? []).map((t) => ({ ...t, status: "completed" as const })),
-        });
-      },
-      onAgentToken: (agentId, agentName, token) => {
-        const localId = agentPlaceholders.get(agentId);
-        if (localId) appendAgentStreamingToken(localId, agentName, token);
-      },
-    });
-
-    if (currentMode !== "group") {
-      setIsStreaming(true);
-    }
-  };
-
   const currentSession = sessions.find((s) => s.id === currentSessionId);
   const currentAgent = agents.find((a) => a.id === currentSession?.agentConfigId) ?? null;
   const currentMode = currentSession?.mode ?? "single";
@@ -258,8 +168,8 @@ function App() {
   ];
 
   return (
-    <div className="h-screen w-screen flex overflow-hidden">
-      <div className="w-72 h-full bg-gray-50 border-r border-gray-200 flex flex-col">
+    <div className="h-[100dvh] w-screen flex flex-col md:flex-row overflow-hidden">
+      <div className="w-full md:w-72 h-[42dvh] md:h-full bg-gray-50 border-r border-gray-200 flex flex-col shrink-0">
         <div className="flex border-b border-gray-200">
           {tabs.map((t) => (
             <button key={t.key} onClick={() => setSidebarTab(t.key)}
@@ -299,8 +209,10 @@ function App() {
           streamingError={streamingError}
           currentAgent={currentAgent} agents={agents} mode={currentMode}
           routeAgents={routeAgents} orchestratorIntent={orchestratorIntent}
+          planSummary={planSummary}
           mentionableAgents={currentMode === "group" ? sessionMembers : agents}
           collabTasks={collabTasks}
+          dagPhases={dagPhases}
           chainSteps={chainSteps}
           collabCompleted={collabCompleted}
           collabSummary={collabSummary}
@@ -309,7 +221,7 @@ function App() {
           onSwitchAgent={handleSwitchAgent}
         />
       ) : (
-        <div className="flex-1 flex items-center justify-center text-gray-500 text-lg">
+        <div className="flex-1 min-h-0 flex items-center justify-center text-gray-500 text-lg px-6 text-center">
           点击左侧"新建对话"开始
         </div>
       )}

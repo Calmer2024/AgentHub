@@ -9,6 +9,24 @@ interface Props {
   isStreaming: boolean;
 }
 
+const ROLE_LABELS: Record<string, string> = {
+  planner: "规划者",
+  executor: "执行者",
+  reviewer: "审查者",
+  researcher: "研究员",
+  synthesizer: "综合者",
+  critic: "批判者",
+};
+
+const ROLE_STYLES: Record<string, string> = {
+  planner: "border-violet-400 bg-violet-50 text-violet-700",
+  executor: "border-blue-400 bg-blue-50 text-blue-700",
+  reviewer: "border-amber-400 bg-amber-50 text-amber-700",
+  researcher: "border-emerald-400 bg-emerald-50 text-emerald-700",
+  synthesizer: "border-cyan-400 bg-cyan-50 text-cyan-700",
+  critic: "border-red-400 bg-red-50 text-red-700",
+};
+
 function TypingIndicator() {
   return (
     <span className="inline-flex items-center gap-1 px-1 py-1">
@@ -23,11 +41,17 @@ export function MessageBubble({ message, isStreaming }: Props) {
   const isUser = message.role === "user";
   const isEmpty = message.content === "";
   const showTyping = !isUser && isEmpty && isStreaming;
+  const isSummary = message.sourceType === "orchestrator" || message.contentType === "orchestrator_summary";
+  const isCollaborating = Boolean(message.isCollaborating || message.agentRole);
+  const roleStyle = message.agentRole
+    ? ROLE_STYLES[message.agentRole] ?? ROLE_STYLES.executor
+    : ROLE_STYLES.executor;
 
   const bgClass = isUser
     ? "bg-blue-600 text-white justify-end"
     : "bg-gray-100 text-gray-900 justify-start";
   const roundClass = isUser ? "rounded-2xl rounded-tr-none" : "rounded-2xl rounded-tl-none";
+  const summaryClass = "border border-indigo-200 bg-indigo-50 text-slate-900 shadow-sm";
 
   const agentColors = ["bg-green-100 text-green-700", "bg-orange-100 text-orange-700", "bg-purple-100 text-purple-700", "bg-pink-100 text-pink-700", "bg-teal-100 text-teal-700", "bg-indigo-100 text-indigo-700", "bg-cyan-100 text-cyan-700", "bg-amber-100 text-amber-700"];
   const colorIdx = message.agentName ? [...message.agentName].reduce((s, c) => s + c.charCodeAt(0), 0) % agentColors.length : 0;
@@ -35,10 +59,26 @@ export function MessageBubble({ message, isStreaming }: Props) {
 
   return (
     <div className={`flex mb-4 ${isUser ? "justify-end" : "justify-start"}`}>
-      <div className={`max-w-[80%] ${bgClass} ${roundClass}`}>
-        {!isUser && message.agentName && (
-          <div className={`px-3 py-1 text-xs font-medium rounded-t-2xl ${agentColor}`}>
-            {message.agentName}
+      <div className={`${isSummary ? "max-w-[92%]" : "max-w-[80%]"} ${
+        isSummary ? summaryClass : isCollaborating && !isUser ? `border-l-4 ${roleStyle}` : bgClass
+      } ${roundClass}`}>
+        {!isUser && isSummary && (
+          <div className="sticky top-0 z-10 px-3 py-2 text-xs font-semibold rounded-t-2xl bg-indigo-100/95 text-indigo-900 border-b border-indigo-200 shadow-sm">
+            <span>系统整理</span>
+            <span className="ml-2 text-indigo-600">{message.sourceName ?? "Orchestrator 中枢"}</span>
+          </div>
+        )}
+        {!isUser && !isSummary && message.agentName && (
+          <div className={`px-3 py-1 text-xs font-medium rounded-t-2xl ${isCollaborating ? "bg-white/70 text-slate-700" : agentColor}`}>
+            <span>@{message.agentName}</span>
+            {message.agentRole && (
+              <span className={`ml-2 px-1.5 py-0.5 rounded border ${roleStyle}`}>
+                {ROLE_LABELS[message.agentRole] ?? message.agentRole}
+              </span>
+            )}
+            {typeof message.phase === "number" && (
+              <span className="ml-2 text-slate-400">Phase {message.phase}</span>
+            )}
           </div>
         )}
         <div className="px-4 py-3">
@@ -65,7 +105,21 @@ export function MessageBubble({ message, isStreaming }: Props) {
                       style={oneDark}
                       language={match ? match[1] : "text"}
                       PreTag="div"
-                      customStyle={{ borderRadius: "0.75rem", fontSize: "0.8rem" }}
+                      wrapLongLines
+                      codeTagProps={{
+                        style: {
+                          whiteSpace: "pre-wrap",
+                          wordBreak: "break-word",
+                        },
+                      }}
+                      customStyle={{
+                        borderRadius: "0.75rem",
+                        fontSize: "0.8rem",
+                        maxWidth: "100%",
+                        overflowX: "auto",
+                        whiteSpace: "pre-wrap",
+                        wordBreak: "break-word",
+                      }}
                     >
                       {codeStr}
                     </SyntaxHighlighter>

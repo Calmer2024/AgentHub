@@ -34,7 +34,7 @@ export function SessionList({ sessions, currentSessionId, agents, onSelectSessio
   };
 
   return (
-    <div className="w-72 h-full bg-gray-50 border-r border-gray-200 flex flex-col">
+    <div className="w-full h-full bg-gray-50 flex flex-col">
       <div className="p-4 space-y-2">
         <button
           onClick={handleCreate} disabled={creating}

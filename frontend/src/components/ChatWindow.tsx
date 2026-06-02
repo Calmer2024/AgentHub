@@ -1,8 +1,8 @@
 import { useEffect, useRef } from "react";
-import type { Message, AgentConfig, CollabTask, ChainStep } from "../types";
+import type { Message, AgentConfig, CollabTask, ChainStep, DAGPhase } from "../types";
 import { MessageBubble } from "./MessageBubble";
 import { ChatInput } from "./ChatInput";
-import { CollaborationView } from "./CollaborationView";
+import { CollaborationPanel } from "./CollaborationPanel";
 
 interface Props {
   messages: Message[];
@@ -13,9 +13,11 @@ interface Props {
   mode: string;
   routeAgents: Array<{ id: string; name: string }> | null;
   orchestratorIntent: string | null;
+  planSummary: string | null;
   mentionableAgents: AgentConfig[];
   // CollaborationView props (inline in message flow)
   collabTasks: CollabTask[];
+  dagPhases: DAGPhase[];
   chainSteps: ChainStep[];
   collabCompleted: boolean;
   collabSummary: string | null;
@@ -33,19 +35,19 @@ const INTENT_LABELS: Record<string, string> = {
 
 export function ChatWindow({
   messages, isStreaming, streamingError,
-  currentAgent, agents, mode, routeAgents, orchestratorIntent, mentionableAgents,
-  collabTasks, chainSteps, collabCompleted, collabSummary,
+  currentAgent, agents, mode, routeAgents, orchestratorIntent, planSummary, mentionableAgents,
+  collabTasks, dagPhases, collabCompleted, collabSummary,
   onSend, onDismissError, onSwitchAgent,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [messages, collabTasks, chainSteps]);
+  }, [messages, collabTasks, dagPhases]);
 
   const isGroup = mode === "group";
 
   return (
-    <div className="flex-1 h-full flex flex-col">
+    <div className="flex-1 h-full min-h-0 flex flex-col">
       {/* Header */}
       <div className="px-6 py-3 border-b border-gray-200 bg-white flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -94,15 +96,18 @@ export function ChatWindow({
               </span>
             ))}
           </div>
+          {planSummary && (
+            <p className="mt-2 text-xs text-blue-700 leading-relaxed">{planSummary}</p>
+          )}
         </div>
       )}
 
-      {/* CollaborationView — inline in natural flow, below route banner */}
+      {/* CollaborationPanel — inline in natural flow, below route banner */}
       {collabTasks.length > 0 && (
-        <CollaborationView
+        <CollaborationPanel
           intent={orchestratorIntent}
           tasks={collabTasks}
-          chainSteps={chainSteps}
+          phases={dagPhases}
           isCompleted={collabCompleted}
           completedSummary={collabSummary}
         />
@@ -117,7 +122,7 @@ export function ChatWindow({
       )}
 
       {/* Messages area (scrollable) */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 bg-white">
+      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 bg-white">
         {messages.length === 0 && collabTasks.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-gray-500">
             <p className="text-lg">{isGroup ? "群聊开始，输入 @ 提及 Agent" : "开始对话吧"}</p>
