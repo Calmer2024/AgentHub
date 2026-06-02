@@ -16,9 +16,9 @@
 
 **累计测试**: 122 backend + 9 frontend + 23 E2E = **154 条**。零回归。
 
-## 2. 待实现 (Grill Part 2 — Phase 3.6 DAG)
+## 2. 已完成 (Grill Part 2 — Phase 3.6 DAG)
 
-### Step 6: SubTask DAG 模型
+### Step 6: SubTask DAG 模型 ✅
 
 | 子任务 | 文件 | 预计行数 |
 |--------|------|---------|
@@ -27,7 +27,7 @@
 | `_assign_phases()`: 拓扑排序, 将 SubTask 分配到 Phase | `execution_planner.py` | 60 |
 | DAGPhase 数据类 | `execution_planner.py` | 15 |
 
-### Step 7: SharedContext + AgentExecutor._execute_dag()
+### Step 7: SharedContext + AgentExecutor._execute_dag() ✅
 
 | 子任务 | 文件 | 预计行数 |
 |--------|------|---------|
@@ -37,7 +37,7 @@
 | `_execute_parallel_phase()` Phase 内并行 | `services/agent_executor.py` | 30 |
 | phase_change TokenEvent + SSE | `agent_executor.py` + `chat_service_impl.py` | 30 |
 
-### Step 8: SSE 协议 DAG 扩展
+### Step 8: SSE 协议 DAG 扩展 ✅
 
 | 子任务 | 文件 | 预计行数 |
 |--------|------|---------|
@@ -46,7 +46,7 @@
 | `agent.start` 增加 role + phase 字段 | `chat_service_impl.py` | 5 |
 | 前端 `onPhaseChange` 回调 | `client.ts` | 15 |
 
-### Step 9: 前端 CollaborationPanel + 角色气泡
+### Step 9: 前端 CollaborationPanel + 角色气泡 ✅
 
 | 子任务 | 文件 | 预计行数 |
 |--------|------|---------|
@@ -56,7 +56,7 @@
 | Phase 并行气泡同时创建 | `App.tsx` | 30 |
 | 前端 types 更新 (DAGPhase, PhaseChangeEvent) | `types/index.ts` | 20 |
 
-### Step 10: 测试 + 文档 + 收尾
+### Step 10: 测试 + 文档 + 收尾 ✅
 
 | 子任务 | 预计测试数 |
 |--------|----------|
@@ -66,7 +66,7 @@
 | E2E: 混合协作场景 (先设计→并行实现→审查) | 3 |
 | 文档更新 (本文档集) | - |
 
-**目标测试**: 新增 22 条，累计 176 条。
+**实际测试**: Backend/Frontend 单测 + 真实 API/UI 审计。新增 DAG/SharedContext/API SSE/Panel/Orchestrator 模型配置覆盖。
 
 ## 3. 依赖关系
 

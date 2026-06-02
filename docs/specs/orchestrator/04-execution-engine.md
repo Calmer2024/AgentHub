@@ -30,7 +30,7 @@ class TokenEvent:
 |-----------|------|--------------|
 | `"token"` | 普通 LLM token | `{}` |
 | `"chain_step"` | 链式步骤开始 | `{step, agent, role, total, status}` |
-| `"phase_change"` | DAG Phase 切换 (❌ 未实现) | `{phase, agents, status}` |
+| `"phase_change"` | DAG Phase 切换 | `{phase, agents, status}` |
 
 `is_chain_step` 和 `is_structured` 属性用于快速判别。
 
@@ -43,7 +43,7 @@ class TokenEvent:
 ```python
 async def execute(calls, mode, dag_phases=None, shared_context=None):
     if mode == "dag":
-        yield from _execute_dag(dag_phases, shared_context)   # ❌ 未实现
+        yield from _execute_dag(dag_phases, shared_context)
     elif mode == "chain":
         yield from _execute_chain(calls)
     elif mode == "parallel" and len(calls) > 1:
@@ -102,7 +102,7 @@ async def execute(calls, mode, dag_phases=None, shared_context=None):
   · step_error 非空 → 发送 chain_step(status="interrupted") + break
 ```
 
-### 3.5 _execute_dag — DAG 混合执行 (❌ 未实现)
+### 3.5 _execute_dag — DAG 混合执行
 
 目标行为:
 
@@ -160,7 +160,7 @@ emit task_completed(phases_completed)
 | _execute_single | ✅ | 60s 超时, 角色注入, 错误捕获 |
 | _execute_parallel | ✅ | StreamMerger, 5 并发上限 |
 | _execute_chain | ✅ | 产出注入, 中断检测 |
-| _execute_dag | ❌ 未实现 | 混合 DAG 执行器 |
+| _execute_dag | ✅ | 混合 DAG 执行器 |
 | StreamMerger | ✅ | 交错合并, 异常隔离 |
 | TokenEvent | ✅ | event_type + metadata |
 | 错误处理矩阵 (8 场景) | ✅ | 全覆盖 |

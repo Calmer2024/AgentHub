@@ -163,8 +163,8 @@ Phase 2 [串行]:  review (depends_on=["frontend","backend"])
 | is_chain 检测 | ✅ | 关键词匹配 |
 | 6 角色模板 | ✅ | 3 套模板 (code_gen/research/design_ui) |
 | Agent 标签匹配 | ✅ | 按 subtask.tags 在 agent 元数据中搜索 |
-| SubTask.depends_on | ❌ 未实现 | 当前模板无 depends_on 字段 |
-| 拓扑排序 | ❌ 未实现 | 当前全并行 or 全串行，不混合 |
-| Phase 分配 | ❌ 未实现 | 依赖拓扑排序 |
+| SubTask.depends_on | ✅ | 模板已声明 depends_on |
+| 拓扑排序 | ✅ | ExecutionPlanner._assign_phases() |
+| Phase 分配 | ✅ | Phase 间串行，Phase 内并行 |
 
-**下一步**: SubTask 增加 `depends_on` → ExecutionPlanner 实现 `_assign_phases()` → 见 `08-dev-plan.md`。
+**已完成**: SubTask DAG 模型、拓扑排序和 Phase 分配已交付。

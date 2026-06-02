@@ -32,18 +32,21 @@
 | IntentAnalyzer | ✅ 已交付 | 关键词规则 + 能力标签提取 |
 | AgentSelector | ✅ 已交付 | Agent.description + system_prompt 标签匹配 |
 | TaskDecomposer | ✅ 已交付 | 6 角色模板 + is_complex/is_chain 检测 |
-| ExecutionPlanner | ⚠️ 部分 | 优先级链已实现；DAG 拓扑排序未实现 |
+| ExecutionPlanner | ✅ 已交付 | 优先级链 + DAG 拓扑排序 + Phase 分配 |
 | AgentExecutor (_execute_single) | ✅ 已交付 | 含 60s 超时 (asyncio.timeout) |
 | AgentExecutor (_execute_parallel) | ✅ 已交付 | StreamMerger 交错合并 |
 | AgentExecutor (_execute_chain) | ✅ 已交付 | 角色 Prompt 注入 + 中断检测 |
-| AgentExecutor (_execute_dag) | ❌ 未实现 | 混合 DAG 执行器 |
+| AgentExecutor (_execute_dag) | ✅ 已交付 | Phase 间串行、Phase 内并行、SharedContext 注入 |
 | SSE 协议 (route/task/chain) | ✅ 已交付 | 6 种事件类型 |
-| SSE 协议 (phase_change) | ❌ 未实现 | DAG Phase 切换事件 |
-| 上下文共享 (SharedContext) | ❌ 未实现 | 对话流共享 + 定向注入 |
-| CollaborationPanel (DAG 图) | ❌ 未实现 | 当前为 CollaborationView |
-| Agent 气泡 (角色标签) | ❌ 未实现 | 当前无角色标签和 Phase 分组 |
+| SSE 协议 (phase_change) | ✅ 已交付 | DAG Phase 切换事件 |
+| 上下文共享 (SharedContext) | ✅ 已交付 | 对话流共享 + 定向注入 |
+| 中枢总结 (OrchestratorSummarizer) | ✅ 已交付 | DAG/chain 等多 Agent 结构化协作完成后生成系统整理消息 |
+| Orchestrator 模型配置 | ✅ 已交付 | `orchestratorProvider/orchestratorModel` 独立于成员 Agent |
+| 消息来源建模 | ✅ 已交付 | sourceType/contentType/metadata 支持 Agent 与 Orchestrator 区分 |
+| CollaborationPanel (DAG 图) | ✅ 已交付 | Phase 节点 + 依赖箭头 + 状态 |
+| Agent 气泡 (角色标签) | ✅ 已交付 | 角色标签、Phase 标记、协作竖线 |
 | 错误处理矩阵 | ✅ 已交付 | 超时/不可用/全失败/链中断/截断 |
-| 测试覆盖 | ⚠️ 部分 | Unit 33 + API 59 + E2E 23 = 115；缺 AgentExecutor 集成测试和 DAG 测试 |
+| 测试覆盖 | ✅ 已交付 | Backend/Frontend 单测；含 DAG/SharedContext/API SSE/真实 UI 验收测试 |
 
 ---
 

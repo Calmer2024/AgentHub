@@ -64,7 +64,7 @@ AgentExecutor.execute(calls, mode)
   ├── mode="single"   → _execute_single  (60s 超时)
   ├── mode="parallel" → _execute_parallel (StreamMerger)
   ├── mode="chain"    → _execute_chain   (角色注入 + 中断)
-  └── mode="dag"      → _execute_dag     (❌ 未实现)
+  └── mode="dag"      → _execute_dag     (✅ 已实现)
 ```
 
 ## 3. 组件树

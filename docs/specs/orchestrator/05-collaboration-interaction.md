@@ -8,7 +8,7 @@
 ## 1. 核心理念
 
 ```
-❌ 当前: Orchestrator 分发给 N 个 Agent → 各自独立回复 → 互不知晓
+旧实现: Orchestrator 分发给 N 个 Agent → 各自独立回复 → 互不知晓
        这是多路复用，不是协作
 
 ✅ 目标: 多个 Agent 像群聊成员一样依次回复各自的产出
@@ -16,12 +16,21 @@
        全程由 Orchestrator 调度
 ```
 
+用户心智模型是**自动项目小队**：用户给出目标，Orchestrator 自动组织 Agent 分工、排期、共享上下文并产出结果。轻量分工解释由后端随执行计划生成，前端只展示，让用户知道系统为什么这样安排，但不能要求用户逐步确认或打断主流程。
+
+如果用户认为分工不符合预期，当前阶段只允许通过 `@mention` 指定 Agent 或重新描述目标来引导 Orchestrator 重新规划。不要提供 Phase/DAG 编辑器，也不要让用户手动调整执行顺序。
+
+DAG/chain 等多 Agent 结构化协作完成后，Orchestrator 必须生成**中枢总结**：它是独立的系统整理消息，不属于任何 Agent。中枢总结负责把各 Agent 的产出合并成最终答复，处理重复、冲突、遗漏和下一步建议。普通并列群聊回复只展示各 Agent 产出，不自动追加中枢总结。
+
+中枢总结由独立的 Orchestrator 模型配置生成，配置项为 `orchestratorProvider` 与 `orchestratorModel`。它不借用首个成功 Agent 或任一成员 Agent 的 provider/model；如果该配置不可用，后端降级为本地提取式总结。
+
 ## 2. 前端渲染模型: 面板 + 气泡混合
 
 | 组件 | 内容 | 何时可见 |
 |------|------|---------|
 | **CollaborationPanel** | DAG 流程图: Phase 节点 + 依赖箭头 + 实时状态 | 协作触发即显示，完成后自动折叠 |
 | **Agent 聊天气泡** | 每个 Agent 完整产出，带角色标签 + agent 名称 | Phase 开始时创建，流式填充 |
+| **中枢总结气泡** | Orchestrator 汇总整理后的最终答复，明确标注“系统整理” | DAG/chain 且至少 2 个 Agent 成功产出后流式生成 |
 | **错误气泡** | Agent 失败时的错误信息 | Agent 失败时 |
 
 ### 2.1 渲染时序
@@ -51,7 +60,8 @@
   t=18.5s   @代码审查员 [审查者] 气泡出现, 流式 "审查结果: ..."
   t=25s     @代码审查员 完成, Phase 2 → ✅
 
-  t=25s     协作完成, Panel 自动折叠, 最终消息显示
+  t=25s     Orchestrator 中枢总结气泡出现, 流式整理各 Agent 产出
+  t=30s     协作完成, Panel 自动折叠, 最终消息显示
 ```
 
 ### 2.2 并行气泡渲染规则
@@ -172,9 +182,9 @@ Reviewer 看到的:
 
 | 功能 | 状态 | 备注 |
 |------|------|------|
-| 面板+气泡混合渲染 | ⚠️ 部分 | CollaborationView 面板存在但无 DAG 图；气泡无角色标签 |
+| 面板+气泡混合渲染 | ✅ | CollaborationPanel + 协作 Agent 气泡 |
 | 并行同时流式 | ✅ | placeholder 同时创建 |
-| 上下文共享 | ❌ 未实现 | 所有 Agent 收到同一份 input_messages |
-| 定向注入 | ⚠️ 部分 | chain 模式有产出注入，但无 SharedContext 抽象 |
-| CollaborationPanel DAG 图 | ❌ 未实现 | 当前 CollaborationView 只展示简单任务列表 |
-| Agent 聊天气泡 (角色标签) | ❌ 未实现 | 当前气泡无 role badge |
+| 上下文共享 | ✅ | SharedContext 对话流共享 |
+| 定向注入 | ✅ | depends_on 前驱完整产出注入 |
+| CollaborationPanel DAG 图 | ✅ | Phase 节点、箭头、状态 |
+| Agent 聊天气泡 (角色标签) | ✅ | role badge + Phase 标记 |

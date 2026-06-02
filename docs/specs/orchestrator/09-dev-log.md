@@ -17,6 +17,8 @@
 | 2026-06-01 | Step 5 完成: 测试补盲 (test_group_chat +5) + 文档 |
 | 2026-06-01 | QA Audit: 发现 5 Bug (2 阻断 + 2 中等 + 1 流程), 全部修复 |
 | 2026-06-01 | Grill Part 2: 混合 DAG + 上下文共享 + 面板气泡 6 项决议 |
+| 2026-06-01 | Step 6-10 完成: DAG 拓扑、SharedContext、phase_change SSE、CollaborationPanel、角色气泡 |
+| 2026-06-01 | 真实验收: 修复 task_completed 终止、移动端布局、代码块换行；补 EventBus 失败路径 completed |
 
 ## Bug 清单
 
@@ -71,4 +73,4 @@
 |------|------|------|-----|------|
 | Step 1 前 | 106 | 9 | 0 | 115 |
 | Step 5 后 | 122 | 9 | 23 | 154 |
-| Step 10 (目标) | 139 | 9 | 26 | 176 |
+| Step 10 完成 | 65 | 12 | 3 个真实脚本 | 77 + 真实验收 |

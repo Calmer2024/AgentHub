@@ -15,9 +15,10 @@ App.tsx
 │
 ├── ChatWindow             (主聊天区域)
 │   ├── Header             (标题 + Agent 选择器 + 流式指示器)
-│   ├── Orchestrator 横幅  (route + intent 标签)
-│   ├── CollaborationPanel (DAG 流程图 + 状态 ❌ 当前为 CollaborationView)
+│   ├── Orchestrator 横幅  (route + intent 标签 + 轻量分工解释)
+│   ├── CollaborationPanel (DAG 流程图 + 状态)
 │   ├── Agent 聊天气泡     (每个 Agent 的产出, 带角色标签)
+│   ├── 中枢总结气泡       (Orchestrator 系统整理, 非 Agent 发言)
 │   ├── MessageBubble       (普通消息气泡)
 │   └── ChatInput           (@mention 输入框)
 │
@@ -74,7 +75,27 @@ interface MessageBubbleProps {
 }
 ```
 
-### 3.3 视觉规范
+### 3.3 中枢总结气泡
+
+中枢总结使用同一个 `MessageBubble` 渲染，但通过消息来源字段区分:
+
+```typescript
+interface Message {
+  contentType?: "text" | "orchestrator_summary";
+  sourceType?: "user" | "agent" | "orchestrator" | "assistant";
+  sourceId?: string | null;
+  sourceName?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+```
+
+当 `sourceType === "orchestrator"` 或 `contentType === "orchestrator_summary"` 时，前端显示“系统整理 · Orchestrator 中枢”，不得显示为 `@某个 Agent`。该气泡只由后端 `summary_*` SSE 事件驱动创建；普通并列群聊没有该事件时，前端不得自行生成总结。
+
+### 3.4 Orchestrator 模型设置
+
+设置页必须提供独立的 Orchestrator 中枢模型选择，字段为 `orchestratorProvider` 与 `orchestratorModel`。该配置只影响中枢总结等编排层输出，不改变成员 Agent 的 provider/model。前端只提交配置并展示当前选择，实际调用与降级策略由后端负责。
+
+### 3.5 视觉规范
 
 ```
 普通消息气泡:
@@ -115,6 +136,7 @@ interface Props {
   // Orchestrator
   routeAgents: RouteAgent[] | null;
   orchestratorIntent: string | null;
+  planSummary: string | null; // 后端生成的轻量分工解释，前端只展示
 
   // 协作面板
   collabTasks: CollabTask[];
@@ -139,6 +161,7 @@ interface Props {
 ├─────────────────────────────────────┤
 │ [若有路由] Orchestrator 横幅:        │
 │   代码生成 → @架构师 @前端专家       │
+│   已安排: 先规划, 再并行实现, 最后审查 │
 ├─────────────────────────────────────┤
 │ [若有协作] CollaborationPanel:      │  ← 内联渲染
 │   Phase 0 → Phase 1 → Phase 2       │
@@ -150,6 +173,7 @@ interface Props {
 │   · Agent A 气泡 [规划者]            │
 │   · Agent B 气泡 [执行者]            │
 │   · Agent C 气泡 [审查者]            │
+│   · 系统整理气泡 [Orchestrator 中枢] │
 ├─────────────────────────────────────┤
 │ [单聊] Agent 选择器                  │
 ├─────────────────────────────────────┤
@@ -160,6 +184,8 @@ interface Props {
 ## 5. GroupChatCreator
 
 **自动化优先**: 无链式开关，用户只需选择 2-5 个 Agent。Orchestrator 自动决定协作模式。
+
+用户不编辑执行计划。若分工不符合预期，前端只提供 `@mention` 和重新发送更明确目标这两种引导方式，不提供 Phase/DAG 拖拽、重排或手动开关。
 
 ```typescript
 interface Props {
@@ -181,6 +207,7 @@ interface CollabSnapshot {
   collabTasks: CollabTask[];
   chainSteps: ChainStep[];
   orchestratorIntent: string | null;
+  planSummary: string | null;
   collabCompleted: boolean;
   collabSummary: string | null;
 }
@@ -196,7 +223,7 @@ saveCollab(sessionId, snap) → void;
 ```typescript
 createChatStream(sessionId, content, mentions, {
   onRoute: (agents) → saveCollab(..., {routeAgents: agents}),
-  onTaskStarted: (tasks, intent) → saveCollab(..., {collabTasks: tasks, orchestratorIntent: intent}),
+  onTaskStarted: (tasks, intent, dagPhases, planSummary) → saveCollab(..., {collabTasks: tasks, orchestratorIntent: intent, planSummary}),
   onChainStep: (step) → saveCollab(..., {chainSteps: updatedSteps, collabTasks: updatedTasks}),
   onTaskCompleted: (summary) → saveCollab(..., {collabCompleted: true, collabSummary: summary}),
   onAgentToken: (agentId, name, token) → appendAgentStreamingToken(localId, name, token),
@@ -208,8 +235,8 @@ createChatStream(sessionId, content, mentions, {
 | 组件 | 状态 | 备注 |
 |------|------|------|
 | CollaborationView | ✅ | 基础面板 (任务列表 + 状态) |
-| CollaborationPanel (DAG) | ❌ | 需重写为 DAG 流程图 |
-| Agent 聊天气泡 (角色标签) | ❌ | 需扩展 MessageBubble |
+| CollaborationPanel (DAG) | ✅ | DAG 流程图 + Phase 状态 |
+| Agent 聊天气泡 (角色标签) | ✅ | MessageBubble 已支持 role/phase |
 | ChatWindow 内联布局 | ✅ | 已修复 absolute 重叠 |
 | GroupChatCreator (无开关) | ✅ | 自动化优先 |
 | App.tsx 协作状态持久化 | ✅ | chatStore collabSnapshots |
