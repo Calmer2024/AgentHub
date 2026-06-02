@@ -74,7 +74,7 @@ class TestMigrationRunner:
 
         result = await conn.execute(text("SELECT filename FROM _migrations_history ORDER BY filename"))
         executed = [row[0] for row in result.fetchall()]
-        assert len(executed) == 6
+        assert len(executed) == 7
         assert executed[0] == "001_add_message_parent_id.sql"
 
     async def test_rerun_skips_already_executed(self, conn):
@@ -84,7 +84,7 @@ class TestMigrationRunner:
 
         result = await conn.execute(text("SELECT COUNT(*) FROM _migrations_history"))
         count = result.fetchone()[0]
-        assert count == 6
+        assert count == 7
 
     async def test_migrations_add_expected_columns(self, conn):
         from migrations.migration_runner import run
@@ -94,6 +94,11 @@ class TestMigrationRunner:
         columns = {row[1] for row in result.fetchall()}
         assert "parent_message_id" in columns
         assert "is_pinned" in columns
+        assert "content_type" in columns
+        assert "source_type" in columns
+        assert "source_id" in columns
+        assert "source_name" in columns
+        assert "metadata_json" in columns
 
         result = await conn.execute(text("PRAGMA table_info('artifacts')"))
         columns = {row[1] for row in result.fetchall()}

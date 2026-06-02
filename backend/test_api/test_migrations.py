@@ -5,13 +5,13 @@ from sqlalchemy import text
 
 @pytest.mark.asyncio
 async def test_all_migrations_applied(test_client):
-    """lifespan 触发后，6 个迁移全部记录在 _migrations_history。"""
+    """lifespan 触发后，7 个迁移全部记录在 _migrations_history。"""
     from app.database import AsyncSessionLocal
 
     async with AsyncSessionLocal() as s:
         r = await s.execute(text("SELECT COUNT(*) FROM _migrations_history"))
         count = r.scalar()
-        assert count == 6, f"预期 6 条迁移记录，实际 {count}"
+        assert count == 7, f"预期 7 条迁移记录，实际 {count}"
 
 
 @pytest.mark.asyncio
@@ -48,6 +48,11 @@ async def test_new_columns_exist(test_client):
         msg_cols = {row[1] for row in r.fetchall()}
         assert "parent_message_id" in msg_cols
         assert "is_pinned" in msg_cols
+        assert "content_type" in msg_cols
+        assert "source_type" in msg_cols
+        assert "source_id" in msg_cols
+        assert "source_name" in msg_cols
+        assert "metadata_json" in msg_cols
 
         r = await s.execute(text("PRAGMA table_info('artifacts')"))
         art_cols = {row[1] for row in r.fetchall()}

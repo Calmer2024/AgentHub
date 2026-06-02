@@ -167,7 +167,7 @@ class TestTaskDecomposer:
         assert not d.is_chain("写一个函数")
 
     def test_code_gen_decompose_with_roles(self):
-        """code_gen 拆解为 planner → executor → reviewer。"""
+        """code_gen 拆解为 planning → frontend/backend → review。"""
         d = TaskDecomposer()
         agents = [
             make_agent(name="架构师", system_prompt="擅长架构设计和技术方案"),
@@ -175,10 +175,13 @@ class TestTaskDecomposer:
             make_agent(name="代码审查员", system_prompt="擅长代码审查和安全测试"),
         ]
         pairs = d.decompose("code_gen", agents)
-        assert len(pairs) == 3
+        assert len(pairs) == 4
         subtasks = [p[0] for p in pairs]
         roles = [s.role for s in subtasks]
-        assert roles == ["planner", "executor", "reviewer"]
+        assert roles == ["planner", "executor", "executor", "reviewer"]
+        assert subtasks[1].depends_on == ["planning"]
+        assert subtasks[2].depends_on == ["planning"]
+        assert subtasks[3].depends_on == ["frontend", "backend"]
 
     def test_research_decompose_with_roles(self):
         """research 拆解为 researcher → synthesizer → critic。"""
@@ -225,8 +228,8 @@ class TestExecutionPlanner:
         assert plan.mode == "single"
         assert len(plan.calls) == 1
 
-    def test_complex_request_yields_parallel_decompose(self):
-        """复杂标记触发并行拆解。"""
+    def test_complex_request_yields_dag_decompose(self):
+        """复杂标记触发 DAG 拆解。"""
         planner = ExecutionPlanner()
         agents = [
             make_agent(name="前端", system_prompt="React前端开发"),
@@ -234,11 +237,13 @@ class TestExecutionPlanner:
         ]
         plan = planner.plan(agents, "前后端都要做登录系统",
                             [{"role": "user", "content": "前后端都要"}])
-        assert plan.mode == "parallel"
+        assert plan.mode == "dag"
         assert plan.decomposer_used
+        assert [p.phase for p in plan.dag_phases] == [0, 1, 2]
+        assert plan.dag_phases[1].mode == "parallel"
 
-    def test_chain_keyword_triggers_auto_chain(self):
-        """多阶段关键词触发自动链式。"""
+    def test_chain_keyword_triggers_auto_dag(self):
+        """多阶段关键词触发自动 DAG。"""
         planner = ExecutionPlanner()
         agents = [
             make_agent(name="架构师", system_prompt="擅长架构设计"),
@@ -247,8 +252,9 @@ class TestExecutionPlanner:
         ]
         plan = planner.plan(agents, "先设计系统架构再实现代码然后审查",
                             [{"role": "user", "content": "先设计再实现再审查"}])
-        assert plan.mode == "chain"
+        assert plan.mode == "dag"
         assert plan.chain_auto_triggered
+        assert plan.dag_phases
 
     def test_explicit_chain_config_priority(self):
         """显式 chain_config 最高优先级。"""
@@ -281,6 +287,46 @@ class TestExecutionPlanner:
         plan = planner.plan(agents, "写一个函数", [{"role": "user", "content": "写一个函数"}])
         assert plan.mode == "parallel"
         assert all(c.task == "primary" for c in plan.calls)
+
+    def test_supplemental_does_not_rebuild_dag(self):
+        """补充轮次只追加调用，不重新拆完整项目小队。"""
+        planner = ExecutionPlanner()
+        agents = [
+            make_agent(name="前端", system_prompt="React前端开发"),
+            make_agent(name="后端", system_prompt="Python后端API数据库"),
+            make_agent(name="审查员", system_prompt="代码审查和安全测试"),
+        ]
+        plan = planner.plan(
+            agents,
+            "补充后端缺失内容，先设计再实现最后审查",
+            [{"role": "user", "content": "补充后端缺失内容"}],
+            supplemental=True,
+        )
+        assert plan.mode == "parallel"
+        assert not plan.decomposer_used
+        assert plan.dag_phases == []
+        assert all(c.task == "primary" for c in plan.calls)
+
+    def test_dag_calls_include_phase_and_dependencies(self):
+        """DAG 调用单元携带 phase 和 depends_on，供执行器定向注入。"""
+        planner = ExecutionPlanner()
+        agents = [
+            make_agent(name="架构师", system_prompt="擅长架构设计"),
+            make_agent(name="前端", system_prompt="React前端开发"),
+            make_agent(name="后端", system_prompt="Python后端API数据库"),
+            make_agent(name="审查员", system_prompt="代码审查和安全测试"),
+        ]
+        plan = planner.plan(
+            agents,
+            "先设计登录系统再前后端实现最后审查",
+            [{"role": "user", "content": "登录系统"}],
+        )
+        by_task = {c.task: c for c in plan.calls}
+        assert by_task["planning"].phase == 0
+        assert by_task["frontend"].phase == 1
+        assert by_task["backend"].phase == 1
+        assert by_task["review"].phase == 2
+        assert by_task["review"].depends_on == ["frontend", "backend"]
 
 
 # ===== OrchestratorV2 Pipeline 集成测试 =====
@@ -316,6 +362,28 @@ class TestPipelineIntegration:
         result = await pl.run(req)
         # @mention a1 优先，即使 content 是 research 意图
         assert result.agent_calls[0].agent.id == "a1"
+
+    @pytest.mark.asyncio
+    async def test_supplemental_mention_only_calls_named_agent(self):
+        """补充轮次若 @ 指定 Agent，只调用被点名 Agent。"""
+        pl = OrchestratorV2()
+        agents = [
+            make_agent(agent_id="frontend", name="前端", system_prompt="React前端开发"),
+            make_agent(agent_id="backend", name="后端", system_prompt="Python后端API数据库"),
+            make_agent(agent_id="reviewer", name="审查员", system_prompt="代码审查"),
+        ]
+        req = PipelineRequest(
+            session_id="s1",
+            content="@后端 补充缺失的后端实现，先设计再实现最后审查",
+            mentions=["backend"],
+            messages=[{"role": "user", "content": "补充缺失的后端实现", "id": "m1"}],
+            member_agents=agents,
+            supplemental=True,
+        )
+        result = await pl.run(req)
+        assert result.execution_mode == "single"
+        assert [c.agent.id for c in result.agent_calls] == ["backend"]
+        assert result.dag_phases == []
 
     @pytest.mark.asyncio
     async def test_auto_chain_via_pipeline(self):

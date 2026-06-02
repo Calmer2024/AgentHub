@@ -94,6 +94,7 @@ class TestGroupSession:
         assert "orchestrator.task_completed" in events
         assert "agent.start" in events
         assert "agent.done" in events
+        assert not any(e.startswith("orchestrator.summary_") for e in events)
 
     async def test_group_chat_mock_agent_produces_tokens(self, test_client, test_agent, db_session):
         """MockAgent 在群聊模式下应产出完整 token 流。"""
@@ -175,5 +176,62 @@ class TestGroupSession:
         resp = await test_client.get(f"/api/sessions/{sid}/messages")
         assert resp.status_code == 200
         msgs = resp.json()
-        # 1 user + 2 agent responses
-        assert len(msgs) >= 3, f"Expected >=3 messages (1 user + 2 agents), got {len(msgs)}"
+        assert len(msgs) >= 3, f"Expected user + simple parallel agents, got {len(msgs)}"
+        assert not any(m.get("sourceType") == "orchestrator" for m in msgs)
+        assert not any(m.get("contentType") == "orchestrator_summary" for m in msgs)
+
+    async def test_group_chat_dag_sse_protocol(self, test_client, test_agent, db_session):
+        """复杂多阶段请求应返回 DAG task_started + phase_change 协议。"""
+        from app.models import AgentConfig
+        agents = [
+            AgentConfig(id=str(uuid.uuid4()), name="架构师", provider="deepseek", model="d",
+                        description="架构 设计 方案", system_prompt="擅长架构设计"),
+            AgentConfig(id=str(uuid.uuid4()), name="前端", provider="deepseek", model="d",
+                        description="React 前端 UI", system_prompt="擅长前端开发"),
+            AgentConfig(id=str(uuid.uuid4()), name="后端", provider="deepseek", model="d",
+                        description="Python 后端 API 数据库", system_prompt="擅长后端开发"),
+            AgentConfig(id=str(uuid.uuid4()), name="审查员", provider="deepseek", model="d",
+                        description="审查 测试 安全", system_prompt="擅长代码审查"),
+        ]
+        db_session.add_all(agents)
+        await db_session.commit()
+
+        res = await test_client.post("/api/sessions", json={
+            "mode": "group", "agentConfigIds": [a.id for a in agents],
+        })
+        sid = res.json()["id"]
+
+        resp = await test_client.post(
+            f"/api/sessions/{sid}/chat",
+            json={"content": "先设计登录系统再前后端实现最后审查"},
+        )
+
+        task_started = None
+        phase_events = []
+        summary_events = []
+        token_with_role = False
+        async for line in resp.aiter_lines():
+            if not line.startswith("data: "):
+                continue
+            data = json.loads(line[6:])
+            if data.get("type") == "orchestrator.task_started":
+                task_started = data
+            if data.get("type") == "orchestrator.phase_change":
+                phase_events.append(data)
+            if data.get("type", "").startswith("orchestrator.summary_"):
+                summary_events.append(data["type"])
+            if data.get("agentId") and data.get("token") and not data.get("done"):
+                token_with_role = "role" in data and "phase" in data and "messageId" in data
+
+        assert task_started is not None
+        assert "dag" in task_started
+        assert "plan_summary" in task_started
+        assert "先由@架构师规划" in task_started["plan_summary"]
+        assert [p["phase"] for p in task_started["dag"]["phases"]] == [0, 1, 2]
+        assert task_started["dag"]["phases"][1]["mode"] == "parallel"
+        assert any(e["phase"] == 1 and e["status"] == "running" for e in phase_events)
+        assert any(e["phase"] == 2 and e["status"] == "completed" for e in phase_events)
+        assert "orchestrator.summary_started" in summary_events
+        assert "orchestrator.summary_delta" in summary_events
+        assert "orchestrator.summary_completed" in summary_events
+        assert token_with_role

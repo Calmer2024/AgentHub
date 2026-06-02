@@ -12,6 +12,8 @@ class TestGetSettings:
         assert "glmApiKey" in data
         assert "openaiModel" in data
         assert "deepseekModel" in data
+        assert "orchestratorProvider" in data
+        assert "orchestratorModel" in data
 
     async def test_model_fields_have_defaults(self, test_client):
         res = await test_client.get("/api/settings")
@@ -19,6 +21,8 @@ class TestGetSettings:
         assert data["openaiModel"] == "gpt-4o"
         assert data["deepseekModel"] == "deepseek-v4-flash"
         assert data["glmModel"] == "glm-5.1"
+        assert data["orchestratorProvider"] == "deepseek"
+        assert data["orchestratorModel"] == "deepseek-v4-flash"
 
 
 class TestUpdateSettings:
@@ -36,6 +40,22 @@ class TestUpdateSettings:
         })
         assert res.status_code == 200
         assert res.json()["openaiModel"] == "gpt-4o-mini"
+
+    async def test_update_orchestrator_model(self, test_client):
+        res = await test_client.put("/api/settings", json={
+            "orchestratorProvider": "openai",
+            "orchestratorModel": "gpt-4o-mini",
+        })
+        assert res.status_code == 200
+        data = res.json()
+        assert data["orchestratorProvider"] == "openai"
+        assert data["orchestratorModel"] == "gpt-4o-mini"
+
+    async def test_reject_invalid_orchestrator_provider(self, test_client):
+        res = await test_client.put("/api/settings", json={
+            "orchestratorProvider": "missing-provider",
+        })
+        assert res.status_code == 400
 
     async def test_empty_body_does_nothing(self, test_client):
         res = await test_client.put("/api/settings", json={})

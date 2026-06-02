@@ -68,9 +68,19 @@ def test_import_event_bus():
 def test_import_services():
     from app.services import MessageService, ChatService, SessionService
     from app.services.schemas import MessageCreate, MessageRead, SessionCreate, SessionRead
+    from app.services.shared_context import SharedContext
+    from app.services.token_event import TokenEvent
+    from app.services.group_chat_stream import GroupChatStream
+    from app.services.group_chat_finalizer import GroupChatFinalizer
+    from app.services.orchestrator_summarizer import OrchestratorSummarizer
     assert MessageService is not None
     assert ChatService is not None
     assert SessionService is not None
+    assert SharedContext is not None
+    assert TokenEvent is not None
+    assert GroupChatStream is not None
+    assert GroupChatFinalizer is not None
+    assert OrchestratorSummarizer is not None
 
 
 def test_import_migration_runner():
@@ -82,7 +92,7 @@ def test_import_migration_runner():
 def test_all_migration_files_exist():
     from migrations.migration_runner import MIGRATIONS_DIR
     files = [f for f in MIGRATIONS_DIR.iterdir() if f.suffix == ".sql"]
-    assert len(files) == 6, f"预期 6 个迁移文件，实际 {len(files)}"
+    assert len(files) == 7, f"预期 7 个迁移文件，实际 {len(files)}"
 
 
 def test_test_db_is_file_not_memory():
