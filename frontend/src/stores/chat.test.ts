@@ -33,6 +33,26 @@ describe("Chat Store (split)", () => {
     expect(useChatStore.getState().messages[0].content).toBe("Hi there");
   });
 
+  it("chatStore 保存 DAG 协作快照", () => {
+    useChatStore.getState().saveCollab("s-dag", {
+      routeAgents: [{ id: "a1", name: "架构师" }],
+      collabTasks: [{ name: "planning", role: "planner", agent: "架构师", status: "running", phase: 0 }],
+      dagPhases: [{
+        phase: 0,
+        mode: "serial",
+        status: "running",
+        tasks: [{ name: "planning", role: "planner", agent: "架构师", status: "running", phase: 0 }],
+      }],
+      chainSteps: [],
+      orchestratorIntent: "code_gen",
+      planSummary: "已安排: 先由@架构师规划。",
+      collabCompleted: false,
+      collabSummary: null,
+    });
+    expect(useChatStore.getState().getCollab("s-dag").dagPhases[0].phase).toBe(0);
+    expect(useChatStore.getState().getCollab("s-dag").planSummary).toContain("架构师");
+  });
+
   it("sessionStore 初始 agents 为空数组", () => {
     expect(useSessionStore.getState().agents).toEqual([]);
   });

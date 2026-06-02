@@ -1,15 +1,18 @@
-import type { Session, Message, Provider, AgentConfig, AgentConfigCreate, AgentConfigUpdate, Settings, SettingsUpdate, RouteAgent, CollabTask, ChainStep, ChainConfigInput } from "../types";
+import type {
+  Session, Message, Provider, AgentConfig, AgentConfigCreate, AgentConfigUpdate,
+  Settings, SettingsUpdate, RouteAgent, CollabTask, ChainStep, ChainConfigInput,
+  DAGPhase, PhaseChangeEvent, AgentStartEvent, OrchestratorSummaryStartEvent,
+} from "../types";
+import { parseDagPhases, parseTasks } from "./orchestratorEvents";
 
 const API_BASE = "/api";
 
-// Providers
 export async function fetchProviders(): Promise<Provider[]> {
   const res = await fetch(`${API_BASE}/providers`);
   if (!res.ok) throw new Error("Failed to fetch providers");
   return res.json();
 }
 
-// Agent CRUD
 export async function fetchAgents(): Promise<AgentConfig[]> {
   const res = await fetch(`${API_BASE}/agents`);
   if (!res.ok) throw new Error("Failed to fetch agents");
@@ -41,7 +44,6 @@ export async function deleteAgent(id: string): Promise<void> {
   if (!res.ok) throw new Error("Failed to delete agent");
 }
 
-// Sessions
 export async function fetchSessions(): Promise<Session[]> {
   const res = await fetch(`${API_BASE}/sessions`);
   if (!res.ok) throw new Error("Failed to fetch sessions");
@@ -103,7 +105,6 @@ export async function updateSessionAgent(sessionId: string, agentConfigId: strin
   return res.json();
 }
 
-// Messages
 export async function fetchMessages(sessionId: string): Promise<Message[]> {
   const res = await fetch(`${API_BASE}/sessions/${sessionId}/messages`);
   if (!res.ok) throw new Error("Failed to fetch messages");
@@ -114,10 +115,24 @@ export interface StreamCallbacks {
   onToken: (token: string) => void;
   onDone: (messageId?: string, error?: string) => void;
   onRoute?: (agents: RouteAgent[]) => void;
-  onTaskStarted?: (tasks: CollabTask[], intent: string) => void;
+  onTaskStarted?: (
+    tasks: CollabTask[], intent: string, dagPhases: DAGPhase[], planSummary: string,
+  ) => void;
   onChainStep?: (step: ChainStep) => void;
+  onPhaseChange?: (event: PhaseChangeEvent) => void;
   onTaskCompleted?: (summary: string) => void;
-  onAgentToken?: (agentId: string, agentName: string, token: string) => void;
+  onAgentStart?: (event: AgentStartEvent) => void;
+  onOrchestratorSummaryStart?: (event: OrchestratorSummaryStartEvent) => void;
+  onOrchestratorSummaryToken?: (messageId: string, token: string) => void;
+  onAgentToken?: (
+    agentId: string,
+    agentName: string,
+    token: string,
+    messageId?: string,
+    role?: string,
+    phase?: number,
+    task?: string,
+  ) => void;
 }
 
 export function createChatStream(
@@ -127,7 +142,11 @@ export function createChatStream(
   callbacks: StreamCallbacks,
   chainConfig?: ChainConfigInput,
 ): () => void {
-  const { onToken, onDone, onRoute, onTaskStarted, onChainStep, onTaskCompleted, onAgentToken } = callbacks;
+  const {
+    onToken, onDone, onRoute, onTaskStarted, onChainStep, onPhaseChange,
+    onTaskCompleted, onAgentStart, onOrchestratorSummaryStart,
+    onOrchestratorSummaryToken, onAgentToken,
+  } = callbacks;
   const url = `${API_BASE}/sessions/${sessionId}/chat`;
   const abortCtrl = new AbortController();
 
@@ -175,7 +194,12 @@ export function createChatStream(
 
             // orchestrator.task_started (new)
             if (data.type === "orchestrator.task_started" && onTaskStarted) {
-              onTaskStarted(data.tasks || [], data.intent || "general_qa");
+              onTaskStarted(
+                parseTasks(data.tasks),
+                data.intent || "general_qa",
+                parseDagPhases(data.dag),
+                typeof data.plan_summary === "string" ? data.plan_summary : "",
+              );
               continue;
             }
 
@@ -191,14 +215,66 @@ export function createChatStream(
               continue;
             }
 
-            // orchestrator.task_completed (new)
-            if (data.type === "orchestrator.task_completed" && onTaskCompleted) {
-              onTaskCompleted(data.summary ?? "");
+            // orchestrator.phase_change
+            if (data.type === "orchestrator.phase_change" && onPhaseChange) {
+              const status = typeof data.status === "string" ? data.status : "running";
+              onPhaseChange({
+                phase: data.phase ?? 0,
+                status: status === "pending" || status === "completed" || status === "error" ? status : "running",
+                agents: Array.isArray(data.agents) ? data.agents.map(String) : [],
+                tasks: Array.isArray(data.tasks) ? data.tasks.map(String) : [],
+              });
               continue;
             }
 
-            // agent.start (skip in stream)
-            if (data.type === "agent.start") continue;
+            if (data.type === "orchestrator.summary_started") {
+              if (onOrchestratorSummaryStart) {
+                onOrchestratorSummaryStart({
+                  messageId: data.messageId ?? "",
+                  sourceType: "orchestrator",
+                  sourceId: data.sourceId,
+                  sourceName: data.sourceName ?? "Orchestrator 中枢",
+                  contentType: "orchestrator_summary",
+                  metadata: data.metadata,
+                });
+              }
+              continue;
+            }
+
+            if (data.type === "orchestrator.summary_delta") {
+              if (onOrchestratorSummaryToken && data.token) {
+                onOrchestratorSummaryToken(data.messageId ?? "", data.token);
+              }
+              continue;
+            }
+
+            if (data.type === "orchestrator.summary_completed") {
+              continue;
+            }
+
+            // orchestrator.task_completed (new)
+            if (data.type === "orchestrator.task_completed" && onTaskCompleted) {
+              onTaskCompleted(data.summary ?? "");
+              completed = true;
+              onDone(undefined, undefined);
+              return;
+            }
+
+            // agent.start
+            if (data.type === "agent.start") {
+              if (onAgentStart) {
+                onAgentStart({
+                  agentId: data.agentId ?? "",
+                  agentName: data.agentName ?? "",
+                  messageId: data.messageId ?? "",
+                  role: data.role,
+                  phase: data.phase,
+                  task: data.task,
+                  callKey: data.callKey,
+                });
+              }
+              continue;
+            }
 
             // error event (global error)
             if (data.type === "error") {
@@ -209,7 +285,15 @@ export function createChatStream(
 
             // token streaming
             if (data.agentId && data.token && onAgentToken) {
-              onAgentToken(data.agentId, data.agentName || "", data.token);
+              onAgentToken(
+                data.agentId,
+                data.agentName || "",
+                data.token,
+                data.messageId,
+                data.role,
+                data.phase,
+                data.task,
+              );
             } else if (data.token) {
               onToken(data.token);
             }
@@ -230,7 +314,6 @@ export function createChatStream(
   return () => abortCtrl.abort();
 }
 
-// Settings
 export async function fetchSettings(): Promise<Settings> {
   const res = await fetch(`${API_BASE}/settings`);
   if (!res.ok) throw new Error("Failed to fetch settings");

@@ -12,7 +12,16 @@ export interface Message {
   sessionId: string;
   role: "user" | "assistant" | "system";
   content: string;
+  contentType?: string;
   agentName: string | null;
+  sourceType?: "user" | "agent" | "orchestrator" | "assistant" | "system";
+  sourceId?: string | null;
+  sourceName?: string | null;
+  metadata?: Record<string, unknown> | null;
+  agentRole?: string | null;
+  phase?: number | null;
+  taskName?: string | null;
+  isCollaborating?: boolean;
   createdAt: string;
 }
 
@@ -77,6 +86,8 @@ export interface Settings {
   geminiModel: string;
   minimaxModel: string;
   glmModel: string;
+  orchestratorProvider: string;
+  orchestratorModel: string;
 }
 
 export interface Artifact {
@@ -101,8 +112,18 @@ export interface CollabTask {
   name: string;
   role: string;
   agent: string;
+  agentId?: string;
   status: "pending" | "running" | "completed" | "error";
+  dependsOn?: string[];
+  phase?: number;
   summary?: string;
+}
+
+export interface DAGPhase {
+  phase: number;
+  mode: "serial" | "parallel";
+  status: "pending" | "running" | "completed" | "error";
+  tasks: CollabTask[];
 }
 
 export interface ChainStep {
@@ -111,6 +132,32 @@ export interface ChainStep {
   role: string;
   total: number;
   status: "running" | "completed" | "interrupted";
+}
+
+export interface PhaseChangeEvent {
+  phase: number;
+  status: "pending" | "running" | "completed" | "error";
+  agents: string[];
+  tasks: string[];
+}
+
+export interface AgentStartEvent {
+  agentId: string;
+  agentName: string;
+  messageId: string;
+  role?: string;
+  phase?: number;
+  task?: string;
+  callKey?: string;
+}
+
+export interface OrchestratorSummaryStartEvent {
+  messageId: string;
+  sourceType: "orchestrator";
+  sourceId?: string;
+  sourceName: string;
+  contentType: "orchestrator_summary";
+  metadata?: Record<string, unknown>;
 }
 
 export interface ChainConfigInput {
@@ -131,4 +178,6 @@ export interface SettingsUpdate {
   geminiModel?: string;
   minimaxModel?: string;
   glmModel?: string;
+  orchestratorProvider?: string;
+  orchestratorModel?: string;
 }

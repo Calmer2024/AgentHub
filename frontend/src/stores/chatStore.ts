@@ -1,12 +1,14 @@
 import { create } from "zustand";
-import type { Message, RouteAgent, CollabTask, ChainStep } from "../types";
+import type { Message, RouteAgent, CollabTask, ChainStep, DAGPhase } from "../types";
 
 /** 每个会话的协作状态快照，切换会话时保留。 */
 export interface CollabSnapshot {
   routeAgents: RouteAgent[] | null;
   collabTasks: CollabTask[];
+  dagPhases: DAGPhase[];
   chainSteps: ChainStep[];
   orchestratorIntent: string | null;
+  planSummary: string | null;
   collabCompleted: boolean;
   collabSummary: string | null;
 }
@@ -15,8 +17,10 @@ function emptyCollab(): CollabSnapshot {
   return {
     routeAgents: null,
     collabTasks: [],
+    dagPhases: [],
     chainSteps: [],
     orchestratorIntent: null,
+    planSummary: null,
     collabCompleted: false,
     collabSummary: null,
   };
