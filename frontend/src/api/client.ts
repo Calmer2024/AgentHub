@@ -2,6 +2,7 @@ import type {
   Session, Message, Provider, AgentConfig, AgentConfigCreate, AgentConfigUpdate,
   Settings, SettingsUpdate, RouteAgent, CollabTask, ChainStep, ChainConfigInput,
   DAGPhase, PhaseChangeEvent, AgentStartEvent, OrchestratorSummaryStartEvent,
+  Artifact, ArtifactDiff, ArtifactEditRequest, ArtifactEditResult, ArtifactVersion,
 } from "../types";
 import { parseDagPhases, parseTasks } from "./orchestratorEvents";
 
@@ -413,5 +414,44 @@ export async function updateSettings(data: SettingsUpdate): Promise<Settings> {
     body: JSON.stringify(data),
   });
   if (!res.ok) throw new Error("Failed to update settings");
+  return res.json();
+}
+
+export async function fetchArtifacts(sessionId: string): Promise<Artifact[]> {
+  const res = await fetch(`${API_BASE}/sessions/${sessionId}/artifacts`);
+  if (!res.ok) throw new Error("Failed to fetch artifacts");
+  return res.json();
+}
+
+export async function fetchArtifactVersions(artifactId: string): Promise<ArtifactVersion[]> {
+  const res = await fetch(`${API_BASE}/artifacts/${artifactId}/versions`);
+  if (!res.ok) throw new Error("Failed to fetch artifact versions");
+  return res.json();
+}
+
+export async function fetchArtifactDiff(
+  artifactId: string,
+  fromVersion: number,
+  toVersion: number,
+): Promise<ArtifactDiff> {
+  const params = new URLSearchParams({
+    v1: String(fromVersion),
+    v2: String(toVersion),
+  });
+  const res = await fetch(`${API_BASE}/artifacts/${artifactId}/diff?${params.toString()}`);
+  if (!res.ok) throw new Error("Failed to fetch artifact diff");
+  return res.json();
+}
+
+export async function editArtifact(
+  artifactId: string,
+  data: ArtifactEditRequest,
+): Promise<ArtifactEditResult> {
+  const res = await fetch(`${API_BASE}/artifacts/${artifactId}/edit`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error("Failed to edit artifact");
   return res.json();
 }

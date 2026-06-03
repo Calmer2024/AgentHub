@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Message, AgentConfig, CollabTask, ChainStep, DAGPhase } from "../types";
+import type { Message, AgentConfig, CollabTask, ChainStep, DAGPhase, Artifact } from "../types";
 import { MessageBubble } from "./MessageBubble";
 import { ChatInput } from "./ChatInput";
 import { CollaborationPanel } from "./CollaborationPanel";
 import { SearchPanel } from "./SearchPanel";
+import { ArtifactCard } from "./ArtifactCard";
 
 interface Props {
   messages: Message[];
+  artifacts: Artifact[];
   isStreaming: boolean;
   streamingError: string | null;
   currentAgent: AgentConfig | null;
@@ -29,6 +31,7 @@ interface Props {
   onReply: (message: Message) => void;
   onRegenerate: (message: Message) => void;
   onTogglePin: (message: Message) => void;
+  onArtifactsChanged: () => void;
 }
 
 const INTENT_LABELS: Record<string, string> = {
@@ -39,10 +42,10 @@ const INTENT_LABELS: Record<string, string> = {
 };
 
 export function ChatWindow({
-  messages, isStreaming, streamingError,
+  messages, artifacts, isStreaming, streamingError,
   currentAgent, currentSessionId, agents, mode, routeAgents, orchestratorIntent, planSummary, mentionableAgents,
   collabTasks, dagPhases, collabCompleted, collabSummary,
-  onSend, onDismissError, onSwitchAgent, onReply, onRegenerate, onTogglePin,
+  onSend, onDismissError, onSwitchAgent, onReply, onRegenerate, onTogglePin, onArtifactsChanged,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -155,30 +158,79 @@ export function ChatWindow({
         </div>
       )}
 
-      {/* Messages area (scrollable) */}
-      <div ref={scrollRef} className="relative flex-1 min-h-0 overflow-y-auto p-4 md:p-6 bg-white">
-        {messages.length === 0 && collabTasks.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-gray-500">
-            <p className="text-lg">{isGroup ? "群聊开始，输入 @ 提及 Agent" : "开始对话吧"}</p>
-          </div>
-        ) : (
-          messages.map((msg) => (
-            <div key={msg.id} ref={(el) => { messageRefs.current[msg.id] = el; }}>
-              <MessageBubble
-                message={msg}
-                isStreaming={isStreaming}
-                parentMessage={msg.parentMessageId ? messageById.get(msg.parentMessageId) ?? null : null}
-                highlighted={highlightedMessageId === msg.id}
-                onReply={onReply}
-                onRegenerate={onRegenerate}
-                onTogglePin={onTogglePin}
-                onCopy={(content) => navigator.clipboard?.writeText(content)}
-                onJumpToMessage={jumpToMessage}
-              />
+      <div className="relative flex-1 min-h-0 flex overflow-hidden bg-white">
+        {/* Messages area (scrollable) */}
+        <div
+          ref={scrollRef}
+          className={`relative min-h-0 overflow-y-auto p-4 md:p-6 bg-white ${
+            artifacts.length > 0 ? "flex-1" : "w-full"
+          }`}
+        >
+          {messages.length === 0 && collabTasks.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-gray-500">
+              <p className="text-lg">{isGroup ? "群聊开始，输入 @ 提及 Agent" : "开始对话吧"}</p>
             </div>
-          ))
+          ) : (
+            messages.map((msg) => (
+              <div key={msg.id} ref={(el) => { messageRefs.current[msg.id] = el; }}>
+                <MessageBubble
+                  message={msg}
+                  isStreaming={isStreaming}
+                  parentMessage={msg.parentMessageId ? messageById.get(msg.parentMessageId) ?? null : null}
+                  highlighted={highlightedMessageId === msg.id}
+                  onReply={onReply}
+                  onRegenerate={onRegenerate}
+                  onTogglePin={onTogglePin}
+                  onCopy={(content) => navigator.clipboard?.writeText(content)}
+                  onJumpToMessage={jumpToMessage}
+                />
+              </div>
+            ))
+          )}
+        </div>
+
+        {artifacts.length > 0 && (
+          <aside className="hidden w-[420px] shrink-0 border-l border-slate-200 bg-slate-50 md:flex md:flex-col">
+            <div className="border-b border-slate-200 px-4 py-3">
+              <div className="text-sm font-semibold text-slate-900">产物工作台</div>
+              <div className="mt-0.5 text-xs text-slate-500">{artifacts.length} 个当前产物</div>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto p-3">
+              {artifacts.map((artifact) => (
+                <ArtifactCard
+                  key={artifact.id}
+                  artifact={artifact}
+                  onChanged={onArtifactsChanged}
+                />
+              ))}
+            </div>
+          </aside>
+        )}
+
+        {artifacts.length > 0 && (
+          <div className="fixed bottom-24 right-4 z-20 md:hidden">
+            <button
+              type="button"
+              onClick={() => document.getElementById("mobile-artifacts")?.scrollIntoView({ behavior: "smooth" })}
+              className="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white shadow-lg"
+            >
+              产物
+            </button>
+          </div>
         )}
       </div>
+
+      {artifacts.length > 0 && (
+        <div id="mobile-artifacts" className="max-h-[36dvh] overflow-y-auto border-t border-slate-200 bg-slate-50 p-3 md:hidden">
+          {artifacts.map((artifact) => (
+            <ArtifactCard
+              key={artifact.id}
+              artifact={artifact}
+              onChanged={onArtifactsChanged}
+            />
+          ))}
+        </div>
+      )}
 
       <SearchPanel
         sessionId={currentSessionId}

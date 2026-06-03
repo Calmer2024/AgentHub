@@ -10,6 +10,7 @@ import {
   createSession, createGroupSession, fetchSessions, fetchMessages, fetchAgents,
   fetchProviders, updateSessionAgent, deleteSession, renameSession, summarizeSession,
   fetchSessionMembers, pinMessage, unpinMessage, regenerateMessageStream,
+  fetchArtifacts,
 } from "./api/client";
 import { WSClient } from "./api/wsClient";
 import { useSendMessage } from "./hooks/useSendMessage";
@@ -32,7 +33,9 @@ function emptyCollab(): CollabSnapshot {
 function App() {
   const {
     currentSessionId, messages, isStreaming, streamingError,
+    artifacts,
     setCurrentSessionId, setMessages,
+    setArtifacts,
     appendStreamingToken,
     setStreamingError,
     setIsStreaming,
@@ -77,6 +80,7 @@ function App() {
     });
     ws.on("message.completed", () => {
       fetchMessages(currentSessionId).then(setMessages);
+      fetchArtifacts(currentSessionId).then(setArtifacts).catch(() => {});
     });
     ws.on("agent.changed", (data) => {
       if (typeof data.agentConfigId === "string") {
@@ -106,8 +110,10 @@ function App() {
     // 协作状态不清零 —— 由 store 按 sessionId 自动恢复
     // 切换到目标会话后，collab 会自动从 collabSnapshots[id] 读取
     setMessages([]);
+    setArtifacts([]);
     setStreamingError(null);
     try { setMessages(await fetchMessages(id)); } catch { /* */ }
+    try { setArtifacts(await fetchArtifacts(id)); } catch { /* */ }
     // 加载群成员
     const sess = sessions.find((s) => s.id === id);
     if (sess?.mode === "group") {
@@ -127,6 +133,7 @@ function App() {
     setSessions([s, ...sessions]);
     setCurrentSessionId(s.id);
     setMessages([]);
+    setArtifacts([]);
     setStreamingError(null);
   };
 
@@ -136,6 +143,7 @@ function App() {
     setSessions([s, ...sessions]);
     setCurrentSessionId(s.id);
     setMessages([]);
+    setArtifacts([]);
     setStreamingError(null);
     clearCollab(s.id); // 新会话无协作历史
   };
@@ -146,6 +154,7 @@ function App() {
     if (currentSessionId === id) {
       setCurrentSessionId(null);
       setMessages([]);
+      setArtifacts([]);
     }
     clearCollab(id);
   };
@@ -198,8 +207,14 @@ function App() {
           return;
         }
         try { setMessages(await fetchMessages(currentSessionId)); } catch { /* */ }
+        try { setArtifacts(await fetchArtifacts(currentSessionId)); } catch { /* */ }
       },
     });
+  };
+
+  const handleArtifactsChanged = async () => {
+    if (!currentSessionId) return;
+    try { setArtifacts(await fetchArtifacts(currentSessionId)); } catch { /* */ }
   };
 
   const currentSession = sessions.find((s) => s.id === currentSessionId);
@@ -251,6 +266,7 @@ function App() {
       {currentSessionId ? (
         <ChatWindow
           messages={messages} isStreaming={isStreaming}
+          artifacts={artifacts}
           streamingError={streamingError}
           currentAgent={currentAgent} currentSessionId={currentSessionId}
           agents={agents} mode={currentMode}
@@ -268,6 +284,7 @@ function App() {
           onReply={setReplyTarget}
           onRegenerate={handleRegenerate}
           onTogglePin={handleTogglePin}
+          onArtifactsChanged={handleArtifactsChanged}
         />
       ) : (
         <div className="flex-1 min-h-0 flex items-center justify-center text-gray-500 text-lg px-6 text-center">

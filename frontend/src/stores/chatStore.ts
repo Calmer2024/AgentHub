@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Message, RouteAgent, CollabTask, ChainStep, DAGPhase } from "../types";
+import type { Message, RouteAgent, CollabTask, ChainStep, DAGPhase, Artifact } from "../types";
 
 /** 每个会话的协作状态快照，切换会话时保留。 */
 export interface CollabSnapshot {
@@ -29,6 +29,7 @@ function emptyCollab(): CollabSnapshot {
 interface ChatState {
   currentSessionId: string | null;
   messages: Message[];
+  artifacts: Artifact[];
   isStreaming: boolean;
   streamingError: string | null;
   replyTarget: Message | null;
@@ -42,6 +43,8 @@ interface ChatState {
   // === 原有 actions ===
   setCurrentSessionId: (id: string | null) => void;
   setMessages: (messages: Message[]) => void;
+  setArtifacts: (artifacts: Artifact[]) => void;
+  upsertArtifact: (artifact: Artifact) => void;
   appendMessage: (msg: Message) => void;
   appendStreamingToken: (token: string) => void;
   appendAgentStreamingToken: (localId: string, agentName: string, token: string) => void;
@@ -55,6 +58,7 @@ interface ChatState {
 export const useChatStore = create<ChatState>((set, get) => ({
   currentSessionId: null,
   messages: [],
+  artifacts: [],
   isStreaming: false,
   streamingError: null,
   replyTarget: null,
@@ -72,6 +76,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   setCurrentSessionId: (id) => set({ currentSessionId: id }),
   setMessages: (messages) => set({ messages }),
+  setArtifacts: (artifacts) => set({ artifacts }),
+  upsertArtifact: (artifact) =>
+    set((s) => {
+      const withoutChain = s.artifacts.filter((a) => (
+        a.id !== artifact.id
+        && a.parentArtifactId !== artifact.id
+        && artifact.parentArtifactId !== a.id
+      ));
+      return { artifacts: [artifact, ...withoutChain] };
+    }),
   appendMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),
   appendStreamingToken: (token) =>
     set((s) => {

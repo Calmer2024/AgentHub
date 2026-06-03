@@ -110,7 +110,40 @@ export interface Artifact {
   title: string;
   content: string;
   status: "rendering" | "ready" | "error";
+  version: number;
+  parentArtifactId?: string | null;
   createdAt: string;
+}
+
+export interface ArtifactVersion {
+  id: string;
+  version: number;
+  content: string;
+  createdAt: string;
+}
+
+export interface ArtifactDiff {
+  fromVersion: number;
+  toVersion: number;
+  diff: string;
+  oldContent: string;
+  newContent: string;
+}
+
+export interface ArtifactEditRequest {
+  selection: string;
+  instruction: string;
+  editType?: "replace" | "insert_after" | "insert_before" | "delete";
+  apply?: boolean;
+  proposedContent?: string;
+}
+
+export interface ArtifactEditResult {
+  newVersion: number | null;
+  diff: ArtifactDiff;
+  artifact: Artifact | null;
+  proposedContent: string;
+  strategy: string;
 }
 
 // === Orchestrator / Collaboration types ===
