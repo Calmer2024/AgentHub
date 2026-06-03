@@ -3,7 +3,7 @@
 **文档编号**: AUDIT-2026-0602
 **审计日期**: 2026-06-02
 **审计范围**: Phase 3 全流程（规划、开发、文档、架构）
-**关联**: [ADR-0008](adr/0008-revised-development-strategy.md) (修订开发策略)
+**关联**: [ADR-0008](../adr/0008-revised-development-strategy.md) (修订开发策略)
 
 ---
 
@@ -141,11 +141,11 @@ PRD 明确批判: "造轮子成本极高...脱离主流开源生态...违反课�
 
 ### 5.2 新策略 (Phase 4-7 功能板块制)
 
-详见 [ADR-0008](adr/0008-revised-development-strategy.md)。
+详见 [ADR-0008](../adr/0008-revised-development-strategy.md)。
 
 **关键变更**:
 - 每板块独立完整交付 → 用户可感知的渐进式改进
-- 按用户价值排序 → Phase 4 (消息交互) > Phase 5 (产物) > Phase 6 (CLI) > Phase 7 (UX)
+- 按用户价值排序 → Phase 4 (消息交互) > Phase 5 (产物) > Phase 6 (Workspace + CLI) > Phase 7 (UX)
 - 硬边界约束 → 当前板块未通过验收，不得开下一板块
 
 ---
@@ -179,9 +179,9 @@ PRD 明确批判: "造轮子成本极高...脱离主流开源生态...违反课�
 | 序号 | 行动 | 关联 |
 |------|------|------|
 | 1 | **Phase 4 启动**: 消息交互闭环 (reply/regenerate/pin/search) | ADR-0008 §4 |
-| 2 | Phase 5: 产物深度管理 (版本+Diff+在线编辑) | ADR-0008 §5 |
-| 3 | Phase 6: CLI 适配器 (PRD 架构基础修正) | ADR-0008 §6 |
-| 4 | Phase 7: UX 体验闭环 (三栏+抽屉+审批+打磨) | ADR-0008 §7 |
+| 2 | Phase 5: 产物工作台能力 (版本+Diff+在线编辑) | ADR-0008 §5 |
+| 3 | Phase 6: Workspace Runtime + CLI 适配器 + 产物入口桥接 | ADR-0008 §6 |
+| 4 | Phase 7: UX 体验闭环 + MVP 演示闭环 | ADR-0008 §7 |
 | 5 | 每次 Phase 结束时执行本报告同级审计 | ADR-0008 §9 |
 | 6 | 创建 ONBOARDING.md 完善新成员入门路径 | P2 |
 
@@ -194,7 +194,7 @@ Phase 3 的核心成果（Orchestrator v2 + CollaborationPanel + EventBus + 154 
 - **用户感知功能空白**：消息交互、搜索、产物管理等直接体验功能归零
 - **文档熵增**：编号错位、幽灵引用、散落文件
 
-后续 Phase 4-7 采用功能板块制，确保每个板块完整可演示后再进入下一板块。CLI 适配器（Phase 6）作为架构基础修正，必须在 Phase 7 之前完成。
+后续 Phase 4-7 采用功能板块制，确保每个板块完整可演示后再进入下一板块。Workspace Runtime + CLI 适配器（Phase 6）作为架构基础修正，必须在 Phase 7 之前完成。
 
 **评级**: Phase 3 — **部分成功**（Orchestrator 模块 A+ / 整体交付 C / 架构符合性 D）
 

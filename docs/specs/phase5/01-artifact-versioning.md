@@ -2,18 +2,29 @@
 
 **版本**: v2.0
 **创建日期**: 2026-05-28 (v1.0), 2026-06-02 (v2.0 重组)
-**状态**: Draft
+**状态**: Completed (2026-06-02)
 **关联**: [PRD-03: User Experience](../../PRD/03-User_Experience.md) §3.3-3.4, [PRD-04: Data & API](../../PRD/04-Data_API_Contracts.md) §3.3
 **依赖**: Phase 3 (Artifact 模型: version, parent_artifact_id)
 
-## 1. API
+## 1. 全局链路定位
+
+```text
+Artifact 已存在
+  -> 创建/查询版本链
+  -> 生成版本 Diff
+  -> Phase 7 Drawer 展示历史与差异
+```
+
+本模块只处理已有 Artifact 的版本追溯和 Diff 展示，不负责 Agent 输出检测、Artifact Card 创建或 Drawer 布局。
+
+## 2. API
 
 ```
 GET  /api/artifacts/{id}/versions   → 200 [{ version, content, created_at }, ...]
 GET  /api/artifacts/{id}/diff?v1=1&v2=2 → 200 { from_version, to_version, diff }
 ```
 
-## 2. 后端: ArtifactService
+## 3. 后端: ArtifactService
 
 ```python
 class ArtifactService:
@@ -40,7 +51,7 @@ Artifact V1 (parent=null)
 
 每次重新生成 → `version += 1`, `parent_artifact_id` 指向前版。
 
-## 3. 前端
+## 4. 前端
 
 ### VersionHistory.tsx
 - 产物卡片上的版本下拉选择器
@@ -51,20 +62,20 @@ Artifact V1 (parent=null)
 - 支持 split (左右对比) 和 unified (上下对比) 模式
 - 增删行: 绿色/红色高亮
 
-## 4. 验收标准
+## 5. 验收标准
 
-- [ ] 产物有多个版本 → 版本下拉切换查看历史版本
-- [ ] 两版本 Diff 正确高亮增删行
-- [ ] 切换版本时 Diff 视图实时更新
+- [x] 产物有多个版本 → 版本下拉切换查看历史版本
+- [x] 两版本 Diff 正确高亮增删行
+- [x] 切换版本时 Diff 视图实时更新
 
-## 5. 新依赖
+## 6. 新依赖
 
 ```
 npm install react-diff-viewer-continued
 ```
 
-## 6. 测试
+## 7. 测试
 
-- API: 版本链构建、Diff 生成、不存在的版本
-- 前端: VersionHistory 渲染、DiffViewer split/unified
-- 目标: 18 条
+- API: 版本链构建、Diff 生成、不存在的版本、会话产物只返回版本链头节点
+- 前端: VersionHistory 渲染、DiffViewer split/unified、ArtifactCard 版本加载
+- 真实验收: `e2e/phase5_real_acceptance.py`

@@ -2,11 +2,24 @@
 
 **版本**: v2.0
 **创建日期**: 2026-05-28 (v1.0), 2026-06-02 (v2.0 重组)
-**状态**: Draft
+**状态**: Completed (2026-06-02)
 **关联**: [PRD-03: User Experience](../../PRD/03-User_Experience.md) §3.4, [PRD-02: Orchestrator](../../PRD/02-Orchestrator_Engine.md)
 **依赖**: Phase 5A (版本链), Phase 3 (BaseAgentAdapter tools 参数)
 
-## 1. API
+## 1. 全局链路定位
+
+```text
+用户引用/打开已有 Artifact
+  -> 选中代码片段并描述修改
+  -> Agent 生成候选内容与 Diff
+  -> 用户确认
+  -> 创建新版本
+  -> Phase 7 Drawer 切换到新版本
+```
+
+本模块负责已有 Artifact 的编辑能力。聊天输入框中的自然语言修改入口、右侧 Drawer 内的选区交互和新版本卡片刷新由 Phase 7 承载。
+
+## 2. API
 
 ```
 POST /api/artifacts/{id}/edit
@@ -14,7 +27,7 @@ POST /api/artifacts/{id}/edit
   → 200 { new_version, diff, artifact }
 ```
 
-## 2. Tool: edit_artifact Schema
+## 3. Tool: edit_artifact Schema
 
 ```json
 {
@@ -33,7 +46,7 @@ POST /api/artifacts/{id}/edit
 }
 ```
 
-## 3. 编辑流程
+## 4. 编辑流程
 
 ```
 用户选中代码片段 → 弹出 "描述修改" 输入框 → 输入意图
@@ -48,7 +61,7 @@ POST /api/artifacts/{id}/edit
        └─ 用户确认 → 创建新版本 | 用户拒绝 → 保持原版
 ```
 
-## 4. Tool Calling 实现要点
+## 5. Tool Calling 实现要点
 
 ### 请求构建
 
@@ -83,15 +96,16 @@ def _parse_tool_call(self, response: AgentResponse) -> dict | None:
     return None
 ```
 
-## 5. 验收标准
+## 6. 验收标准
 
-- [ ] 选中代码 + 描述修改 → Agent 返回 Diff → 确认后应用
-- [ ] Tool calling Agent → edit_artifact 调用成功
-- [ ] 不支持 tool calling → 降级为上下文注入，编辑仍可用
-- [ ] 拒绝 Diff → 保持原版不变
+- [x] 选中代码 + 描述修改 → Agent 返回 Diff → 确认后应用
+- [x] Tool calling Agent → edit_artifact 调用成功
+- [x] 不支持 tool calling → 降级为上下文注入，编辑仍可用
+- [x] 拒绝 Diff → 保持原版不变
 
-## 6. 测试
+## 7. 测试
 
-- API: tool calling 正常流程、降级流程、tool 解析异常
-- 前端: CodeSelector 选中交互、Diff 确认/拒绝
-- 目标: 25 条
+- API: tool calling 正常流程、降级流程、selection 异常、确认创建新版本
+- 架构契约: Domain 纯编辑器、Service 事件发布、OpenAI-compatible tools 传递
+- 前端: CodeSelector 选中交互、Diff 预览、确认/拒绝 UI
+- 真实验收: `e2e/phase5_real_acceptance.py`

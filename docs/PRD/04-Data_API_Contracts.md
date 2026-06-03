@@ -26,14 +26,25 @@ CREATE TABLE agents (
 );
 ```
 
-### 2.2 会话与历史记录 (`sessions` & `messages`)
+### 2.2 Workspace、会话与历史记录 (`workspaces`, `sessions` & `messages`)
 由于我们需要高度复用传统 IM 聊天的 UI，会话表设计接近微信/Slack。
 
 ```sql
+CREATE TABLE workspaces (
+    id UUID PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    root_path VARCHAR(1024) NOT NULL, -- 后端内部使用的绝对物理路径，不直接暴露给前端
+    project_type VARCHAR(50) DEFAULT 'static', -- static, vite-react, existing
+    status VARCHAR(50) DEFAULT 'ready', -- creating, ready, building, error, archived
+    metadata_json TEXT DEFAULT '{}',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE sessions (
     id UUID PRIMARY KEY,
     title VARCHAR(255) NOT NULL,
-    workspace_path VARCHAR(1024) NOT NULL, -- 关键！该会话绑定的绝对物理路径
+    workspace_id UUID REFERENCES workspaces(id), -- 项目型会话绑定 workspace；普通聊天可为空
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -45,6 +56,8 @@ CREATE TABLE messages (
     content_type VARCHAR(50),-- 'text', 'artifact_card', 'dag_card'
     content TEXT,            -- 纯文本内容，或 JSON String (对于卡片类型)
     reply_to_id UUID,        -- 用于实现“引用历史版本重试”功能
+    referenced_artifact_id UUID, -- 用户从产物卡片/抽屉发起修改时携带
+    referenced_artifact_version INTEGER,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 ```
@@ -61,6 +74,7 @@ CREATE TABLE tasks (
     assigned_agent_id UUID REFERENCES agents(id),
     status VARCHAR(50) DEFAULT 'PENDING', -- PENDING, RUNNING, PAUSED, COMPLETED, FAILED
     requires_approval BOOLEAN DEFAULT FALSE,
+    expected_outputs JSONB, -- [{ type: 'artifact', artifact_type: 'web_preview', title_hint: 'LoginPage' }]
     pid INTEGER, -- 当处于 RUNNING 状态时，记录后台真实的进程号，方便强杀
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -72,6 +86,36 @@ CREATE TABLE task_dependencies (
     PRIMARY KEY (task_id, depends_on_id)
 );
 ```
+
+### 2.4 Artifact 与版本链 (`artifacts`)
+
+Artifact 是 AgentHub 的核心富媒体产物。它必须能从聊天消息、Orchestrator 任务、版本历史三个维度追溯。
+
+```sql
+CREATE TABLE artifacts (
+    id UUID PRIMARY KEY,
+    session_id UUID REFERENCES sessions(id),
+    message_id UUID REFERENCES messages(id),
+    task_id UUID REFERENCES tasks(id),
+    workspace_id UUID REFERENCES workspaces(id),
+    artifact_type VARCHAR(50) NOT NULL, -- code_diff, web_preview, document, file_tree
+    title VARCHAR(255) NOT NULL,
+    content TEXT NOT NULL,
+    status VARCHAR(50) DEFAULT 'ready', -- rendering, ready, error
+    version INTEGER DEFAULT 1,
+    parent_artifact_id UUID REFERENCES artifacts(id),
+    file_path VARCHAR(1024), -- workspace 内相对路径
+    preview_id UUID,
+    source VARCHAR(50), -- api_agent, cli_agent, orchestrator, user_edit
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+关键约束：
+- 会话产物列表默认只展示版本链头节点，即每条链的最新版本。
+- `parent_artifact_id` 用于版本追溯，不能用于表达多个文件之间的包含关系。
+- workspace 产物必须记录 `workspace_id`；`file_path` 只能保存 workspace 内相对路径。
+- Artifact 创建后必须发布 `artifact.created` 事件，前端据此刷新聊天卡片和 Drawer。
 
 ---
 
@@ -118,6 +162,78 @@ CREATE TABLE task_dependencies (
 *   **`GET /api/artifacts/{artifact_id}/content`**
     *   **业务逻辑**：当前端右侧抽屉打开时，获取产物的具体内容（如 HTML 源码，或 Markdown 长文）。
     *   **注意**：如果是 `full_project` 级别的修改，此接口返回的应该是文件树结构 (Tree) 和 Diff patch 数组，供 Monaco Editor 渲染。
+
+*   **`GET /api/artifacts/{artifact_id}/versions`**
+    *   **业务逻辑**：返回该 Artifact 版本链的所有版本，用于版本下拉和历史回溯。
+
+*   **`GET /api/artifacts/{artifact_id}/diff?v1=&v2=`**
+    *   **业务逻辑**：返回两个版本之间的 diff，供 Drawer 的 Diff 模式渲染。
+
+*   **`POST /api/artifacts/{artifact_id}/edit`**
+    *   **业务逻辑**：用户选中代码片段并描述修改意图后，后端通过支持 tool calling 的 Agent 或上下文注入生成编辑结果。
+    *   **Request Body**:
+        ```json
+        {
+          "selection": "const color = 'blue'",
+          "instruction": "改成红色",
+          "referenced_version": 2
+        }
+        ```
+    *   **Response**:
+        ```json
+        {
+          "status": "preview",
+          "diff": "...",
+          "candidate_content": "...",
+          "base_version": 2
+        }
+        ```
+
+*   **`POST /api/artifacts/{artifact_id}/versions`**
+    *   **业务逻辑**：用户确认 Diff 后创建新版本。
+    *   **Request Body**:
+        ```json
+        { "content": "...", "source": "user_edit" }
+        ```
+
+### 3.4 Workspace 资源组 (Workspace Group)
+
+MVP 本机 workspace 的权威执行规格见 [PRD-06](./06-MVP_Local_Workspace_Delivery.md) 与 [Phase 6A Workspace Runtime](../specs/phase6/00-workspace-runtime.md)。
+
+*   **`POST /api/workspaces`**
+    *   **业务逻辑**：在 `AGENTHUB_WORKSPACE_ROOT` 下创建新项目目录，并写入 `workspaces` 表。
+
+*   **`POST /api/workspaces/bind`**
+    *   **业务逻辑**：绑定用户显式授权的已有本机目录。后端必须做 allowlist 和路径越界校验。
+
+*   **`POST /api/sessions/{session_id}/workspace`**
+    *   **业务逻辑**：将会话与 workspace 绑定，后续 CLI Agent 只能使用该 workspace 的 `root_path` 作为 `cwd`。
+
+*   **`GET /api/workspaces/{workspace_id}/tree`**
+    *   **业务逻辑**：返回 workspace 内文件树，路径均为相对路径。
+
+*   **`GET /api/workspaces/{workspace_id}/diff`**
+    *   **业务逻辑**：返回执行前后或 snapshot 之间的文件变更摘要。
+
+*   **`POST /api/workspaces/{workspace_id}/preview`**
+    *   **业务逻辑**：生成静态预览或构建预览，返回 `preview_id`。
+
+### 3.5 标准事件组 (Domain Events)
+
+后端内部和实时通道应共享一组事件名，避免不同模块各自发明状态。
+
+| 事件 | 生产者 | 消费者 | 用途 |
+|---|---|---|---|
+| `agent.output` | Adapter / AgentExecutor | ChatService, SSE/WebSocket | 普通文本流 |
+| `workspace.created` | WorkspaceService | Chat UI, HealthCheck | workspace 已创建 |
+| `workspace.bound` | WorkspaceService | Chat UI, CLI Adapter | 会话已绑定 workspace |
+| `workspace.diff_ready` | WorkspaceService | ArtifactDetectionService | 文件变更已计算完成 |
+| `preview.ready` | PreviewService | Artifact Drawer | 预览 URL 已可用 |
+| `artifact.detected` | API/CLI Adapter, Orchestrator | ArtifactService | 发现可落库产物 |
+| `artifact.created` | ArtifactService | WebSocket, Chat UI | 追加 Artifact Card、刷新产物列表 |
+| `artifact.version_created` | ArtifactService | Artifact Drawer | 刷新版本链并切到新版本 |
+| `task.status_changed` | Orchestrator | CollaborationPanel, ApprovalCard | 展示任务状态 |
+| `interactive_prompt` | CLI Adapter | InteractivePromptCard | CLI y/n 等交互拦截 |
 
 ---
 

@@ -1,6 +1,6 @@
 # AgentHub Specs — 功能规格文档索引
 
-**最后更新**: 2026-06-02
+**最后更新**: 2026-06-03
 **关联**: [ADR-0008](../adr/0008-revised-development-strategy.md) (开发策略)
 
 ---
@@ -15,9 +15,9 @@ specs/
 ├── phase2/                      ← Phase 2: Core Features ✅
 ├── phase3/                      ← Phase 3: Orchestrator + Infrastructure ✅
 ├── phase4/                      ← Phase 4: 消息交互闭环 ✅
-├── phase5/                      ← Phase 5: 产物深度管理 📋
-├── phase6/                      ← Phase 6: CLI 适配器 📋
-├── phase7/                      ← Phase 7: UX 体验闭环 📋
+├── phase5/                      ← Phase 5: 产物工作台能力 ✅
+├── phase6/                      ← Phase 6: Workspace Runtime + CLI 适配器 + 产物入口桥接 📋
+├── phase7/                      ← Phase 7: UX 体验闭环 + MVP 演示闭环 📋
 └── planning/                    ← 历史规划文档（参考）
 ```
 
@@ -33,9 +33,33 @@ specs/
 | [Phase 2](phase2/) | Core Features | ✅ | 多 Agent、群聊、Orchestrator v1、WebSocket、产物基础 |
 | [Phase 3](phase3/) | Orchestrator + Infrastructure | ✅ | EventBus、Orchestrator v2 (Pipeline + DAG)、CollaborationPanel |
 | [Phase 4](phase4/) | 消息交互闭环 | ✅ | Reply/Regenerate/Pin、全文搜索 FTS5 |
-| [Phase 5](phase5/) | 产物深度管理 | 📋 | 版本链 + Diff、在线编辑 (Tool Calling) |
-| [Phase 6](phase6/) | CLI 适配器 | 📋 | PTY 进程管理、ANSI 清洗、交互拦截 |
-| [Phase 7](phase7/) | UX 体验闭环 | 📋 | 三栏布局、产物抽屉、审批卡片、全局打磨 |
+| [Phase 5](phase5/) | 产物工作台能力 | ✅ | 对已有 Artifact 提供版本链 + Diff、在线编辑；不宣称上游产物生成入口已完整打通 |
+| [Phase 6](phase6/) | Workspace Runtime + CLI 适配器 + 产物入口桥接 | 📋 | 本机 workspace 创建/绑定、Agent cwd、PTY 进程管理、ANSI 清洗、交互拦截，并把 Agent 输出和文件变更转为标准 Artifact 事件 |
+| [Phase 7](phase7/) | UX 体验闭环 + MVP 演示闭环 | 📋 | 三栏布局、产物抽屉、审批卡片、环境体检，跑通 workspace→输入→Agent→Artifact→预览→编辑→审批 |
+
+---
+
+## 北极星链路
+
+所有 Phase 必须说明自己位于以下链路的哪一段：
+
+```text
+创建或绑定 workspace
+  -> 用户输入
+  -> Orchestrator/Agent 执行
+  -> Agent 以 workspace_path 作为 cwd 读写文件
+  -> 文件变更 / Agent 输出检测
+  -> Artifact 创建
+  -> 聊天流 Artifact Card
+  -> Artifact Drawer 预览
+  -> 局部编辑/版本化
+  -> 审批继续调度
+  -> 最终中枢总结
+```
+
+MVP 本机 workspace 链路见 [PRD-06](../PRD/06-MVP_Local_Workspace_Delivery.md)，SaaS 云端 workspace 链路见 [PRD-07](../PRD/07-SaaS_Cloud_Workspace_Delivery.md)。后续 Workspace 相关 Spec 必须说明自己服务于本机版、SaaS 版，还是二者共用的抽象契约。
+
+Completed Phase 保留完成记录，但也要写清“已解锁任务”和“未覆盖边界”。Planned Phase 不能只列模块，要定义端到端验收场景。
 
 ---
 

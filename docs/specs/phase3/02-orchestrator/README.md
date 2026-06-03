@@ -1,7 +1,7 @@
 # AgentHub Orchestrator — 设计文档总览
 
 **最后更新**: 2026-06-01
-**架构决策**: [ADR-0007](../../adr/0007-orchestrator-architecture.md)
+**架构决策**: [ADR-0007](../../../adr/0007-orchestrator-architecture.md)
 **当前分支**: `phase/phase3-smart-collab`
 
 ---

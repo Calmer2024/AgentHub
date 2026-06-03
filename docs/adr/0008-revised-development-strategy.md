@@ -3,6 +3,7 @@
 **Date**: 2026-06-02
 **Status**: Accepted
 **Replaces**: Phase 3 并行开发指南 (`docs/specs/planning/phase3-parallel-guide.md`), Phase 3 模块化计划 (`docs/specs/planning/phase3-modules.md`) 中的开发顺序部分
+**Revision**: 2026-06-03 文档覆盖审计后补充 PRD-05 端到端闭环要求。详见 [PRD/Spec 覆盖审计](../audit/prd-spec-coverage-audit.md) 与 [PRD-05](../PRD/05-End_to_End_Product_Flow.md)。
 
 ---
 
@@ -26,6 +27,12 @@ Phase 3 采用"8 模块并行 + 增量叠加"的开发策略。经过完整执�
 
 Phase 3 的 Orchestrator 成果（Pipeline 四阶段、DAG 混合调度、6 角色模板、CollaborationPanel）是高质量的，但它占用了 Phase 3 的全部带宽，导致其他同等重要的功能板块处于零状态。后续开发必须纠正这种"单点深挖"的模式。
 
+### 1.3 文档覆盖审计后的新增洞察
+
+Phase 5 完成后再次对照启动文档、PRD 与 Specs，发现一个新的系统性问题：后续 Phase 虽然按功能板块推进，但文档没有充分描述每个 Phase 在全局产品链路中的定位。具体表现为 Phase 5 已完成 Artifact 版本/Diff/编辑工作台能力，但上游“Agent 输出如何生成 Artifact Card”、下游“Artifact 如何进入 Drawer、审批、回流修改”没有在早期文档中形成闭环。
+
+因此，本 ADR 的“每个板块完整可演示”需要收紧为：每个板块不仅要完成自己的功能，还必须说明自己在北极星链路中的上游输入、下游输出、未覆盖边界。
+
 ---
 
 ## 2. Decision
@@ -44,9 +51,17 @@ Phase 3 的 Orchestrator 成果（Pipeline 四阶段、DAG 混合调度、6 角�
 
 ```
 Phase 4: 消息交互闭环 ──── 用户可直接使用 reply/regenerate/pin/search
-Phase 5: 产物深度管理 ──── 版本历史、Diff 对比、局部编辑
-Phase 6: CLI 适配器 ────── PRD 架构基础：PTY 进程管理、ANSI 清洗、交互拦截
-Phase 7: UX 体验闭环 ──── 三栏布局、产物抽屉、审批卡片、全局打磨
+Phase 5: 产物工作台能力 ── 对已有 Artifact 做版本历史、Diff 对比、局部编辑
+Phase 6: Workspace Runtime + CLI 适配器 + 产物入口桥接 ── 本机 workspace、Agent cwd、PTY/ANSI/交互拦截，并把 Agent 输出和文件变更转为标准 Artifact 事件
+Phase 7: UX 体验闭环 + MVP 演示闭环 ── 三栏布局、产物抽屉、审批卡片、环境体检、端到端演示
+```
+
+Phase 5-7 的连续链路为：
+
+```text
+Artifact 工作台能力
+  -> Workspace Runtime / 真实 Agent 执行入口
+  -> Artifact Card / Drawer / 审批 / 编辑回流的用户体验闭环
 ```
 
 ### 2.3 每个板块的内部结构
@@ -62,6 +77,7 @@ Phase N/
 ```
 
 每个子模块 Spec 必须覆盖：
+- 在北极星链路中的位置、上游输入、下游输出、未覆盖边界
 - 后端 API + Service + 数据模型
 - 前端组件 + Store + 交互状态
 - 测试标准（Unit + API + E2E 最低数量）
@@ -75,18 +91,19 @@ Phase 3 (已完成) ──── 基础设施 + Orchestrator
     ├── Phase 4: 消息交互闭环
     │    依赖: Phase 3 (MessageService ABC, DB 列)
     │
-    ├── Phase 5: 产物深度管理
+    ├── Phase 5: 产物工作台能力
     │    依赖: Phase 3 (Artifact 模型), Phase 4 完成后用户体验完整
+    │    注意: 完成已有 Artifact 的版本/Diff/编辑，不宣称 Agent 输出入口已完整打通
     │
-    ├── Phase 6: CLI 适配器
-    │    依赖: Phase 3 (BaseAgentAdapter), 独立于 Phase 4/5
-    │    注意: 新增 CLI 适配器类型，不影响现有 HTTP 适配器
+    ├── Phase 6: Workspace Runtime + CLI 适配器 + 产物入口桥接
+    │    依赖: Phase 3 (BaseAgentAdapter/EventBus), Phase 5 (ArtifactService)
+    │    注意: 先建立本机 workspace 和 session 绑定，再让 CLI Agent 以 workspace_path 为 cwd 执行；同时输出 artifact.detected 事件
     │
-    └── Phase 7: UX 体验闭环
+    └── Phase 7: UX 体验闭环 + MVP 演示闭环
          依赖: Phase 4 + Phase 5 + Phase 6 全部完成
 ```
 
-Phase 4 和 Phase 5 之间没有强依赖，但建议串行完成以保证每板块的专注度。Phase 6 可以与 Phase 4/5 并行（操作不同代码区域）。
+Phase 4 和 Phase 5 之间没有强依赖，但建议串行完成以保证每板块的专注度。Phase 6 必须在 Phase 5 之后推进，因为它依赖 Phase 5 的 ArtifactService，并且要把 workspace 文件变更接入版本/Diff/编辑链路。
 
 ---
 
@@ -109,7 +126,7 @@ Phase 3 更名为"Orchestrator + 基础设施"，其实际交付内容：
 - 消息全文搜索 → Phase 4
 - 产物版本 + Diff → Phase 5
 - 产物在线编辑 → Phase 5
-- CLI PTY 适配器 → Phase 6
+- Workspace Runtime + CLI PTY 适配器 → Phase 6
 - 三栏动态布局 → Phase 7
 
 ---
@@ -152,11 +169,15 @@ Phase 3 更名为"Orchestrator + 基础设施"，其实际交付内容：
 
 ---
 
-## 5. Phase 5: 产物深度管理
+## 5. Phase 5: 产物工作台能力
+
+**状态更新 (2026-06-02)**: Completed。实现与验收记录见 [Phase 5 Spec](../specs/phase5/README.md) 和 [Phase 5 Dev Log](../dev-logs/phase5-dev-log.md)。
 
 ### 5.1 目标
 
 产物（代码/文档/网页）拥有版本历史、可视化 Diff、支持选中区域局部编辑。
+
+Phase 5 的边界：它完成的是对已有 Artifact 的工作台能力。Agent/CLI 输出自动生成 Artifact Card、右侧 Drawer 打开体验、审批卡片绑定 Artifact 由 Phase 6/7 补齐。
 
 ### 5.2 子模块
 
@@ -173,10 +194,10 @@ Phase 3 更名为"Orchestrator + 基础设施"，其实际交付内容：
 - Diff 确认/拒绝 UI
 
 ### 5.3 验收标准
-- [ ] 产物重新生成后 → 自动创建新版本 → 版本选择器可回溯
-- [ ] 选择两个版本 → 并排 Diff 视图 → 增删行高亮
-- [ ] 选中代码片段 → 输入修改意图 → Agent 返回 Diff → 用户确认/拒绝
-- [ ] 不支持 tool_call 的 Agent → 降级为上下文注入
+- [x] 产物重新生成/确认编辑后 → 自动创建新版本 → 版本选择器可回溯
+- [x] 选择两个版本 → Diff 视图 → 增删行高亮
+- [x] 选中代码片段 → 输入修改意图 → Agent 返回 Diff → 用户确认/拒绝
+- [x] 不支持 tool_call 的 Agent → 降级为上下文注入
 
 ### 5.4 预估
 - 后端: ~400 LOC
@@ -185,52 +206,71 @@ Phase 3 更名为"Orchestrator + 基础设施"，其实际交付内容：
 
 ---
 
-## 6. Phase 6: CLI 适配器 (Architecture Foundation Fix)
+## 6. Phase 6: Workspace Runtime + CLI 适配器 + 产物入口桥接
 
 ### 6.1 目标
 
-实现 PRD-01 定义的 CLI Agent 封装能力：通过 PTY/subprocess 管理真实 CLI 工具（Claude Code 等），支持 stdout 流式推送、ANSI 转义码清洗、交互式提示拦截。
+实现 PRD-06 定义的 MVP 本机 Workspace Runtime，并在其上实现 PRD-01 定义的 CLI Agent 封装能力：通过 PTY/subprocess 管理真实 CLI 工具（Claude Code 等），支持 stdout 流式推送、ANSI 转义码清洗、交互式提示拦截。
+
+同时补齐 PRD-05 定义的产物入口桥接：CLI/API Agent 输出的 HTML、代码块、patch、workspace 文件变更摘要必须能转换为标准 `artifact.detected` 事件，由 ArtifactService 统一创建 Artifact 与 Artifact Card。
 
 ### 6.2 子模块
 
-**Module 6A: CLI Process Manager**
+**Module 6A: Workspace Runtime**
+- `workspaces` 表 + `sessions.workspace_id`
+- 本机 workspace 创建/绑定 + 路径安全
+- 文件树、Diff、snapshot、静态预览
+- 为 CLI Adapter 提供可信 `workspace_path`
+
+**Module 6B: CLI Process Manager**
 - `subprocess`/`PTY` 进程孵化与生命周期管理
-- CWD 统一管理 + 环境变量隔离
+- 使用 `workspace_path` 作为 CWD + 环境变量隔离
 - 心跳超时 + 僵尸进程清理 (SIGTERM/SIGKILL)
 
-**Module 6B: Stream Sanitizer (ANSI 清洗)**
+**Module 6C: Stream Sanitizer (ANSI 清洗)**
 - ANSI 转义码正则过滤
 - 分块 SSE 推送（50ms 批量）
 - 进度条/表格等复杂 TUI 组件的降级渲染
 
-**Module 6C: Interactive Prompt Interception**
+**Module 6D: Interactive Prompt Interception**
 - 滑动窗口缓冲区 + 阻塞特征正则匹配（如 `(y/n)`）
 - 暂停流推送 → 前端信令卡片 → stdin 回写唤醒
 
-**Module 6D: CLI Agent Adapter (新增)**
+**Module 6E: CLI Agent Adapter (新增)**
 - `CliAgentAdapter` 实现 `BaseAgentAdapter` 接口
 - 与现有 HTTP 适配器并存（`agent_type` 新增 `cli_wrapper`）
 
+**Module 6F: Artifact Output Bridge**
+- 检测 Agent 输出中的代码块、patch、文件变更摘要
+- 发布 `artifact.detected` 事件
+- ArtifactService 创建 Artifact，并触发聊天流 Artifact Card
+
 ### 6.3 验收标准
+- [ ] 新建项目型 session 会自动创建 workspace，并记录 `workspace_id`
+- [ ] WorkspaceService 能返回文件树、Diff，并拒绝路径越界
+- [ ] CLI 进程启动时的 `cwd` 必须等于当前 session 绑定的 `workspace_path`
 - [ ] 后端启动 `claude` CLI → stdout 实时推流到前端 → 打字机效果流畅
 - [ ] ANSI 颜色码被正确过滤 → 前端收到纯净 Markdown
 - [ ] Claude Code 发出 `(y/n)` 确认 → 前端弹出交互卡片 → 用户点击后进程继续
 - [ ] 用户关闭网页 → 3 分钟后进程被 SIGTERM
 - [ ] 5 分钟无 stdout → 判定死锁 → SIGKILL
 - [ ] CliAgentAdapter 可在 AgentPanel 中选择配置
+- [ ] CLI/API Agent 输出 HTML/patch 或 workspace 文件变更 → 创建 Artifact → 聊天流出现 Artifact Card
 
 ### 6.4 预估
-- 后端: ~600 LOC (process_manager + stream_sanitizer + prompt_interceptor + cli_adapter)
-- 前端: ~200 LOC (InteractivePromptCard + AgentPanel CLI 配置)
-- 测试: 35 条
+- 后端: ~950 LOC (workspace_service/provider + process_manager + stream_sanitizer + prompt_interceptor + cli_adapter + artifact_detection)
+- 前端: ~300 LOC (Workspace 状态入口 + InteractivePromptCard + AgentPanel CLI 配置)
+- 测试: 55 条
 
 ---
 
-## 7. Phase 7: UX 体验闭环 + 集成收尾
+## 7. Phase 7: UX 体验闭环 + MVP 演示闭环
 
 ### 7.1 目标
 
 实现 PRD-03 定义的三栏动态布局、产物抽屉、人工审批卡片、环境体检，全局 Store 拆分，UX 打磨。
+
+同时跑通 PRD-05 定义的 MVP 演示脚本：workspace 绑定 → 输入任务 → Agent 输出 Artifact → 打开 Drawer → 编辑并确认新版本 → 审批继续 → 中枢总结。
 
 ### 7.2 子模块
 
@@ -260,6 +300,7 @@ Phase 3 更名为"Orchestrator + 基础设施"，其实际交付内容：
 - [ ] 审批断点触发 → 聊天流底部阻断卡片 → 用户确认后流水线继续
 - [ ] 环境体检卡片 → 实时检测 → 异常时红字告警
 - [ ] 全量回归零失败
+- [ ] MVP 演示脚本端到端跑通
 
 ### 7.4 预估
 - 后端: ~250 LOC
@@ -276,7 +317,7 @@ Phase 3 更名为"Orchestrator + 基础设施"，其实际交付内容：
 | **完成标准** | 模块独立交付 | 板块内全功能可演示 |
 | **文档结构** | 平铺在 specs/ 根目录 | 每个 Phase 独立目录 |
 | **架构基础** | 推迟到"以后" | Phase 6 专项修正 |
-| **UX 优先级** | 最后 (M8 收尾) | Phase 7 独立板块 |
+| **UX 优先级** | 最后 (M8 收尾) | Phase 7 独立板块，并承担 MVP 演示闭环 |
 | **Orchestrator 深度** | 过度投入（154 条测试） | 已完成，不再追加 |
 | **跨模块依赖** | 复杂矩阵 (见旧 parallel-guide) | 简化：Phase N 只依赖 Phase N-1 和 Phase 3 |
 
@@ -298,6 +339,7 @@ Phase 3 更名为"Orchestrator + 基础设施"，其实际交付内容：
 
 - Phase 4-7 每个板块严格独立，不允许跨板块同时开发
 - Phase 3 的 Orchestrator 成果被冻结为基础设施，后续板块在其上构建但不再追加 Orchestrator 功能
-- CLI 适配器（Phase 6）作为新增能力，不影响现有 HTTP 适配器的正常运行
+- Workspace Runtime + CLI 适配器（Phase 6）作为新增能力，不影响现有 HTTP 适配器的正常运行；Phase 6 同时承担 Agent 输出和 workspace 文件变更到 Artifact 的入口桥接
+- Phase 7 不只是 UX 打磨，必须以 PRD-05 的 MVP 演示脚本作为最终完成标准
 - 文档周期性审计纳入 agenthub-phase-wrapup 标准流程
 - CONTEXT.md 的 Phase 描述从五阶段更新为七阶段模型

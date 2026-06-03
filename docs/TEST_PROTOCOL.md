@@ -1,8 +1,8 @@
 # 测试协议 (Test Protocol)
 
-**版本**: v2.1
+**版本**: v2.3
 **创建日期**: 2026-05-26
-**最后更新**: 2026-06-01
+**最后更新**: 2026-06-02
 **适用范围**: AgentHub 所有开发阶段
 
 ---
@@ -196,9 +196,29 @@ Phase 完成前:
   3. 全量前端组件测试（功能）
   4. UX 状态覆盖检查（UX_TEST_SPEC.md 第 3 节）
   5. E2E 测试 (核心路径)
-  6. 手动验证清单 (Spec 第 4 节)
-  7. 全部通过 → Phase 标记为 Completed
+  5a. 若本 Phase 引入/重构架构层，必须补架构契约测试（Domain 纯逻辑、Service 编排、Infrastructure 适配器契约）
+  6. 清理旧服务进程，使用当前仓库代码启动新的后端/前端服务进程
+  7. 在新服务进程上执行真实服务验收，并确认前端 `/api` 代理命中当前后端
+  8. 手动验证清单 (Spec 第 4 节)
+  9. 最终交付必须给出前端地址、后端地址、API docs 地址
+  10. 全部通过 → Phase 标记为 Completed
 ```
+
+### 4.2.1 真实服务进程交接（硬性要求）
+
+每轮开发/修复结束时必须执行，不限于 Phase 收尾：
+
+1. **清理旧进程**：检查默认端口 `127.0.0.1:8000`（后端）和 `127.0.0.1:5173`（前端）。发现旧代码进程或无关进程占用时，停止旧进程或改用新端口，并记录原因。
+2. **启动新进程**：后端必须从当前仓库 `backend/` 启动；前端必须从当前仓库 `frontend/` 启动。
+3. **验证新进程**：
+   - 后端根路径 `/` 返回正常。
+   - OpenAPI 包含本轮新增/修改的端点。
+   - 前端根路径返回正常。
+   - 前端 `/api` 代理能访问当前后端。
+   - 本轮改动的关键路径在真实服务上通过。
+4. **交付地址**：最终回复必须包含前端 URL、后端 URL、API docs URL。若端口不是默认值，必须明确说明。
+
+未执行上述步骤，或旧服务仍在提供旧代码，视为验收未完成。
 
 ### 4.3 Phase 测试计划
 
@@ -299,6 +319,8 @@ async def test_sse_events_are_valid_json(client, db_session):
 - [ ] 本 Phase 所有 API 端点的异常分支（400/404/500）有覆盖
 - [ ] Spec 第 4 节所有验收标准已通过（自动或手动）
 - [ ] 上一 Phase 的测试全部仍通过（无回归）
+- [ ] 旧后端/前端进程已清理，新服务进程已从当前仓库启动
+- [ ] 真实服务验收已通过，且最终交付包含前端/后端/API docs 地址
 
 ### 后端专项
 
@@ -341,6 +363,9 @@ async def test_sse_events_are_valid_json(client, db_session):
 | FTS5 触发器影响 DELETE | SQL logic error | 清理前 `PRAGMA foreign_keys=OFF` |
 | `asyncio.wait_for(async_gen)` | 全部 Agent 抛 `TypeError: 'async for' requires __aiter__` | **任何对 async generator 添加超时的位置必须用 `async with asyncio.timeout(seconds):` 而非 `asyncio.wait_for(generator, timeout)`。** `wait_for()` 只接受 coroutine (有 `__await__`)，不接受 async generator (有 `__aiter__`)。此 Bug 难以被 mock 发现 — MockAgent 的 `chat_stream` 同样是 async generator，但只有 group chat 路径经过 `AgentExecutor._execute_single()` 才会触发，single chat 路径直接调 adapter 不受影响。检测方式：对 group chat 发送消息的 API 测试 (MockAgent + SSE token 累积验证)。 |
 | 测试只覆盖一条模式分支 | 所有测试通过但人工验收崩溃 | **列出端点内所有 if/switch 分支（如 `mode=single` vs `mode=group`），逐条确认每个分支都有至少 1 个测试。** 仅靠 "单聊测试" 不能保证 "群聊" 也正常 — 它们走的是不同的代码路径。**检查方法**: 阅读端点的源码，圈出所有 `if mode ==` / `if session.mode ==` 分支，在测试文件中搜索对应的测试用例名。 |
+| 能力声明与真实实现不一致 | Service 判断 `supports_tool_call=True`，但 adapter 没有把 `tools` 传给供应商 | **能力声明必须可兑现。** Phase 5 后，支持工具调用的 adapter 必须有测试验证 `chat(..., tools=[...])` 真实传参并解析 `tool_calls`；未实现者应声明 `supports_tool_call=False`，由 Service 降级。 |
+| 版本链列表污染当前产物 | 会话产物列表显示 v1/v2 多张重复卡 | **会话产物列表只返回版本链头节点**；历史版本通过 `/artifacts/{id}/versions` 查询。API 测试必须覆盖这一语义。 |
+| 旧进程仍在服务旧代码 | 单元测试通过，但浏览器/API 访问不到新增接口 | **每轮结束必须清理旧进程并重启新服务。** 检查端口监听进程、OpenAPI、前端 `/api` 代理和真实服务关键路径；最终回复必须给出访问地址。 |
 
 ---
 
@@ -348,6 +373,8 @@ async def test_sse_events_are_valid_json(client, db_session):
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
+| 2026-06-02 | v2.3 | 增加每轮结束清理旧进程、启动新服务、真实服务验收并交付访问地址的硬性要求 |
+| 2026-06-02 | v2.2 | Phase 5 增加架构契约测试要求；记录 tool calling 能力声明、Artifact 版本链头节点测试陷阱 |
 | 2026-06-01 | v2.1 | 复盘 Orchestrator 测试盲区: 新增"Mock 不改变代码路径"原则、模式变体强制覆盖、`asyncio.wait_for` 陷阱、分支覆盖检查清单 |
 | 2026-05-27 | v2.0 | 测试策略升级：内存DB→文件DB+真实迁移+lifespan触发，Mock→真实registry注册 |
 | 2026-05-26 | v1.0 | 初始版本，覆盖 Phase 1 测试规范 |
