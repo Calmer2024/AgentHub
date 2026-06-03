@@ -18,7 +18,7 @@ class ClaudeAdapter(BaseAgentAdapter):
         return AgentCapability(
             name="Claude 3.5 Sonnet",
             supports_streaming=True,
-            supports_tool_call=True,
+            supports_tool_call=False,
             max_context_tokens=200_000,
             tags=["code", "writing", "general"],
         )

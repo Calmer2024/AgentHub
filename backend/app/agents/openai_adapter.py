@@ -41,6 +41,33 @@ class OpenAIAdapter(BaseAgentAdapter):
         transformed = [{"role": m["role"], "content": m["content"]} for m in messages]
         transformed.insert(0, {"role": "system", "content": system_prompt})
 
+        if tools:
+            response = await self.client.chat.completions.create(
+                model=model or self.DEFAULT_MODEL,
+                messages=transformed,
+                tools=[{"type": "function", "function": tool} for tool in tools],
+                tool_choice="auto",
+                max_tokens=4096,
+            )
+            message = response.choices[0].message
+            content = message.content or ""
+            tool_calls = []
+            for call in message.tool_calls or []:
+                tool_calls.append({
+                    "id": call.id,
+                    "type": call.type,
+                    "name": call.function.name,
+                    "function": {
+                        "name": call.function.name,
+                        "arguments": call.function.arguments,
+                    },
+                })
+            return AgentResponse(
+                content=content,
+                tool_calls=tool_calls,
+                finish_reason=response.choices[0].finish_reason or "stop",
+            )
+
         stream = await self.client.chat.completions.create(
             model=model or self.DEFAULT_MODEL,
             messages=transformed,
