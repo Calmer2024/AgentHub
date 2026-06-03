@@ -1,110 +1,169 @@
 # CLAUDE.md
 
-## Project: AgentHub — Multi-Agent Collaboration Platform
+## 项目：AgentHub — 多 Agent 协作平台
 
-IM-style chat platform where users converse with AI agents (Claude, Codex, etc.), with group chat orchestration and artifact previews.
+IM 式聊天平台，用户可与 AI Agent（Claude Code、Codex、OpenCode 等）对话，支持群聊协作调度与产物预览。
 
-> **项目全局上下文**：见 [CONTEXT.md](CONTEXT.md)（领域术语、架构总览、开发方法论、文档索引）。首次参与本项目的开发者/Agent 建议先阅读 CONTEXT.md。
-
----
-
-## Architecture Constraints
-
-### Layer Dependency (top → bottom, only downward dependencies allowed)
-```
-Frontend (React) → API Gateway (FastAPI) → Service/Business Logic → Domain/Core → Infrastructure → Data/Persistence
-```
-
-### Key Rules
-- Modules can only depend on layers below them. Never upward.
-- Same-layer modules communicate through interfaces or Event Bus, never direct imports.
-- Domain layer is pure logic: zero framework dependencies (no FastAPI, no SQLAlchemy).
-- Architecture grows on demand: Phase 1 only has 3 layers. New layers are introduced only when complexity forces it (see ADR-0004 trigger conditions).
-- Interface contracts (ADR-0005) are stable; implementations can change freely.
-- PRD-01 is the authority for the bottom agent architecture: AgentHub's target is CLI-wrapper orchestration of real physical tools such as Anthropic's `claude` CLI and open-source `opencode`, not a bare HTTP LLM API proxy. Current HTTP adapters are transitional/coexisting implementations until Phase 6.
-- Message actions must be real agent context, not UI-only state. Reply stores a quoted-message snapshot and injects `[Reply context]` into the prompt; Pin injects `[Pinned message]` via `ContextManager`.
+> **项目全局上下文**（领域术语、架构总览、Phase 状态、完整文档索引）见 [CONTEXT.md](CONTEXT.md)。首次参与本项目的开发者/Agent 必须先阅读 CONTEXT.md，再阅读本文件。
 
 ---
 
-## Tech Stack (Locked)
+## 文档语言规则
 
-| Layer | Technology |
-|-------|-----------|
-| Frontend | React + TypeScript + Vite + shadcn/ui + Tailwind CSS v3 |
-| Backend | Python FastAPI + WebSocket |
-| Database | SQLite + SQLAlchemy 2.0 (async with aiosqlite) |
-| Desktop | Tauri v2 |
-| Mobile | Capacitor |
+| 文档类型 | 语言 | 说明 |
+|---------|------|------|
+| **CLAUDE.md** | 中文 | AI Agent 行为规则 |
+| **CONTEXT.md** | 中文 | 领域知识 + 文档索引 |
+| **ADR** (架构决策记录) | 中文 | 架构决策及原因 |
+| **Spec** (功能规格) | 中文 | 各 Phase 的功能规格与验收标准 |
+| **PRD** (产品需求文档) | 中文 | 产品需求 |
+| **Dev Log** (开发日志) | 中文 | 开发时间线与教训 |
+| **Skill** (技能文件) | 中文 | 可复用的 AI 工作流 |
+| **代码注释** | 中文 | 所有 `.py` / `.ts` / `.tsx` 中的注释 |
+
+> 以上规则取代此前"AI-facing docs in English, human-facing docs in Chinese"的旧约定。全项目统一中文，降低维护负担，消除中英混杂导致的表述不一致。
+
+---
+
+## 架构约束
+
+### 分层依赖（只能向下，不能向上）
+
+```
+前端 (React) → API 网关 (FastAPI) → 业务逻辑 (Service) → 领域核心 (Domain) → 基础设施 (Infrastructure) → 数据持久化 (Data)
+```
+
+### 核心规则
+
+- 模块只能依赖下层，绝不依赖上层。
+- 同层模块通过接口或 EventBus 通信，禁止直接导入。
+- Domain 层是纯逻辑：不依赖 FastAPI、SQLAlchemy 等框架。
+- 架构按需增长：Phase 1 仅 3 层，复杂度达到触发条件时才引入新层（见 ADR-0004）。
+- 接口契约（ADR-0005）稳定不变，实现可自由迭代。
+- PRD-01 是底层 Agent 架构的唯一权威：AgentHub 是 CLI-Wrapper 调度壳，通过 PTY/subprocess 封装真实物理工具（Anthropic `claude` CLI、OpenAI `codex` CLI、开源 `opencode`）。AgentHub 绝不裸调 HTTP LLM API 作为 Agent——那是 PRD-00/01 明确否决的"伪 Agent"反模式。
+- 消息操作必须是真实的 Agent 上下文，不能只是 UI 状态。Reply 保存引用消息快照并注入 `[Reply context]` 到 prompt；Pin 通过 `ContextManager` 注入 `[Pinned message]`。
+
+---
+
+## 技术栈（锁定）
+
+| 层 | 技术 |
+|----|------|
+| 前端 | React + TypeScript + Vite + shadcn/ui + Tailwind CSS v3 |
+| 后端 | Python FastAPI + WebSocket |
+| 数据库 | SQLite + SQLAlchemy 2.0（async with aiosqlite） |
+| 桌面 | Tauri v2 |
+| 移动 | Capacitor |
 | AI SDK | anthropic (Python), @anthropic-ai/sdk (TypeScript) |
 
 ---
 
-## Code Rules
+## 代码规则
 
-### Universal
-- All code comments in Chinese. AI-facing docs (CLAUDE.md, Skills, ADRs) in English for efficient agent consumption. Human-facing docs (design docs, dev logs, specs) in Chinese.
-- Single file max 300 lines (source code only; protocol/design docs exempt). Split if exceeds.
-- Every module completion → immediately write unit tests.
-- Small commits: each runnable function = one commit.
-- **自动化优先**: 任何功能设计在前端上的体现是让任务尽量可以自动化处理，不要让用户做太多配置。便利化用户交互逻辑，复杂决策由后端自动完成。例如：Orchestrator 链式协作应自动触发，不应要求用户手动配置开关。
+### 通用
 
-### Python (Backend)
-- Use Pydantic v2 for request/response validation.
-- Every API endpoint must validate input. Empty messages → 400. Non-existent session → 404.
-- Async everywhere: `async def` for all route handlers and service methods.
-- Environment variables via `python-dotenv`. Never hardcode API keys.
-- Follow `BaseAgentAdapter` contract from ADR-0005 for all agent adapters.
-- 测试使用内存数据库（`sqlite+aiosqlite:///:memory:`），不依赖真实数据库文件。每个测试自己创建所需 fixtures，不假设 DB 中已有数据。
+- 所有代码注释用中文。
+- 源文件不超过 300 行（协议/设计文档除外）。超出则拆分。
+- 每个模块完成后立即写单元测试。
+- 小步提交：每个可运行函数 = 一次 commit。
+- **自动化优先**：任何功能设计在前端上的体现是让任务尽量自动化处理，不要让用户做太多配置。复杂决策（链式触发、角色分配、Agent 选择）由后端自动完成。
 
-### TypeScript (Frontend)
-- No `any` type. Use `unknown` if truly uncertain, then narrow.
-- Zustand for state management. One store per domain (chat, sessions, etc.).
-- Components: shadcn/ui primitives only. Custom styling via Tailwind classes.
-- API client: typed fetch wrapper, SSE via EventSource with reconnect logic.
+### 每轮结束服务交接（硬性要求）
+
+每轮开发/修复结束必须完成以下流程：
+
+1. **清理旧进程**：检查后端（默认 `127.0.0.1:8000`）和前端（默认 `127.0.0.1:5173`）端口，停止运行旧代码的进程。
+2. **启动当前代码服务**：
+   - 后端：用项目 Python 环境运行当前 `backend/app/main.py`
+   - 前端：运行当前 Vite 应用（`frontend/`）
+   - 若默认端口被占用，使用下一个空闲端口并明确报告
+3. **在真实服务上验证**：检查后端根路径/OpenAPI、前端根路径、`/api` 代理、以及改动功能的真实验收路径。不能只依赖单元测试或临时 ASGI 客户端。
+4. **报告访问地址**：始终给出前端 URL、后端 URL、API 文档 URL，和任何端口变更。
+
+旧进程仍在运行旧代码、或未提供服务 URL，本轮不结束。
+
+### Python（后端）
+
+- Pydantic v2 做请求/响应校验。空消息 → 400；不存在的 session → 404。
+- 全异步：所有路由 handler 和 Service 方法用 `async def`。
+- 环境变量通过 `python-dotenv` 管理，绝不硬编码 API Key。
+- 所有 Agent 适配器遵循 ADR-0005 的 `BaseAgentAdapter` 契约。
+- 测试要依赖真实数据库文件。每个测试自己创建所需 fixtures。
+
+### TypeScript（前端）
+
+- 禁止 `any` 类型。用 `unknown` 做不确定类型，然后收窄。
+- Zustand 管理状态，每个领域一个 store（chat、sessions 等）。
+- 组件仅使用 shadcn/ui 原语，自定义样式通过 Tailwind 类。
+- API 客户端：带类型的 fetch 封装；SSE 用 EventSource + 重连逻辑。
 
 ---
 
-## Documentation Rules
+## 文档规则
 
-All project documentation follows **progressive disclosure**:
+项目文档遵循**渐进式披露**策略：
 
-1. **Layer by detail depth, not by topic.** Entry docs (CLAUDE.md, CONTEXT.md) provide overview and link to details. ADRs explain decisions. Specs define exact requirements. Dev logs record history.
-2. **Summarize, don't duplicate.** A downstream doc may summarize an upstream concept with a link, but never copy-paste the full content. One authoritative source per fact.
-3. **Cross-reference, never repeat.** If a rule/decision already exists in another doc, link to it instead of restating.
-4. **Index before detail.** Every doc directory has an index (CONTEXT.md "Key Documents", ADR numbering, Spec template) so readers can find what they need without reading everything.
-5. **New docs must earn their place.** Before creating a new doc, ask: does this fit in an existing doc? If yes, amend; if no, create and add to the index.
+1. **按细节深度分层，不是按主题**。入口文档（CLAUDE.md、CONTEXT.md）提供概览并往下链接。ADR 解释决策。Spec 定义精确需求。Dev Log 记录历史。
+2. **概括，不复制**。下游文档可概括上游概念并链接，但绝不复制全文。一个事实一个权威源。
+3. **交叉引用，不重复声明**。若规则/决策已在其他文档中存在，链接过去而非重述。
+4. **先索引，后细节**。每个文档目录都有索引，读者无需通读全文就能找到所需内容。
+5. **新文档必须证明存在价值**。创建新文档前先问：能放入已有文档吗？能 → 修改已有；不能 → 新建并加入索引。
+6. **文档修改必须全局重构，禁止局部修补**。修改文档某一部分时，必须通读全文，检查并更新所有与修改内容矛盾的旧描述。不允许同一文档中 A 段落说"本文件只定义 X"、B 段落却同时定义了 Y。每次文档修改的终点是一份整体逻辑自洽的文档。
 
 ---
 
-## Forbidden
+## 禁止事项
 
-- Building abstractions "we might need later" — only build what the current phase demands.
-- Writing module implementation before defining its interface contract.
-- Ending any increment without a demoable frontend.
-- Skipping acceptance criteria verification before marking a phase complete.
-- Adding features outside the current Spec's scope (see Non-Goals section).
+- 构建"以后可能用到"的抽象 — 只构建当前 Phase 需要的。
+- 在定义接口契约前写实现代码。
+- 结束增量时没有可演示的前端。
+- 跳过验收标准就标记 Phase 完成。
+- 添加当前 Spec 范围之外的功能。
+- 结束开发轮次时仍有旧后端/前端进程在运行旧代码，或未报告服务访问 URL。
 - **执行任何 Git 操作（add/commit/push）前，必须先获得用户明确的"人工验收"确认。** 即使模块开发 Skill 中已进入 Step 6，也必须等待用户说"人工验收认可"/"验收通过"/"批准提交"等确认口令。未获确认前，Git 操作等同于 Spec 之外的功能——禁止执行。
 
 ---
 
 ## Debug 质量守则
 
-Debug 不是"让 bug 消失"，而是"让系统更正确"。修复问题时必须遵守：
+Debug 不是"让 bug 消失"，而是"让系统更正确"：
 
-1. **修根因，不修表象** — 找到问题的系统性原因（如字段命名不一致、架构设计缺陷），不写补丁式修复
-2. **保持代码质量不降级** — 修复不能引入 `any`、绕过类型检查、破坏分层架构、添加临时 hack
-3. **前瞻性** — 修复方案要考虑同一类问题是否在项目中其他地方也存在，一并修复
-4. **全局性** — 一个 bug 修复后，检查相关联的模块是否受影响（运行全量测试，不仅是相关测试）
-5. **安全性** — 不为了"快速修复"而降级 API Key 校验、跳过输入验证、暴露错误详情给前端
-6. **字段命名一致性** — 前后端字段名必须严格一致。后端 Pydantic 模型必须用 `Field(alias="camelCase")` + `populate_by_name=True` 统一输出 camelCase
-7. **每轮修复后全量测试零回归** — `pytest test_api/` + `npx vitest run` + `npx tsc --noEmit` 三者必须全部通过
-8. **主动发现问题** — 用户的验收反馈是片面的，不应只修复用户提出的问题。必须从用户的反馈延申出去，主动审查相关功能是否存在同类设计缺陷、UI/UX 问题、边界条件遗漏。从"这段代码还能怎么出问题"的角度思考，而不是"用户说了什么我就修什么"。
+1. **修根因，不修表象** — 找到问题的系统性原因（如字段命名不一致、架构设计缺陷），不写补丁式修复。
+2. **保持代码质量不降级** — 修复不能引入 `any`、绕过类型检查、破坏分层架构、添加临时 hack。
+3. **前瞻性** — 修复方案要考虑同一类问题在项目中其他地方是否也存在，一并修复。
+4. **全局性** — 一个 bug 修复后，检查相关联的模块是否受影响（运行全量测试，不仅是相关测试）。
+5. **安全性** — 不为了"快速修复"而降级 API Key 校验、跳过输入验证、暴露错误详情给前端。
+6. **字段命名一致性** — 前后端字段名必须严格一致。后端 Pydantic 模型必须用 `Field(alias="camelCase")` + `populate_by_name=True` 统一输出 camelCase。
+7. **每轮修复后全量测试零回归** — `pytest test_api/` + `npx vitest run` + `npx tsc --noEmit` 三者必须全部通过。
+8. **主动发现问题** — 用户的验收反馈是片面的，不应只修复用户提出的问题。必须从用户反馈延申出去，主动审查相关功能是否存在同类设计缺陷、UI/UX 问题、边界条件遗漏。从"这段代码还能怎么出问题"的角度思考，而不是"用户说了什么我就修什么"。
 
 ---
 
-## Phase Awareness
+## AI 协作体系
 
-Currently in **Phase 2 (Core Features) — completed**. Phase 3 (Enhancements) in planning.
+三层协作体系：Rules（始终生效）→ Spec（按功能加载）→ Skill（按需调用）
 
-Phase 2 scope: multi-agent support, group chat, orchestrator, WebSocket, artifact previews.
-Phase 3 scope: Orchestrator upgrade (intent + task decomposition + agent chains), artifact versioning + Diff + inline editing, message reply/regenerate/pin/search.
+| 层 | 文件位置 | 生效时机 | 用途 |
+|----|---------|---------|------|
+| **Rules** | `CLAUDE.md`、`.trae/rules/project_rules.md` | 每次 AI 对话 | 技术栈锁定、架构约束、代码规则、禁止事项 |
+| **Spec** | `docs/specs/phaseN/` | 按功能开发 | 定义要构建什么、输入输出、行为、验收标准、非目标 |
+| **Skill** | `.claude/skills/*.md` | 按需调用（`/skill-name`） | 标准化开发流程、代码审查清单 |
+
+---
+
+## 阶段感知
+
+当前处于 **Phase 5（产物工作台能力）— 已完成**。Phase 6（Workspace Runtime + CLI Adapter）和 Phase 7（UX 闭环）计划中。
+
+完整 Phase 状态表见 [CONTEXT.md §开发阶段](CONTEXT.md)。
+
+### 产品交付阶段
+
+| 优先级 | 产品形态 | 架构 | 一键部署 |
+|--------|---------|------|---------|
+| **P1（当前）** | **桌面版**：桌面端（Tauri/Node.js）= 本地无头服务器 + 本地特权执行引擎；Web 端（浏览器）= 主力 UI | 浏览器 → localhost 后端 → 本机文件系统 + 本机 CLI Agent | ❌ |
+| **P2（远期）** | **SaaS 云版**：Web 浏览器 + 云端后端 + 云端容器沙箱 | 浏览器 → 云端后端 → 云端沙箱 + 云端 CLI Agent → 云端 URL | ✅ |
+
+**Project-first 工作流**：用户必须先创建 Project（选择/新建 workspace 目录），然后在 Project 下创建私聊或群聊。所有聊天必须属于某个 Project。Project 内所有 Agent 共享 `Project.workspace_path` 作为 `cwd`。详见 [ADR-0009](docs/adr/0009-project-workspace-model.md)。
+
+> 完整的 P1/P2 定义、Workspace 位置、运行环境、安全边界见 [CONTEXT.md §产品交付阶段](CONTEXT.md)。
