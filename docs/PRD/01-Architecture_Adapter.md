@@ -1,8 +1,8 @@
-# 需求规格说明书 (PRD)：01 - 底层适配器架构决策 (CLI Adapter Architecture)
+﻿# 需求规格说明书 (PRD)：01 - 底层适配器架构决策 (CLI Adapter Architecture)
 
 ## 1. 文档定位
 本文档为 AgentHub 的底层核心通信层设计规范，主要面向**系统架构师**、**后端核心研发人员**。
-本章节将详细论述 AgentHub 如何摒弃传统的“裸调 HTTP LLM API”的伪 Agent 模式，转而利用操作系统底层进程管理技术，直接封装 Anthropic 官方的 `claude` CLI、开源的 `opencode` 等真实物理工具。这是本课题取得高分、实现工业级“Agent-as-a-Service”的关键基石。
+本章节将详细论述 AgentHub 如何摒弃传统的”裸调 HTTP LLM API”的伪 Agent 模式，转而利用操作系统底层进程管理技术，直接封装 Anthropic 官方的 `claude` CLI、OpenAI 的 `codex` CLI、开源的 `opencode` 三个真实物理工具。涵盖：通用进程管理层（PTY/subprocess、ANSI 清洗、交互拦截）、每个 CLI 的专属适配策略（各自理解其输出格式和交互模式）、分层渲染方案（文本/进度/产物/交互 → 前端不同渲染形态）。这是本课题取得高分、实现工业级”Agent-as-a-Service”的关键基石。
 
 ---
 
@@ -55,6 +55,55 @@ CLI 工具吐出的文字绝对不是纯净的纯文本，而是充满了用于�
 
 ---
 
+### 3.4 标准事件输出：CLI 到消息与 Artifact 的桥接
+
+CLI Adapter 的职责是管理真实进程和标准 I/O，不直接写业务表。为避免 CLI、HTTP Agent、Orchestrator 各自发明一套产物创建逻辑，所有 Adapter 必须把可被上层消费的结果转换为统一事件：
+
+```json
+{
+  "type": "agent.output|artifact.detected|interactive_prompt|task_status_change",
+  "session_id": "session-id",
+  "message_id": "message-id-or-null",
+  "task_id": "task-id-or-null",
+  "agent_id": "agent-id",
+  "payload": {}
+}
+```
+
+其中 `artifact.detected` 是打通产物链路的关键事件。Adapter 可以通过以下信号识别产物：
+- Markdown fenced code block，语言为 `html`、`tsx`、`jsx`、`python`、`diff` 等。
+- CLI 工具输出的文件变更摘要、patch、created/modified file list。
+- Orchestrator 派发任务时预期的 `expected_artifact_type`。
+
+Adapter 只负责”发现并上报”，不负责版本链、消息卡片、抽屉预览。后续由 `ArtifactService` 统一落库、建立版本关系并发布 `artifact.created`。
+
+### 3.5 分层渲染策略 (Layered Rendering)
+
+CLI 工具的输出不是均质的纯文本——它包含文本回复、进度动画、代码块、交互提示等多种类型。Adapter 必须对 stdout 做语义解析，按类型分层渲染到前端：
+
+| 输出类型 | CLI 中的形态 | 前端渲染形态 |
+|---------|-------------|------------|
+| 纯文本/对话 | Markdown 文本流 | 聊天消息气泡（打字机流式） |
+| 进度指示器 | spinner 动画、`\r` 覆盖更新的进度行 | UI 状态条（如 `🔧 Claude Code 正在分析代码...`），不进入消息历史 |
+| 代码 Diff | fenced code block (`diff`/`patch`) 或 CLI 原生 diff 输出 | Artifact Card（code_diff 类型），进入产物版本链 |
+| 网页/组件 | fenced code block (`html`/`tsx`/`jsx`) | Artifact Card（web_preview 类型），Drawer 中 iframe 预览 |
+| 文件变更摘要 | CLI 输出的 created/modified/deleted list | Artifact Card（file_tree 类型） |
+| 交互式提示 | `(y/n)` 或 `[Y/n]` 阻塞等待 | 确认卡片（同意/拒绝按钮），用户点击后回复注入 stdin |
+
+### 3.6 每个 CLI 单独适配 (Per-CLI Adapter Strategy)
+
+不同 CLI 工具的输出格式、进度表示、交互模式完全不同。AgentHub 为每个 CLI 工具实现专属 Adapter，各自理解该工具的输出语义：
+
+| Adapter | 封装的 CLI | 输出特征 | 特殊处理 |
+|---------|-----------|---------|---------|
+| `ClaudeCodeAdapter` | `claude` (Anthropic CLI) | Markdown + ANSI color + `(y/n)` 交互 + 文件 diff | 识别 Claude Code 的工具调用日志格式、权限确认模式 |
+| `CodexAdapter` | `codex` (OpenAI CLI) | 代码块 + 进度指示 + 文件操作确认 | 识别 Codex 的执行计划和工具输出格式 |
+| `OpenCodeAdapter` | `opencode` (开源) | 终端 spinners + 工具调用日志 + patch 输出 | 识别 OpenCode 的 agent loop 和审查反馈模式 |
+
+所有 Adapter 实现统一的 `BaseAgentAdapter` 接口（定义于 ADR-0005），产出标准化事件（`agent.output` / `artifact.detected` / `interactive_prompt`）。新增 CLI 工具只需写一个新 Adapter。
+
+CLI 工具由用户在操作系统层面安装（如 `npm install -g @anthropic-ai/claude-code`），AgentHub 只管理配置：在 AgentPanel 中配置 `executable` 路径、`init_args` 启动参数、环境变量（API Keys 等）。
+
 ## 4. 容错与生命周期管理 (Lifecycle & Fault Tolerance)
 
 ### 4.1 僵尸进程防范 (Zombie Process Mitigation)
@@ -62,12 +111,19 @@ CLI 工具吐出的文字绝对不是纯净的纯文本，而是充满了用于�
 *   **心跳机制**：前端必须与后台维持 WebSocket 心跳。一旦断开连接超过 3 分钟，后端守护进程（Daemon）必须向该 Session 绑定的底层 PID 发送 `SIGTERM` 信号。
 *   **超时强杀 (Timeout Kill)**：任何单一的交互轮次，绝对不允许超过 5 分钟的静默期（无 stdout 输出）。一旦超时，判定进程死锁，使用 `SIGKILL` 强杀。
 
-### 4.2 单物理工作区隔离 (Single Physical Workspace)
-在 MVP 阶段，我们明确不使用 Docker 进行强隔离。为了保证安全和工程的可访问性：
-*   **统一 CWD (Current Working Directory)**：整个 AgentHub 后端启动时，通过 `.env` 或命令行参数指定一个唯一的 `PROJECT_ROOT`。
-*   **所有进程都在此处**：无论是前端专家 Agent 还是后端专家 Agent，启动时的 `cwd` 参数全都指向同一个目录。这保证了前端写完代码后，后端立刻能在同一个目录下读到，完全符合真实的人类开发协作模式。
+### 4.2 本机 Workspace 隔离 (Local Workspace Isolation)
+在 MVP 阶段，我们明确不使用 Docker 进行强隔离。为了保证安全和工程的可访问性，系统采用本机 workspace 目录作为 Agent 的物理执行边界。Workspace 归属于 Project（非 Session），完整产品链路见 [PRD-06 MVP 本机 Workspace](./06-MVP_Local_Workspace_Delivery.md) 和 [ADR-0009 Project-Workspace 模型](../adr/0009-project-workspace-model.md)。
+
+*   **Workspace Root**：整个 AgentHub 后端启动时，通过 `.env` 或命令行参数指定 `AGENTHUB_WORKSPACE_ROOT`，例如 `D:\AgentHub\workspaces`。这是 AgentHub 可以创建和绑定项目目录的根目录，不等同于某一个具体项目。
+*   **Project Workspace**：用户创建 Project 时选择/新建一个目录作为其 workspace。`projects.workspace_path` 记录绝对路径。一个 Project 绑定一个 workspace，不可更改。
+*   **统一 CWD (Current Working Directory)**：同一 Project 下的所有 Session（私聊/群聊）中的所有 Agent 进程，启动时的 `cwd` 参数全都指向 `Project.workspace_path`。这保证多个 Agent 在同一个物理项目目录内协作。
+*   **路径边界**：后端必须校验 `workspace_path` 位于 `AGENTHUB_WORKSPACE_ROOT` 或用户显式授权的目录内，禁止通过相对路径越界读取其他文件。
 
 ## 5. 本模块开发优先级与排期建议
-*   **Phase 3.1**：先跑通最简单的 Python `subprocess.Popen`，使用伪造的一个打字机脚本测试 stdout 的实时推流。
-*   **Phase 3.2**：编写并压测 ANSI 转义码清洗器，确保前端收到的是干净的 Markdown。
-*   **Phase 3.3**：对接真实的 `claude` 命令，攻克 `(y/n)` 交互式拦截的难点。
+
+CLI 适配器的实现在 Phase 6（Workspace Runtime + CLI 适配器 + 产物入口桥接）中完成：
+
+*   **Phase 6.1**：实现 CLIProcessManager — PTY/subprocess 孵化、stdout 实时推流。先用伪造的打字机脚本验证流式管道畅通。
+*   **Phase 6.2**：实现 StreamSanitizer — ANSI 转义码清洗器，确保前端收到的是干净的 Markdown。压测各种 CLI 工具的典型输出格式。
+*   **Phase 6.3**：实现 PromptInterceptor — 对接真实的 `claude` 命令，攻克 `(y/n)` 交互式拦截的难点。
+*   **Phase 6.4**：实现 CliAgentAdapter — 完整的 BaseAgentAdapter 实现，集成进程管理、流清洗、交互拦截，输出标准事件。

@@ -10,6 +10,9 @@
     *   [02-Orchestrator_Engine.md](./02-Orchestrator_Engine.md) (Orchestrator 调度引擎)
     *   [03-User_Experience.md](./03-User_Experience.md) (UI 原型与体验设计)
     *   [04-Data_API_Contracts.md](./04-Data_API_Contracts.md) (数据架构与接口)
+    *   [05-End_to_End_Product_Flow.md](./05-End_to_End_Product_Flow.md) (端到端产品闭环与需求追踪)
+    *   [06-MVP_Local_Workspace_Delivery.md](./06-MVP_Local_Workspace_Delivery.md) (MVP 本机 Workspace 落地链路)
+    *   [07-SaaS_Cloud_Workspace_Delivery.md](./07-SaaS_Cloud_Workspace_Delivery.md) (SaaS 云端 Workspace 落地链路)
 
 ---
 
@@ -19,7 +22,10 @@
 **AgentHub** 的诞生，旨在构建一个**“意图驱动的 AI 协作工作空间”**。它在产品形态上结合了现代 IM 通讯工具（如 Slack/微信）和集成开发环境（IDE）的最佳实践。
 
 **核心变革点**：
-本期 PRD 对初期的项目技术方案进行了重大修正。AgentHub 不再是一个简单的“调用大模型 API 并手动拼接 Prompt 的聊天室”。相反，它将作为一层强大的**调度壳 (Orchestration Shell)**，底层直接对接并封装市面上真正具备独立执行能力的 CLI Agent 工具（如 Anthropic 官方的 Claude Code 命令行工具，或开源的 OpenDevin 等）。通过提供统一的 UI/UX 层和多进程管理层，彻底释放“自主 Agent”在真实文件系统上编写、调试代码的潜力。
+本期 PRD 对初期的项目技术方案进行了重大修正。AgentHub 不再是一个简单的“调用大模型 API 并手动拼接 Prompt 的聊天室”。相反，它将作为一层强大的**调度壳 (Orchestration Shell)**，底层直接对接并封装市面上真正具备独立执行能力的 CLI Agent 工具（如 Anthropic 官方的 Claude Code 命令行工具，或开源的 OpenCode 等）。通过提供统一的 UI/UX 层和多进程管理层，彻底释放“自主 Agent”在真实文件系统上编写、调试代码的潜力。
+
+**闭环补充**：
+本 PRD 以启动文档为源头，必须覆盖 IM 聊天、多 Agent 协作、Orchestrator、Artifact 预览编辑、AI 协作交付物等课题要求。端到端完成定义见 [05-End_to_End_Product_Flow.md](./05-End_to_End_Product_Flow.md)：用户输入任务后，系统必须能经过 workspace 创建/绑定、Orchestrator/Agent 执行、Artifact Card、Artifact Drawer、局部编辑、版本化和审批继续。MVP 默认采用 [06-MVP_Local_Workspace_Delivery.md](./06-MVP_Local_Workspace_Delivery.md) 定义的本机 workspace；SaaS 版采用 [07-SaaS_Cloud_Workspace_Delivery.md](./07-SaaS_Cloud_Workspace_Delivery.md) 定义的云端 workspace。
 
 ---
 
@@ -54,7 +60,7 @@ AgentHub 的愿景是成为**人类工程师管理 AI 团队的第一工作台**
 AgentHub 摒弃了传统的死板界面。无产物时，它是一个极其克制、沉浸式的聊天工具（左侧导航 + 中间宽幅聊天框）；当底层 Agent 完成实质性工作（如生成网页、修改大批量代码）时，右侧会智能滑出**“产物工作台（Artifact Drawer）”**。用户在左边下指令，右边看结果，真正实现所见即所得。
 
 ### 4.2 核心价值二：降维打击的 CLI Agent 封装 (CLI-as-a-Service)
-AgentHub 承认并尊重专业工具的价值。平台不再自己手搓劣质的代码生成循环，而是将 Claude Code 等终端神器“按入”网页中。
+AgentHub 承认并尊重专业工具的价值。平台不再自己手搓劣质的代码生成循环，而是将 Claude Code 等终端“接入”网页中。
 平台在后端通过 `PTY` 和 `Subprocess` 技术接管这些工具的标准输入输出（stdin/stdout）。对上层用户而言，他们只需要在精美的网页聊天框里发号施令；在底层，是货真价实的自动化脚本在宿主机或容器内疯狂读写文件、运行测试。
 
 ### 4.3 核心价值三：包工头级别的智能调度引擎 (The Orchestrator)
@@ -95,6 +101,10 @@ Orchestrator（协调器）本身是一个由顶级大模型驱动的纯决策�
     定义：生成了 Artifact 资产卡片后，用户点击展开右侧预览抽屉的比例。预期目标：> 90%，证明产物内联渲染是绝对的刚需。
 4.  **CLI 进程异常崩溃率 (CLI Process Crash Rate)**：
     定义：后端 `subprocess` 因处理特殊字符、内存溢出或死锁导致的非正常退出比例。预期目标：< 2%。
+5.  **端到端 Artifact 闭环率 (Artifact Loop Completion Rate)**：
+    定义：用户从自然语言任务触发 Agent 输出，系统自动生成 Artifact Card，用户完成预览、编辑、确认新版本的比例。预期目标：MVP 演示路径必须 100% 跑通。
+6.  **文档覆盖完整度 (Documentation Traceability)**：
+    定义：启动文档中的 P0/P1 要求均能追溯到 PRD 与 Spec，Phase 文档均说明全局定位、上下游契约与未覆盖边界。预期目标：P0/P1 无孤儿需求。
 
 ---
 
@@ -104,8 +114,8 @@ Orchestrator（协调器）本身是一个由顶级大模型驱动的纯决策�
 
 1.  **不做重度 Web IDE**：
     右侧的产物抽屉在展示代码时，主要是只读的 Monaco Editor Diff 视图。**坚决不实现**类似 VS Code 的强交互式编辑（如局部拖拽生成、右键重构等）。代码的增删改查唯一入口，永远是通过左侧主聊天框用自然语言驱动 Agent 去改。
-2.  **不做完全隔离的云端 Docker 沙盒池**：
-    虽然在商业化产品中，用户的运行环境必须用高强度的容器隔离，但本课题（MVP 阶段）默认信任部署的宿主机环境。CLI Agent 进程将直接针对本地磁盘的指定 Workspace 进行读写操作。
+2.  **P1 不做云端沙箱，P2 再做**：
+    P1（桌面版）阶段，CLI Agent 进程直接针对本地磁盘的指定 Workspace 进行读写操作，默认信任宿主机环境。P2（SaaS 云版）阶段引入云端容器沙箱隔离，实现多租户安全与一键部署到云端 URL。
 3.  **不做去中心化的多 Agent 互聊 (Swarm)**：
     目前所有的任务调度采用绝对的“主从模式”。Orchestrator 处于权力顶峰，向底层 Agent 派发任务，接收结果。底层的打工人 Agent 之间不进行直接的 P2P 聊天对话。
 4.  **不做跨会话的向量 RAG**：
@@ -130,7 +140,47 @@ Orchestrator（协调器）本身是一个由顶级大模型驱动的纯决策�
 *   👉 **[04-Data_API_Contracts.md](./04-Data_API_Contracts.md)**
     *   **受众**：全栈开发
     *   **摘要**：直接指导代码编写。涵盖了最终的 `agents`, `tasks` 数据库字段设计，以及前后端通信的关键 REST 接口清单。
+*   👉 **[05-End_to_End_Product_Flow.md](./05-End_to_End_Product_Flow.md)**
+    *   **受众**：产品负责人、架构师、全栈开发、答辩准备人员
+    *   **摘要**：对照启动文档建立需求追踪矩阵，定义从 workspace 创建/绑定、IM 输入到 Agent 执行、Artifact 生成、抽屉预览、局部编辑、审批继续的端到端闭环。
+*   👉 **[06-MVP_Local_Workspace_Delivery.md](./06-MVP_Local_Workspace_Delivery.md)**
+    *   **受众**：产品负责人、后端开发、前端开发、答辩准备人员
+    *   **摘要**：定义 MVP 本机 workspace 版的完整落地链路：本机后端创建/绑定 workspace，CLI Agent 以 `workspace_path` 为 `cwd` 执行，文件变更进入 Artifact，并支持本机预览、导出和可选部署。
+*   👉 **[07-SaaS_Cloud_Workspace_Delivery.md](./07-SaaS_Cloud_Workspace_Delivery.md)**
+    *   **受众**：产品负责人、架构师、平台工程、商业化规划人员
+    *   **摘要**：定义 SaaS 云端 workspace 版的最终形态：云端隔离 workspace、sandbox runner、云端 preview URL、多租户安全和一键部署。
+
+---
+
+## 9. 产品交付阶段 (Product Delivery Phases)
+
+AgentHub 分两个阶段交付，先完成桌面版（P1），再做 SaaS 云版（P2）。
+
+### P1 — 桌面版（当前阶段）
+
+| 维度 | 定义 |
+|------|------|
+| **产品形态** | 桌面端（Tauri/Node.js 进程）= 本地无头服务器 + 本地特权执行引擎；Web 端（浏览器）= 全功能交互工作区（主力 UI） |
+| **数据流** | 用户浏览器 → localhost 后端 → 本机文件系统 + 本机 CLI Agent 进程 |
+| **Workspace 位置** | 用户本机文件系统（`AGENTHUB_WORKSPACE_ROOT` 下） |
+| **CLI Agent 运行位置** | 用户主机（直接 spawn subprocess） |
+| **部署能力** | ❌ 不支持一键部署（本地运行，无远程服务器） |
+| **安全边界** | 基于 allowlist 的本机路径校验；Web UI 通过 localhost 访问后端 |
+
+### P2 — SaaS 云版（远期）
+
+| 维度 | 定义 |
+|------|------|
+| **产品形态** | Web 端浏览器 + 云端后端 + 云端沙箱 |
+| **数据流** | 用户浏览器 → 云端后端 → 云端沙箱 + 云端 CLI Agent 进程 → 一键部署 |
+| **Workspace 位置** | 云端隔离沙箱 volume |
+| **CLI Agent 运行位置** | 云端容器内 |
+| **部署能力** | ✅ 一键部署到云端 URL |
+| **安全边界** | 多租户容器隔离、网络策略、配额管理 |
 
 > **版本历史记录**
 > * v1.0.0 - 初始版本，基于单调 LLM API 的粗糙设想。
-> * v2.0.0 (当前) - 历经极限拷问，全面转向真实 CLI 挂载 + Orchestrator DAG 状态机的工业级架构。
+> * v2.0.0 - 历经极限拷问，全面转向真实 CLI 挂载 + Orchestrator DAG 状态机的工业级架构。
+> * v2.1.0 - 补齐启动文档需求追踪与端到端 Artifact 产品闭环。
+> * v2.2.0 - 补齐 MVP 本机 workspace 与 SaaS 云端 workspace 的落地链路。
+> * v3.0.0 (当前) - 全面删除 HTTP API 伪 Agent 历史遗留，确立 CLI Wrapper 为唯一 Agent 架构。明确 P1 桌面版（本机执行）+ P2 SaaS 云版（云端沙箱+一键部署）的分阶段交付策略。
