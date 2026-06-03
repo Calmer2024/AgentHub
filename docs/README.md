@@ -26,13 +26,15 @@ docs/
 ## 快速导航
 
 ### 我想了解产品要做什么
-→ 从 [PRD/00-Master_Hub.md](PRD/00-Master_Hub.md) 开始，然后按编号阅读其余 4 篇。
+→ 从 [PRD/00-Master_Hub.md](PRD/00-Master_Hub.md) 开始，然后按编号阅读其余 7 篇。尤其不要跳过 [PRD/05-End_to_End_Product_Flow.md](PRD/05-End_to_End_Product_Flow.md)，它定义了启动文档需求追踪和端到端产品闭环。
+
+**产品交付阶段**：P1 先做桌面版（Web UI + 本地无头服务器 → 本机文件系统 + 本机 CLI Agent），P2 再做 SaaS 云版（云端沙箱 + 一键部署）。详见 PRD-00 第 9 节。
 
 ### 我想了解项目现在的状态
 → 看 [CONTEXT.md](../CONTEXT.md) 的 Phase 表格，然后看 [audit/phase3-audit-report.md](audit/phase3-audit-report.md)。
 
-### 我要开发 Phase 5
-→ 进入 [specs/phase5/](specs/phase5/) 目录，先读 README.md 了解验收标准，再读具体 Spec 了解接口契约。
+### 我要了解 Phase 5
+→ 进入 [specs/phase5/](specs/phase5/) 目录，先读 README.md 了解完成记录，再读具体 Spec 了解接口契约。
 
 ### 我想理解为什么要这样设计
 → 进入 [adr/](adr/) 目录，按编号顺序阅读架构决策记录。
@@ -55,6 +57,9 @@ docs/
 | [02-Orchestrator_Engine.md](PRD/02-Orchestrator_Engine.md) | 调度引擎：DAG 拆解、状态机、Human-in-the-loop | 后端、AI 工程师 |
 | [03-User_Experience.md](PRD/03-User_Experience.md) | 界面原型：三栏布局、资产卡片、产物抽屉、审批卡片 | 设计师、前端 |
 | [04-Data_API_Contracts.md](PRD/04-Data_API_Contracts.md) | 数据模型 (agents/sessions/messages/tasks)、REST/SSE API | 全栈开发 |
+| [05-End_to_End_Product_Flow.md](PRD/05-End_to_End_Product_Flow.md) | 启动文档需求追踪、含 workspace 的北极星演示闭环、Artifact 生成与回流、P2 Roadmap | 产品、架构、全栈、答辩准备 |
+| [06-MVP_Local_Workspace_Delivery.md](PRD/06-MVP_Local_Workspace_Delivery.md) | MVP 本机 workspace：创建/绑定目录、Agent cwd、文件变更、预览、导出、可选部署 | 产品、架构、全栈、答辩准备 |
+| [07-SaaS_Cloud_Workspace_Delivery.md](PRD/07-SaaS_Cloud_Workspace_Delivery.md) | SaaS 云端 workspace：多租户 sandbox、云端预览、一键部署、配额与安全 | 产品、架构、平台工程 |
 
 ### adr/ — 架构决策记录
 
@@ -66,10 +71,11 @@ docs/
 | ADR-0002 | [0002-directory-structure.md](adr/0002-directory-structure.md) | 项目目录结构规范 |
 | ADR-0003 | [0003-vibe-coding-philosophy.md](adr/0003-vibe-coding-philosophy.md) | 结构化 Vibe Coding 模式 |
 | ADR-0004 | [0004-development-methodology.md](adr/0004-development-methodology.md) | 架构跑道 + 行走骨架 + 增量交付 |
-| ADR-0005 | [0005-target-architecture.md](adr/0005-target-architecture.md) | 7 层目标架构 + 核心接口契约 |
+| ADR-0005 | [0005-target-architecture.md](adr/0005-target-architecture.md) | 7 层目标架构 + CLI Wrapper 接口契约（进程管理、Workspace Provider、EventBus） |
 | ADR-0006 | [0006-ai-collaboration-system.md](adr/0006-ai-collaboration-system.md) | AI 协作体系: Rules/Spec/Skill |
 | ADR-0007 | [0007-orchestrator-architecture.md](adr/0007-orchestrator-architecture.md) | Orchestrator 架构: Pipeline + DAG |
 | ADR-0008 | [0008-revised-development-strategy.md](adr/0008-revised-development-strategy.md) | **🆕** 功能板块制 + Phase 4-7 路线图 |
+| ADR-0009 | [0009-project-workspace-model.md](adr/0009-project-workspace-model.md) | **🆕** Project-Workspace 绑定模型 + CLI 适配策略 + 分层渲染 |
 
 **阅读建议**: 新成员按编号顺序读。开发者遇到设计疑问时，先查对应 ADR 是否有记录。
 
@@ -83,9 +89,9 @@ docs/
 | [phase2/](specs/phase2/) | Core Features | ✅ | 多 Agent + 群聊 + 产物基础 |
 | [phase3/](specs/phase3/) | Orchestrator + Infrastructure | ✅ | EventBus + Pipeline + DAG + CollaborationPanel |
 | [phase4/](specs/phase4/) | 消息交互闭环 | ✅ | Reply/Regenerate/Pin + FTS5 搜索 |
-| [phase5/](specs/phase5/) | 产物深度管理 | 📋 | 版本链 + Diff + 在线编辑 |
-| [phase6/](specs/phase6/) | CLI 适配器 | 📋 | PTY 进程管理 + ANSI 清洗 + 交互拦截 |
-| [phase7/](specs/phase7/) | UX 体验闭环 | 📋 | 三栏布局 + 产物抽屉 + 审批卡片 |
+| [phase5/](specs/phase5/) | 产物工作台能力 | ✅ | 对已有 Artifact 做版本链 + Diff + 在线编辑；上游入口由 Phase 6/7 补齐 |
+| [phase6/](specs/phase6/) | Workspace Runtime + CLI 适配器 + 产物入口桥接 | 📋 | 本机 workspace + Agent cwd + PTY 进程管理 + ANSI 清洗 + 交互拦截 + `artifact.detected` |
+| [phase7/](specs/phase7/) | UX 体验闭环 + MVP 演示闭环 | 📋 | 三栏布局 + 产物抽屉 + 审批卡片 + 环境体检 |
 | [planning/](specs/planning/) | 历史规划 | 📦 | 旧的 Phase 3 模块化计划 (已被 ADR-0008 取代) |
 
 每个 Phase 目录下都有独立的 `README.md`，包含验收标准清单和子模块索引。
@@ -101,6 +107,8 @@ docs/
 | [phase1-dev-log.md](dev-logs/phase1-dev-log.md) | Phase 1: 时间线、Bug (camelCase/snake_case 不一致、测试污染 .env) |
 | [phase2-dev-log.md](dev-logs/phase2-dev-log.md) | Phase 2: WebSocket 心跳、群聊 token 路由、Orchestrator V1 架构违规 |
 | [phase3-dev-log.md](dev-logs/phase3-dev-log.md) | Phase 3: 6 天时间线、6 个关键 Bug、4 次 Grill Session、测试覆盖演变 |
+| [phase4-dev-log.md](dev-logs/phase4-dev-log.md) | Phase 4: 消息交互闭环、FTS5 修复、真实 UI 验收 |
+| [phase5-dev-log.md](dev-logs/phase5-dev-log.md) | Phase 5: 产物版本链、Diff、在线编辑、架构优化、真实 HTTP 验收 |
 
 ### audit/ — 审计报告
 
@@ -109,6 +117,7 @@ docs/
 | 文件 | 内容 |
 |------|------|
 | [phase3-audit-report.md](audit/phase3-audit-report.md) | Phase 3 全面审计：PRD 符合性矩阵、架构偏离分析、模块完成度、文档债 |
+| [prd-spec-coverage-audit.md](audit/prd-spec-coverage-audit.md) | 启动文档 → PRD → Spec 覆盖审计：指出端到端 Artifact 链路缺口与修订原则 |
 
 ### testing/ — 测试规范
 
@@ -122,7 +131,7 @@ docs/
 
 | 文件 | 原用途 | 取代者 |
 |------|--------|--------|
-| AgentHub-多Agent协作平台设计.md | 早期课题设计文档 | PRD/ 目录 |
+| AgentHub-多Agent协作平台设计.md | 早期课题设计文档 | PRD/ 目录，特别是 PRD-05 的需求追踪矩阵 |
 | Trae.md | Trae IDE 使用说明 | 不再维护 |
 
 ---

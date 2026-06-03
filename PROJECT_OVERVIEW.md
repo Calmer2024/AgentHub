@@ -8,13 +8,24 @@
 
 一句话：**做一个 AI 版的 Slack**。
 
-用户打开网页，像用微信/飞书一样，创建对话、发消息。对话的对象不是人，是 AI Agent。长期架构里，Agent 不是简单的 HTTP LLM API 调用，而是后端封装的真实工具实例，例如 Anthropic 官方 `claude` CLI、开源 `opencode` 等；现有 DeepSeek、Claude、Gemini 等 HTTP 适配器是过渡/并存能力。核心玩法：
+用户打开网页，像用微信/飞书一样，创建对话、发消息。对话的对象不是人，是 AI Agent。Agent 是后端封装的真实 CLI 工具实例，例如 Anthropic 官方 `claude` CLI、开源 `opencode` 等。AgentHub 不做简单的 HTTP LLM API 调用——那已经被 PRD-00/01 明确否决。核心玩法：
 
 - **单聊**：选一个 Agent，1v1 对话
 - **群聊**：拉多个 Agent 进同一个群，用 @ 指定谁来回，或者让 Orchestrator（协调器）自动分配任务
 - **产物预览**：Agent 回复不只是文字，还能生成代码、网页等富媒体内容，直接在聊天里预览
 
 这是一个**毕业设计/课题项目**，考察重点：AI 协作能力(30%) > 功能完整度(25%) > 生成效果(20%) > 代码理解(15%) > 创新(10%)。
+
+### 产品交付阶段
+
+项目分两步走：
+
+| 阶段 | 产品形态 | 架构 | 一键部署 |
+|------|---------|------|---------|
+| **P1（当前）** | **桌面版**：桌面端（Tauri/Node.js）= 本地无头服务器 + 本地特权执行引擎；Web 端（浏览器）= 主力 UI | 浏览器 → localhost 后端 → 本机文件系统 + 本机 CLI Agent | ❌ |
+| **P2（远期）** | **SaaS 云版**：Web 浏览器 + 云端后端 + 云端容器沙箱 | 浏览器 → 云端后端 → 云端沙箱 + 云端 CLI Agent → 部署到云端 URL | ✅ |
+
+**P1 为什么不能一键部署？** CLI Agent 进程直接在用户本机运行，读写本地文件系统。没有远程服务器可"部署"到。一键部署是 P2 云版（有沙箱环境）才具备的能力。
 
 ---
 
@@ -24,7 +35,7 @@
 前端：React 18 + TypeScript + Vite + Tailwind CSS + shadcn/ui + Zustand
 后端：Python FastAPI + SQLAlchemy 2.0 (async) + SQLite
 通信：SSE（流式推送） + WebSocket（实时双向）
-AI  ：HTTP API 适配器（DeepSeek / Claude / Gemini / OpenAI / GLM / MiniMax）+ 规划中的 CLI Wrapper（claude / opencode 等真实工具）
+AI  ：CLI Wrapper 模式（PTY/subprocess 管理 claude / opencode 等真实 CLI 工具）+ Orchestrator 通过 LLM API 做意图分析/任务拆解
 ```
 
 前后端分离，后端是 API 服务器，前端是 SPA。SQLite 是文件数据库，不需要装额外的数据库服务。
@@ -63,7 +74,7 @@ AgentHub/
 
 ## 已经做完了什么？
 
-项目按 Phase 1-7 推进，目前 Phase 1-4 已完成，Phase 5-7 处于计划中。
+项目按 Phase 1-7 推进，目前 Phase 1-5 已完成，Phase 6-7 处于计划中。
 
 ### Phase 1：单聊全链路 ✅
 
@@ -110,28 +121,36 @@ Phase 3 聚焦多 Agent 协作基础设施与 Orchestrator 深化。
 
 ---
 
-## 接下来要做什么？（Phase 5-7）
+### Phase 5：产物工作台能力 ✅
 
-### Phase 5：产物深度管理
+- **版本链**：确认编辑或重新生成产物时创建新 Artifact 版本，`version += 1`，`parent_artifact_id` 指向前版。
+- **Diff 对比**：任意两个版本可生成 Diff，前端支持 split（左右）和 unified（上下）两种视图。
+- **在线编辑**：用户在代码产物中选中片段，输入修改意图，先生成 Diff 预览；确认后创建新版本，拒绝则保持原版不变。
+- **工具调用/降级**：OpenAI/DeepSeek 走真实 `edit_artifact` tool calling；不支持工具调用的 Agent 自动降级为上下文注入。
+- **架构收拢**：新增 `ArtifactEditor` Domain 纯逻辑 + `ArtifactService` 业务层，接入 EventBus，不把业务堆在 API handler。
 
-- 每次重新生成产物 → 版本号 +1，形成版本链
-- 任意两个版本之间做 Diff 对比
-- 前端用 `react-diff-viewer-continued` 展示
+真实 HTTP 验收已通过：临时启动后端，创建真实会话/消息/产物，完成编辑预览、确认创建 v2、版本链追溯、Diff 校验和会话产物链头刷新。
 
-### Phase 5：产物在线编辑（最复杂）
+需要注意：Phase 5 完成的是“已有 Artifact 的工作台能力”，不是完整产物链路。Session 绑定 workspace、Agent 在 workspace 中读写文件、文件变更自动生成 Artifact Card、右侧 Drawer 预览、审批卡片绑定产物，会在 Phase 6/7 继续补齐。
 
-- 用户在产物代码中选中片段 → 描述修改意图 → Agent 返回修改结果 → Diff 确认 → 应用
-- 支持 tool calling 的 Agent 走工具调用，不支持的降级为上下文注入
+---
 
-### Phase 6：CLI Agent 适配器
+## 接下来要做什么？（Phase 6-7）
 
+### Phase 6：Workspace Runtime + CLI Agent 适配器 + 产物入口桥接
+
+- 新增 Project 实体：创建 Project 时绑定 workspace 目录，Project 下所有 Session 共享此目录
+- 让项目型会话有明确执行目录：CLI Agent 启动时必须以当前 session 的 `workspace_path` 作为 `cwd`
 - 通过 PTY/subprocess 管理 Claude Code、opencode 等真实 CLI 工具
 - stdout 流式推送、ANSI 清洗、交互式确认拦截
+- 把 CLI/API Agent 输出中的 HTML、代码块、patch、workspace 文件变更摘要转换为标准 `artifact.detected` 事件
+- 由 ArtifactService 创建 Artifact，并让聊天流出现可预览的 Artifact Card
 
-### Phase 7：体验闭环
+### Phase 7：UX 体验闭环 + MVP 演示闭环
 
 - Zustand Store 拆分（chat / session / search）
-- 三栏动态布局、产物抽屉、审批卡片、全局 UX 润色
+- 三栏动态布局、产物抽屉、审批卡片、环境体检、全局 UX 润色
+- 跑通 workspace 绑定 → 输入任务 → Agent 输出 Artifact → 打开 Drawer → 编辑确认新版本 → 审批继续 → 中枢总结的演示脚本
 
 ---
 
@@ -155,7 +174,7 @@ API 路由层 (FastAPI)
 
 关键设计决策：
 
-- **Agent 适配器模式**：6 家 AI 厂商通过统一的 `BaseAgentAdapter` 接口屏蔽差异，新增厂商只需写一个适配器
+- **Agent 适配器模式**：CLI Wrapper 通过统一的 `BaseAgentAdapter` 接口封装真实 CLI 工具（Claude Code、OpenCode 等），通过 PTY/subprocess 管理进程、ANSI 清洗、交互拦截。新增工具只需实现一个适配器
 - **EventBus 解耦**：Agent 流式输出 → EventBus 广播 → WebSocket 推送 / 持久化 / 产物检测，各模块不直接依赖
 - **Orchestrator 四阶段流水线**：意图分析 → Agent 选择 → 任务拆解 → 执行调度，每个阶段独立可测试
 - **SQLite + FTS5**：零配置数据库，内置全文搜索，课题项目够用
@@ -166,10 +185,12 @@ API 路由层 (FastAPI)
 
 | 表 | 用途 |
 |----|------|
-| `sessions` | 会话（single/group 模式） |
+| `projects` | 项目（顶层组织实体，绑定 workspace_path） |
+| `sessions` | 会话（single/group 模式，归属某个 Project） |
+| `workspaces` | 项目工作区（本机目录、项目类型、预览配置） |
 | `messages` | 消息（支持 parent_message_id 引用、is_pinned 标记） |
 | `session_members` | 群聊成员关联表 |
-| `agent_configs` | Agent 配置（名称、描述、system_prompt、厂商、模型） |
+| `agent_configs` | Agent 配置（名称、描述、system_prompt、executable、init_args、env vars） |
 | `artifacts` | 产物（代码、网页预览等，支持版本链） |
 | `messages_fts` | FTS5 全文搜索虚拟表 |
 
@@ -273,8 +294,9 @@ python e2e/full_ui_audit.py
 | 文档 | 位置 | 为什么 |
 |------|------|--------|
 | **本文档** | `PROJECT_OVERVIEW.md` | 你正在看的 |
+| **端到端 PRD** | `docs/PRD/05-End_to_End_Product_Flow.md` | 启动文档需求追踪与 MVP 产品闭环 |
 | **Phase 4 Spec** | `docs/specs/phase4/README.md` | 消息交互闭环的权威规格与验收记录 |
-| **Phase 5 Spec** | `docs/specs/phase5/README.md` | 下一阶段产物深度管理规格 |
+| **Phase 5 Spec** | `docs/specs/phase5/README.md` | 产物工作台能力完成记录与未打通边界 |
 | **Docs Index** | `docs/README.md` | 查看所有文档入口 |
 
 ### 按需查阅
