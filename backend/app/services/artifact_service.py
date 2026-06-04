@@ -79,12 +79,18 @@ class ArtifactService:
             id=str(uuid.uuid4()),
             session_id=current.session_id,
             message_id=current.message_id,
+            project_id=current.project_id,
             type=current.type,
             title=title if title is not None else current.title,
             content=content,
             status=status if status is not None else current.status,
             version=(current.version or 1) + 1,
             parent_artifact_id=current.id,
+            file_path=current.file_path,
+            preview_id=current.preview_id,
+            source=current.source,
+            confidence=current.confidence,
+            task_id=current.task_id,
         )
         self.db.add(version)
         await self.db.commit()

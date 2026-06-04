@@ -40,6 +40,7 @@ class MessageRead(BaseModel):
 
 class SessionCreate(BaseModel):
     title: str = "新对话"
+    project_id: str | None = Field(default=None, alias="projectId")
     agent_config_id: str | None = Field(default=None, alias="agentConfigId")
     mode: str = "single"
     agent_config_ids: list[str] | None = Field(default=None, alias="agentConfigIds")
@@ -50,6 +51,7 @@ class SessionCreate(BaseModel):
 class SessionRead(BaseModel):
     id: str
     title: str
+    project_id: str | None = Field(default=None, alias="projectId")
     agent_config_id: str | None = Field(default=None, alias="agentConfigId")
     mode: str = "single"
     created_at: datetime = Field(alias="createdAt")
@@ -89,3 +91,23 @@ class ChatRequest(BaseModel):
     chain_config: ChainConfigSchema | None = Field(default=None, alias="chainConfig")
 
     model_config = {"populate_by_name": True}
+
+
+class ProjectCreate(BaseModel):
+    name: str
+    workspace_path: str | None = Field(default=None, alias="workspacePath")
+    folder_token: str | None = Field(default=None, alias="folderToken")
+
+    model_config = {"populate_by_name": True}
+
+
+class ProjectRead(BaseModel):
+    id: str
+    name: str
+    workspace_path: str = Field(alias="workspacePath")
+    status: str
+    file_count: int = Field(default=0, alias="fileCount")
+    total_size_bytes: int = Field(default=0, alias="totalSizeBytes")
+    created_at: datetime = Field(alias="createdAt")
+
+    model_config = {"from_attributes": True, "populate_by_name": True}

@@ -7,6 +7,7 @@ from ..services import (
     SessionService, SessionCreate, SessionRead, SessionUpdate, MemberRead,
     SessionNotFoundError, AgentNotFoundError,
 )
+from ..services.session_service import ProjectNotFoundError
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -17,12 +18,15 @@ def _svc(db: AsyncSession) -> SessionService:
 
 @router.post("", response_model=SessionRead, status_code=201)
 async def create_session(data: SessionCreate, db: AsyncSession = Depends(get_db)):
-    return await _svc(db).create_session(data)
+    try:
+        return await _svc(db).create_session(data)
+    except ProjectNotFoundError:
+        raise HTTPException(status_code=404, detail="project not found")
 
 
 @router.get("", response_model=List[SessionRead])
-async def list_sessions(db: AsyncSession = Depends(get_db)):
-    return await _svc(db).list_sessions()
+async def list_sessions(projectId: str | None = None, db: AsyncSession = Depends(get_db)):
+    return await _svc(db).list_sessions(projectId)
 
 
 @router.get("/{session_id}", response_model=SessionRead)
@@ -36,6 +40,14 @@ async def get_session(session_id: str, db: AsyncSession = Depends(get_db)):
 @router.get("/{session_id}/members", response_model=List[MemberRead])
 async def list_members(session_id: str, db: AsyncSession = Depends(get_db)):
     return await _svc(db).get_members(session_id)
+
+
+@router.get("/{session_id}/workspace")
+async def get_session_workspace(session_id: str, db: AsyncSession = Depends(get_db)):
+    try:
+        return {"workspacePath": await _svc(db).get_workspace_path(session_id)}
+    except Exception:
+        raise HTTPException(status_code=404, detail="workspace not found")
 
 
 @router.patch("/{session_id}", response_model=SessionRead)

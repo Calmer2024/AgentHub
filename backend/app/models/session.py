@@ -14,6 +14,7 @@ class Session(Base):
 
     id = Column(String, primary_key=True)
     title = Column(String, nullable=False, default="新对话")
+    project_id = Column(String, ForeignKey("projects.id"), nullable=True)
     agent_config_id = Column(String, ForeignKey("agent_configs.id"), nullable=True)
     agent_name = Column(String, nullable=True)
     mode = Column(String, nullable=False, default="single")
@@ -23,3 +24,4 @@ class Session(Base):
 
     messages = relationship("Message", back_populates="session", cascade="all, delete-orphan")
     agent_config = relationship("AgentConfig")
+    project = relationship("Project", back_populates="sessions")

@@ -7,9 +7,10 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import Session as DBSession, AgentConfig, SessionMember, Message
+from ..models import Session as DBSession, AgentConfig, SessionMember, Message, Project
 from ..agents.registry import agent_registry
 from .schemas import SessionCreate, SessionRead, SessionUpdate, MemberRead
+from .project_service import ProjectService
 
 
 class SessionNotFoundError(Exception):
@@ -20,17 +21,23 @@ class AgentNotFoundError(Exception):
     pass
 
 
+class ProjectNotFoundError(Exception):
+    pass
+
+
 class SessionService:
 
     def __init__(self, db: AsyncSession):
         self.db = db
 
     async def create_session(self, data: SessionCreate) -> SessionRead:
+        project_id = await self._resolve_project_id(data.project_id)
         is_group = data.mode == "group" and data.agent_config_ids and len(data.agent_config_ids) >= 2
 
         session = DBSession(
             id=str(uuid.uuid4()),
             title=data.title,
+            project_id=project_id,
             mode="group" if is_group else "single",
         )
 
@@ -55,12 +62,12 @@ class SessionService:
         await self.db.refresh(session)
         return SessionRead.model_validate(session)
 
-    async def list_sessions(self) -> list[SessionRead]:
-        result = await self.db.execute(
-            select(DBSession)
-            .where(DBSession.is_active == "1")
-            .order_by(DBSession.updated_at.desc())
-        )
+    async def list_sessions(self, project_id: str | None = None) -> list[SessionRead]:
+        stmt = select(DBSession).where(DBSession.is_active == "1")
+        if project_id is not None:
+            stmt = stmt.where(DBSession.project_id == project_id)
+        stmt = stmt.order_by(DBSession.updated_at.desc())
+        result = await self.db.execute(stmt)
         sessions = result.scalars().all()
         return [SessionRead.model_validate(s) for s in sessions]
 
@@ -114,6 +121,9 @@ class SessionService:
         self.db.add(SessionMember(session_id=session_id, agent_config_id=agent_config_id))
         await self.db.commit()
 
+    async def get_workspace_path(self, session_id: str) -> str:
+        return await ProjectService(self.db).get_workspace_path_for_session(session_id)
+
     async def generate_title(self, session_id: str) -> str:
         result = await self.db.execute(
             select(Message)
@@ -162,3 +172,12 @@ class SessionService:
         await self.db.commit()
         await self.db.refresh(session)
         return session.title
+
+    async def _resolve_project_id(self, project_id: str | None) -> str:
+        if project_id:
+            project = await self.db.get(Project, project_id)
+            if not project or project.status == "archived":
+                raise ProjectNotFoundError(project_id)
+            return project.id
+        project = await ProjectService(self.db).ensure_default_project()
+        return project.id

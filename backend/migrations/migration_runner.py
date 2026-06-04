@@ -42,7 +42,14 @@ async def run(conn: AsyncConnection) -> None:
         logger.info("执行迁移: %s", sql_file.name)
         try:
             for stmt in statements:
-                await conn.execute(text(stmt))
+                try:
+                    await conn.execute(text(stmt))
+                except Exception as stmt_exc:
+                    if _is_already_exists_error(stmt_exc):
+                        logger.info("迁移语句已存在（幂等跳过）: %s", sql_file.name)
+                        await conn.rollback()
+                        continue
+                    raise
             await conn.execute(
                 text("INSERT INTO _migrations_history (filename) VALUES (:name)"),
                 {"name": sql_file.name},
@@ -50,19 +57,9 @@ async def run(conn: AsyncConnection) -> None:
             await conn.commit()
             logger.info("迁移完成: %s", sql_file.name)
         except Exception as e:
-            # 列/触发器已存在 → 视为已应用，记录到 history
-            if _is_already_exists_error(e):
-                logger.info("迁移已存在（幂等跳过）: %s", sql_file.name)
-                await conn.rollback()
-                await conn.execute(
-                    text("INSERT OR IGNORE INTO _migrations_history (filename) VALUES (:name)"),
-                    {"name": sql_file.name},
-                )
-                await conn.commit()
-            else:
-                logger.exception("迁移失败: %s", sql_file.name)
-                await conn.rollback()
-                raise
+            logger.exception("迁移失败: %s", sql_file.name)
+            await conn.rollback()
+            raise
 
 
 def _is_already_exists_error(exc: Exception) -> bool:

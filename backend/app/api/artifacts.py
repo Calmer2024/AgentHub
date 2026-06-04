@@ -25,12 +25,16 @@ class ArtifactRead(BaseModel):
     id: str
     session_id: str = Field(alias="sessionId")
     message_id: str = Field(alias="messageId")
+    project_id: str | None = Field(default=None, alias="projectId")
     type: str
     title: str
     content: str
     status: str
     version: int
     parent_artifact_id: str | None = Field(default=None, alias="parentArtifactId")
+    file_path: str | None = Field(default=None, alias="filePath")
+    preview_id: str | None = Field(default=None, alias="previewId")
+    source: str | None = None
     created_at: str = Field(alias="createdAt")
 
     model_config = {"from_attributes": True, "populate_by_name": True}
@@ -39,10 +43,14 @@ class ArtifactRead(BaseModel):
     def from_orm_with_iso(cls, obj: Artifact):
         return cls(
             id=obj.id, session_id=obj.session_id, message_id=obj.message_id,
+            project_id=obj.project_id,
             type=obj.type, title=obj.title, content=obj.content,
             status=obj.status,
             version=obj.version or 1,
             parent_artifact_id=obj.parent_artifact_id,
+            file_path=obj.file_path,
+            preview_id=obj.preview_id,
+            source=obj.source,
             created_at=obj.created_at.isoformat() if obj.created_at else "",
         )
 
