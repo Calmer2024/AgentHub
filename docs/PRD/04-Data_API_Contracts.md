@@ -26,15 +26,14 @@ CREATE TABLE agents (
 );
 ```
 
-### 2.2 Workspace、会话与历史记录 (`workspaces`, `sessions` & `messages`)
+### 2.2 Project、会话与历史记录 (`projects`, `sessions` & `messages`)
 由于我们需要高度复用传统 IM 聊天的 UI，会话表设计接近微信/Slack。
 
 ```sql
-CREATE TABLE workspaces (
+CREATE TABLE projects (
     id UUID PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
-    root_path VARCHAR(1024) NOT NULL, -- 后端内部使用的绝对物理路径，不直接暴露给前端
-    project_type VARCHAR(50) DEFAULT 'static', -- static, vite-react, existing
+    workspace_path VARCHAR(1024) NOT NULL UNIQUE, -- 后端内部使用的绝对物理路径，不直接暴露给前端
     status VARCHAR(50) DEFAULT 'ready', -- creating, ready, building, error, archived
     metadata_json TEXT DEFAULT '{}',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -44,7 +43,7 @@ CREATE TABLE workspaces (
 CREATE TABLE sessions (
     id UUID PRIMARY KEY,
     title VARCHAR(255) NOT NULL,
-    workspace_id UUID REFERENCES workspaces(id), -- 项目型会话绑定 workspace；普通聊天可为空
+    project_id UUID REFERENCES projects(id), -- 所有会话归属 Project，并继承 Project.workspace_path
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -97,7 +96,7 @@ CREATE TABLE artifacts (
     session_id UUID REFERENCES sessions(id),
     message_id UUID REFERENCES messages(id),
     task_id UUID REFERENCES tasks(id),
-    workspace_id UUID REFERENCES workspaces(id),
+    project_id UUID REFERENCES projects(id),
     artifact_type VARCHAR(50) NOT NULL, -- code_diff, web_preview, document, file_tree
     title VARCHAR(255) NOT NULL,
     content TEXT NOT NULL,
@@ -114,7 +113,7 @@ CREATE TABLE artifacts (
 关键约束：
 - 会话产物列表默认只展示版本链头节点，即每条链的最新版本。
 - `parent_artifact_id` 用于版本追溯，不能用于表达多个文件之间的包含关系。
-- workspace 产物必须记录 `workspace_id`；`file_path` 只能保存 workspace 内相对路径。
+- workspace 产物必须记录 `project_id`；`file_path` 只能保存 Project workspace 内相对路径。
 - Artifact 创建后必须发布 `artifact.created` 事件，前端据此刷新聊天卡片和 Drawer。
 
 ---
@@ -201,21 +200,30 @@ CREATE TABLE artifacts (
 MVP 本机 workspace 的权威执行规格见 [PRD-06](./06-MVP_Local_Workspace_Delivery.md) 与 [Phase 6A Workspace Runtime](../specs/phase6/00-workspace-runtime.md)。
 
 *   **`POST /api/workspaces`**
-    *   **业务逻辑**：在 `AGENTHUB_WORKSPACE_ROOT` 下创建新项目目录，并写入 `workspaces` 表。
+    *   **状态**：已废弃。使用 `POST /api/projects`。
 
 *   **`POST /api/workspaces/bind`**
-    *   **业务逻辑**：绑定用户显式授权的已有本机目录。后端必须做 allowlist 和路径越界校验。
+    *   **状态**：已废弃。使用 `POST /api/projects/pick-folder` 调起系统目录选择器，再用返回的 `folderToken` 调用 `POST /api/projects`。
 
 *   **`POST /api/sessions/{session_id}/workspace`**
-    *   **业务逻辑**：将会话与 workspace 绑定，后续 CLI Agent 只能使用该 workspace 的 `root_path` 作为 `cwd`。
+    *   **状态**：已废弃。Session 创建时携带 `projectId`，后续 CLI Agent 通过 `GET /api/sessions/{session_id}/workspace` 查询继承的 `Project.workspace_path`。
 
-*   **`GET /api/workspaces/{workspace_id}/tree`**
+*   **`POST /api/projects/pick-folder`**
+    *   **业务逻辑**：由本机后端打开系统原生目录选择器，返回 `{ workspacePath, folderName, folderToken }`。`folderToken` 是一次性授权，用于允许绑定 `AGENTHUB_WORKSPACE_ROOT` 之外但用户显式选择的目录。
+
+*   **`POST /api/projects`**
+    *   **业务逻辑**：创建 Project。无 `workspacePath` 时在 `AGENTHUB_WORKSPACE_ROOT` 下创建空白文件夹；有 `workspacePath` 时必须携带有效 `folderToken` 或位于 allowlist root 内。
+
+*   **`GET /api/projects/{project_id}/tree`**
     *   **业务逻辑**：返回 workspace 内文件树，路径均为相对路径。
 
-*   **`GET /api/workspaces/{workspace_id}/diff`**
+*   **`GET /api/projects/{project_id}/files?path=`**
+    *   **业务逻辑**：读取 Project workspace 内文本文件。后端必须拒绝 `../`、绝对路径和超大文件。
+
+*   **`GET /api/projects/{project_id}/diff`**
     *   **业务逻辑**：返回执行前后或 snapshot 之间的文件变更摘要。
 
-*   **`POST /api/workspaces/{workspace_id}/preview`**
+*   **`POST /api/projects/{project_id}/preview`**
     *   **业务逻辑**：生成静态预览或构建预览，返回 `preview_id`。
 
 ### 3.5 标准事件组 (Domain Events)
@@ -225,8 +233,7 @@ MVP 本机 workspace 的权威执行规格见 [PRD-06](./06-MVP_Local_Workspace_
 | 事件 | 生产者 | 消费者 | 用途 |
 |---|---|---|---|
 | `agent.output` | Adapter / AgentExecutor | ChatService, SSE/WebSocket | 普通文本流 |
-| `workspace.created` | WorkspaceService | Chat UI, HealthCheck | workspace 已创建 |
-| `workspace.bound` | WorkspaceService | Chat UI, CLI Adapter | 会话已绑定 workspace |
+| `project.created` | ProjectService | Chat UI, HealthCheck | Project 与 workspace 目录已创建或绑定 |
 | `workspace.diff_ready` | WorkspaceService | ArtifactDetectionService | 文件变更已计算完成 |
 | `preview.ready` | PreviewService | Artifact Drawer | 预览 URL 已可用 |
 | `artifact.detected` | API/CLI Adapter, Orchestrator | ArtifactService | 发现可落库产物 |

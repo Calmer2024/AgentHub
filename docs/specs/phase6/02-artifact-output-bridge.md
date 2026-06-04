@@ -264,7 +264,7 @@ SSE: agent.process.completed
 
 | 依赖模块 | 需要的接口 | 当前状态 |
 |---------|-----------|---------|
-| Phase 6A WorkspaceService | `workspace.diff_ready` 事件、`get_file_content()` | ❌ 本 Phase 同步开发 |
+| Phase 6A WorkspaceService | `workspace.diff_ready` 事件、Project 文件读取 / snapshot diff / static preview | ✅ 已验收 |
 | Phase 6B-6E CLI Adapter | `agent.output`（含 artifact_signal chunk）| ❌ 本 Phase 同步开发 |
 | Phase 3 EventBus | `publish() / subscribe()` | ✅ 已就绪 |
 | Phase 5 ArtifactService | `create_from_detected_event()`、版本链 API | ✅ 已就绪（需扩展方法） |
@@ -291,3 +291,4 @@ SSE: agent.process.completed
 > **版本历史**
 > - v1.0 (2026-06-03): 初始版本
 > - v2.0 (2026-06-04): 按新 Spec 模板全面重构
+> - v2.1 (2026-06-04): 同步 Phase 6A 已验收状态；Artifact Bridge 后续可消费 `workspace.diff_ready` 与 Project 文件读取能力

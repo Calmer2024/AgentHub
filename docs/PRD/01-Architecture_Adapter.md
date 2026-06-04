@@ -115,7 +115,7 @@ CLI 工具由用户在操作系统层面安装（如 `npm install -g @anthropic-
 在 MVP 阶段，我们明确不使用 Docker 进行强隔离。为了保证安全和工程的可访问性，系统采用本机 workspace 目录作为 Agent 的物理执行边界。Workspace 归属于 Project（非 Session），完整产品链路见 [PRD-06 MVP 本机 Workspace](./06-MVP_Local_Workspace_Delivery.md) 和 [ADR-0009 Project-Workspace 模型](../adr/0009-project-workspace-model.md)。
 
 *   **Workspace Root**：整个 AgentHub 后端启动时，通过 `.env` 或命令行参数指定 `AGENTHUB_WORKSPACE_ROOT`，例如 `D:\AgentHub\workspaces`。这是 AgentHub 可以创建和绑定项目目录的根目录，不等同于某一个具体项目。
-*   **Project Workspace**：用户创建 Project 时选择/新建一个目录作为其 workspace。`projects.workspace_path` 记录绝对路径。一个 Project 绑定一个 workspace，不可更改。
+*   **Project Workspace**：用户创建 Project 时选择/新建一个目录作为其 workspace。新建目录默认位于 `AGENTHUB_WORKSPACE_ROOT`；绑定已有目录必须由系统原生目录选择器授权。`projects.workspace_path` 记录绝对路径。一个 Project 绑定一个 workspace，不可更改。
 *   **统一 CWD (Current Working Directory)**：同一 Project 下的所有 Session（私聊/群聊）中的所有 Agent 进程，启动时的 `cwd` 参数全都指向 `Project.workspace_path`。这保证多个 Agent 在同一个物理项目目录内协作。
 *   **路径边界**：后端必须校验 `workspace_path` 位于 `AGENTHUB_WORKSPACE_ROOT` 或用户显式授权的目录内，禁止通过相对路径越界读取其他文件。
 

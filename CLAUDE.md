@@ -153,7 +153,7 @@ Debug 不是"让 bug 消失"，而是"让系统更正确"：
 
 ## 阶段感知
 
-当前处于 **Phase 5（产物工作台能力）— 已完成**。Phase 6（Workspace Runtime + CLI Adapter）和 Phase 7（UX 闭环）计划中。
+当前处于 **Phase 6（Workspace Runtime + CLI Adapter + Artifact Bridge）— 进行中**。Phase 6A Workspace Runtime 已完成并通过人工验收：Project 实体、workspace 绑定、系统目录选择器、文件树/Diff/静态预览、Session→workspace 查询已落地。下一步从 Phase 6B-6F（CLI Adapter + Artifact Bridge）继续；Phase 7（UX 闭环）仍计划中。
 
 完整 Phase 状态表见 [CONTEXT.md §开发阶段](CONTEXT.md)。
 
@@ -164,6 +164,6 @@ Debug 不是"让 bug 消失"，而是"让系统更正确"：
 | **P1（当前）** | **桌面版**：桌面端（Tauri/Node.js）= 本地无头服务器 + 本地特权执行引擎；Web 端（浏览器）= 主力 UI | 浏览器 → localhost 后端 → 本机文件系统 + 本机 CLI Agent | ❌ |
 | **P2（远期）** | **SaaS 云版**：Web 浏览器 + 云端后端 + 云端容器沙箱 | 浏览器 → 云端后端 → 云端沙箱 + 云端 CLI Agent → 云端 URL | ✅ |
 
-**Project-first 工作流**：用户必须先创建 Project（选择/新建 workspace 目录），然后在 Project 下创建私聊或群聊。所有聊天必须属于某个 Project。Project 内所有 Agent 共享 `Project.workspace_path` 作为 `cwd`。详见 [ADR-0009](docs/adr/0009-project-workspace-model.md)。
+**Project-first 工作流**：用户必须先创建 Project（新建空白 workspace 目录，或通过系统原生目录选择器选择已有目录），然后在 Project 下创建私聊或群聊。所有聊天必须属于某个 Project。Project 不再暴露“静态网页 / Vite React / 已有项目”等用户可选属性。Project 内所有 Agent 共享 `Project.workspace_path` 作为 `cwd`。详见 [ADR-0009](docs/adr/0009-project-workspace-model.md)。
 
 > 完整的 P1/P2 定义、Workspace 位置、运行环境、安全边界见 [CONTEXT.md §产品交付阶段](CONTEXT.md)。

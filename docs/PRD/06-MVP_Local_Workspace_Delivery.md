@@ -67,7 +67,6 @@ Workspace 是项目协作的物理工作目录，归属于 Project（非 Session
 ```text
 Project
   -> workspace_path (一对一绑定)
-  -> project_type
   -> preview_config
   -> build_config
   -> Sessions[] (一对多)
@@ -101,19 +100,15 @@ workspaces/
     dist/
 ```
 
-`.agenthub/workspace.json` 记录 AgentHub 自己的元数据，不要求用户手写：
+`.agenthub/project.json` 记录 AgentHub 自己的元数据，不要求用户手写：
 
 ```json
 {
-  "workspace_id": "ws_abc123",
-  "session_id": "session_abc123",
+  "projectId": "proj_abc123",
   "name": "coffee-site",
-  "project_type": "vite-react",
-  "created_by": "agenthub",
-  "preview": {
-    "mode": "static_or_vite",
-    "port": 5178
-  }
+  "workspacePath": "D:\\AgentHub\\workspaces\\coffee-site",
+  "createdBy": "agenthub",
+  "createdAt": "2026-06-04T10:00:00Z"
 }
 ```
 
@@ -124,7 +119,7 @@ workspaces/
 前端只使用：
 
 ```text
-workspaceId
+projectId
 artifactId
 previewUrl
 deploymentId
@@ -141,18 +136,19 @@ deploymentId
 用户可以在 Web UI 中：
 
 - 新建项目 workspace。
-- 选择项目模板：单 HTML、Vite React、静态站点。
-- 绑定已有本机目录。
-- 查看当前会话绑定的 workspace 名称、路径摘要、健康状态。
+- 通过系统目录选择器绑定已有本机目录，不要求用户手输绝对路径。
+- 查看当前 Project 绑定的 workspace 名称、路径摘要、健康状态。
 - 查看文件树和关键文件变更摘要。
 
 后端必须提供：
 
 - workspace 根目录配置。
 - 路径 allowlist 校验。
-- workspace 创建、绑定、删除、归档。
-- workspace 元数据落库。
-- 会话与 workspace 的绑定关系。
+- Project 创建、绑定目录、归档。
+- Project/workspace 元数据落库。
+- 会话与 Project 的绑定关系。
+
+MVP 不要求用户选择“静态网页 / Vite React / 已有项目”等项目类型。项目类型不是用户心智模型的一部分，预览与构建能力应由后端根据文件存在情况和后续 BuildService 能力判断。
 
 ### 4.2 Agent 执行
 
@@ -194,7 +190,7 @@ Artifact 必须绑定：
 ```text
 artifact_id
 session_id
-workspace_id
+project_id
 message_id
 task_id
 version
@@ -214,7 +210,7 @@ MVP 支持两种预览：
 
 ```text
 用户点击 Artifact Card
-  -> 前端请求 /api/previews/{artifact_id}
+  -> 前端请求 /api/projects/{project_id}/preview
   -> 后端确认 workspace 最新状态
   -> 如果需要则执行 npm install / npm run build
   -> 暴露本机 preview URL
@@ -224,7 +220,7 @@ MVP 支持两种预览：
 本机 preview URL 默认只对本机可用：
 
 ```text
-http://127.0.0.1:8000/api/previews/{preview_id}/
+http://127.0.0.1:8000/api/projects/{project_id}/preview/{preview_id}/index.html
 ```
 
 ### 4.5 修改与版本化
@@ -304,7 +300,8 @@ workspace
 
 ```text
 用户点击“新建项目”
-  -> 选择“静态网页 / Vite React”
+  -> 选择“新建空白文件夹”或“选择现有文件夹”
+  -> 如选择现有文件夹，由系统原生目录选择器授权路径
   -> 输入：做一个咖啡店官网
   -> 后端创建 workspace
   -> Orchestrator 派发任务
@@ -352,24 +349,25 @@ workspace
 ```text
 # Projects（顶层）
 POST /api/projects                    创建 Project（绑定 workspace 目录）
+POST /api/projects/pick-folder        调起系统目录选择器并返回 folderToken
 GET  /api/projects                    列出 Project
 GET  /api/projects/{project_id}       获取 Project 详情（含 workspace_path）
 
 # Workspace（从属于 Project）
 GET  /api/projects/{project_id}/tree          文件树
-GET  /api/projects/{project_id}/files/{path}  文件内容
+GET  /api/projects/{project_id}/files?path=   文件内容
 GET  /api/projects/{project_id}/diff          文件变更 Diff
 POST /api/projects/{project_id}/snapshot      快照
 POST /api/projects/{project_id}/rollback      回滚
+GET  /api/sessions/{session_id}/workspace     查询 Session 继承的 workspacePath
 ```
 
 ### 6.2 Preview / Build API
 
 ```text
-POST /api/workspaces/{workspace_id}/build
-POST /api/workspaces/{workspace_id}/preview
-GET  /api/previews/{preview_id}
-GET  /api/previews/{preview_id}/assets/{path}
+POST /api/projects/{project_id}/build
+POST /api/projects/{project_id}/preview
+GET  /api/projects/{project_id}/preview/{preview_id}/{asset_path}
 ```
 
 ### 6.3 Deployment API
@@ -388,10 +386,10 @@ Workspace 链路需要在现有 `agent.output`、`artifact.created` 基础上补
 
 ```json
 { "type": "project.created", "projectId": "proj_abc123", "workspacePath": "/home/user/my-app" }
-{ "type": "workspace.bound", "projectId": "proj_abc123", "workspacePath": "/home/user/my-app" }
-{ "type": "workspace.file_changed", "workspaceId": "ws_abc123", "path": "src/App.tsx", "change": "modified" }
-{ "type": "preview.started", "previewId": "preview_abc123", "workspaceId": "ws_abc123" }
-{ "type": "build.log", "workspaceId": "ws_abc123", "content": "vite build..." }
+{ "type": "workspace.file_changed", "projectId": "proj_abc123", "path": "src/App.tsx", "change": "modified" }
+{ "type": "workspace.diff_ready", "projectId": "proj_abc123", "changedFiles": 2 }
+{ "type": "preview.ready", "previewId": "preview_abc123", "projectId": "proj_abc123" }
+{ "type": "build.log", "projectId": "proj_abc123", "content": "vite build..." }
 { "type": "deployment.status_changed", "deploymentId": "dep_abc123", "status": "published" }
 ```
 
@@ -429,4 +427,3 @@ MVP 本机 workspace 版完成时，必须能演示：
 ```text
 Project (workspace_path) -> Session (chat context) -> Agent cwd = workspace_path -> File Change -> Artifact -> Preview -> Edit -> Version -> Export/Deploy
 ```
-

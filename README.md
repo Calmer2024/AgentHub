@@ -68,7 +68,7 @@ AgentHub/
 | Phase 3 | Orchestrator v2 + EventBus + DAG 协作面板 | ✅ 已完成 |
 | Phase 4 | 消息交互闭环（Reply/Regenerate/Pin/Search） | ✅ 已完成 |
 | Phase 5 | 产物工作台能力（版本链 + Diff + 在线编辑） | ✅ 已完成 |
-| Phase 6 | Workspace Runtime + CLI Agent 适配器 + 产物入口桥接 | 📋 计划中 |
+| Phase 6 | Workspace Runtime + CLI Agent 适配器 + 产物入口桥接 | 🚧 6A 已验收，6B-6F 继续 |
 | Phase 7 | UX 体验闭环 + MVP 演示闭环 | 📋 计划中 |
 
 ### Phase 4 能力
@@ -90,7 +90,18 @@ AgentHub/
 | OpenAI/DeepSeek tool calling + 非工具 Agent 上下文降级 | ✅ |
 | ArtifactService 接入 EventBus (`artifact.created` / `artifact.version_created`) | ✅ |
 
-Phase 5 的边界也已经在文档中明确：它完成的是“对已有 Artifact 的工作台能力”，不代表 Agent 输出入口、聊天卡片和右侧 Drawer 已完整打通。后续由 Phase 6/7 补齐。
+Phase 5 的边界也已经在文档中明确：它完成的是“对已有 Artifact 的工作台能力”，不代表 Agent 输出入口、聊天卡片和右侧 Drawer 已完整打通。Phase 6A 已补齐 Project-first workspace runtime；后续由 Phase 6B-6F/7 补齐真实 CLI 执行、Artifact Bridge 和 Drawer/审批闭环。
+
+### Phase 6A 能力
+
+| 能力 | 状态 |
+|------|------|
+| Project 实体 + `sessions.project_id` + `artifacts.project_id` | ✅ |
+| 创建项目菜单：新建空白文件夹 / 选择现有文件夹 | ✅ |
+| 选择现有文件夹通过系统原生目录选择器授权，不要求用户手输路径 | ✅ |
+| 去除用户可选的“静态网页 / Vite React / 已有项目”项目类型 | ✅ |
+| workspace 文件树、文件读取安全校验、snapshot/diff、静态 preview | ✅ |
+| `/api/sessions/{id}/workspace` 返回 Session 继承的 `workspacePath` | ✅ |
 
 ## 测试
 

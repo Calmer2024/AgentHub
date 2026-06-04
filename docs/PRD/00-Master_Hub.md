@@ -25,7 +25,7 @@
 本期 PRD 对初期的项目技术方案进行了重大修正。AgentHub 不再是一个简单的“调用大模型 API 并手动拼接 Prompt 的聊天室”。相反，它将作为一层强大的**调度壳 (Orchestration Shell)**，底层直接对接并封装市面上真正具备独立执行能力的 CLI Agent 工具（如 Anthropic 官方的 Claude Code 命令行工具，或开源的 OpenCode 等）。通过提供统一的 UI/UX 层和多进程管理层，彻底释放“自主 Agent”在真实文件系统上编写、调试代码的潜力。
 
 **闭环补充**：
-本 PRD 以启动文档为源头，必须覆盖 IM 聊天、多 Agent 协作、Orchestrator、Artifact 预览编辑、AI 协作交付物等课题要求。端到端完成定义见 [05-End_to_End_Product_Flow.md](./05-End_to_End_Product_Flow.md)：用户输入任务后，系统必须能经过 workspace 创建/绑定、Orchestrator/Agent 执行、Artifact Card、Artifact Drawer、局部编辑、版本化和审批继续。MVP 默认采用 [06-MVP_Local_Workspace_Delivery.md](./06-MVP_Local_Workspace_Delivery.md) 定义的本机 workspace；SaaS 版采用 [07-SaaS_Cloud_Workspace_Delivery.md](./07-SaaS_Cloud_Workspace_Delivery.md) 定义的云端 workspace。
+本 PRD 以启动文档为源头，必须覆盖 IM 聊天、多 Agent 协作、Orchestrator、Artifact 预览编辑、AI 协作交付物等课题要求。端到端完成定义见 [05-End_to_End_Product_Flow.md](./05-End_to_End_Product_Flow.md)：用户输入任务后，系统必须能经过 Project 创建/绑定 workspace、Orchestrator/Agent 执行、Artifact Card、Artifact Drawer、局部编辑、版本化和审批继续。MVP 默认采用 [06-MVP_Local_Workspace_Delivery.md](./06-MVP_Local_Workspace_Delivery.md) 定义的本机 workspace；SaaS 版采用 [07-SaaS_Cloud_Workspace_Delivery.md](./07-SaaS_Cloud_Workspace_Delivery.md) 定义的云端 workspace。
 
 ---
 
@@ -142,10 +142,10 @@ Orchestrator（协调器）本身是一个由顶级大模型驱动的纯决策�
     *   **摘要**：直接指导代码编写。涵盖了最终的 `agents`, `tasks` 数据库字段设计，以及前后端通信的关键 REST 接口清单。
 *   👉 **[05-End_to_End_Product_Flow.md](./05-End_to_End_Product_Flow.md)**
     *   **受众**：产品负责人、架构师、全栈开发、答辩准备人员
-    *   **摘要**：对照启动文档建立需求追踪矩阵，定义从 workspace 创建/绑定、IM 输入到 Agent 执行、Artifact 生成、抽屉预览、局部编辑、审批继续的端到端闭环。
+    *   **摘要**：对照启动文档建立需求追踪矩阵，定义从 Project 创建/绑定 workspace、IM 输入到 Agent 执行、Artifact 生成、抽屉预览、局部编辑、审批继续的端到端闭环。
 *   👉 **[06-MVP_Local_Workspace_Delivery.md](./06-MVP_Local_Workspace_Delivery.md)**
     *   **受众**：产品负责人、后端开发、前端开发、答辩准备人员
-    *   **摘要**：定义 MVP 本机 workspace 版的完整落地链路：本机后端创建/绑定 workspace，CLI Agent 以 `workspace_path` 为 `cwd` 执行，文件变更进入 Artifact，并支持本机预览、导出和可选部署。
+    *   **摘要**：定义 MVP 本机 workspace 版的完整落地链路：本机后端创建 Project 并绑定 workspace，CLI Agent 以 `Project.workspace_path` 为 `cwd` 执行，文件变更进入 Artifact，并支持本机预览、导出和可选部署。
 *   👉 **[07-SaaS_Cloud_Workspace_Delivery.md](./07-SaaS_Cloud_Workspace_Delivery.md)**
     *   **受众**：产品负责人、架构师、平台工程、商业化规划人员
     *   **摘要**：定义 SaaS 云端 workspace 版的最终形态：云端隔离 workspace、sandbox runner、云端 preview URL、多租户安全和一键部署。
@@ -162,7 +162,7 @@ AgentHub 分两个阶段交付，先完成桌面版（P1），再做 SaaS 云版
 |------|------|
 | **产品形态** | 桌面端（Tauri/Node.js 进程）= 本地无头服务器 + 本地特权执行引擎；Web 端（浏览器）= 全功能交互工作区（主力 UI） |
 | **数据流** | 用户浏览器 → localhost 后端 → 本机文件系统 + 本机 CLI Agent 进程 |
-| **Workspace 位置** | 用户本机文件系统（`AGENTHUB_WORKSPACE_ROOT` 下） |
+| **Workspace 位置** | 用户本机文件系统（默认在 `AGENTHUB_WORKSPACE_ROOT` 下，也可绑定用户通过系统目录选择器授权的已有目录） |
 | **CLI Agent 运行位置** | 用户主机（直接 spawn subprocess） |
 | **部署能力** | ❌ 不支持一键部署（本地运行，无远程服务器） |
 | **安全边界** | 基于 allowlist 的本机路径校验；Web UI 通过 localhost 访问后端 |
@@ -184,3 +184,4 @@ AgentHub 分两个阶段交付，先完成桌面版（P1），再做 SaaS 云版
 > * v2.1.0 - 补齐启动文档需求追踪与端到端 Artifact 产品闭环。
 > * v2.2.0 - 补齐 MVP 本机 workspace 与 SaaS 云端 workspace 的落地链路。
 > * v3.0.0 (当前) - 全面删除 HTTP API 伪 Agent 历史遗留，确立 CLI Wrapper 为唯一 Agent 架构。明确 P1 桌面版（本机执行）+ P2 SaaS 云版（云端沙箱+一键部署）的分阶段交付策略。
+> * v3.1.0 - 2026-06-04：同步 Phase 6A Project-first workspace runtime 验收结果；Project 创建支持新建空白文件夹/系统目录选择器，不再暴露项目类型选择。

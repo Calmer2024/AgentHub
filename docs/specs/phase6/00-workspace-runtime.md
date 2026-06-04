@@ -1,8 +1,8 @@
 # Spec: Phase 6A — Workspace Runtime
 
-**版本**: v2.0
+**版本**: v2.1
 **更新日期**: 2026-06-04
-**状态**: Draft
+**状态**: ✅ 已验收（Phase 6A）
 **关联 ADR/PRD**: [ADR-0009](../../adr/0009-project-workspace-model.md)、[PRD-06](../../PRD/06-MVP_Local_Workspace_Delivery.md)、[PRD-05](../../PRD/05-End_to_End_Product_Flow.md)
 **依赖模块**: Phase 5 ArtifactService、Phase 3 EventBus / SessionService
 
@@ -16,12 +16,12 @@ Phase 5 已完成 Artifact 的版本链、Diff 和在线编辑。但它缺少一
 
 **成功标准**（可证伪）：
 
-- [ ] 用户创建 Project 后，本机对应目录被创建，`.agenthub/project.json` 存在且内容正确
-- [ ] 同一 Project 下的 3 个 Session（2 个私聊 + 1 个群聊）的 Agent 启动 cwd 指向同一个 workspace 目录
-- [ ] `GET /api/projects/{id}/tree` 在 Agent 执行前后返回不同的文件树（证明文件变更被追踪）
-- [ ] 对 `POST /api/projects/{id}/files?path=../../secret` 返回 403
-- [ ] `POST /api/projects/{id}/preview` 对含 `index.html` 的静态 workspace 返回可访问的 preview URL
-- [ ] 不通过标准：任何一个 API 端点未经 allowlist 校验即允许读取 workspace 外的文件
+- [x] 用户创建 Project 后，本机对应目录被创建，`.agenthub/project.json` 存在且内容正确
+- [x] Session 可通过 `Session → Project.workspace_path` 取得同一个 workspace 目录，供后续 CLI Adapter 作为 cwd
+- [x] `GET /api/projects/{id}/tree` 返回真实文件树，snapshot/diff 可证明文件变更被追踪
+- [x] 对 `GET /api/projects/{id}/files?path=../../secret` 返回 403
+- [x] `POST /api/projects/{id}/preview` 对含 `index.html` 的静态 workspace 返回可访问的 preview URL
+- [x] 不通过标准已覆盖：任何一个 API 端点未经 workspace 内路径校验即允许读取 workspace 外文件
 
 ---
 
@@ -56,22 +56,24 @@ Phase 5 已完成 Artifact 的版本链、Diff 和在线编辑。但它缺少一
 
 | 端点 | 方法 | 请求体 | 成功响应 | 错误响应 |
 |------|------|--------|---------|---------|
-| `/api/projects` | POST | `{ "name": string, "workspacePath"?: string }` | `201: { "id", "name", "workspacePath", "projectType", "status", "createdAt" }` | `400: { "error": "msg" }` |
+| `/api/projects/pick-folder` | POST | — | `200: { "workspacePath", "folderName", "folderToken" }` | `400`（取消选择）、`500`（系统目录选择器不可用） |
+| `/api/projects` | POST | `{ "name": string, "workspacePath"?: string, "folderToken"?: string }` | `201: { "id", "name", "workspacePath", "status", "createdAt" }` | `400: { "error": "msg" }`、`409` |
 | `/api/projects` | GET | — | `200: [{ "id", "name", "workspacePath", "status", "createdAt" }]` | — |
-| `/api/projects/{project_id}` | GET | — | `200: { "id", "name", "workspacePath", "projectType", "status", "fileCount", "totalSizeBytes" }` | `404` |
+| `/api/projects/{project_id}` | GET | — | `200: { "id", "name", "workspacePath", "status", "fileCount", "totalSizeBytes" }` | `404` |
 | `/api/projects/{project_id}` | DELETE | — | `200: { "status": "archived" }` | `404` |
 | `/api/projects/{project_id}/tree` | GET | `?subpath=` | `200: { "tree": [{ "path", "type": "file"|"dir", "size" }] }` | `403`（越界）、`404` |
 | `/api/projects/{project_id}/files` | GET | `?path=src/App.tsx` | `200: { "path", "content", "size" }` | `403`、`404` |
 | `/api/projects/{project_id}/diff` | GET | `?baseRef=` | `200: { "changedFiles": [{ "path", "change": "created"|"modified"|"deleted", "diffPreview" }] }` | `404` |
 | `/api/projects/{project_id}/snapshot` | POST | `{ "label": string }` | `201: { "snapshotId", "label", "createdAt" }` | `400` |
-| `/api/projects/{project_id}/preview` | POST | `{ "type": "static"|"vite-react" }` | `200: { "previewId", "previewUrl" }` | `400`、`500`（构建失败） |
+| `/api/projects/{project_id}/preview` | POST | `{ "type": "static" }` | `200: { "previewId", "previewUrl" }` | `400`、`404` |
 | `/api/projects/{project_id}/build` | POST | — | `200: { "buildId", "status": "building" }` | `400`、`500` |
+| `/api/sessions/{session_id}/workspace` | GET | — | `200: { "workspacePath" }` | `404` |
 
 ### 3.2 事件
 
 | 事件类型 | 方向 | payload 字段 |
 |---------|------|-------------|
-| `project.created` | WorkspaceService → EventBus | `{ projectId, name, workspacePath, projectType }` |
+| `project.created` | ProjectService → EventBus | `{ projectId, name, workspacePath }` |
 | `workspace.file_changed` | FileChangeDetector → EventBus | `{ projectId, sessionId, changes: [{ path, change }] }` |
 | `workspace.diff_ready` | FileChangeDetector → EventBus | `{ projectId, sessionId, changedFiles: int, diffSummary }` |
 | `preview.ready` | PreviewService → EventBus | `{ projectId, previewId, previewUrl }` |
@@ -84,18 +86,20 @@ CREATE TABLE projects (
     id VARCHAR PRIMARY KEY,
     name VARCHAR NOT NULL,
     workspace_path VARCHAR NOT NULL,
-    project_type VARCHAR DEFAULT 'existing',
+    project_type VARCHAR DEFAULT 'existing', -- 兼容字段，不进入用户创建流程
     status VARCHAR DEFAULT 'creating',
     metadata_json TEXT DEFAULT '{}',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
-ALTER TABLE sessions ADD COLUMN project_id VARCHAR NOT NULL REFERENCES projects(id);
+ALTER TABLE sessions ADD COLUMN project_id VARCHAR REFERENCES projects(id);
 ALTER TABLE artifacts ADD COLUMN project_id VARCHAR REFERENCES projects(id);
 ALTER TABLE artifacts ADD COLUMN file_path VARCHAR;
 ALTER TABLE artifacts ADD COLUMN preview_id VARCHAR;
 ```
+
+迁移期 `sessions.project_id` 允许为空，以兼容旧数据；业务层创建新 Session 时会通过显式 `projectId` 或默认 Project 自动补齐，CLI Adapter 启动前必须能解析到 Project。
 
 ### 3.4 跨组件 TypeScript 类型
 
@@ -104,7 +108,6 @@ interface ProjectRead {
   id: string;
   name: string;
   workspacePath: string;
-  projectType: 'static' | 'vite-react' | 'existing';
   status: 'creating' | 'ready' | 'building' | 'error' | 'archived';
   fileCount: number;
   totalSizeBytes: number;
@@ -119,27 +122,29 @@ interface ProjectRead {
 ### 4.1 正常流程
 
 ```
-1. 用户 → 前端 ProjectList 页面点击 [新建项目]
-2. 前端 → 弹出 ProjectCreator 弹窗：输入项目名 + 选择/新建目录 + 选择项目类型
-3. 前端 → POST /api/projects { name, workspacePath?, projectType? }
-4. 后端 → ProjectService.create(): 校验路径、创建目录 + .agenthub/project.json、写入 DB、发布 project.created
-5. 前端 → 跳转到 Project 工作区 → 展示 Project 下的 Session 列表（初始为空）
-6. 用户 → 在 Project 内创建私聊/群聊 Session → Session 自动绑定 project_id
-7. CLI Adapter → 调用 WorkspaceService.get_workspace_path(session_id) → 获取 Project.workspace_path → 作为 cwd
-8. Agent 执行 → 读写 workspace 文件
-9. FileChangeDetector → 执行前后 hash diff → 发布 workspace.diff_ready
-10. Artifact Bridge → 消费 workspace.diff_ready → 创建 Artifact
-11. 用户 → 在 Drawer 中预览 workspace 内的 index.html / 查看 Diff
+1. 用户 → 项目栏点击创建按钮
+2. 前端 → 弹出两项菜单：`新建空白文件夹` / `选择现有文件夹`
+3. 用户选择 `新建空白文件夹` → 前端直接 `POST /api/projects { name }`，后端在 `AGENTHUB_WORKSPACE_ROOT` 下创建目录
+4. 用户选择 `选择现有文件夹` → 前端调用 `POST /api/projects/pick-folder`，由本机后端打开系统原生目录选择器，返回授权 `folderToken`
+5. 前端 → `POST /api/projects { name, workspacePath, folderToken }`
+6. 后端 → ProjectService.create(): 校验路径、创建目录 + `.agenthub/project.json`、写入 DB、发布 `project.created`
+7. 前端 → Project 出现在项目栏并自动选中，Session 列表按 `projectId` 过滤
+8. 用户 → 在 Project 内创建私聊/群聊 Session → Session 自动绑定 `project_id`
+9. CLI Adapter → 调用 `SessionService/ProjectService.get_workspace_path(session_id)` → 获取 `Project.workspace_path` → 作为 cwd
+10. Agent 执行 → 读写 workspace 文件
+11. FileChangeDetector → 执行前后 hash diff → 发布 `workspace.diff_ready`
+12. Artifact Bridge → 消费 `workspace.diff_ready` → 创建 Artifact
+13. 用户 → 在 Drawer 中预览 workspace 内的 `index.html` / 查看 Diff
 ```
 
 ### 4.2 UX 六态覆盖
 
 | 状态 | 用户看到什么 | 触发条件 |
 |------|------------|---------|
-| **空态** | 项目栏仅显示好友区 + `[+ 新建项目]` 按钮；对话列表栏显示"选择一个项目开始"的引导文字；对话页面显示欢迎页 | 用户首次使用，无 Project |
-| **加载态** | 项目栏中 Project 卡片显示 skeleton；对话列表栏显示 spinner；对话页面顶部状态条显示"⏳ 正在初始化 workspace..." | Project 创建中 / 文件树加载中 / 构建中 |
+| **空态** | 左侧项目区显示"暂无项目"；对话页面提示"创建 Project 后开始" | 用户首次使用，无 Project |
+| **加载态** | 创建按钮禁用；Project 创建动作进行中 | Project 创建中 / 文件树加载中 / 构建中 |
 | **正常态** | 三栏布局正常：项目栏显示所有 Project（当前选中高亮）；对话列表栏显示当前 Project 下的 Session 列表；对话页面显示聊天消息流 | Project 就绪，正常工作 |
-| **完成态** | 构建完成：对话页面顶部状态徽章变绿 ✓；Drawer 中预览 iframe 显示网页 | 构建成功 / 预览就绪 |
+| **完成态** | 预览 ready：`previewUrl` 可访问，后续 Drawer iframe 可加载 | 构建成功 / 预览就绪 |
 | **错误态** | 见 §4.3 | |
 | **边界态** | Project 名称为空 → [创建项目] 按钮置灰；workspace 路径包含非法字符 → 输入框红框 + 提示；删除 Project → 右键菜单选择"归档项目"→ 弹出二次确认"工作目录不会被删除"→ 确认后 Project 从列表消失（status=archived）；同一目录被两个 Project 绑定 → 创建时 409 + 提示；Project 列表过长 → 项目栏可滚动，当前选中 Project 始终可见 | |
 
@@ -147,11 +152,11 @@ interface ProjectRead {
 
 | 错误场景 | 错误码 | 用户可见文案 | 恢复路径 |
 |---------|--------|------------|---------|
-| 目录不存在（bind existing） | 400 | "所选目录不存在，请检查路径" | 重新选择 |
+| 用户取消系统目录选择 | 400 | "folder selection cancelled" | 重新选择 |
+| 未经授权绑定 allowlist 外目录 | 400 | "workspace path is outside allowlist root" | 通过系统目录选择器重新授权 |
 | 路径越界（`../` 攻击） | 403 | "无权访问此路径" | — |
 | 目录已被其他 Project 绑定 | 409 | "此目录已被项目 '{name}' 使用" | 选择其他目录 |
 | 磁盘空间不足 | 500 | "磁盘空间不足，无法创建项目" | 清理磁盘后重试 |
-| 构建失败（npm install 报错） | 500 | "构建失败：{错误摘要}"，[查看日志] 按钮 | 在聊天中让 Agent 修复 |
 | 预览目标文件不存在 | 404 | "未找到可预览的文件（需要 index.html 或构建产物）" | 让 Agent 生成文件 |
 | 文件读取超限（>10MB） | 400 | "文件过大，无法在编辑器中打开" | — |
 
@@ -206,18 +211,18 @@ AgentHub 主界面采用三栏布局（参考 Codex + Telegram 的混合范式�
 ### 5.1 创建 Project
 
 ```
-用户: 在项目栏底部点击 [+ 新建项目]
-  → 前端: 项目栏底部展开 ProjectCreator 内联表单（非弹窗）
-    - "项目名称" 输入框（必填，placeholder: "例如：我的网页应用"）
-    - "项目目录" 选择区：两个 radio：[🆕 新建目录] [📁 选择已有目录]
-      - 新建：显示父目录选择器 + 子目录名输入框（默认填项目名）
-      - 已有：显示系统目录选择器（调用系统原生文件对话框）
-    - "项目类型" 下拉：[静态网页] [Vite React] [已有项目]
-    - 底部：[取消] [创建项目]
-  → 用户: 填写完毕，点击 [创建项目]
-  → 前端: POST /api/projects → 按钮显示 spinner + "创建中..."
-  → 后端: 校验 → 创建目录 → 写入 .agenthub/project.json → 返回 201
-  → 前端: 内联表单收起 → 项目栏出现新 Project（📁 我的网站）→ 自动选中新 Project → 对话列表栏切换为该 Project 的 Session 列表（初始为空）
+用户: 在项目栏点击创建项目按钮
+  → 前端: 弹出小菜单
+    - "新建空白文件夹"
+    - "选择现有文件夹"
+  → 用户选择 "新建空白文件夹"
+  → 前端: 使用时间戳生成默认项目名，POST /api/projects { name }
+  → 后端: 在 AGENTHUB_WORKSPACE_ROOT 下创建目录 → 写入 .agenthub/project.json → 返回 201
+  → 用户选择 "选择现有文件夹"
+  → 前端: POST /api/projects/pick-folder
+  → 后端: 调起系统原生目录选择器 → 返回 workspacePath / folderName / folderToken
+  → 前端: POST /api/projects { name: folderName, workspacePath, folderToken }
+  → 前端: 菜单收起 → 项目栏出现新 Project → 自动选中新 Project → 对话列表栏切换为该 Project 的 Session 列表（初始为空）
   → SSE: project.created 事件 → 其他打开的客户端同步更新
 ```
 
@@ -254,7 +259,7 @@ AgentHub 主界面采用三栏布局（参考 Codex + Telegram 的混合范式�
   → 前端: 判断 artifactType
     - web_preview: POST /api/projects/{project_id}/preview
     - code_diff: GET /api/projects/{project_id}/diff
-  → 后端 PreviewService: 检测项目类型 → 启动对应预览
+  → 后端 PreviewService: 以静态 `index.html` 为 MVP 预览入口
   → SSE: preview.ready { previewId, previewUrl }
   → 前端: Drawer 内容区切换为 iframe（src=previewUrl）或 DiffViewer
 ```
@@ -263,17 +268,17 @@ AgentHub 主界面采用三栏布局（参考 Codex + Telegram 的混合范式�
 
 ## 6. 验收标准
 
-- [ ] AC-01: `POST /api/projects { name, workspacePath }` 返回 201 + 本机目录被创建 + `.agenthub/project.json` 存在
-- [ ] AC-02: 三栏布局正确渲染：项目栏（好友 + Project 列表）→ 对话列表栏 → 对话页面
-- [ ] AC-03: 项目栏底部 `[+ 新建项目]` → 内联展开创建表单 → 创建成功 → Project 出现在列表中并自动选中
-- [ ] AC-04: 点击不同 Project → 对话列表栏切换到该 Project 下的 Session 列表
-- [ ] AC-05: `GET /api/projects/{id}/tree` 返回文件树（不含 `.agenthub/`、`node_modules/`、`.git/`）
-- [ ] AC-06: `GET /api/projects/{id}/files?path=../../secret` 返回 403
-- [ ] AC-07: 对话列表栏 `[+ 新建聊天]` → 展开 [👤 私聊] [👥 群聊] → 选择后创建 Session → 对话列表刷新
-- [ ] AC-08: 同一 Project 下创建 2 个 Session → 两个 Session 的 Agent cwd 指向同一 `workspace_path`
-- [ ] AC-09: Agent 执行前后 hash diff 正确识别 created/modified/deleted 文件
-- [ ] AC-10: `POST /api/projects/{id}/preview { type: "static" }` 返回可访问的 previewUrl
-- [ ] AC-11: `DELETE /api/projects/{id}` → status=archived → 不删除实际目录 → Project 从列表消失
+- [x] AC-01: `POST /api/projects { name }` 返回 201 + 本机目录被创建 + `.agenthub/project.json` 存在
+- [x] AC-02: Codex/Telegram 风格三栏布局正确渲染：项目栏 → 对话列表栏 → 对话页面
+- [x] AC-03: 项目栏创建按钮弹出菜单：`新建空白文件夹` / `选择现有文件夹`
+- [x] AC-04: `选择现有文件夹` 通过 `/api/projects/pick-folder` 调起系统原生目录选择器，并使用 `folderToken` 授权外部目录绑定
+- [x] AC-05: 点击不同 Project → 对话列表栏切换到该 Project 下的 Session 列表
+- [x] AC-06: `GET /api/projects/{id}/tree` 返回文件树（不含 `.agenthub/`、`node_modules/`、`.git/`）
+- [x] AC-07: `GET /api/projects/{id}/files?path=../../secret` 返回 403
+- [x] AC-08: 在 Project 下创建 Session 后，`GET /api/sessions/{id}/workspace` 返回同一 `workspacePath`
+- [x] AC-09: snapshot/diff 正确识别 created/modified/deleted 文件
+- [x] AC-10: `POST /api/projects/{id}/preview { type: "static" }` 返回可访问的 previewUrl
+- [x] AC-11: `DELETE /api/projects/{id}` → status=archived → 不删除实际目录 → Project 从列表消失
 
 ---
 
@@ -286,7 +291,7 @@ AgentHub 主界面采用三栏布局（参考 Codex + Telegram 的混合范式�
 | ProjectService | 8 | create/bind existing/delete/get_tree/路径校验/重名 |
 | LocalWorkspaceProvider | 6 | 创建目录/.agenthub 初始化/文件树过滤/路径越界拒绝 |
 | FileChangeDetector | 5 | hash diff/created/modified/deleted/空变更 |
-| PreviewService | 3 | static 预览/vite-react 构建/缺失文件错误 |
+| PreviewService | 3 | static 预览/缺失文件错误/路径校验 |
 
 ### 7.2 集成测试
 
@@ -315,11 +320,11 @@ AgentHub 主界面采用三栏布局（参考 Codex + Telegram 的混合范式�
 
 | 依赖模块 | 需要的接口 | 当前状态 |
 |---------|-----------|---------|
-| Phase 3 SessionService | `create_session(project_id)` 自动绑定 | ✅ 已就绪（需加 project_id 参数） |
+| Phase 3 SessionService | `create_session(project_id)` 自动绑定；`GET /api/sessions/{id}/workspace` 查询 cwd | ✅ 已就绪 |
 | Phase 3 EventBus | `publish(event_type, payload)` | ✅ 已就绪 |
-| Phase 5 ArtifactService | Artifact 模型（需加 project_id/file_path/preview_id） | ✅ 已就绪（需 ALTER TABLE） |
-| FileChangeDetector | — | ❌ 本模块新建 |
-| PreviewService | — | ❌ 本模块新建 |
+| Phase 5 ArtifactService | Artifact 模型（project_id/file_path/preview_id/source/confidence/task_id 兼容字段） | ✅ 已就绪 |
+| FileChangeDetector | snapshot + hash diff | ✅ 已就绪 |
+| PreviewService | 静态 `index.html` previewUrl | ✅ 已就绪 |
 
 ---
 
@@ -342,9 +347,10 @@ AgentHub 主界面采用三栏布局（参考 Codex + Telegram 的混合范式�
 | 维度 | V1 行为 | V2 行为 | 迁移路径 |
 |------|--------|--------|---------|
 | 数据模型 | `sessions.workspace_id` 直接绑定 workspace | 新增 `projects` 表；`sessions.project_id` FK | 数据迁移脚本：创建默认 Project → 迁移旧 session 的 workspace_id → 删除 workspace_id 列 |
-| API | `POST /api/sessions/{id}/workspace` | `POST /api/projects` + Session 自动继承 | 前端同步更新 API 调用路径 |
+| API | `POST /api/sessions/{id}/workspace` | `POST /api/projects` + Session 自动继承；`GET /api/sessions/{id}/workspace` 查询运行目录 | 前端同步更新 API 调用路径 |
 | 事件 | `workspace.created { sessionId }` | `project.created { projectId }` | 消费者同步更新事件类型 |
 
 > **版本历史**
 > - v1.0 (2026-06-03): 初始版本（Session→Workspace 直接绑定）
 > - v2.0 (2026-06-04): 按 ADR-0009 重构为 Project→Workspace 模型
+> - v2.1 (2026-06-04): Phase 6A 验收通过；创建项目菜单改为“新建空白文件夹 / 选择现有文件夹”，后者调起系统目录选择器；项目类型从用户流程和前端类型中移除

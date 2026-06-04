@@ -392,7 +392,7 @@ CLI 进程: stdout 输出 "... Do you want to run this? (y/n) "
 
 | 依赖模块 | 需要的接口 | 当前状态 |
 |---------|-----------|---------|
-| Phase 6A WorkspaceService | `get_workspace_path(session_id) → str` | ❌ 本 Phase 同步开发 |
+| Phase 6A WorkspaceService | `get_workspace_path(session_id) → str`；`GET /api/sessions/{id}/workspace` | ✅ 已验收 |
 | Phase 3 EventBus | `publish(event_type, payload)` | ✅ 已就绪 |
 | Phase 3 BaseAgentAdapter | 抽象基类 | ✅ 已就绪 |
 | Phase 5 ArtifactService | 消费 `artifact.detected` 事件 | ✅ 已就绪 |
@@ -425,3 +425,4 @@ CLI 进程: stdout 输出 "... Do you want to run this? (y/n) "
 > - v1.0 (2026-06-02): 初始版本（通用抽象层）
 > - v2.0 (2026-06-04): 新增 Per-CLI 接入方案（§8）+ 分层渲染
 > - v3.0 (2026-06-04): 按新 Spec 模板全面重构：跨模块契约、六态覆盖、前端交互序列、架构追溯
+> - v3.1 (2026-06-04): 同步 Phase 6A 已验收状态；CLI Adapter 可直接消费 Session→Project workspace 查询能力

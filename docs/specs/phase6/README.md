@@ -1,7 +1,7 @@
 # Phase 6: Workspace Runtime + CLI 适配器 + 产物入口桥接
 
-**状态**: 📋 计划中
-**版本**: v3.0
+**状态**: 🚧 进行中（6A Workspace Runtime 已验收）
+**版本**: v3.1
 **更新日期**: 2026-06-04
 **关联 ADR**: [ADR-0005](../../adr/0005-target-architecture.md)、[ADR-0009](../../adr/0009-project-workspace-model.md)
 **关联 PRD**: [PRD-01](../../PRD/01-Architecture_Adapter.md)、[PRD-05](../../PRD/05-End_to_End_Product_Flow.md)、[PRD-06](../../PRD/06-MVP_Local_Workspace_Delivery.md)
@@ -13,7 +13,9 @@
 
 Phase 5 完成了"已有 Artifact 的工作台能力"（版本链、Diff、在线编辑），但产物是哪里来的？Agent 在哪个目录执行的？如何从 CLI 输出变成聊天里的产物卡片？
 
-Phase 6 回答这三个问题。它引入 **Project** 作为顶层组织实体，实现三个 CLI 工具的专属适配器，并打通从 CLI 输出到 Artifact Card 的完整链路：
+Phase 6 回答这三个问题。它引入 **Project** 作为顶层组织实体，实现三个 CLI 工具的专属适配器，并打通从 CLI 输出到 Artifact Card 的完整链路。
+
+当前进度：**6A Workspace Runtime 已完成并通过人工验收**。已落地 Project-first 三栏 UI、Project CRUD、系统目录选择器、Session→Project workspace 查询、文件树、文件读取安全校验、snapshot/diff、静态 preview。CLI Adapter 与 Artifact Bridge 仍在后续子模块中开发。
 
 ```text
 创建 Project + 绑定 workspace 目录
@@ -39,9 +41,9 @@ Phase 6 完成后，AgentHub 能明确回答：
 
 | 模块 | Spec 文档 | 核心交付 |
 |------|----------|---------|
-| **6A: Workspace Runtime** | [00-workspace-runtime.md](00-workspace-runtime.md) | Project 实体 + workspace 目录管理 + 文件树/Diff/预览 + 路径安全 |
-| **6B-6E: CLI Adapter** | [01-cli-adapter.md](01-cli-adapter.md) | ClaudeCodeAdapter / CodexAdapter / OpenCodeAdapter + PTY 进程管理 + ANSI 清洗 + 交互拦截 + 分层渲染 |
-| **6F: Artifact Bridge** | [02-artifact-output-bridge.md](02-artifact-output-bridge.md) | 输出检测规则 + 置信度分层 + artifact.detected → artifact.created 桥接 |
+| **6A: Workspace Runtime** | [00-workspace-runtime.md](00-workspace-runtime.md) | ✅ Project 实体 + workspace 目录管理 + 文件树/Diff/静态预览 + 路径安全 + 项目创建菜单 |
+| **6B-6E: CLI Adapter** | [01-cli-adapter.md](01-cli-adapter.md) | 📋 ClaudeCodeAdapter / CodexAdapter / OpenCodeAdapter + PTY 进程管理 + ANSI 清洗 + 交互拦截 + 分层渲染 |
+| **6F: Artifact Bridge** | [02-artifact-output-bridge.md](02-artifact-output-bridge.md) | 📋 输出检测规则 + 置信度分层 + artifact.detected → artifact.created 桥接 |
 
 ---
 
@@ -82,6 +84,7 @@ Phase 6 完成后，AgentHub 能明确回答：
 
 | 端点 | 方法 | 所属模块 | 说明 |
 |------|------|---------|------|
+| `/api/projects/pick-folder` | POST | 6A | 调起本机系统目录选择器，返回一次性 folderToken |
 | `/api/projects` | POST/GET | 6A | 创建/列出 Project |
 | `/api/projects/{id}` | GET/DELETE | 6A | Project 详情/归档 |
 | `/api/projects/{id}/tree` | GET | 6A | 文件树 |
@@ -89,6 +92,7 @@ Phase 6 完成后，AgentHub 能明确回答：
 | `/api/projects/{id}/diff` | GET | 6A | 文件变更 Diff |
 | `/api/projects/{id}/preview` | POST | 6A | 启动预览 |
 | `/api/projects/{id}/build` | POST | 6A | 启动构建 |
+| `/api/sessions/{id}/workspace` | GET | 6A | 查询 Session 继承的 Project workspacePath |
 | `/api/sessions/{id}/chat` | POST (SSE) | 6B-6E | 与 CLI Agent 对话 |
 | `/api/sessions/{id}/interactive_reply` | POST | 6D | 确认/拒绝 CLI 交互提示 |
 | `/api/sessions/{id}/artifacts` | GET | 6F | 会话产物列表（Phase 5 已有） |
@@ -99,11 +103,13 @@ Phase 6 完成后，AgentHub 能明确回答：
 
 ### Workspace Runtime（详见 [00-workspace-runtime.md](00-workspace-runtime.md) §6）
 
-- AC-WS-01: 创建 Project → 目录被创建 + `.agenthub/project.json` 存在
-- AC-WS-02: 同一 Project 下多 Session → Agent cwd 指向同一目录
-- AC-WS-03: 文件树返回相对路径，`../` 越界返回 403
-- AC-WS-04: 静态 HTML 项目 → preview URL 可访问
-- AC-WS-05: Agent 执行前后 hash diff 正确识别文件变更
+- ✅ AC-WS-01: 创建 Project → 目录被创建 + `.agenthub/project.json` 存在
+- ✅ AC-WS-02: Session 继承 Project workspace，`/api/sessions/{id}/workspace` 返回同一路径
+- ✅ AC-WS-03: 文件树返回相对路径，`../` 越界返回 403
+- ✅ AC-WS-04: 静态 HTML 项目 → preview URL 可访问
+- ✅ AC-WS-05: snapshot/diff 正确识别文件变更
+- ✅ AC-WS-06: 创建按钮弹出 `新建空白文件夹` / `选择现有文件夹`，后者通过系统目录选择器授权，不要求用户手输路径
+- ✅ AC-WS-07: 项目不再暴露 `静态网页 / Vite React / 已有项目` 这类用户可选属性；`project_type` 仅保留为兼容字段
 
 ### CLI Adapter（详见 [01-cli-adapter.md](01-cli-adapter.md) §6）
 
@@ -134,9 +140,14 @@ Phase 6 完成后，AgentHub 能明确回答：
 
 | 层级 | 条数 | 覆盖 |
 |------|------|------|
-| 单元测试 | ~90 条 | Workspace(22) + CLI Adapter(50) + Artifact Bridge(18) |
+| 单元测试 | ~90 条 | Workspace(已覆盖核心 API/组件) + CLI Adapter(50) + Artifact Bridge(18) |
 | 集成测试 | 5 场景 | Project→Session→cwd、Mock CLI→SSE、Diff→Artifact 全链路 |
 | E2E | 4 场景 | 创建 Project→CLI Agent 执行→Artifact Card→Drawer 预览 |
+
+6A 已有测试入口：
+
+- `backend/test_api/test_projects_phase6.py`
+- `frontend/src/components/ProjectSidebar.test.tsx`
 
 ---
 
@@ -173,7 +184,10 @@ Phase 6 完成后：
 - AgentPanel 新增 CLI 包装器配置模式
 - 前端新增 ProjectList 页面和 Project 工作区布局
 
+6A 当前已完成其中的 Project / workspace runtime / Project 工作区布局部分；CLI 进程管理与 Artifact 自动入口仍由 6B-6F 完成。
+
 > **版本历史**
 > - v1.0 (2026-06-02): 初始版本
 > - v2.0 (2026-06-04): 引入 Project 模型 + Per-CLI 适配 + 分层渲染
 > - v3.0 (2026-06-04): 按新 Spec 模板全面重构，去 MVP 最小实现限制，全量覆盖
+> - v3.1 (2026-06-04): 记录 Phase 6A 人工验收通过；同步项目创建菜单、系统目录选择器、去除用户可选 project type 的实现口径

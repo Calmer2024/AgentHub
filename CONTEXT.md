@@ -27,7 +27,7 @@
 - **Agent**：用户创建的"AI 联系人"，具有自定义名称、描述、system_prompt。Agent 是可被后端管理的真实 CLI 工具实例，通过 CLI Wrapper 封装 Anthropic `claude` CLI、OpenAI `codex` CLI、开源 `opencode`。Agent ≠ 模型厂商。
 - **Provider / Adapter**：底层执行适配器，每个 CLI 工具单独适配（`ClaudeCodeAdapter`、`CodexAdapter`、`OpenCodeAdapter`），各自理解该 CLI 的特定输出格式。Adapter 通过 PTY/subprocess 孵化进程、读取 stdout/stderr、做语义分层解析（文本→聊天消息、进度指示器→状态条、Diff/代码块→Artifact Card）、ANSI 清洗、交互式提示（y/n）拦截。Adapter 把 CLI 输出转为标准事件（`agent.output` / `artifact.detected` / `interactive_prompt`）。CLI 工具由用户在外部安装，AgentHub 只管理配置（executable 路径、init_args、env vars）。Orchestrator 自身通过 LLM API 做意图分析和任务拆解。
 - **Orchestrator**：主 Agent 协调器，负责意图分析 → Agent 选择 → 任务拆解 → 角色分配 → 执行调度。**自动化优先**：链式协作、角色分配等复杂决策由后端自动完成，不暴露给用户配置。
-- **Project（项目）**：AgentHub 的顶层组织实体。用户必须先创建 Project（选择/新建一个本地目录作为其 workspace），然后在该 Project 下创建任意数量的私聊或群聊 Session。一个 Project 绑定一个 workspace 目录，Project 内所有 Session 共享此目录。所有聊天必须属于某个 Project，不存在"无 Project 的聊天"。详见 [ADR-0009](docs/adr/0009-project-workspace-model.md)。
+- **Project（项目）**：AgentHub 的顶层组织实体。用户必须先创建 Project（新建空白文件夹，或通过系统原生目录选择器选择已有文件夹），然后在该 Project 下创建任意数量的私聊或群聊 Session。一个 Project 绑定一个 workspace 目录，Project 内所有 Session 共享此目录。所有聊天必须属于某个 Project，不存在"无 Project 的聊天"。详见 [ADR-0009](docs/adr/0009-project-workspace-model.md)。
 - **Workspace**：Project 绑定的物理或云端工作目录。MVP 版是本机 `workspace_path`（Project 创建时指定）；Project 内所有 CLI Agent 以该路径作为 `cwd` 执行。SaaS 版是云端隔离 workspace，由 sandbox/runner 挂载。详见 [PRD-06](docs/PRD/06-MVP_Local_Workspace_Delivery.md) 和 [PRD-07](docs/PRD/07-SaaS_Cloud_Workspace_Delivery.md)。
 - **单聊模式**：在某个 Project 下，1v1 与单个 Agent 的私聊 Session。该 Agent 以 Project 的 `workspace_path` 为 `cwd` 执行。
 - **群聊模式**：在某个 Project 下，包含多个 Agent 的对话 Session，支持 @ 指定，Orchestrator 自动协调分工。所有 Agent 共享 Project 的 `workspace_path`。
@@ -82,7 +82,7 @@
 | **Phase 3** | Orchestrator + 基础设施 | ✅ | EventBus、Orchestrator v2（Pipeline + DAG + 6 角色）、CollaborationPanel |
 | **Phase 4** | 消息交互闭环 | ✅ | Reply / Regenerate / Pin、FTS5 全文搜索、Reply/Pin prompt 注入 |
 | **Phase 5** | 产物工作台能力 | ✅ | 版本链 + Diff + 在线编辑（Tool Calling）；上游产物生成入口由 Phase 6/7 补齐 |
-| **Phase 6** | Workspace Runtime + CLI 适配器 + 产物入口桥接 | 📋 | 引入 Project 实体 + 绑定 workspace → Claude Code / Codex / OpenCode 三个 CLI 专属适配器 → PTY 管理 + 分层渲染 + 交互拦截 → Agent 输出和文件变更转为标准 Artifact 事件 |
+| **Phase 6** | Workspace Runtime + CLI 适配器 + 产物入口桥接 | 🚧 | 6A Workspace Runtime 已验收：Project 实体、workspace 绑定、系统目录选择器、文件树/Diff/静态预览、Session→workspace 查询；下一步是 6B-6F CLI 适配器与 Artifact Bridge |
 | **Phase 7** | UX 体验闭环 + MVP 演示闭环 | 📋 | 三栏动态布局、产物抽屉、审批卡片、环境体检，跑通全链路 |
 
 Phase 4-7 采用**功能板块制**：每板块独立完整交付。板块间按用户可感知价值排序。详见 [ADR-0008](docs/adr/0008-revised-development-strategy.md)。
@@ -102,7 +102,7 @@ Phase 4-7 采用**功能板块制**：每板块独立完整交付。板块间按
 
 ### Project-first 工作流
 
-用户必须先创建 Project（选择/新建 workspace 目录），然后在 Project 下创建私聊或群聊。所有聊天必须属于某个 Project。Project 内所有 Agent 共享 `Project.workspace_path` 作为 `cwd`。详见 [ADR-0009](docs/adr/0009-project-workspace-model.md)。
+用户必须先创建 Project（新建空白 workspace 目录，或通过系统目录选择器选择已有目录），然后在 Project 下创建私聊或群聊。所有聊天必须属于某个 Project。Project 不再暴露“静态网页 / Vite React / 已有项目”等用户可选属性；Project 内所有 Agent 共享 `Project.workspace_path` 作为 `cwd`。详见 [ADR-0009](docs/adr/0009-project-workspace-model.md)。
 
 ---
 
@@ -176,6 +176,7 @@ Phase 4-7 采用**功能板块制**：每板块独立完整交付。板块间按
 | [Phase 3 Dev Log](docs/dev-logs/phase3-dev-log.md) | Phase 3 时间线、Bug 与教训、架构决策时间线 |
 | [Phase 4 Dev Log](docs/dev-logs/phase4-dev-log.md) | Phase 4 实现摘要、FTS5 修复、真实 UI 验收记录 |
 | [Phase 5 Dev Log](docs/dev-logs/phase5-dev-log.md) | Phase 5 产物版本链、Diff、在线编辑、架构收拢与真实 HTTP 验收 |
+| [Phase 6 Dev Log](docs/dev-logs/phase6-dev-log.md) | Phase 6A Project-first workspace runtime、系统目录选择器、人工验收记录 |
 
 ### Skills — AI 能力复用
 

@@ -30,7 +30,7 @@
 | 图片、文件附件 | P2 | 本文 §8 | 暂不进入 MVP |
 | 消息操作：回复、引用、重新生成、复制、展开预览 | P0/P1 | PRD-03, PRD-04 | Phase 4, Phase 7 |
 | 一键应用 Diff、版本历史、局部修改 | P0 | PRD-03, PRD-04 | Phase 5 |
-| 本机 workspace 创建/绑定、Agent cwd、文件变更入 Artifact | P0 | PRD-06 | Phase 6, Phase 7 后续 Workspace Spec |
+| 本机 Project/workspace 创建绑定、Agent cwd、文件变更入 Artifact | P0 | PRD-06 | Phase 6A 已完成 workspace runtime；Phase 6B-6F/Phase 7 补齐执行与 UI |
 | 主 Agent 协调器：拆解、并行、失败降级、冲突处理 | P0/P1 | PRD-02 | Phase 3, Phase 7 |
 | 多 Agent 接入：至少 2 个主流平台 | P0 | PRD-01, PRD-04 | Phase 2, Phase 6 |
 | 用户自建 Agent：名称、头像、能力标签、prompt、工具集 | P1 | PRD-03, PRD-04 | Phase 2 已有配置式创建；对话式创建为后续增强 |
@@ -151,7 +151,7 @@ Agent Adapter 不直接写数据库。它只输出标准事件：
 | Phase 3 | Orchestrator 与协作基础设施 | 自动选 Agent、任务拆解、DAG/chain 协作、协作面板 | Artifact 完整工作台、真实 CLI |
 | Phase 4 | 消息交互闭环 | Reply、Regenerate、Pin、全文搜索，并让引用/Pin 进入 Agent 上下文 | Artifact 预览抽屉、部署 |
 | Phase 5 | Artifact 工作台能力 | 对已有 Artifact 做版本链、Diff、局部编辑、确认/拒绝 | 不代表 Agent 输出入口已经完整打通 |
-| Phase 6 | Workspace Runtime + CLI Agent 适配器 | 引入 Project 实体 + 绑定 workspace；实现 Claude Code / Codex / OpenCode 三个 CLI 的专属适配器（PTY 管理 + 分层渲染 + 交互拦截）；CLI 输出和文件变更进入标准事件 → Artifact Card | 不负责最终 UI 打磨（Drawer/审批卡片→Phase 7）；不做 SaaS sandbox（→P2） |
+| Phase 6 | Workspace Runtime + CLI Agent 适配器 | 6A 已引入 Project 实体 + 绑定 workspace，并通过系统目录选择器支持已有目录；6B-6E 实现 Claude Code / Codex / OpenCode 三个 CLI 的专属适配器（PTY 管理 + 分层渲染 + 交互拦截）；6F 让 CLI 输出和文件变更进入标准事件 → Artifact Card | 6A 不代表 CLI/Artifact Bridge 已完成；Phase 6 不负责最终 UI 打磨（Drawer/审批卡片→Phase 7）；不做 SaaS sandbox（→P2） |
 | Phase 7 | 用户体验与演示闭环 | 三栏布局、Artifact Drawer、审批卡片、环境体检、端到端演示 | 不新增部署、多端等 P2 能力 |
 
 ---
@@ -160,8 +160,8 @@ Agent Adapter 不直接写数据库。它只输出标准事件：
 
 MVP 完成不是“所有模块都写完”，而是必须通过以下验收：
 
-- 每个可执行项目会话都必须创建或绑定一个 workspace，并在会话中记录 `workspace_id`。
-- CLI Agent 执行时必须以该 workspace 的 `workspace_path` 作为 `cwd`；API Agent 生成的文件也必须写入同一 workspace。
+- 每个可执行会话都必须归属一个 Project，并通过 `sessions.project_id` 继承 `Project.workspace_path`。
+- CLI Agent 执行时必须以 `Project.workspace_path` 作为 `cwd`；API Agent 生成的文件也必须写入同一 workspace。
 - Agent 输出、文件变更、构建产物必须能回流为标准 Artifact 事件。
 - 单聊与群聊均可从用户消息进入 Agent 执行链路。
 - Orchestrator 对复杂任务能展示拆解、状态变化和中枢总结。

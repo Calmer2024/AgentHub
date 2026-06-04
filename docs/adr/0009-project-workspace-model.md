@@ -28,6 +28,8 @@ Project
 3. **Project 内所有 Session 共享 workspace**。所有 CLI Agent 进程的 `cwd` 指向 Project 的 `workspace_path`。
 4. **同一个 CLI Agent 可在同一 Project 下有多个私聊**（如"前端私聊"和"后端私聊"各一个 Session，都绑 Claude Code Agent）。
 5. **MVP 阶段不允许跨 Project 共享 workspace**（降低复杂度）。
+6. **Project 创建不暴露项目类型选择**。`静态网页 / Vite React / 已有项目` 这类类型是实现细节，不进入用户创建流程；预览/构建由后端根据文件结构和后续 BuildService 能力判断。
+7. **绑定已有目录必须走系统目录选择器授权**。前端不要求用户手输绝对路径；本机后端打开系统原生目录选择器，返回一次性 `folderToken`，ProjectService 用它允许绑定 allowlist root 外但用户显式选择的目录。
 
 ### 数据模型调整
 
@@ -49,7 +51,7 @@ sessions
 
 ```
 首页 Project 列表
-  → 新建 Project（命名 + 选择/创建目录）
+  → 新建 Project（新建空白文件夹 / 选择现有文件夹）
     → 进入 Project 工作区
       → 创建私聊（选一个 Agent → 创建 Session）
       → 创建群聊（选多个 Agent → 创建 Session）
@@ -83,7 +85,7 @@ sessions
 
 ```
 首页 Project 列表
-  → 新建 Project（命名 + 选择/创建目录）
+  → 新建 Project（新建空白文件夹 / 选择现有文件夹）
     → 进入 Project 工作区
       → 配置 Agent（选择 CLI 工具类型 + executable 路径 + init_args）
       → 创建私聊（选一个 Agent → 创建 Session → CLI cwd = workspace_path）
@@ -102,3 +104,7 @@ sessions
 - 每个 CLI 工具需要一个专属 Adapter 类，实现 `BaseAgentAdapter`
 - Adapter 需要实现语义分层解析（区分文本/进度/产物/交互）
 - Spec 文档（PRD-01、PRD-06、Phase 6 Specs）需相应更新
+
+## Implementation Notes
+
+- 2026-06-04：Phase 6A Workspace Runtime 通过人工验收。前端创建项目按钮已改为两项菜单：`新建空白文件夹` 与 `选择现有文件夹`；后者调用 `/api/projects/pick-folder` 由后端打开系统目录选择器。`project_type` 仅作为数据库兼容字段保留，不进入前端类型、请求体或用户流程。

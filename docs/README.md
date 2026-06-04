@@ -31,10 +31,10 @@ docs/
 **产品交付阶段**：P1 先做桌面版（Web UI + 本地无头服务器 → 本机文件系统 + 本机 CLI Agent），P2 再做 SaaS 云版（云端沙箱 + 一键部署）。详见 PRD-00 第 9 节。
 
 ### 我想了解项目现在的状态
-→ 看 [CONTEXT.md](../CONTEXT.md) 的 Phase 表格，然后看 [audit/phase3-audit-report.md](audit/phase3-audit-report.md)。
+→ 看 [CONTEXT.md](../CONTEXT.md) 的 Phase 表格；当前 Phase 6 进度看 [specs/phase6/README.md](specs/phase6/README.md) 与 [dev-logs/phase6-dev-log.md](dev-logs/phase6-dev-log.md)。历史 Phase 3 审计见 [audit/phase3-audit-report.md](audit/phase3-audit-report.md)。
 
-### 我要了解 Phase 5
-→ 进入 [specs/phase5/](specs/phase5/) 目录，先读 README.md 了解完成记录，再读具体 Spec 了解接口契约。
+### 我要了解 Phase 6 当前进度
+→ 进入 [specs/phase6/](specs/phase6/) 目录。先读 README.md 获取总览；[00-workspace-runtime.md](specs/phase6/00-workspace-runtime.md) 已验收，后续重点看 CLI Adapter 和 Artifact Bridge。
 
 ### 我想理解为什么要这样设计
 → 进入 [adr/](adr/) 目录，按编号顺序阅读架构决策记录。
@@ -56,7 +56,7 @@ docs/
 | [01-Architecture_Adapter.md](PRD/01-Architecture_Adapter.md) | CLI Agent 封装：PTY 进程管理、ANSI 清洗、交互拦截 | 架构师、后端 |
 | [02-Orchestrator_Engine.md](PRD/02-Orchestrator_Engine.md) | 调度引擎：DAG 拆解、状态机、Human-in-the-loop | 后端、AI 工程师 |
 | [03-User_Experience.md](PRD/03-User_Experience.md) | 界面原型：三栏布局、资产卡片、产物抽屉、审批卡片 | 设计师、前端 |
-| [04-Data_API_Contracts.md](PRD/04-Data_API_Contracts.md) | 数据模型 (agents/sessions/messages/tasks)、REST/SSE API | 全栈开发 |
+| [04-Data_API_Contracts.md](PRD/04-Data_API_Contracts.md) | 数据模型 (projects/agents/sessions/messages/tasks/artifacts)、REST/SSE API | 全栈开发 |
 | [05-End_to_End_Product_Flow.md](PRD/05-End_to_End_Product_Flow.md) | 启动文档需求追踪、含 workspace 的北极星演示闭环、Artifact 生成与回流、P2 Roadmap | 产品、架构、全栈、答辩准备 |
 | [06-MVP_Local_Workspace_Delivery.md](PRD/06-MVP_Local_Workspace_Delivery.md) | MVP 本机 workspace：创建/绑定目录、Agent cwd、文件变更、预览、导出、可选部署 | 产品、架构、全栈、答辩准备 |
 | [07-SaaS_Cloud_Workspace_Delivery.md](PRD/07-SaaS_Cloud_Workspace_Delivery.md) | SaaS 云端 workspace：多租户 sandbox、云端预览、一键部署、配额与安全 | 产品、架构、平台工程 |
@@ -90,7 +90,7 @@ docs/
 | [phase3/](specs/phase3/) | Orchestrator + Infrastructure | ✅ | EventBus + Pipeline + DAG + CollaborationPanel |
 | [phase4/](specs/phase4/) | 消息交互闭环 | ✅ | Reply/Regenerate/Pin + FTS5 搜索 |
 | [phase5/](specs/phase5/) | 产物工作台能力 | ✅ | 对已有 Artifact 做版本链 + Diff + 在线编辑；上游入口由 Phase 6/7 补齐 |
-| [phase6/](specs/phase6/) | Workspace Runtime + CLI 适配器 + 产物入口桥接 | 📋 | 本机 workspace + Agent cwd + PTY 进程管理 + ANSI 清洗 + 交互拦截 + `artifact.detected` |
+| [phase6/](specs/phase6/) | Workspace Runtime + CLI 适配器 + 产物入口桥接 | 🚧 | 6A 本机 Project/workspace runtime 已验收；6B-6F 继续做 Agent cwd + PTY 进程管理 + ANSI 清洗 + 交互拦截 + `artifact.detected` |
 | [phase7/](specs/phase7/) | UX 体验闭环 + MVP 演示闭环 | 📋 | 三栏布局 + 产物抽屉 + 审批卡片 + 环境体检 |
 | [planning/](specs/planning/) | 历史规划 | 📦 | 旧的 Phase 3 模块化计划 (已被 ADR-0008 取代) |
 
@@ -109,6 +109,7 @@ docs/
 | [phase3-dev-log.md](dev-logs/phase3-dev-log.md) | Phase 3: 6 天时间线、6 个关键 Bug、4 次 Grill Session、测试覆盖演变 |
 | [phase4-dev-log.md](dev-logs/phase4-dev-log.md) | Phase 4: 消息交互闭环、FTS5 修复、真实 UI 验收 |
 | [phase5-dev-log.md](dev-logs/phase5-dev-log.md) | Phase 5: 产物版本链、Diff、在线编辑、架构优化、真实 HTTP 验收 |
+| [phase6-dev-log.md](dev-logs/phase6-dev-log.md) | Phase 6A: Project-first workspace runtime、系统目录选择器、静态预览、人工验收 |
 
 ### audit/ — 审计报告
 
