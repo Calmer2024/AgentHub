@@ -92,11 +92,11 @@ export function ChatInput({ onSubmit, disabled, mentionableAgents }: Props) {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="p-4 border-t border-gray-200 relative">
+    <form onSubmit={handleSubmit} className="p-4 border-t border-white/[0.08] bg-[#171717] relative">
       {showMentions && (
-        <div ref={listRef} className="absolute bottom-full left-4 mb-1 w-64 max-h-40 overflow-y-auto bg-white border border-gray-200 rounded-xl shadow-lg z-10">
+        <div ref={listRef} className="absolute bottom-full left-4 mb-1 w-64 max-h-40 overflow-y-auto bg-[#2b2b2f] border border-white/10 rounded-xl shadow-lg z-10">
           {filteredAgents.length === 0 ? (
-            <div className="px-3 py-2 text-xs text-gray-400">无匹配 Agent</div>
+            <div className="px-3 py-2 text-xs text-[#8f8f98]">无匹配 Agent</div>
           ) : (
             filteredAgents.map((a, i) => (
               <button
@@ -104,11 +104,11 @@ export function ChatInput({ onSubmit, disabled, mentionableAgents }: Props) {
                 type="button"
                 onMouseDown={(e) => { e.preventDefault(); insertMention(a); }}
                 className={`w-full text-left px-3 py-2 text-sm flex items-center gap-2 ${
-                  i === mentionIndex ? "bg-blue-50 text-blue-700" : "text-gray-700 hover:bg-gray-50"
+                  i === mentionIndex ? "bg-white/10 text-white" : "text-[#d8d8df] hover:bg-white/[0.08]"
                 }`}
               >
                 <span className="truncate">@{a.name}</span>
-                <span className="text-xs text-gray-400 ml-auto">{a.provider}</span>
+                <span className="text-xs text-[#8f8f98] ml-auto">{a.provider}</span>
               </button>
             ))
           )}
@@ -119,7 +119,7 @@ export function ChatInput({ onSubmit, disabled, mentionableAgents }: Props) {
           <ReplyPreview message={replyTarget} onClear={() => setReplyTarget(null)} />
         </div>
       )}
-      <div className="flex gap-3">
+      <div className="flex gap-3 rounded-2xl bg-[#2b2b2f] border border-white/10 p-2 shadow-2xl">
         <input
           ref={inputRef}
           type="text"
@@ -128,12 +128,12 @@ export function ChatInput({ onSubmit, disabled, mentionableAgents }: Props) {
           onKeyDown={handleKeyDown}
           disabled={disabled}
           placeholder={disabled ? "AI 正在回复..." : "输入消息...（输入 @ 提及 Agent）"}
-          className="flex-1 px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="flex-1 px-3 py-2 bg-transparent text-[#ececf1] placeholder:text-[#8f8f98] focus:outline-none"
         />
         <button
           type="submit"
           disabled={disabled || !content.trim()}
-          className="px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+          className="px-5 py-2 bg-[#ececf1] text-[#171717] rounded-xl hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed font-medium"
         >
           发送
         </button>

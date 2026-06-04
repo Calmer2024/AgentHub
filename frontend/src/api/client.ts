@@ -3,6 +3,7 @@ import type {
   Settings, SettingsUpdate, RouteAgent, CollabTask, ChainStep, ChainConfigInput,
   DAGPhase, PhaseChangeEvent, AgentStartEvent, OrchestratorSummaryStartEvent,
   Artifact, ArtifactDiff, ArtifactEditRequest, ArtifactEditResult, ArtifactVersion,
+  Project, ProjectCreateInput, FolderPickResult,
 } from "../types";
 import { parseDagPhases, parseTasks } from "./orchestratorEvents";
 
@@ -45,25 +46,62 @@ export async function deleteAgent(id: string): Promise<void> {
   if (!res.ok) throw new Error("Failed to delete agent");
 }
 
-export async function fetchSessions(): Promise<Session[]> {
-  const res = await fetch(`${API_BASE}/sessions`);
+export async function fetchProjects(): Promise<Project[]> {
+  const res = await fetch(`${API_BASE}/projects`);
+  if (!res.ok) throw new Error("Failed to fetch projects");
+  return res.json();
+}
+
+export async function createProject(data: ProjectCreateInput): Promise<Project> {
+  const res = await fetch(`${API_BASE}/projects`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error("Failed to create project");
+  return res.json();
+}
+
+export async function pickProjectFolder(): Promise<FolderPickResult> {
+  const res = await fetch(`${API_BASE}/projects/pick-folder`, { method: "POST" });
+  if (!res.ok) throw new Error("Failed to pick folder");
+  return res.json();
+}
+
+export async function archiveProject(projectId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/projects/${projectId}`, { method: "DELETE" });
+  if (!res.ok) throw new Error("Failed to archive project");
+}
+
+export async function fetchSessions(projectId?: string): Promise<Session[]> {
+  const params = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
+  const res = await fetch(`${API_BASE}/sessions${params}`);
   if (!res.ok) throw new Error("Failed to fetch sessions");
   return res.json();
 }
 
-export async function createGroupSession(title: string, agentConfigIds: string[]): Promise<Session> {
+export async function createGroupSession(
+  title: string,
+  agentConfigIds: string[],
+  projectId?: string,
+): Promise<Session> {
   const res = await fetch(`${API_BASE}/sessions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ title: title || "群聊", mode: "group", agentConfigIds }),
+    body: JSON.stringify({ title: title || "群聊", mode: "group", agentConfigIds, projectId }),
   });
   if (!res.ok) throw new Error("Failed to create group session");
   return res.json();
 }
 
-export async function createSession(title?: string, agentConfigId?: string): Promise<Session> {
+export async function createSession(
+  title?: string,
+  agentConfigId?: string,
+  projectId?: string,
+): Promise<Session> {
   const body: Record<string, string> = { title: title || "新对话" };
   if (agentConfigId) body.agentConfigId = agentConfigId;
+  if (projectId) body.projectId = projectId;
   const res = await fetch(`${API_BASE}/sessions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

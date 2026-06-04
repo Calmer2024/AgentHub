@@ -10,10 +10,33 @@ export interface ReplyReference {
 export interface Session {
   id: string;
   title: string;
+  projectId: string | null;
   agentConfigId: string | null;
   mode: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  workspacePath: string;
+  status: "creating" | "ready" | "building" | "error" | "archived";
+  fileCount: number;
+  totalSizeBytes: number;
+  createdAt: string;
+}
+
+export interface ProjectCreateInput {
+  name: string;
+  workspacePath?: string;
+  folderToken?: string;
+}
+
+export interface FolderPickResult {
+  workspacePath: string;
+  folderName: string;
+  folderToken: string;
 }
 
 export interface Message {

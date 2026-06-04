@@ -73,10 +73,10 @@ describe("Chat Store (split)", () => {
 
   it("sessionStore updateSession 更新会话列表", () => {
     useSessionStore.getState().setSessions([
-      { id: "s1", title: "旧标题", agentConfigId: "a1", mode: "single", createdAt: "", updatedAt: "" },
+      { id: "s1", title: "旧标题", projectId: "p1", agentConfigId: "a1", mode: "single", createdAt: "", updatedAt: "" },
     ]);
     useSessionStore.getState().updateSession({
-      id: "s1", title: "旧标题", agentConfigId: "a2", mode: "single", createdAt: "", updatedAt: "",
+      id: "s1", title: "旧标题", projectId: "p1", agentConfigId: "a2", mode: "single", createdAt: "", updatedAt: "",
     });
     expect(useSessionStore.getState().sessions[0].agentConfigId).toBe("a2");
   });

@@ -77,29 +77,29 @@ export function ChatWindow({
   };
 
   return (
-    <div className="relative flex-1 h-full min-h-0 flex flex-col overflow-hidden">
+    <div className="relative flex-1 h-full min-h-0 flex flex-col overflow-hidden bg-[#171717] text-[#ececf1]">
       {/* Header */}
-      <div className="px-6 py-3 border-b border-gray-200 bg-white flex items-center justify-between">
+      <div className="px-6 py-3 border-b border-white/[0.08] bg-[#171717] flex items-center justify-between">
         <div className="flex items-center gap-2">
           {isGroup && <span className="text-sm">👥</span>}
-          <h1 className="text-lg font-semibold text-gray-900">
+          <h1 className="text-lg font-semibold text-white">
             {isGroup ? "群聊" : currentAgent?.name ?? "未选择 Agent"}
           </h1>
-          {isGroup && <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded">@提及 Agent</span>}
+          {isGroup && <span className="text-xs text-[#8f8f98] bg-white/[0.06] px-2 py-0.5 rounded">@提及 Agent</span>}
         </div>
         <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={() => setSearchOpen(true)}
-            className="rounded-md border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
+            className="rounded-lg border border-white/10 px-3 py-1.5 text-sm text-[#d8d8df] hover:bg-white/[0.07]"
           >
             搜索
           </button>
           {isStreaming && (
-            <span className="inline-flex items-center gap-2 text-sm text-blue-600">
+            <span className="inline-flex items-center gap-2 text-sm text-[#d8d8df]">
               <span className="relative flex h-2.5 w-2.5">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-blue-500" />
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#ececf1] opacity-50" />
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[#ececf1]" />
               </span>
               AI 正在回复...
             </span>
@@ -158,17 +158,19 @@ export function ChatWindow({
         </div>
       )}
 
-      <div className="relative flex-1 min-h-0 flex overflow-hidden bg-white">
+      <div className="relative flex-1 min-h-0 flex overflow-hidden bg-[#171717]">
         {/* Messages area (scrollable) */}
         <div
           ref={scrollRef}
-          className={`relative min-h-0 overflow-y-auto p-4 md:p-6 bg-white ${
+          className={`relative min-h-0 overflow-y-auto p-4 md:p-6 bg-[#171717] ${
             artifacts.length > 0 ? "flex-1" : "w-full"
           }`}
         >
           {messages.length === 0 && collabTasks.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-gray-500">
-              <p className="text-lg">{isGroup ? "群聊开始，输入 @ 提及 Agent" : "开始对话吧"}</p>
+            <div className="flex flex-col items-center justify-center h-full text-center text-[#ececf1]">
+              <p className="text-2xl font-medium">
+                {isGroup ? "我们应该先讨论什么？" : "开始对话吧"}
+              </p>
             </div>
           ) : (
             messages.map((msg) => (
@@ -190,10 +192,10 @@ export function ChatWindow({
         </div>
 
         {artifacts.length > 0 && (
-          <aside className="hidden w-[420px] shrink-0 border-l border-slate-200 bg-slate-50 md:flex md:flex-col">
-            <div className="border-b border-slate-200 px-4 py-3">
-              <div className="text-sm font-semibold text-slate-900">产物工作台</div>
-              <div className="mt-0.5 text-xs text-slate-500">{artifacts.length} 个当前产物</div>
+          <aside className="hidden w-[420px] shrink-0 border-l border-white/[0.08] bg-[#202123] md:flex md:flex-col">
+            <div className="border-b border-white/[0.08] px-4 py-3">
+              <div className="text-sm font-semibold text-white">产物工作台</div>
+              <div className="mt-0.5 text-xs text-[#8f8f98]">{artifacts.length} 个当前产物</div>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto p-3">
               {artifacts.map((artifact) => (
@@ -212,7 +214,7 @@ export function ChatWindow({
             <button
               type="button"
               onClick={() => document.getElementById("mobile-artifacts")?.scrollIntoView({ behavior: "smooth" })}
-              className="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white shadow-lg"
+              className="rounded-lg bg-[#ececf1] px-3 py-2 text-sm font-medium text-[#171717] shadow-lg"
             >
               产物
             </button>
@@ -221,7 +223,7 @@ export function ChatWindow({
       </div>
 
       {artifacts.length > 0 && (
-        <div id="mobile-artifacts" className="max-h-[36dvh] overflow-y-auto border-t border-slate-200 bg-slate-50 p-3 md:hidden">
+        <div id="mobile-artifacts" className="max-h-[36dvh] overflow-y-auto border-t border-white/[0.08] bg-[#202123] p-3 md:hidden">
           {artifacts.map((artifact) => (
             <ArtifactCard
               key={artifact.id}
@@ -241,10 +243,10 @@ export function ChatWindow({
 
       {/* Agent selector (single chat only) */}
       {!isGroup && (
-        <div className="border-t border-gray-200 px-4 py-2 flex items-center gap-3">
-          <span className="text-xs text-gray-500">Agent:</span>
+        <div className="border-t border-white/[0.08] px-4 py-2 flex items-center gap-3">
+          <span className="text-xs text-[#8f8f98]">Agent:</span>
           <select value={currentAgent?.id ?? ""} onChange={(e) => onSwitchAgent(e.target.value)} disabled={isStreaming}
-            className="text-xs px-2 py-1 border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 max-w-[200px]">
+            className="text-xs px-2 py-1 border border-white/10 rounded-lg bg-[#2b2b2f] text-[#ececf1] focus:outline-none focus:ring-2 focus:ring-white/20 max-w-[200px]">
             {agents.length === 0 && <option value="">无可用 Agent</option>}
             {agents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
           </select>
