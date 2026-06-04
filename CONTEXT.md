@@ -24,9 +24,10 @@
 ### 核心概念
 
 - **AgentHub**：多 Agent 协作平台，采用 IM 聊天作为核心交互范式。
-- **Agent**：用户创建的"AI 联系人"，具有自定义名称、描述、system_prompt。Agent 是可被后端管理的真实 CLI 工具实例，通过 CLI Wrapper 封装 Anthropic `claude` CLI、OpenAI `codex` CLI、开源 `opencode`。Agent ≠ 模型厂商。
-- **Provider / Adapter**：底层执行适配器，每个 CLI 工具单独适配（`ClaudeCodeAdapter`、`CodexAdapter`、`OpenCodeAdapter`），各自理解该 CLI 的特定输出格式。Adapter 通过 PTY/subprocess 孵化进程、读取 stdout/stderr、做语义分层解析（文本→聊天消息、进度指示器→状态条、Diff/代码块→Artifact Card）、ANSI 清洗、交互式提示（y/n）拦截。Adapter 把 CLI 输出转为标准事件（`agent.output` / `artifact.detected` / `interactive_prompt`）。CLI 工具由用户在外部安装，AgentHub 只管理配置（executable 路径、init_args、env vars）。Orchestrator 自身通过 LLM API 做意图分析和任务拆解。
-- **Orchestrator**：主 Agent 协调器，负责意图分析 → Agent 选择 → 任务拆解 → 角色分配 → 执行调度。**自动化优先**：链式协作、角色分配等复杂决策由后端自动完成，不暴露给用户配置。
+- **Agent**：用户创建的"AI 联系人"，由 `Engine + Skill Bindings + Context Policy` 组成。Engine 可以是 ClaudeCode/Codex/OpenCode 等真实 CLI，也可以是用于规划、分类、总结的 LLM API；Skill Bindings 来自全局 Skill Pool，包含一个 primary skill 和多个 auxiliary skills；Context Policy 决定执行时如何注入 Project、Session、Pin、Reply、Artifact 等上下文。Agent ≠ 模型厂商。
+- **Skill Pool**：全局可复用能力池，存放 frontend、react、architecture、testing、review 等 Skill。Agent 只是绑定其中一组 Skill；发送消息或执行任务时，Prompt Assembly 从池子里捞出该 Agent 的 primary/auxiliary skills 并按规则注入。
+- **Provider / Adapter**：底层执行适配器，每个 CLI 工具单独适配（`ClaudeCodeAdapter`、`CodexAdapter`、`OpenCodeAdapter`），各自理解该 CLI 的特定输出格式。Adapter 通过 PTY/subprocess 孵化进程、读取 stdout/stderr、做语义分层解析（文本→聊天消息、进度指示器→状态条、Diff/代码块→Artifact Card）、ANSI 清洗、交互式提示（y/n）拦截。Adapter 把 CLI 输出转为标准事件（`agent.output` / `artifact.detected` / `interactive_prompt`）。CLI 工具由用户在外部安装，AgentHub 只管理配置（executable 路径、init_args、env vars）。
+- **Orchestrator**：主 Agent 协调器，本身也是特殊 Agent Profile。第一版使用 LLM 假 Agent 生成 draft plan，只负责意图理解、模块/交付物级任务拆解、Agent 分配建议和 DAG 结构解释，不自动执行子 Agent。Plan 契约与 dry-run 调试输出见 [PRD-02](docs/PRD/02-Orchestrator_Engine.md) 和 [ADR-0007](docs/adr/0007-orchestrator-architecture.md)。
 - **Project（项目）**：AgentHub 的顶层组织实体。用户必须先创建 Project（选择/新建一个本地目录作为其 workspace），然后在该 Project 下创建任意数量的私聊或群聊 Session。一个 Project 绑定一个 workspace 目录，Project 内所有 Session 共享此目录。所有聊天必须属于某个 Project，不存在"无 Project 的聊天"。详见 [ADR-0009](docs/adr/0009-project-workspace-model.md)。
 - **Workspace**：Project 绑定的物理或云端工作目录。MVP 版是本机 `workspace_path`（Project 创建时指定）；Project 内所有 CLI Agent 以该路径作为 `cwd` 执行。SaaS 版是云端隔离 workspace，由 sandbox/runner 挂载。详见 [PRD-06](docs/PRD/06-MVP_Local_Workspace_Delivery.md) 和 [PRD-07](docs/PRD/07-SaaS_Cloud_Workspace_Delivery.md)。
 - **单聊模式**：在某个 Project 下，1v1 与单个 Agent 的私聊 Session。该 Agent 以 Project 的 `workspace_path` 为 `cwd` 执行。

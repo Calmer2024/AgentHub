@@ -15,66 +15,94 @@
 
 ---
 
-## 3. Work Breakdown Structure (WBS) 任务拆解器
+## 3. Plan-first WBS 任务拆解器
 
 ### 3.1 意图拦截与宏观拆解
 当用户在群聊中输入大段需求后，请求首先打到 Orchestrator。
-Orchestrator 本身是一个无状态的纯 LLM API 调用者（建议使用最聪明的模型如 GPT-4o 或 Claude 3.5 Sonnet）。
+Orchestrator 在产品概念上也是一个特殊 Agent：它由 Engine + Orchestrator Skill 组合而成，只负责规划、拆解、分配和解释，不直接写业务代码。第一版为便于调试，使用 LLM 假 Agent 实现 Orchestrator；待真实 ClaudeCode/Codex CLI Agent 接入后，Orchestrator 的计划契约保持不变。
 
 *   **System Prompt 设定**：
     > “你是一个硅谷顶级的软件架构师和敏捷教练（Scrum Master）。你的任务不是写代码，而是将用户庞大、模糊的业务需求，拆解为一系列严密的、细粒度的开发任务。每个任务必须能够由单个工程师在短时间内独立完成。你需要明确指出每个任务需要哪种特定技能的 Agent（如：UI设计师、前端、DBA、后端），以及这些任务之间的绝对先后依赖关系。”
 
 ### 3.2 结构化输出契约 (JSON DAG)
-Orchestrator 解析需求后，必须向后端返回符合强校验 Schema 的 JSON 数组。这个数组在数学上构成了一个 **有向无环图 (Directed Acyclic Graph, DAG)**。
+Orchestrator 解析需求后，必须向后端返回符合 Schema 的 draft plan。Plan 中的 `tasks` 在数学上构成一个 **有向无环图 (Directed Acyclic Graph, DAG)**。第一版只生成和可视化 draft plan，不自动执行子 Agent；用户确认后的执行流属于后续增强。
 
-**样例数据结构**：
+**第一版最小数据结构**：
 ```json
 {
+  "plan_id": "plan_001",
+  "status": "draft",
+  "execution_policy": "manual_approval_required",
   "tasks": [
     {
       "task_id": "T1",
-      "name": "需求澄清与 PRD 编写",
-      "agent_role": "产品经理",
-      "dependencies": [],
-      "requires_human_approval": true
+      "title": "需求澄清与权限边界",
+      "goal": "明确员工、财务和管理员分别能做什么",
+      "required_skills": ["product_analysis", "permission_design"],
+      "assigned_agent_id": "mock_architect",
+      "assigned_agent_name": "架构专家",
+      "assignment_reason": "该 Agent 主 skill 覆盖需求分析与权限建模",
+      "depends_on": [],
+      "expected_outputs": ["document"],
+      "acceptance_criteria": ["明确角色权限", "列出核心业务流程"],
+      "needs_approval": true,
+      "is_blocking": true
     },
     {
       "task_id": "T2",
-      "name": "数据库表结构设计 (SQL)",
-      "agent_role": "架构师",
-      "dependencies": ["T1"],
-      "requires_human_approval": true
-    },
-    {
-      "task_id": "T3",
-      "name": "鉴权模块后端开发 (FastAPI)",
-      "agent_role": "后端专家",
-      "dependencies": ["T2"],
-      "requires_human_approval": false
-    },
-    {
-      "task_id": "T4",
-      "name": "登录注册页前端开发 (React)",
-      "agent_role": "前端专家",
-      "dependencies": ["T1", "T2"],
-      "requires_human_approval": false
-    },
-    {
-      "task_id": "T5",
-      "name": "前后端联调与单元测试",
-      "agent_role": "测试专家",
-      "dependencies": ["T3", "T4"],
-      "requires_human_approval": false
+      "title": "API 契约与数据模型",
+      "goal": "产出报销单、审批流和用户权限的数据模型与接口契约",
+      "required_skills": ["architecture", "api_design", "database_design"],
+      "assigned_agent_id": "mock_architect",
+      "assigned_agent_name": "架构专家",
+      "assignment_reason": "该 Agent 适合先定义阻塞后续开发的系统契约",
+      "depends_on": ["T1"],
+      "expected_outputs": ["document"],
+      "acceptance_criteria": ["产出 API 契约", "产出数据模型"],
+      "needs_approval": true,
+      "is_blocking": true
     }
-  ]
+  ],
+  "execution_strategy": {
+    "summary": "先完成需求和契约，再展开实现，最后汇聚验收。",
+    "phases": [
+      {
+        "phase": 1,
+        "mode": "serial",
+        "tasks": ["T1", "T2"],
+        "reason": "需求边界和系统契约是后续任务的阻塞前置"
+      }
+    ]
+  }
 }
 ```
+
+### 3.3 任务拆分粒度
+
+Orchestrator 第一版只拆到模块/交付物级，不拆到代码步骤级。比如“员工报销单管理系统”应拆成“权限边界”“API 契约与数据模型”“报销单 CRUD 后端能力”“财务审批工作台”“联调验收”等任务，而不是拆成“创建目录”“安装依赖”“新建 main.py”。
+
+每个任务必须同时保留：
+- `required_skills`：任务本质需要什么能力，用于解释和兜底。
+- `assigned_agent_id` / `assigned_agent_name`：当前推荐分配给哪个 Agent。
+- `assignment_reason`：为什么这样分配，供调试台展示。
+
+### 3.4 调试台 dry-run 输出
+
+第一版调试台的目标是可解释 dry-run，不执行子 Agent。后端返回：
+- `input`：用户原始输入。
+- `orchestrator_agent`：本次使用的调度器 Agent Profile。
+- `candidate_agents`：可调度 Agent 快照。
+- `raw_output`：LLM 假 Orchestrator 的原始输出。
+- `normalized_plan`：后端解析和规范化后的 draft plan。
+- `validation`：结构校验结果和 warning。
+
+校验策略为“结构严格，内容宽松”：`task_id` 唯一、`depends_on` 引用存在、DAG 无环必须强校验；`acceptance_criteria` 太短、`assigned_agent_id` 不存在、`required_skills` 未命中 Skill Pool 等先记录 warning，不阻断第一版调试链路。
 
 ---
 
 ## 4. 状态机引擎与调度执行 (State Machine Engine)
 
-拆解出上述 DAG 后，AgentHub 的后端即化身为一个**状态机流转引擎**（类似 Apache Airflow 的简化版）。
+拆解出上述 DAG 后，AgentHub 的后端最终会化身为一个**状态机流转引擎**（类似 Apache Airflow 的简化版）。第一版只停留在 `draft` 计划展示；只有用户确认计划后，后续版本才进入以下执行状态机。
 
 ### 4.1 任务节点状态枚举 (Task States)
 在数据库 `tasks` 表中，每个子任务必须且只能处于以下 5 种状态之一：

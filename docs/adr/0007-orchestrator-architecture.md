@@ -460,6 +460,10 @@ class TestAgentExecutor:
 | 自动化程度 | 用户配置 vs. 自动处理 | **自动化优先** | 复杂决策由后端 Orchestrator 自动完成，不暴露给用户 |
 | 消息来源建模 | agentName 字符串 vs. 一等来源字段 | **sourceType/contentType/metadata** | 支持系统整理、产物归属、审计和后续重新综合 |
 | Orchestrator 模型 | 借用成员 Agent vs. 独立配置 | **独立 orchestratorProvider/orchestratorModel** | 中枢是编排层能力，不应受某个成员 Agent 的模型身份影响 |
+| 调度器第一版形态 | 自动执行 vs. Plan-first dry-run | **只生成 draft plan** | 先可视化和调试调度脑子，避免过早唤醒真实 Agent |
+| 调度器 Agent | 硬编码服务 vs. Engine + Skill Agent | **特殊 Agent Profile** | 与 Agent = Engine + Skill Bindings + Context Policy 的产品模型保持一致 |
+| 任务分配口径 | 只按 Agent vs. 只按 Skill vs. 二者同时保留 | **required_skills + assigned_agent_id + reason** | 执行按 Agent，解释和兜底按能力 |
+| 第一版 Engine | ClaudeCode CLI vs. LLM 假 Agent | **LLM 假 Agent** | 真实 CLI 接入前先跑通结构化计划链路 |
 
 ---
 
@@ -558,6 +562,95 @@ class TokenEvent:
 | 4 | 前端全链路 | CollaborationView 独立面板, SSE 事件驱动, CollabProgressCard(思考/计划/工具), ChatWindow 增强 |
 | 5 | 测试+文档+收尾 | 独立组件单测, Executor 集成, E2E, 全量回归 |
 
+## 13. Plan-first 调度器收敛决策 (2026-06-04)
+
+本节记录 2026-06-04 需求对齐后的 Orchestrator 优化方向。该方向不推翻 Phase 3 已完成的 Pipeline/DAG/CollaborationPanel 基础设施，而是将调度入口收敛为“先产出可解释计划，再进入执行”的 Plan-first 模式。
+
+### 13.1 Agent 与 Skill 模型
+
+AgentHub 的 Agent 模型统一为：
+
+```text
+Agent = Engine + Skill Bindings + Context Policy
+```
+
+- `Engine` 可以是 LLM API、ClaudeCode CLI、Codex CLI 等。
+- `Skill Bindings` 来自全局 Skill Pool，包含一个 `primary_skill` 和多个 `auxiliary_skills`。
+- `Context Policy` 决定执行时如何注入 Project、Session、Pin、Reply、Artifact 等上下文。
+- Orchestrator 也是一个特殊 Agent，第一版使用 LLM 假 Agent + orchestrator planner skill。
+
+Skill 是全局池子；Agent 只是绑定其中一组 Skill。运行时由 Prompt Assembly 从 Skill Pool 捞出 Agent 的 primary/auxiliary skills，再与任务上下文一起组装。第一版只要求 Orchestrator 能看见 Agent Profile 快照并据此分配任务，不实现完整执行 Prompt Assembly。
+
+### 13.2 第一版边界
+
+第一版只实现：
+
+```text
+用户输入 -> LLM 假 Orchestrator -> draft plan JSON -> 后端 parse/validate/normalize -> 前端调试台可视化
+```
+
+明确不做：
+
+- 自动执行子 Agent。
+- Plan 修订交互。
+- 真实 ClaudeCode/Codex CLI 调用。
+- 完整执行 Prompt Assembly。
+- 资源感知、Git 分支、文件锁、复杂 DAG 编辑器。
+- 风险矩阵、能力缺口分析等高级规划字段。
+
+### 13.3 Plan 最小契约
+
+顶层字段：
+
+```json
+{
+  "plan_id": "plan_001",
+  "status": "draft",
+  "execution_policy": "manual_approval_required",
+  "tasks": [],
+  "execution_strategy": {
+    "summary": "先需求和契约，再并行实现，最后验收。",
+    "phases": []
+  }
+}
+```
+
+每个任务字段：
+
+```json
+{
+  "task_id": "T1",
+  "title": "架构设计与接口契约",
+  "goal": "明确系统模块、API 契约和数据模型",
+  "required_skills": ["architecture", "api_design"],
+  "assigned_agent_id": "mock_architect",
+  "assigned_agent_name": "架构专家",
+  "assignment_reason": "匹配 architecture 主 skill",
+  "depends_on": [],
+  "expected_outputs": ["document"],
+  "acceptance_criteria": ["产出 API 契约", "产出数据模型"],
+  "needs_approval": true,
+  "is_blocking": true
+}
+```
+
+任务拆分粒度为模块/交付物级，不拆到“创建文件、安装依赖、写函数”这类代码步骤级。执行 Agent 后续自行决定技术动作。
+
+### 13.4 调试台输出
+
+dry-run API 至少返回：
+
+- `input`：用户原始输入。
+- `orchestrator_agent`：本次调度器 Agent Profile。
+- `candidate_agents`：可调度 Agent 快照。
+- `raw_output`：LLM 原始输出。
+- `normalized_plan`：后端规范化后的计划。
+- `validation`：结构校验结果。
+
+Validator 第一版强校验 DAG 结构：`task_id` 唯一、`depends_on` 引用存在、无循环依赖、至少有起点任务。内容质量问题先记录 warning，不阻断 dry-run。
+
+---
+
 ## 14. 最终用户交互设计 (2026-06-01 Grill Part 2)
 
 > 详细规格见 **[docs/specs/phase3/02-orchestrator/](../specs/phase3/02-orchestrator/README.md)**。本节省略实现细节，仅记录架构决策。
@@ -624,17 +717,14 @@ class TokenEvent:
 
 ---
 
-## 13. 版本历史
+## 15. 版本历史
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
+| 2026-06-04 | v1.6 | Plan-first 调度器收敛: LLM 假 Agent、draft plan、最小 Plan 契约、dry-run 调试台输出 |
 | 2026-06-01 | v1.5 | Grill Part 4: Orchestrator 中枢独立模型配置 |
 | 2026-06-01 | v1.4 | Grill Part 3: 自动项目小队、中枢总结、消息来源一等建模 |
 | 2026-06-01 | v1.3 | Grill Part 2: 混合 DAG、上下文共享、面板+气泡、phase_change 协议、最终交互设计 |
-| 2026-06-01 | v1.2 | 5 Step 实现完成: 组件独立化、Agent 元数据匹配、6 角色模板、自动链式、CollaborationView、超时/中断/全失败 |
-| 2026-06-01 | v1.1 | Grill 决议: 组件拆分, 链式运行时传递, V1 删除, 优先级链, 事件协议, 错误处理, 开发步骤 |
-| 2026-05-28 | v1.0 | 初始架构设计: Pipeline 四阶段, 三种执行模式, SSE 协议, 错误处理矩阵 |
-|------|------|------|
 | 2026-06-01 | v1.2 | 5 Step 实现完成: 组件独立化、Agent 元数据匹配、6 角色模板、自动链式、CollaborationView、超时/中断/全失败 |
 | 2026-06-01 | v1.1 | Grill 决议: 组件拆分, 链式运行时传递, V1 删除, 优先级链, 事件协议, 错误处理, 开发步骤 |
 | 2026-05-28 | v1.0 | 初始架构设计: Pipeline 四阶段, 三种执行模式, SSE 协议, 错误处理矩阵 |
