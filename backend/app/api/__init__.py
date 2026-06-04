@@ -6,8 +6,10 @@ from .settings import router as settings_router
 from .providers import router as providers_router
 from .artifacts import router as artifacts_router
 from .messages import router as messages_router
+from .projects import router as projects_router
 
 api_router = APIRouter(prefix="/api")
+api_router.include_router(projects_router)
 api_router.include_router(sessions_router)
 api_router.include_router(chat_router)
 api_router.include_router(agents_router)

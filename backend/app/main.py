@@ -25,6 +25,9 @@ async def lifespan(app: FastAPI):
 
     async with AsyncSessionLocal() as db:
         from sqlalchemy import select
+        from .services.project_service import ProjectService
+        await ProjectService(db, event_bus=_event_bus).attach_legacy_sessions_to_default_project()
+
         result = await db.execute(select(AgentConfig).limit(1))
         if not result.scalars().first():
             db.add(AgentConfig(
