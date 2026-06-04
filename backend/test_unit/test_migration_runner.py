@@ -106,6 +106,18 @@ class TestMigrationRunner:
         columns = {row[1] for row in result.fetchall()}
         assert "version" in columns
         assert "parent_artifact_id" in columns
+        assert "project_id" in columns
+        assert "file_path" in columns
+        assert "preview_id" in columns
+
+        result = await conn.execute(text("PRAGMA table_info('sessions')"))
+        columns = {row[1] for row in result.fetchall()}
+        assert "project_id" in columns
+
+        result = await conn.execute(text(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='projects'"
+        ))
+        assert result.fetchone() is not None
 
     async def test_fts_virtual_table_created(self, conn):
         from migrations.migration_runner import run

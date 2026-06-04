@@ -65,6 +65,18 @@ async def test_new_columns_exist(test_client):
         art_cols = {row[1] for row in r.fetchall()}
         assert "version" in art_cols
         assert "parent_artifact_id" in art_cols
+        assert "project_id" in art_cols
+        assert "file_path" in art_cols
+        assert "preview_id" in art_cols
+
+        r = await s.execute(text("PRAGMA table_info('sessions')"))
+        session_cols = {row[1] for row in r.fetchall()}
+        assert "project_id" in session_cols
+
+        r = await s.execute(text(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='projects'"
+        ))
+        assert r.scalar() is not None
 
 
 @pytest.mark.asyncio
