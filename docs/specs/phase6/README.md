@@ -1,199 +1,179 @@
-# Phase 6: Workspace Runtime + CLI 适配器 + 产物入口桥接 📋 PLANNED
+# Phase 6: Workspace Runtime + CLI 适配器 + 产物入口桥接
 
-**关联 ADR**: [ADR-0008](../../adr/0008-revised-development-strategy.md) §6, [ADR-0009 Project-Workspace 模型](../../adr/0009-project-workspace-model.md)  
-**关联 PRD**: [PRD-01: Architecture Adapter](../../PRD/01-Architecture_Adapter.md), [PRD-05: End-to-End Flow](../../PRD/05-End_to_End_Product_Flow.md), [PRD-06: MVP Local Workspace](../../PRD/06-MVP_Local_Workspace_Delivery.md)  
-**依赖**: Phase 3 (BaseAgentAdapter / EventBus), Phase 5 (ArtifactService)  
-**状态**: 计划中
+**状态**: 📋 计划中
+**版本**: v3.0
+**更新日期**: 2026-06-04
+**关联 ADR**: [ADR-0005](../../adr/0005-target-architecture.md)、[ADR-0009](../../adr/0009-project-workspace-model.md)
+**关联 PRD**: [PRD-01](../../PRD/01-Architecture_Adapter.md)、[PRD-05](../../PRD/05-End_to_End_Product_Flow.md)、[PRD-06](../../PRD/06-MVP_Local_Workspace_Delivery.md)
+**依赖**: Phase 3（BaseAgentAdapter / EventBus / SessionService）、Phase 5（ArtifactService）
 
 ---
 
 ## 1. 全局定位
 
-Phase 5 已完成”已有 Artifact 的工作台能力”。Phase 6 的任务是补上它的上游执行底座，并引入 **Project** 作为顶层组织实体（详见 [ADR-0009](../../adr/0009-project-workspace-model.md)）：
+Phase 5 完成了"已有 Artifact 的工作台能力"（版本链、Diff、在线编辑），但产物是哪里来的？Agent 在哪个目录执行的？如何从 CLI 输出变成聊天里的产物卡片？
+
+Phase 6 回答这三个问题。它引入 **Project** 作为顶层组织实体，实现三个 CLI 工具的专属适配器，并打通从 CLI 输出到 Artifact Card 的完整链路：
 
 ```text
 创建 Project + 绑定 workspace 目录
-  -> 在 Project 下创建私聊/群聊 Session
-  -> 用户输入 / Orchestrator 子任务
-  -> CLI Agent 以 Project.workspace_path 为 cwd 执行
-  -> stdout/stderr 语义解析 → 分层渲染（文本/进度/产物/交互）
-  -> artifact.detected / artifact.created
-  -> 聊天流出现 Artifact Card
+  → 在 Project 下创建私聊/群聊 Session
+  → 用户输入 / Orchestrator 子任务
+  → 路由到对应 Adapter: ClaudeCodeAdapter | CodexAdapter | OpenCodeAdapter
+  → CLI Agent 以 Project.workspace_path 为 cwd 执行
+  → stdout/stderr 语义解析 → 分层渲染（文本/进度/产物/交互）
+  → 标准化事件 → Artifact Bridge 检测产物
+  → artifact.created → 聊天流 Artifact Card → Drawer 预览/编辑/版本化
 ```
 
-Phase 6 完成后，AgentHub 不再只是“聊天里生成一段文本”。它必须能明确回答：
+Phase 6 完成后，AgentHub 能明确回答：
 
-- 代码被创建在哪里。
-- CLI Agent 的 `cwd` 是什么。
-- 文件变更如何被捕获。
-- Agent 输出如何变成可预览、可编辑、可版本化的 Artifact。
-
----
-
-## 2. 板块目标
-
-Phase 6 作为 Phase 5 之后的合理下一阶段，分三层补齐端到端执行链路：
-
-1. **Project + Workspace Runtime**：引入 Project 实体，绑定 workspace 目录；Project 下所有 Session 共享此目录。提供文件树、Diff、预览、snapshot 等基础能力。
-2. **CLI Agent Adapter**：每个 CLI 工具单独适配（`ClaudeCodeAdapter`、`CodexAdapter`、`OpenCodeAdapter`），通过 PTY/subprocess 管理进程，对 stdout 做语义分层解析（文本→消息、进度→状态条、Diff/代码块→Artifact Card、交互提示→确认卡片）。
-3. **Artifact Output Bridge**：将 CLI Agent 输出和 workspace 文件变更转换为标准 Artifact 事件。
-
-**关键原则**：
-
-- Project 是顶层组织实体，所有聊天必须属于某个 Project。不存在"无 Project 的聊天"。
-- CLI 工具由用户在外部安装（`npm install -g` 等），AgentHub 只管理配置（executable、init_args、env vars）。
-- CLI Wrapper 是 AgentHub 唯一的 Agent 执行模式。所有 Agent 必须通过 PTY/subprocess 管理，以 Project.workspace_path 为 cwd 执行。
-- Orchestrator 不直接读写文件；它只派发任务并引用 workspace / artifact 上下文。
-- Adapter 不直接写业务表，只输出标准事件；WorkspaceService 和 ArtifactService 负责落库。
+- 代码被创建在哪里 → `Project.workspace_path` 下
+- CLI Agent 的 cwd 是什么 → `Session → Project.workspace_path`
+- 文件变更如何被捕获 → 执行前后 hash diff
+- Agent 输出如何变成 Artifact → 分层解析 → artifact.detected → artifact.created → Card
 
 ---
 
-## 3. 子模块
+## 2. 子模块索引
 
-### Module 6A: Workspace Runtime
-
-| 维度 | 内容 |
-|------|------|
-| **Spec** | [00-workspace-runtime.md](00-workspace-runtime.md) |
-| **后端** | `backend/app/models/workspace.py`, `backend/app/services/workspace_service.py`, `backend/app/infrastructure/local_workspace_provider.py`, `backend/app/api/workspaces.py` |
-| **数据库** | `projects` 表（新增）+ `sessions.project_id`；`artifacts.project_id/file_path/preview_id` |
-| **职责** | 创建/绑定本机 workspace、路径安全、文件树、Diff、snapshot、静态预览、为 CLI 提供可信 `cwd` |
-
-### Module 6B: CLI Process Manager
-
-| 维度 | 内容 |
-|------|------|
-| **Spec** | [01-cli-adapter.md](01-cli-adapter.md) §4 |
-| **后端** | `backend/app/infrastructure/cli_process_manager.py` |
-| **职责** | PTY/subprocess 进程孵化、使用 `workspace_path` 作为 CWD、环境变量隔离、心跳超时、SIGTERM/SIGKILL |
-
-### Module 6C: Stream Sanitizer (ANSI 清洗)
-
-| 维度 | 内容 |
-|------|------|
-| **Spec** | [01-cli-adapter.md](01-cli-adapter.md) §5 |
-| **后端** | `backend/app/infrastructure/stream_sanitizer.py` |
-| **职责** | ANSI 转义码过滤、分块 SSE 推送、TUI 组件降级渲染 |
-
-### Module 6D: Interactive Prompt Interception
-
-| 维度 | 内容 |
-|------|------|
-| **Spec** | [01-cli-adapter.md](01-cli-adapter.md) §6 |
-| **后端** | `backend/app/infrastructure/prompt_interceptor.py` |
-| **前端** | `InteractivePromptCard.tsx` |
-| **职责** | 阻塞特征匹配 → 暂停推流 → 前端确认卡片 → stdin 回写 |
-
-### Module 6E: CLI Agent Adapter
-
-| 维度 | 内容 |
-|------|------|
-| **Spec** | [01-cli-adapter.md](01-cli-adapter.md) §7（基类）+ §8（Per-CLI 接入方案） |
-| **后端** | `backend/app/agents/cli_adapter.py`（基类）、`claude_code_adapter.py`、`codex_adapter.py`、`opencode_adapter.py`（子类） |
-| **职责** | 基类整合 Process/Sanitizer/Interceptor；三个子类各自实现 CLI 专属的输出解析、交互匹配、产物检测；在 AgentPanel 中选择 CLI 工具类型并配置 executable/init_args/env vars |
-
-### Module 6F: Artifact Output Bridge
-
-| 维度 | 内容 |
-|------|------|
-| **Spec** | [02-artifact-output-bridge.md](02-artifact-output-bridge.md) |
-| **后端** | `backend/app/services/artifact_detection_service.py` 或 ArtifactService 扩展 |
-| **职责** | 将 CLI/API Agent 输出中的代码块、patch、workspace 文件变更摘要转换为 `artifact.detected`，再由 ArtifactService 创建 Artifact 与 Artifact Card |
+| 模块 | Spec 文档 | 核心交付 |
+|------|----------|---------|
+| **6A: Workspace Runtime** | [00-workspace-runtime.md](00-workspace-runtime.md) | Project 实体 + workspace 目录管理 + 文件树/Diff/预览 + 路径安全 |
+| **6B-6E: CLI Adapter** | [01-cli-adapter.md](01-cli-adapter.md) | ClaudeCodeAdapter / CodexAdapter / OpenCodeAdapter + PTY 进程管理 + ANSI 清洗 + 交互拦截 + 分层渲染 |
+| **6F: Artifact Bridge** | [02-artifact-output-bridge.md](02-artifact-output-bridge.md) | 输出检测规则 + 置信度分层 + artifact.detected → artifact.created 桥接 |
 
 ---
 
-## 4. 验收标准
+## 3. 关键原则
 
-### Workspace Runtime
-
-- [ ] **6A-1**: 新建 Project 时绑定 workspace 目录，记录 `projects.workspace_path`。Project 下创建 Session 时自动继承 workspace。
-- [ ] **6A-2**: `GET /api/projects/{id}/tree` 返回 workspace 内相对文件树。
-- [ ] **6A-3**: 任何 `../` 越界读取、写入、预览请求都会被拒绝（基于 Project.workspace_path 边界校验）。
-- [ ] **6A-4**: Agent 执行前后 hash diff 能识别 created/modified/deleted 文件。
-- [ ] **6A-5**: 静态 HTML workspace 能生成 `previewId`，并通过后端 preview URL 打开。
-- [ ] **6A-6**: Artifact 可绑定 `project_id/file_path/preview_id`。
-
-### CLI Adapter
-
-- [ ] **6B-1**: AgentConfig 中 `agent_type='cli_wrapper'`，配置 `executable` + `init_args` → 启动对应 CLI 进程。
-- [ ] **6B-2**: CLI 进程启动时的 `cwd` 必须等于当前 Session 所属 Project 的 `workspace_path`。
-- [ ] **6B-3**: 进程 stdout → 语义分层解析（文本/进度/产物/交互）→ 实时推流到前端（延迟 < 100ms）。
-- [ ] **6B-4**: 用户关闭网页 → 3 分钟后进程收到 SIGTERM → 进程正常退出。
-- [ ] **6B-5**: stdout 静默超过 5 分钟 → 判定死锁 → SIGKILL → 前端显示”进程已超时”。
-- [ ] **6C-1**: ANSI 颜色码 `\x1b[31mError\x1b[0m` → 前端收到 `Error`。
-- [ ] **6D-1**: CLI 输出 `Do you want to run this? (y/n)` → 前端弹出交互卡片。
-- [ ] **6D-2**: 用户点击同意/拒绝 → stdin 写入 `y\n` / `n\n` → 进程继续。
-- [ ] **6E-1**: 每个 CLI 工具单独适配：`ClaudeCodeAdapter`、`CodexAdapter`、`OpenCodeAdapter`，各自理解该 CLI 的特定输出格式。
-- [ ] **6E-2**: AgentPanel 可配置 executable 路径、init_args、env vars（CLI 工具由用户在外部安装）。
-- [ ] **6E-3**: 分层渲染：spinner/进度 → 状态条；文本 → 消息气泡；Diff/代码块 → Artifact Card；交互提示 → 确认卡片。
-
-### Artifact Bridge
-
-- [ ] **6F-1**: CLI/API Agent 输出 HTML/TSX/patch 代码块 → 触发 `artifact.detected`。
-- [ ] **6F-2**: workspace 文件变更摘要 → 能创建 `file_tree` 或 `code_diff` Artifact。
-- [ ] **6F-3**: Artifact 创建后聊天流追加 Artifact Card，绑定 `artifact_id/message_id/task_id/version/workspace_id`。
-- [ ] **6F-4**: Orchestrator 子任务带 `expected_outputs` 时，任务完成前能关联至少一个 Artifact 或明确失败原因。
-- [ ] **6F-5**: 创建出的 Artifact 可直接进入 Phase 5 versions/diff/edit API。
-
----
-
-## 5. 上下游契约
-
-| 方向 | 契约 |
+| 原则 | 依据 |
 |------|------|
-| 上游输入 | 用户创建 Project（绑定 workspace_path）、Project 下创建 Session、用户聊天消息、Orchestrator 子任务、AgentConfig(cli_wrapper) |
-| 本阶段输出 | `project.created`、`workspace.diff_ready`、`agent.output`、`interactive_prompt`、`artifact.detected`、`artifact.created` |
-| 下游消费 | Phase 5 Artifact 版本/Diff/编辑；Phase 7 Artifact Drawer、Preview、Approval Card |
-| 未覆盖边界 | SaaS 云端 sandbox、公网部署、完整 Web IDE、多人实时协同编辑 |
+| Project 是顶层组织实体，所有聊天必须归属 Project | ADR-0009 §核心规则 1 |
+| 一个 Project 绑定一个 workspace 目录，Project 内所有 Session 共享 | ADR-0009 §核心规则 2-3 |
+| CLI Wrapper 是 AgentHub 唯一的 Agent 执行模式 | PRD-00 §核心变革点 |
+| 每个 CLI 工具单独适配（子类化 CliAgentAdapter） | ADR-0009 §配套决策 B |
+| CLI 工具由用户在外部安装，AgentHub 只管理配置 | ADR-0009 §配套决策 A |
+| stdout 语义分层解析：文本→消息、进度→状态条、产物→Card、交互→卡片 | ADR-0009 §配套决策 C |
+| Adapter 不直接写业务表，只输出标准事件 | PRD-01 §3.4 |
+| Orchestrator 不直接读写文件，只派发任务 | PRD-02 |
 
 ---
 
-## 6. 接口契约
+## 4. 跨模块事件流
 
-### Project + Workspace API
-
-```text
-# Projects
-POST /api/projects                   创建 Project（命名 + 选择/创建 workspace 目录）
-GET  /api/projects                   列出用户的所有 Project
-GET  /api/projects/{project_id}      获取 Project 详情（含 workspace_path）
-
-# Workspace（从属于 Project）
-GET  /api/projects/{project_id}/tree        文件树
-GET  /api/projects/{project_id}/files?path= 文件内容
-GET  /api/projects/{project_id}/diff        文件变更 Diff
-POST /api/workspaces/{workspace_id}/snapshot
-POST /api/workspaces/{workspace_id}/preview
-POST /api/sessions/{session_id}/workspace
 ```
-
-### CLI Interactive API
-
-```text
-POST /api/sessions/{id}/interactive_reply
-Body: { "process_id": "...", "reply": "y" }
--> 200 { "status": "acknowledged" }
-```
-
-### 新增 SSE / WebSocket 事件
-
-```json
-{"type": "workspace.created", "workspaceId": "...", "sessionId": "..."}
-{"type": "workspace.diff_ready", "workspaceId": "...", "changedFiles": 3}
-{"type": "interactive_prompt", "content": "Do you want to run this? (y/n)", "processId": "..."}
-{"type": "artifact.created", "artifactId": "...", "messageId": "...", "taskId": "...", "version": 1}
+用户发送消息
+  → ChatService 路由到 Adapter
+  → Adapter 启动 CLI 进程（cwd = Project.workspace_path）
+  → stdout → StreamSanitizer → PromptInterceptor → 分层解析
+  → SSE: agent.output (text) → 前端消息气泡
+  → SSE: agent.output (progress) → 前端状态条
+  → SSE: interactive_prompt → 前端确认卡片 → POST /interactive_reply → stdin 回写
+  → agent.process.completed
+  → ArtifactDetectionService 扫描完整输出
+  → artifact.detected → ArtifactService → artifact.created
+  → SSE: artifact.created → 前端 Artifact Card → Drawer
 ```
 
 ---
 
-## 7. 风险与缓解
+## 5. 核心 API 总览
+
+| 端点 | 方法 | 所属模块 | 说明 |
+|------|------|---------|------|
+| `/api/projects` | POST/GET | 6A | 创建/列出 Project |
+| `/api/projects/{id}` | GET/DELETE | 6A | Project 详情/归档 |
+| `/api/projects/{id}/tree` | GET | 6A | 文件树 |
+| `/api/projects/{id}/files?path=` | GET | 6A | 读取文件 |
+| `/api/projects/{id}/diff` | GET | 6A | 文件变更 Diff |
+| `/api/projects/{id}/preview` | POST | 6A | 启动预览 |
+| `/api/projects/{id}/build` | POST | 6A | 启动构建 |
+| `/api/sessions/{id}/chat` | POST (SSE) | 6B-6E | 与 CLI Agent 对话 |
+| `/api/sessions/{id}/interactive_reply` | POST | 6D | 确认/拒绝 CLI 交互提示 |
+| `/api/sessions/{id}/artifacts` | GET | 6F | 会话产物列表（Phase 5 已有） |
+
+---
+
+## 6. 全量验收标准汇总
+
+### Workspace Runtime（详见 [00-workspace-runtime.md](00-workspace-runtime.md) §6）
+
+- AC-WS-01: 创建 Project → 目录被创建 + `.agenthub/project.json` 存在
+- AC-WS-02: 同一 Project 下多 Session → Agent cwd 指向同一目录
+- AC-WS-03: 文件树返回相对路径，`../` 越界返回 403
+- AC-WS-04: 静态 HTML 项目 → preview URL 可访问
+- AC-WS-05: Agent 执行前后 hash diff 正确识别文件变更
+
+### CLI Adapter（详见 [01-cli-adapter.md](01-cli-adapter.md) §6）
+
+- AC-CLI-01: 好友列表预置三个 Agent，各自显示名称 + 头像 + 版本 + 状态
+- AC-CLI-02: [+] 按钮 → 添加 Agent 弹窗 → 检测 executable → 绿色指示灯
+- AC-CLI-03: Agent ⋮ → [发起对话] → 选 Project → 创建 Session → 进入聊天
+- AC-CLI-04: 消息发送 → CLI 进程以 workspace_path 为 cwd 启动
+- AC-CLI-05: stdout → 分层渲染（文本/进度/产物/交互）
+- AC-CLI-06: ANSI 码完全清洗，前端无乱码
+- AC-CLI-07: `(y/n)` → 确认卡片 → 用户响应 → stdin 回写
+- AC-CLI-08: 三个 CLI 各自正确识别 diff 格式并发送 artifact_signal
+- AC-CLI-09: 同一 Project 下两个私聊 → 两个独立 CLI 进程 → 互不影响
+- AC-CLI-10: 超时/断连 → 进程自动终止 + 前端明确提示
+
+### Artifact Bridge（详见 [02-artifact-output-bridge.md](02-artifact-output-bridge.md) §6）
+
+- AC-BR-01: HTML 代码块 → artifact.detected（web_preview, ≥ 0.80）→ artifact.created
+- AC-BR-02: Diff 代码块 → artifact.detected（code_diff）→ artifact.created
+- AC-BR-03: workspace 文件变更 → file_tree Artifact
+- AC-BR-04: 代码块未闭合 → 不触发 Artifact
+- AC-BR-05: 低置信度（0.5-0.79）→ 候选不落库
+- AC-BR-06: expected_outputs → 对应类型阈值降低 0.20
+- AC-BR-07: Artifact Card 绑定全量字段（artifactId/messageId/taskId/projectId/version）
+
+---
+
+## 7. 测试策略总览
+
+| 层级 | 条数 | 覆盖 |
+|------|------|------|
+| 单元测试 | ~90 条 | Workspace(22) + CLI Adapter(50) + Artifact Bridge(18) |
+| 集成测试 | 5 场景 | Project→Session→cwd、Mock CLI→SSE、Diff→Artifact 全链路 |
+| E2E | 4 场景 | 创建 Project→CLI Agent 执行→Artifact Card→Drawer 预览 |
+
+---
+
+## 8. 上下游总契约
+
+| 方向 | 输入/输出 |
+|------|----------|
+| **上游输入** | Phase 3: SessionService、EventBus、BaseAgentAdapter；Phase 5: ArtifactService |
+| **本阶段输出** | Project CRUD API、CLI Agent 执行引擎、Artifact 桥接服务、分层渲染事件流 |
+| **下游消费** | Phase 5: Artifact 版本/Diff/编辑 API；Phase 7: Artifact Drawer、Preview 渲染、Approval Card |
+| **未覆盖边界** | SaaS 云端 sandbox（→ P2）；公网部署（→ P2）；完整 Web IDE（不做）；多人实时协同编辑（不做） |
+
+---
+
+## 9. 风险与缓解
 
 | 风险 | 缓解 |
 |------|------|
-| Workspace 概念引入后影响普通聊天 | 普通聊天 session 可不绑定 workspace；只有项目型 session 强制绑定 |
-| 本机路径越界 | 所有路径使用 `resolve()` 校验，前端不直接持有本机路径 |
-| Windows 文件监听不稳定 | MVP 使用执行前后 hash diff，不依赖常驻 watcher |
-| CLI 工具版本差异导致解析失败 | 阻塞特征和 Artifact 检测用正则 + expected_outputs 辅助 |
-| CLI 长时间占用资源 | 心跳超时、静默超时、总执行时间上限 |
-| Artifact 与 workspace 双版本源冲突 | Artifact 记录 `workspace_id/file_path/preview_id`，workspace snapshot 作为文件系统版本边界 |
+| CLI 工具版本差异导致解析失败 | Per-CLI 专属 Adapter 各自理解该 CLI 格式；阻塞特征用正则 + 滑动窗口；artifact_signal 用 expected_outputs 辅助 |
+| Windows 文件监听不稳定 | 使用执行前后 hash diff，不依赖常驻文件 watcher |
+| CLI 进程长时间占用资源 | 三重超时：静默 5min → SIGKILL；断连 3min → SIGTERM；总时长 30min → SIGKILL |
+| Workspace 概念影响普通聊天体验 | 所有聊天必须归属 Project；Project 创建流程在首次使用时引导，降低认知负担 |
+| Artifact 与 workspace 双版本源冲突 | Artifact 记录 project_id/file_path/preview_id；workspace snapshot 作为文件系统版本边界 |
 
+---
+
+## 10. Phase 完成后全局影响
+
+Phase 6 完成后：
+
+- `sessions.workspace_id` 废弃，改用 `sessions.project_id`（→ Project.workspace_path）
+- `agent_configs` 表新增 executable / init_args / env_vars 字段
+- `artifacts` 表新增 project_id / file_path / source / confidence / task_id 字段
+- AgentPanel 新增 CLI 包装器配置模式
+- 前端新增 ProjectList 页面和 Project 工作区布局
+
+> **版本历史**
+> - v1.0 (2026-06-02): 初始版本
+> - v2.0 (2026-06-04): 引入 Project 模型 + Per-CLI 适配 + 分层渲染
+> - v3.0 (2026-06-04): 按新 Spec 模板全面重构，去 MVP 最小实现限制，全量覆盖

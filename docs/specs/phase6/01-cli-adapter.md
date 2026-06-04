@@ -1,626 +1,427 @@
 # Spec: Phase 6B-6E — CLI Agent 适配器
 
-**版本**: v2.0
+**版本**: v3.0
 **更新日期**: 2026-06-04
 **状态**: Draft
-**关联**: [PRD-01](../../PRD/01-Architecture_Adapter.md), [PRD-05](../../PRD/05-End_to_End_Product_Flow.md), [PRD-06](../../PRD/06-MVP_Local_Workspace_Delivery.md), [ADR-0008](../../adr/0008-revised-development-strategy.md) §6, [ADR-0009](../../adr/0009-project-workspace-model.md)
-**依赖**: Phase 6A Workspace Runtime, Phase 3 (BaseAgentAdapter 接口, AgentPanel 配置)
+**关联 ADR/PRD**: [ADR-0005](../../adr/0005-target-architecture.md)、[ADR-0009](../../adr/0009-project-workspace-model.md)、[PRD-01](../../PRD/01-Architecture_Adapter.md)
+**依赖模块**: Phase 6A Workspace Runtime、Phase 3 EventBus / BaseAgentAdapter
 
 ---
 
 ## 1. 目标
 
-实现 PRD-01 定义的 CLI Agent 封装能力，完整覆盖以下三层：
+将用户本机安装的真实 CLI Agent 工具（Claude Code、Codex、OpenCode）接入 AgentHub 的好友列表。每个 Agent 就是那个 CLI 工具本身——不是被赋予了"前端专家"之类角色身份的 AI 助手。用户在 Project 下与 Agent 发起一个私聊对话，等价于在终端里为该 Project 目录新开一个 CLI 实例。
 
-1. **通用进程管理层**（Module 6B-6D）：PTY/subprocess 孵化、ANSI 清洗、交互式拦截——所有 CLI 工具共享的基础设施。
-2. **Per-CLI 适配层**（§8）：为 Claude Code、Codex、OpenCode 三个 CLI 工具分别实现专属 Adapter 子类，各自理解该 CLI 的特定输出格式、交互模式、产物信号。
-3. **统一事件输出层**（Module 6E-6F）：所有 Adapter 通过 `BaseAgentAdapter` 接口产出标准化事件（`agent.output` / `artifact.detected` / `interactive_prompt`），实现分层渲染（文本→消息、进度→状态条、产物→Artifact Card、交互→确认卡片）。
+本模块通过 PTY/subprocess 管理每个对话对应的 CLI 进程生命周期，实现 stdin/stdout 桥接、ANSI 清洗、交互式拦截，并把 CLI 输出转换为标准化事件（`agent.output` / `artifact.detected` / `interactive_prompt`），最终实现分层渲染——文本进消息气泡、进度进状态条、产物进 Artifact Card、交互进确认卡片。
 
-CLI Wrapper 是 AgentHub 唯一的 Agent 执行模式。CLI Agent 必须依赖 [00-workspace-runtime.md](00-workspace-runtime.md) 提供的可信 `workspace_path`（来自 `Session → Project.workspace_path`），不得脱离 workspace 执行。
+**成功标准**（可证伪）：
+
+- [ ] 好友列表预置三个 Agent：Claude Code、Codex、OpenCode，各自显示名称、头像、版本号、状态
+- [ ] 用户点击 Agent 的 ⋮ → [发起对话] → 选择 Project → 在对话列表栏出现新会话 → 自动进入聊天
+- [ ] 用户发送"写一个 Hello World 的 HTML 页面" → ClaudeCodeAdapter 启动一个新的 `claude` 进程（cwd=Project.workspace_path）→ 聊天流中出现打字机流式文本 + 状态条 → HTML 代码块自动变为 Artifact Card
+- [ ] 同一 Project 下创建两个 Claude Code 私聊 → 后端有两个独立的 `claude` 进程（不同 PID），互不影响
+- [ ] Claude Code 输出 `Do you want to run this? (y/n)` → 聊天流弹出确认卡片 → 用户点击"同意"→ stdin 写入 `y\n` → 进程继续 → 卡片消失
+- [ ] 三个 CLI 的 Adapter 分别能正确识别各自 CLI 的 diff 输出格式并转为 `artifact.detected` 事件
+- [ ] 不通过标准：任一 CLI Adapter 对 ANSI 码处理不净导致前端出现乱码；任一 CLI 的交互式提示未被拦截导致进程永久挂起
 
 ---
 
-## 2. 全局链路定位
+## 2. 全局定位
+
+### 2.1 北极星链路位置
 
 ```text
-Session.project_id
-  -> Project.workspace_path
-  -> 用户输入 / Orchestrator 子任务
-  -> 路由到对应 Adapter 子类:
-       ClaudeCodeAdapter | CodexAdapter | OpenCodeAdapter
-  -> ProcessManager 使用 cwd=project.workspace_path
-  -> StreamSanitizer / PromptInterceptor（通用层）
-  -> Per-CLI 分层解析（§8.1-8.3 各自的输出格式规则）
-  -> 标准化事件: agent.output / interactive_prompt / artifact.detected
-  -> Phase 6F Artifact Output Bridge
-  -> artifact.created → Artifact Card → Drawer
+用户创建 Project → 在 Project 下配置 CLI Agent（AgentPanel）
+  → 创建私聊/群聊 → 发送消息
+  → [本模块] 路由到对应 Adapter 子类（ClaudeCode/Codex/OpenCode）
+  → PTY/subprocess 孵化 CLI 进程（cwd = Project.workspace_path）
+  → stdin 注入 prompt → stdout 读取 → ANSI 清洗 → 交互拦截 → 分层解析
+  → 标准化事件 → SSE/WebSocket 推送到前端
+  → 前端分层渲染（文本→消息、进度→状态条、产物→Card、交互→卡片）
+  → Artifact Bridge 创建 Artifact → Drawer
 ```
 
-Agent 输出到 Artifact 的检测、落库和聊天卡片创建由 [02-artifact-output-bridge.md](02-artifact-output-bridge.md) 负责。Per-CLI 适配器的具体接入方案定义于本文档 §8。
+### 2.2 上下游契约
+
+| 方向 | 模块/事件/API | 本模块的角色 |
+|------|-------------|------------|
+| **上游输入** | WorkspaceService.get_workspace_path(session_id) → cwd；AgentConfig（executable、init_args、env vars）；用户聊天消息 / Orchestrator 子任务 | 消费 workspace_path 作为进程 cwd；消费 AgentConfig 作为进程启动参数 |
+| **下游产出** | `agent.output`（文本块）、`interactive_prompt`（确认请求）、`artifact.detected`（产物信号）、进程生命周期事件（started/completed/timeout） | 产出标准化事件供 SSE 推送和 Artifact Bridge 消费 |
+| **本模块不通** | 不创建 Artifact 数据库记录（→ Artifact Bridge）；不渲染 Drawer（→ Phase 7）；不在 AgentHub 内安装 CLI 工具（用户在外部安装） | |
 
 ---
 
-## 3. 核心架构
+## 3. 跨模块契约
 
-```
-┌──────────────────────────────────────────────────────────┐
-│                    AgentPanel (前端)                       │
-│  Agent 类型: [cli_wrapper]                                 │
-│  CLI 工具: [Claude Code] [Codex] [OpenCode]               │
-│  配置: executable path + init_args + env_vars             │
-└──────────────────────┬───────────────────────────────────┘
-                       │
-┌──────────────────────▼───────────────────────────────────┐
-│        Per-CLI Adapter 子类 (Infrastructure)              │
-│                                                           │
-│  ┌───────────────┐ ┌──────────────┐ ┌──────────────────┐ │
-│  │ClaudeCode     │ │CodexAdapter  │ │OpenCodeAdapter   │ │
-│  │Adapter        │ │              │ │                  │ │
-│  │ §8.1          │ │ §8.2         │ │ §8.3             │ │
-│  └───────┬───────┘ └──────┬───────┘ └────────┬─────────┘ │
-│          └────────────────┼──────────────────┘           │
-│                           ▼                               │
-│            CliAgentAdapter (基类, §7)                      │
-│            implements BaseAgentAdapter                    │
-│                                                           │
-│  ┌─────────────┐  ┌──────────────┐  ┌──────────────────┐ │
-│  │ Process     │  │ Stream       │  │ Prompt           │ │
-│  │ Manager     │─▶│ Sanitizer    │─▶│ Interceptor      │ │
-│  │             │  │              │  │                  │ │
-│  │ PTY/spawn   │  │ ANSI strip   │  │ (y/n) detection  │ │
-│  │ heartbeat   │  │ chunk SSE    │  │ stdin writeback  │ │
-│  │ SIGTERM/KILL│  │              │  │                  │ │
-│  └─────────────┘  └──────────────┘  └──────────────────┘ │
-└──────────────────────────────────────────────────────────┘
-```
+### 3.1 API 端点
 
----
+| 端点 | 方法 | 请求体 | 成功响应 | 错误响应 |
+|------|------|--------|---------|---------|
+| `/api/sessions/{id}/chat` | POST | `{ "message": string, "agentId": string }` | SSE 流: `event: agent.output \| interactive_prompt \| agent.process.completed` | `400`、`404` |
+| `/api/sessions/{id}/interactive_reply` | POST | `{ "processId": string, "reply": "y" \| "n" }` | `200: { "status": "acknowledged" }` | `404`（进程不存在）、`408`（超时） |
 
-## 4. Module 6B: CLI Process Manager
+### 3.2 事件
 
-### 4.1 进程孵化
+| 事件类型 | 方向 | payload 字段 |
+|---------|------|-------------|
+| `agent.output` | Adapter → SSE | `{ sessionId, agentId, messageId, chunk: string, chunkType: "text" \| "progress" \| "artifact_signal" }` |
+| `interactive_prompt` | Adapter → SSE | `{ sessionId, agentId, processId, content: string, promptType: "confirm" }` |
+| `agent.process.started` | Adapter → EventBus | `{ sessionId, agentId, processId, executable, cwd }` |
+| `agent.process.completed` | Adapter → EventBus | `{ sessionId, agentId, processId, exitCode }` |
+| `agent.process.timeout` | Adapter → EventBus | `{ sessionId, agentId, processId, reason: "silence" \| "heartbeat" \| "total_time" }` |
 
-```python
-class CliProcessManager:
-    """CLI 进程生命周期管理器。"""
-
-    def __init__(self, executable: str, cwd: str, env: dict[str, str], init_args: list[str]):
-        self.executable = executable
-        self.cwd = cwd
-        self.env = env
-        self.init_args = init_args
-
-    async def spawn(self) -> int:
-        """孵化新进程，返回 PID。"""
-        # Unix: pty.spawn() → 提供真正的 TTY
-        # Windows: subprocess.Popen + pipes (fallback)
-        ...
-
-    async def write_stdin(self, data: str) -> None:
-        """向进程 stdin 写入数据。"""
-        ...
-
-    async def read_stdout(self, chunk_size: int = 1024) -> bytes:
-        """非阻塞读取 stdout chunk。"""
-        ...
-
-    async def terminate(self, signal: str = "SIGTERM") -> None:
-        """终止进程。先 SIGTERM，5s 后 SIGKILL。"""
-        ...
-
-    @property
-    def is_alive(self) -> bool:
-        """检查进程是否存活。"""
-        ...
-```
-
-`cwd` 只能来自 WorkspaceService 解析并校验后的 `workspace_path`。前端请求、AgentConfig 或用户 prompt 都不能直接覆盖进程 `cwd`。
-
-### 4.2 启动参数优化
-
-从 `AgentConfig.init_args` 读取（PRD-01 §3.1）：
-- Claude Code: `["--compact", "--theme=light"]`（最小化 UI 渲染符号）
-- 通用: `["--no-color"]`（从源头减少 ANSI）
-
-### 4.3 环境变量隔离
-
-```python
-def build_env(agent_config: AgentConfig) -> dict:
-    """构造隔离的环境变量字典。"""
-    env = {}
-    if agent_config.provider == "claude":
-        env["ANTHROPIC_API_KEY"] = get_api_key("anthropic")
-    # 不继承宿主机敏感环境变量
-    # 只注入该 Agent 必需的 API Key
-    return env
-```
-
-### 4.4 超时与清理
-
-| 规则 | 超时 | 动作 |
-|------|------|------|
-| stdout 静默 | 5 min | 判定死锁 → SIGKILL |
-| WebSocket 断开 | 3 min | SIGTERM → 优雅退出 |
-| 总执行时间 | 30 min | SIGKILL（防止失控） |
-
----
-
-## 5. Module 6C: Stream Sanitizer (ANSI 清洗)
-
-### 5.1 清洗规则
-
-```python
-import re
-
-ANSI_PATTERN = re.compile(r'\x1b\[([0-9]{1,2}(;[0-9]{1,2})?)?[m|K]')
-
-class StreamSanitizer:
-    """ANSI 转义码清洗器 + 分块推送。"""
-
-    def sanitize(self, raw_bytes: bytes) -> str:
-        """去除 ANSI 控制符，返回纯净文本。"""
-        text = raw_bytes.decode("utf-8", errors="replace")
-        return ANSI_PATTERN.sub("", text)
-
-    def chunk_for_sse(self, text: str, max_chunk_size: int = 200) -> list[str]:
-        """将文本拆分为适合 SSE 推送的 chunk。"""
-        # 优先在换行/句号/空格处断开
-        ...
-```
-
-### 5.2 TUI 组件降级
-
-- 进度条 `[████░░░░] 50%` → `[进度] 50%`
-- 表格边框 `┌──┬──┐` → 跳过或转为文本列表
-- 颜色代码全部移除
-
-### 5.3 SSE 推送频率
-
-每 50ms 批量推送一次，平衡延迟与开销。
-
----
-
-## 6. Module 6D: Interactive Prompt Interception
-
-### 6.1 阻塞特征匹配
-
-```python
-# 常见 CLI 工具的阻塞特征正则
-BLOCKING_PATTERNS = [
-    re.compile(r'Do you want to (run|proceed|continue)\?.*\(y/n\)', re.IGNORECASE),
-    re.compile(r'\[y/N\]'),
-    re.compile(r'\(yes/no\)'),
-    re.compile(r'Press any key to continue'),
-]
-```
-
-### 6.2 滑动窗口缓冲区
-
-```python
-class PromptInterceptor:
-    """交互式提示拦截器。"""
-
-    def __init__(self, window_size: int = 500):
-        self.buffer = ""  # 滑动窗口缓冲区
-        self.window_size = window_size
-
-    def feed(self, chunk: str) -> tuple[bool, str | None, str]:
-        """
-        返回: (is_blocked, prompt_text, safe_text)
-        - is_blocked = True → 检测到阻塞，停止推送
-        - prompt_text = 阻塞提示的原文
-        - safe_text = 可以安全推送的部分
-        """
-        self.buffer = (self.buffer + chunk)[-self.window_size:]
-        for pattern in BLOCKING_PATTERNS:
-            match = pattern.search(self.buffer)
-            if match:
-                safe = self.buffer[:match.start()]
-                prompt = match.group()
-                return True, prompt, safe
-        return False, None, chunk
-```
-
-### 6.3 前后端交互流程
-
-```
-后端 stdout 线程检测到 (y/n)
-  → 暂停 SSE text_chunk 推送
-  → 发送 SSE event: interactive_prompt {"content": "Do you want to run this? (y/n)", "processId": "..."}
-  → 前端渲染 InteractivePromptCard (同意/拒绝按钮)
-  → 用户点击 [同意] → POST /api/sessions/{id}/interactive_reply {"process_id": "...", "reply": "y"}
-  → 后端 process.stdin.write(b'y\n') + process.stdin.flush()
-  → 恢复 stdout 读取 + SSE 推送
-```
-
----
-
-## 7. Module 6E: CLI Agent Adapter（基类）
-
-`CliAgentAdapter` 是通用基类，实现 `BaseAgentAdapter` 接口，整合 ProcessManager / StreamSanitizer / PromptInterceptor 三个通用组件。Claude Code、Codex、OpenCode 的专属适配逻辑在各自子类中覆盖——详见 §8。
-
-### 7.1 实现 BaseAgentAdapter
-
-```python
-class CliAgentAdapter(BaseAgentAdapter):
-    """CLI Agent 适配器 —— 实现 BaseAgentAdapter 接口。"""
-
-    def __init__(self, agent_config: AgentConfig, workspace_path: str):
-        self.config = agent_config
-        self.workspace = workspace_path
-        self.process_manager = CliProcessManager(
-            executable=agent_config.executable,
-            cwd=workspace_path,
-            env=build_env(agent_config),
-            init_args=agent_config.init_args or [],
-        )
-        self.sanitizer = StreamSanitizer()
-        self.interceptor = PromptInterceptor()
-
-    @property
-    def capability(self) -> AgentCapability:
-        return AgentCapability(
-            name=f"CLI: {self.config.name}",
-            supports_streaming=True,
-            supports_file_input=True,   # CLI 工具可直接读写文件系统
-            supports_tool_call=True,    # CLI 工具原生具备工具调用能力
-            max_context_tokens=200_000,
-            tags=["cli", "native-tools", self.config.executable],
-        )
-
-    async def chat_stream(self, messages, system_prompt) -> AsyncIterator[str]:
-        pid = await self.process_manager.spawn()
-        try:
-            while self.process_manager.is_alive:
-                raw = await self.process_manager.read_stdout()
-                if not raw:
-                    break
-                clean = self.sanitizer.sanitize(raw)
-                is_blocked, prompt, safe = self.interceptor.feed(clean)
-                if is_blocked:
-                    yield self._build_interactive_event(prompt, pid)
-                    # 等待前端回复（通过 stdin 写入）
-                    break
-                if safe:
-                    yield safe
-        finally:
-            await self.process_manager.terminate()
-```
-
-调用方必须在创建 `CliAgentAdapter` 前通过 `session_id -> project_id -> workspace_path` 完成解析。所有 Session 必须归属某个 Project，因此始终存在可用的 workspace_path。如果查询链路异常，CLI Adapter 应拒绝执行并返回可读错误：”无法解析 workspace 路径，请检查 Project 配置”。
-
-### 7.2 AgentConfig 表扩展
-
-在现有 `agents` 表中，`agent_type` 新增枚举值 `'cli_wrapper'`：
+### 3.3 数据库 Schema 变更
 
 ```sql
--- 新增字段（如果不存在）
 ALTER TABLE agent_configs ADD COLUMN executable VARCHAR(255);
 ALTER TABLE agent_configs ADD COLUMN init_args JSON;
+ALTER TABLE agent_configs ADD COLUMN env_vars JSON;
 ```
 
-### 7.3 前端配置面板
+### 3.4 跨组件 TypeScript 类型
 
-AgentPanel 中：
-- Agent 类型下拉: `API 代理` / `CLI 包装器` ← 新增
-- 选择 CLI 包装器时 → 显示可执行文件路径输入框 + 启动参数输入框
-- 启动前检测可执行文件是否存在于 PATH 中 → 红/绿指示灯
+```typescript
+// Agent CLI 代表用户本机安装的一个 CLI 工具实例
+// 它不是 AI 角色（如"前端专家"）——它就是工具本身
+interface AgentCLI {
+  id: string;
+  name: string;              // 显示名称，默认取 CLI 工具名（"Claude Code" / "Codex" / "OpenCode"）
+  agentType: 'cli_wrapper';
+  cliTool: 'claude_code' | 'codex' | 'opencode' | 'custom';
+  executable: string;        // e.g. "claude", "codex", "opencode"
+  initArgs: string[];        // e.g. ["--compact", "--no-color"]
+  envVars: Record<string, string>;
+  status: 'ready' | 'not_found' | 'error';  // 可执行文件检测状态
+  version?: string;          // e.g. "v1.2.3"
+  executablePath?: string;   // e.g. "/usr/local/bin/claude"
+}
 
----
+// 好友列表中的每个条目
+interface FriendEntry {
+  agentId: string;
+  displayName: string;       // "Claude Code"
+  avatar: string;            // CLI 工具 logo 图标
+  status: 'ready' | 'not_found' | 'running' | 'error';
+  version?: string;
+  activeSessionCount: number; // 当前有多少个活跃对话在使用此 Agent
+}
 
-## 8. Per-CLI 接入方案
-
-以上 Module 6B-6E 定义了通用抽象层。本节定义三个 CLI 工具各自的具体接入方式。每个 CLI 子类化 `CliAgentAdapter`，覆盖启动参数、环境变量、交互模式匹配、产物检测规则。
-
-### 8.1 ClaudeCodeAdapter — 接入 Anthropic `claude` CLI
-
-**工具信息**：
-- 安装：`npm install -g @anthropic-ai/claude-code`
-- 可执行文件：`claude`
-- 认证：`ANTHROPIC_API_KEY` 环境变量（或 `claude login` OAuth）
-- 交互模式：REPL 式对话 + 工具调用循环 + 权限确认
-
-**启动参数**：
-
-```python
-# ClaudeCodeAdapter 默认 init_args
-CLAUDE_CODE_DEFAULT_ARGS = [
-    "--compact",           # 精简输出，减少装饰性 UI
-    "--no-color",          # 从源头关闭 ANSI 颜色
-    "--output-format=text", # 确保输出为纯文本/Markdown（如果 CLI 支持）
-]
-```
-
-**环境变量**：
-
-```python
-def build_claude_env(agent_config: AgentConfig) -> dict:
-    return {
-        "ANTHROPIC_API_KEY": get_api_key("anthropic"),
-        "CLAUDE_CODE_NO_COLOR": "1",     # 备用：二次确认关闭颜色
-        "NO_COLOR": "1",                 # 遵循 no-color.org 约定
-        "TERM": "dumb",                  # 降级终端能力，减少 TUI 渲染
-    }
-```
-
-**stdin 注入格式**：
-
-Claude Code 在 REPL 模式下接受多行文本输入。AgentHub 将用户的自然语言消息包装为初始 prompt，通过 stdin 写入：
-
-```python
-async def inject_prompt(self, prompt: str, system_prompt: str = "") -> None:
-    """向 Claude Code CLI 注入任务 prompt。"""
-    # Claude Code 不通过 stdin 接收 system prompt（它有自己的系统指令）
-    # system_prompt 通过环境变量或配置文件注入
-    full_prompt = f"{prompt}\n"  # 末尾换行触发执行
-    await self.process_manager.write_stdin(full_prompt)
-```
-
-**输出特征与分层解析**：
-
-| Claude Code 输出模式 | stdout 特征 | 解析为 |
-|---------------------|------------|--------|
-| 思考/分析文本 | 普通 Markdown 段落 | `agent.output` → 消息气泡 |
-| 工具调用日志 | `⏺ 正在读取文件...`、`⎿ 调用工具: Read` | 状态条（非消息） |
-| 文件修改 diff | `@@ -10,6 +10,8 @@`、彩色 diff 块 | `artifact.detected` (code_diff) |
-| 创建的代码块 | fenced code block (```html, ```tsx 等) | `artifact.detected` (web_preview / document) |
-| 权限确认 | `Do you want to run this? (y/n)` | `interactive_prompt` → 确认卡片 |
-| 任务完成摘要 | `✓ 已完成:` 开头 | `agent.output` → 消息气泡 |
-
-**交互模式特征**（PromptInterceptor 专用规则）：
-
-```python
-CLAUDE_CODE_BLOCKING_PATTERNS = [
-    re.compile(r'Do you want to (run|proceed|continue|allow)\b.*\?', re.IGNORECASE),
-    re.compile(r'\[y/n\]'),
-    re.compile(r'\(y/n\)'),
-    re.compile(r'Press Enter to continue'),
-]
-```
-
-**产物检测规则**：
-
-```python
-# Claude Code 输出中的产物信号
-CLAUDE_CODE_ARTIFACT_SIGNALS = {
-    "code_diff": [
-        r'@@ -\d+,\d+ \+\d+,\d+ @@',        # unified diff hunk
-        r'```diff\n.*?```',                   # fenced diff block
-    ],
-    "web_preview": [
-        r'```html\n.*?```',                   # HTML 代码块
-        r'```tsx\n.*?```',                    # React 组件
-        r'```jsx\n.*?```',                    # JSX 组件
-    ],
-    "file_tree": [
-        r'(Created|Modified|Deleted)\s+files?:',  # 文件变更摘要
-        r'📝\s*(Created|Updated)',            # Claude Code emoji 标记
-    ],
+interface InteractivePromptEvent {
+  type: 'interactive_prompt';
+  sessionId: string;
+  agentId: string;
+  processId: string;
+  content: string;
 }
 ```
 
 ---
 
-### 8.2 CodexAdapter — 接入 OpenAI `codex` CLI
+## 4. 行为规格
 
-**工具信息**：
-- 安装：`npm install -g @openai/codex`（待 CLI 正式发布后确认包名）
-- 可执行文件：`codex`
-- 认证：`OPENAI_API_KEY` 环境变量
-- 交互模式：任务驱动 + 执行计划 + 结果报告
+### 4.1 正常流程
 
-> ⚠️ OpenAI Codex CLI 目前处于早期阶段，以下方案基于公开文档和预期行为设计。需要在 Phase 6 开发时根据 CLI 实际行为校准。
-
-**启动参数**：
-
-```python
-CODEX_DEFAULT_ARGS = [
-    "--no-color",
-    "--plain",             # 纯文本模式，减少 TUI
-]
+```
+1. 系统 → 预置三个 Agent 在好友列表中（Claude Code / Codex / OpenCode），executable 和 init_args 预设默认值
+2. 用户 → 在项目栏选中 Project（如 📁 我的网站）
+3. 用户 → 在对话列表栏点击 [+ 新建聊天] → [👤 私聊] → 选择 [🤖 Claude Code]
+4. 前端 → POST /api/sessions { projectId, mode: "single", agentId }
+5. 用户 → 在输入框输入"写一个登录页面" → 按 Enter
+6. 后端 → ChatService → 路由到 ClaudeCodeAdapter
+7. ClaudeCodeAdapter → 从 WorkspaceService 获取 cwd → 启动新的 `claude --compact --no-color` 进程（cwd=Project.workspace_path）
+8. 进程 stdout → StreamSanitizer 清洗 ANSI → 分层解析（文本/进度/产物/交互）
+9. 文本 → SSE agent.output（chunkType="text"）→ 前端消息气泡打字机
+10. 进度 → SSE agent.output（chunkType="progress"）→ 前端状态条
+11. HTML 代码块 → SSE 携带 artifact_signal → 前端不展示在消息中，由 Artifact Bridge 异步处理 → Artifact Card 出现
+12. 用户看到完整的文本回复 + Artifact Card + 预览按钮
 ```
 
-**环境变量**：
+### 4.2 Per-CLI 交互模式差异化
 
-```python
-def build_codex_env(agent_config: AgentConfig) -> dict:
-    return {
-        "OPENAI_API_KEY": get_api_key("openai"),
-        "NO_COLOR": "1",
-        "TERM": "dumb",
-    }
-```
-
-**stdin 注入格式**：
-
-```python
-async def inject_prompt(self, prompt: str, system_prompt: str = "") -> None:
-    """向 Codex CLI 注入任务。"""
-    # Codex CLI 通常接受单行任务描述
-    full_prompt = f"{system_prompt}\n\n{prompt}\n" if system_prompt else f"{prompt}\n"
-    await self.process_manager.write_stdin(full_prompt)
-```
-
-**输出特征与分层解析**：
-
-| Codex 输出模式 | stdout 特征 | 解析为 |
-|---------------|------------|--------|
-| 执行计划 | `## Plan`、`### Step 1:` | `agent.output` → 消息气泡 |
-| 代码生成 | fenced code block | `artifact.detected` |
-| 进度指示 | `Working...`、`⠋ ⠙ ⠹ ⠸` spinner | 状态条 |
-| 文件操作确认 | `Create file X?` | `interactive_prompt` |
-| 结果报告 | `## Result` | `agent.output` |
-
-**交互模式特征**：
-
-```python
-CODEX_BLOCKING_PATTERNS = [
-    re.compile(r'Create (file|directory)\s+.*\?', re.IGNORECASE),
-    re.compile(r'Proceed with (changes|modifications)\?', re.IGNORECASE),
-    re.compile(r'\[y/N\]'),
-]
-```
-
-**产物检测规则**：
-
-```python
-CODEX_ARTIFACT_SIGNALS = {
-    "code_diff": [
-        r'```diff\n.*?```',
-        r'--- a/.*?\n\+\+\+ b/.*?',         # git diff header
-    ],
-    "web_preview": [
-        r'```html\n.*?```',
-        r'```(tsx|jsx)\n.*?```',
-    ],
-    "file_tree": [
-        r'(Creating|Writing)\s+file:\s+',   # Codex 文件操作日志
-    ],
-}
-```
-
----
-
-### 8.3 OpenCodeAdapter — 接入开源 `opencode` CLI
-
-**工具信息**：
-- 安装：`pip install opencode`（或 `pipx install opencode`）
-- 可执行文件：`opencode`
-- 认证：通过配置文件或环境变量（支持多厂商 API Key）
-- 交互模式：Agent 循环 + 工具调用 + 审查反馈
-
-**启动参数**：
-
-```python
-OPENCODE_DEFAULT_ARGS = [
-    "--no-color",
-    "--plain",
-]
-```
-
-**环境变量**：
-
-```python
-def build_opencode_env(agent_config: AgentConfig) -> dict:
-    """OpenCode 支持多模型厂商，根据 AgentConfig.provider 注入对应 Key。"""
-    env = {"NO_COLOR": "1", "TERM": "dumb"}
-    provider_key_map = {
-        "anthropic": "ANTHROPIC_API_KEY",
-        "openai": "OPENAI_API_KEY",
-        "deepseek": "DEEPSEEK_API_KEY",
-    }
-    key_name = provider_key_map.get(agent_config.provider)
-    if key_name:
-        env[key_name] = get_api_key(agent_config.provider)
-    return env
-```
-
-**stdin 注入格式**：
-
-```python
-async def inject_prompt(self, prompt: str, system_prompt: str = "") -> None:
-    """向 OpenCode CLI 注入任务。"""
-    # OpenCode 支持通过 stdin 传入初始 prompt
-    # system_prompt 可通过 -s 参数或配置文件注入
-    await self.process_manager.write_stdin(f"{prompt}\n")
-```
-
-**输出特征与分层解析**：
-
-| OpenCode 输出模式 | stdout 特征 | 解析为 |
-|------------------|------------|--------|
-| Agent 思考 | `## Thinking`、分析段落 | `agent.output` |
-| 工具调用 | `[Tool: Read]`、`[Tool: Write]` | 状态条 |
-| 代码块/patch | fenced code block、`--- a/` diff | `artifact.detected` |
-| 审查反馈 | `## Review`、问题列表 | `agent.output` |
-| 确认提示 | `Continue?`、`Apply these changes?` | `interactive_prompt` |
-
-**交互模式特征**：
-
-```python
-OPENCODE_BLOCKING_PATTERNS = [
-    re.compile(r'(Continue|Proceed|Apply)\s+(with\s+)?(changes|modifications)?\?', re.IGNORECASE),
-    re.compile(r'\[y/N\]'),
-    re.compile(r'Accept (this|these) (change|modification)s?\?', re.IGNORECASE),
-]
-```
-
-**产物检测规则**：
-
-```python
-OPENCODE_ARTIFACT_SIGNALS = {
-    "code_diff": [
-        r'```diff\n.*?```',
-        r'--- a/.*?\n\+\+\+ b/.*?',
-    ],
-    "web_preview": [
-        r'```html\n.*?```',
-        r'```(tsx|jsx)\n.*?```',
-        r'```vue\n.*?```',                  # OpenCode 可能输出 Vue SFC
-        r'```svelte\n.*?```',
-    ],
-    "file_tree": [
-        r'(Created|Modified|Deleted):\s+',  # OpenCode 文件操作前缀
-    ],
-}
-```
-
----
-
-### 8.4 三 CLI 对比总结
+三个 CLI 的正常流程在上述步骤 7-11 中因 CLI 不同而在以下维度上有差异：
 
 | 维度 | Claude Code (`claude`) | Codex (`codex`) | OpenCode (`opencode`) |
 |------|----------------------|-----------------|----------------------|
-| **可执行文件** | `claude` | `codex` | `opencode` |
-| **安装方式** | `npm install -g @anthropic-ai/claude-code` | `npm install -g @openai/codex` | `pip install opencode` |
-| **API Key 变量** | `ANTHROPIC_API_KEY` | `OPENAI_API_KEY` | 多厂商（`ANTHROPIC_API_KEY` / `OPENAI_API_KEY`） |
-| **系统提示注入** | 配置文件 / 环境变量 | stdin 前缀 | `-s` 参数 / 配置文件 |
-| **diff 输出格式** | unified diff (git-style) | fenced diff block + git header | 两者混合 |
-| **交互特征** | `Do you want to run? (y/n)` | `Create file X?` / `Proceed? [y/N]` | `Apply these changes?` |
-| **进度指示** | `⏺` / `⎿` 符号 + 工具名 | `Working...` + spinner | `[Tool: X]` 标签 |
-| **任务完成标记** | `✓ 已完成:` | `## Result` | 无固定标记（需从输出结束判定） |
-| **Adapter 类** | `ClaudeCodeAdapter` | `CodexAdapter` | `OpenCodeAdapter` |
-| **后端文件** | `backend/app/agents/claude_code_adapter.py` | `backend/app/agents/codex_adapter.py` | `backend/app/agents/opencode_adapter.py` |
+| **启动命令** | `claude --compact --no-color` | `codex --no-color --plain` | `opencode --no-color --plain` |
+| **API Key 来源** | `ANTHROPIC_API_KEY` 环境变量 | `OPENAI_API_KEY` 环境变量 | 多厂商（`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `DEEPSEEK_API_KEY`） |
+| **prompt 注入** | stdin 写入 `{prompt}\n` | stdin 写入 `{system_prompt}\n\n{prompt}\n` | stdin 写入 `{prompt}\n` |
+| **文本输出** | Markdown 段落 | Markdown 段落 | Markdown 段落 |
+| **进度指示** | `⏺ 正在读取文件...` `⎿ 调用工具: X` | `Working...` + spinner 字符 | `[Tool: Read]` `[Tool: Write]` |
+| **diff 输出** | unified diff (`@@ -n,n +n,n @@`) | fenced diff block + git header | 两者混合 |
+| **交互特征** | `Do you want to run/proceed? (y/n)` | `Create file X?` `Proceed? [y/N]` | `Apply these changes?` `Continue?` |
+| **任务完成** | `✓ 已完成:` | `## Result` | 无固定标记（stdout 结束 = 完成） |
 
-### 8.5 新增 CLI 工具的扩展流程
+### 4.3 UX 六态覆盖
 
-当需要接入第 4 个 CLI 工具时：
+| 状态 | 用户看到什么 | 触发条件 |
+|------|------------|---------|
+| **空态-好友列表** | 项目栏顶部 "👥 好友" 区域展示三个预置 Agent（Claude Code / Codex / OpenCode），每个显示头像 + 名称 + 版本 + 绿色 ● 状态点 | 首次使用，已预置 |
+| **空态-对话** | 进入新私聊后，对话页面显示 Agent 头像 + 名称 "Claude Code" + 状态指示灯 ⚪ 空闲，下方输入框可输入消息 | 刚创建私聊，未发送消息 |
+| **加载态-连接** | 对话页面顶部状态指示灯变为 🟡，输入框上方出现状态条："🔧 正在启动 Claude Code..."+ spinner | 消息已发送，CLI 进程正在启动 |
+| **加载态-执行** | 消息气泡逐字出现（打字机效果）；状态条动态更新（如 "⏺ 正在读取文件..."）→ 不进入消息历史 | CLI 正在执行，stdout 正在输出 |
+| **正常态** | 消息气泡完整显示 Agent 回复的 Markdown；顶部指示灯恢复 ⚪；如有产物，消息下方出现 Artifact Card | Agent 执行完成，exit_code=0 |
+| **错误态** | 见 §4.4 | |
+| **边界态** | 用户快速连续发送 3 条消息 → 消息排队（第二条等第一条 CLI 进程结束后才发送）；用户关闭网页 → SSE 断开 → 3 分钟后后端 SIGTERM；消息长度 > 10000 字符 → 自动拆分为多条 SSE chunk；好友列表中同一 Agent 有 3 个活跃对话 → 每个对话独立运行一个 CLI 进程 | |
 
-1. 在 `AgentConfig` 中确认/新增 `executable` 值
-2. 新建 `XxxAdapter(ClaudeCodeAdapter)` 或 `XxxAdapter(CliAgentAdapter)`，覆盖：
-   - `DEFAULT_ARGS` — 启动参数
-   - `build_env()` — 环境变量
-   - `inject_prompt()` — stdin 注入格式（如果与基类不同）
-   - `BLOCKING_PATTERNS` — 交互特征正则
-   - `ARTIFACT_SIGNALS` — 产物检测规则
-3. 在 AgentPanel 的 executable 下拉列表中添加该工具
-4. 添加单元测试（Mock 该 CLI 的典型输出）
+### 4.4 错误处理
+
+| 错误场景 | 错误码 | 用户可见文案 | 恢复路径 |
+|---------|--------|------------|---------|
+| executable 不在 PATH 中 | — | "❌ 未找到 '{executable}' 命令。请在终端中安装后重试。" + 安装指引链接（AgentPanel 创建时即校验） | 安装 CLI 后在 AgentPanel 重新检测 |
+| Session 未绑定 Project → 无 workspace_path | — | "❌ 当前会话未绑定项目，无法启动 CLI Agent" | 创建 Project 后重试 |
+| API Key 未配置 | — | "❌ 未配置 {ANTHROPIC_API_KEY / OPENAI_API_KEY}。请在设置页面配置 API Key。" | 配置 Key 后重试 |
+| CLI 进程静默超时（5 min 无输出） | — | "⏱️ CLI 进程已超时（5 分钟无响应），已自动终止" | 重新发送消息 |
+| CLI 进程崩溃（非零 exit） | — | "❌ CLI 进程异常退出（exit code: {n}）" + 最后 500 字符输出 | 检查错误信息，修正后重试 |
+| WebSocket 断开超过 3 min | — | 重新连接后显示"⚠️ 之前的会话已断开，进程已终止" | 重新发送消息 |
+| 交互式提示超时（等待用户响应 > 2 min） | 408 | "⏱️ 确认已超时，操作已自动取消" | 重新触发 |
+| 进程总执行超过 30 min | — | "⏱️ 进程已运行超过 30 分钟，已自动终止" | 缩小任务范围后重试 |
 
 ---
 
-## 9. 测试策略
+## 5. 前端交互序列
 
-### 单元测试 (50 条)
+### 5.0 核心概念
 
-| 组件 | 测试数 | 测试内容 |
-|------|--------|---------|
-| CliProcessManager | 8 | spawn/terminate/超时/环境变量构造 |
-| StreamSanitizer | 8 | ANSI 去除/中文/混合/TUI 降级 |
-| PromptInterceptor | 6 | 匹配/不匹配/滑动窗口/边界 |
-| CliAgentAdapter (基类) | 8 | chat_stream/错误处理/中断/恢复 |
-| ClaudeCodeAdapter | 5 | Claude Code 输出解析/diff 检测/交互匹配/产物信号 |
-| CodexAdapter | 5 | Codex 输出解析/计划识别/文件创建确认/产物信号 |
-| OpenCodeAdapter | 5 | OpenCode 输出解析/工具调用日志/审查反馈/产物信号 |
-| AgentConfig 模型 | 5 | validation/agent_type 枚举/init_args/executable 校验 |
+**Agent CLI ≠ AI 角色身份**。AgentHub 中的 Agent 就是用户本机安装的实际 CLI 工具实例（如 `claude`、`codex`、`opencode`）。它不需要"角色定位"（如"前端专家""后端工程师"）——它就是那个工具本身。用户打开一个私聊对话 = 在终端里新开一个 Claude Code 实例。对话结束 = 该实例退出。不同对话之间的 Claude Code 实例互不共享状态。
 
-### 集成测试
+**好友列表**位于项目栏顶部（见 [00-workspace-runtime.md](00-workspace-runtime.md) §5.0 全局布局），展示已接入的 Agent CLI 工具。每个 Agent 显示：头像（CLI 工具 logo）+ 名称（Claude Code / Codex / OpenCode）。
 
-- Mock CLI 脚本（输出 ANSI + 阻塞提示）→ 验证全流程
-- 用三个 Adapter 各自的 mock 输出验证：Claude Code 格式 → 正确解析分层；Codex 格式 → 正确解析分层；OpenCode 格式 → 正确解析分层
-- 真实 CLI Smoke test（如果对应 API key 可用）：`claude` / `codex` / `opencode` 各一条
+### 5.1 好友列表与默认 Agent
 
-### E2E
+```
+项目栏顶部 "👥 好友" 区域：
+  ┌────────────────────┐
+  │ 👥 好友        [+] │  ← [+] 按钮：添加新的 CLI Agent
+  │                    │
+  │  🤖 Claude Code  ⋮ │  ← 预置的 Claude Code Agent
+  │     v1.2.3 · 就绪  │     头像 + 名称 + 版本 + 状态
+  │                    │     ⋮ 按钮 → 展开操作菜单
+  │  🤖 Codex       ⋮ │
+  │     v0.9.1 · 就绪  │
+  │                    │
+  │  🤖 OpenCode    ⋮ │
+  │     v2.0.0 · 就绪  │
+  └────────────────────┘
 
-- 前端配置 Claude Code Agent → 发送消息 → 打字机效果 + 状态条 → Diff 变为 Artifact Card → 交互卡片点击 → 进程继续
-- 前端配置 Codex Agent → 同上流程
-- 前端配置 OpenCode Agent → 同上流程
+系统预置三个默认 Agent（Claude Code / Codex / OpenCode），用户可直接使用。
+executable 字段预设默认值，init_args 预设最佳参数。
+```
+
+### 5.2 添加新的 CLI Agent（从本机接入）
+
+```
+用户: 在好友列表顶部点击 [+]
+  → 前端: 弹出 AddAgent 弹窗
+    - CLI 工具下拉: [Claude Code] [Codex] [OpenCode] [自定义...]
+    - executable 输入框（随选择自动填充，如 "claude"；自定义则手动输入路径）
+    - init_args 输入框（自动填充默认值：Claude Code → "--compact --no-color"；Codex → "--no-color --plain"；OpenCode → "--no-color --plain"）
+    - env_vars 折叠区：key-value 编辑器（预设对应 API Key 变量名）
+    - 底部：[检测可执行文件] 按钮 + 状态指示灯
+  → 用户: 点击 [检测可执行文件]
+  → 前端: GET /api/agents/check-executable?path=claude
+  → 后端: 在 PATH 中搜索 → 返回 { found: true, version: "v1.2.3", path: "/usr/local/bin/claude" }
+  → 前端: 指示灯变绿 ✓ + 显示版本号 + 路径
+  → 用户: 点击 [添加]
+  → 前端: POST /api/agents { agentType: "cli_wrapper", executable, initArgs, envVars }
+  → 后端: 写入 agent_configs → 返回 201
+  → 前端: 弹窗关闭 → 好友列表刷新 → 新 Agent 出现
+
+如果 [检测可执行文件] 返回 { found: false }：
+  → 指示灯变红 ✗ + "未找到 {executable}。请先在终端安装：npm install -g @anthropic-ai/claude-code"
+  → [添加] 按钮置灰（禁止添加不存在的 CLI）
+```
+
+### 5.3 Agent 操作菜单（⋮ 按钮）
+
+```
+用户: 在好友列表中点击 Claude Code 右侧的 ⋮ 按钮
+  → 前端: 弹出下拉菜单：
+    [💬 发起对话]
+    [⚙️ 设置]
+  → 用户: 点击 [💬 发起对话]
+  → 前端: 检测当前是否有选中的 Project：
+    - 有选中 Project → 直接在该 Project 下创建私聊 Session → 自动进入聊天
+    - 无选中 Project → 弹出 Project 选择器：
+        "请先选择一个项目来开始对话"
+        列表展示所有 Project（📁 我的网站 / 📁 后台系统） + [+ 新建项目]
+  → 用户: 选择一个 Project（或新建）→ 前端: POST /api/sessions { projectId, mode: "single", agentId }
+  → 后端: 创建 Session（自动绑定 project_id）→ 返回 201
+  → 前端: 对话列表栏刷新 → 自动进入新创建的对话
+```
+
+```
+用户: 点击 ⋮ → [⚙️ 设置]
+  → 前端: 打开 Agent 设置面板（见 §5.4）
+```
+
+### 5.4 Agent 设置面板
+
+```
+用户: 通过 ⋮ → [⚙️ 设置] 进入某 Agent 的设置面板
+  → 前端: 在对话页面区域显示设置表单（覆盖聊天视图）
+    - 顶部：Agent 头像 + 名称 + 版本号 + 状态指示灯
+    - "可执行文件路径" 输入框（默认值，可修改）
+    - "启动参数" 输入框（默认值，可追加）
+    - "环境变量" 折叠区：key-value 列表
+      - 预设 key（如 ANTHROPIC_API_KEY），value 显示为 ••••••••
+      - 可新增自定义变量
+    - 底部：[检测可执行文件] [恢复默认] [保存]
+  → 用户: 修改 init_args → 追加 "--verbose" → 点击 [保存]
+  → 前端: PUT /api/agents/{id} { initArgs: ["--compact", "--no-color", "--verbose"] }
+  → 后端: 更新 agent_configs → 返回 200
+  → 前端: 显示 "✅ 已保存" → 自动返回聊天视图
+```
+
+### 5.5 与 Agent CLI 私聊（一个对话 = 一个 CLI 实例）
+
+```
+前提: 用户已选中 Project，好友列表中已有 Claude Code Agent
+
+用户: 在对话列表栏底部点击 [+ 新建聊天] → [👤 私聊]
+  → 前端: 弹出 Agent 选择列表（展示好友列表中的 Agent）
+  → 用户: 选择 [🤖 Claude Code]
+  → 前端: POST /api/sessions { projectId, mode: "single", agentId }
+  → 后端: 创建 Session → 返回 201
+  → 前端: 对话列表栏出现新对话 "Claude Code · 刚刚" → 自动进入
+  → 前端: 对话页面顶部显示 "Claude Code" + 状态指示灯 ⚪ 空闲
+
+用户: 输入 "写一个登录页面" → 按 Enter
+  → 前端: 用户消息气泡（右对齐）
+  → 前端: POST /api/sessions/{id}/chat → 接收 SSE
+  → 前端: Agent 消息气泡出现（左对齐）+ 状态条 "🔧 正在启动 Claude Code..."
+  → 后端: ClaudeCodeAdapter 启动新的 `claude` 进程（cwd=Project.workspace_path）
+         ← 这个进程就是一个独立的 Claude Code 实例
+  → SSE: agent.output { chunk: "# 登录页面\n\n", chunkType: "text" }
+  → 前端: 气泡打字机追加
+  → SSE: agent.output { chunk: "⏺ 正在读取 workspace 文件...", chunkType: "progress" }
+  → 前端: 状态条更新（不进入气泡）
+  → SSE: agent.process.completed { exitCode: 0 }
+  → 前端: 状态条消失 → "✓ 完成"
+  → artifact.created → Artifact Card 出现在消息下方
+
+如果用户在同一 Project 下再创建一个 Claude Code 私聊：
+  → 后端启动另一个独立的 `claude` 进程（不同 PID）
+  → 两个对话的 Claude Code 实例互不影响
+```
+
+### 5.6 交互式确认
+
+```
+CLI 进程: stdout 输出 "... Do you want to run this? (y/n) "
+  → PromptInterceptor: 检测到匹配 → 暂停 SSE text_chunk 推送
+  → SSE: interactive_prompt { content: "Do you want to run this? (y/n)", processId: "pid_123" }
+  → 前端: 聊天流中弹出 InteractivePromptCard
+    - 卡片内容：⚠️ 图标 + 提示文字 + [✅ 同意(Y)] [❌ 拒绝(N)]
+    - 卡片位置：Agent 消息气泡下方
+  → 用户: 点击 [✅ 同意(Y)]
+  → 前端: POST /api/sessions/{id}/interactive_reply { processId: "pid_123", reply: "y" }
+  → 后端: process.stdin.write(b'y\n') → process.stdin.flush()
+  → 恢复 stdout 读取 → SSE text_chunk 继续推送
+  → 前端: 卡片消失 → 消息气泡继续追加
+```
+
+---
+
+## 6. 验收标准
+
+- [ ] AC-01: 好友列表预置三个 Agent（Claude Code / Codex / OpenCode），各自显示名称 + 头像 + 版本 + 状态
+- [ ] AC-02: 好友列表 [+] 按钮 → 弹出添加 Agent 弹窗 → 选择 CLI 工具 → executable 自动填充
+- [ ] AC-03: 点击 [检测可执行文件] → `which claude` → 返回 found:true + version → 绿色指示灯
+- [ ] AC-04: Agent ⋮ 菜单 → [发起对话] → 选择 Project → 对话列表栏出现新会话 → 自动进入聊天
+- [ ] AC-05: 无选中 Project 时 [发起对话] → 弹出 Project 选择器 → 选或新建 Project 后创建会话
+- [ ] AC-06: 发送消息 → `claude` 进程以 `cwd=project.workspace_path` 启动 → SSE 流式返回
+- [ ] AC-07: Claude Code 输出的 Markdown 文本 → agent.output（chunkType="text"）→ 前端打字机（< 100ms）
+- [ ] AC-08: Claude Code 输出的 `⏺ 正在读取` → agent.output（chunkType="progress"）→ 前端状态条更新
+- [ ] AC-09: HTML fenced code block → artifact_signal → Artifact Bridge → artifact.created → Artifact Card 出现
+- [ ] AC-10: Claude Code 输出 `Do you want to run? (y/n)` → 前端弹出 InteractivePromptCard → 同意 → stdin 写入 `y\n`
+- [ ] AC-11: 同一 Project 下两个 Claude Code 私聊 → 两个独立的 `claude` 进程 → 互不影响
+- [ ] AC-12: 用户关闭网页 → 3 分钟后进程 SIGTERM → 前端显示超时提示
+- [ ] AC-13: ANSI 码 `\x1b[31mError\x1b[0m` → 前端收到 `Error`（无乱码）
+- [ ] AC-14: 三个 Adapter 各自正确识别对应 CLI 的 diff/交互/进度格式
+- [ ] AC-15: Session 未绑定 Project → 发送消息 → 返回明确错误提示
+
+---
+
+## 7. 测试策略
+
+### 7.1 单元测试 (50 条)
+
+| 测试对象 | 条数 | 覆盖内容 |
+|---------|------|---------|
+| CliProcessManager | 8 | spawn/terminate/超时/环境变量构造/Windows fallback |
+| StreamSanitizer | 8 | ANSI 去除/中文/混合/TUI 降级/进度条转换 |
+| PromptInterceptor | 6 | 匹配/不匹配/滑动窗口/边界/多模式同时 |
+| CliAgentAdapter (基类) | 8 | chat_stream/错误处理/中断/恢复/cwd 校验 |
+| ClaudeCodeAdapter | 5 | Claude Code 输出解析/diff 检测/交互匹配/artifact_signal 生成 |
+| CodexAdapter | 5 | Codex 输出解析/计划识别/文件创建确认/artifact_signal 生成 |
+| OpenCodeAdapter | 5 | OpenCode 输出解析/工具调用日志/审查反馈/artifact_signal 生成 |
+| AgentConfig 模型 | 5 | validation/agent_type 枚举/init_args/executable 必填校验 |
+
+### 7.2 集成测试
+
+- Mock CLI 脚本：输出含 ANSI 码文本 → 阻塞提示 → 恢复输出 → 验证 SSE 事件序列
+- 三个 Adapter 分别用对应 CLI 的 mock 输出验证：Claude Code 格式 → 正确分层；Codex 格式 → 正确分层；OpenCode 格式 → 正确分层
+- 真实 CLI Smoke test（API Key 可用时）：每个 CLI 一条最短任务（"echo hello"）
+
+### 7.3 E2E 测试
+
+- 前端创建 Claude Code Agent → 发送消息 → 打字机 + 状态条 → Diff → Artifact Card → 交互卡片点击 → 进程继续
+- 前端创建 Codex Agent → 同上流程
+- 前端创建 OpenCode Agent → 同上流程
+
+---
+
+## 8. 架构约束追溯
+
+| 本模块的决策 | 依据 |
+|------------|------|
+| CLI Wrapper 是唯一 Agent 执行模式 | PRD-00 §核心变革点 + PRD-01 §2.2 |
+| Agent 适配器通过 PTY/subprocess 管理 CLI 进程 | PRD-01 §3.1 |
+| cwd = Session → Project.workspace_path | ADR-0009 §核心规则 3 |
+| Adapter 不直接写业务表，只输出标准事件 | PRD-01 §3.4 |
+| CLI 工具由用户在外部安装，AgentHub 只管理配置 | ADR-0009 §配套决策 A |
+| 每个 CLI 单独适配（子类化 CliAgentAdapter） | ADR-0009 §配套决策 B |
+| stdout 语义分层解析（文本/进度/产物/交互） | ADR-0009 §配套决策 C + PRD-01 §3.5 |
+| ANSI 清洗 + TUI 组件降级 | PRD-01 §3.2 |
+| 交互式阻塞匹配 + 滑动窗口 + stdin 回写 | PRD-01 §3.3 |
+| 僵尸进程防范（心跳超时 + 静默超时 + 总时间上限） | PRD-01 §4.1 |
+
+---
+
+## 9. 依赖
+
+| 依赖模块 | 需要的接口 | 当前状态 |
+|---------|-----------|---------|
+| Phase 6A WorkspaceService | `get_workspace_path(session_id) → str` | ❌ 本 Phase 同步开发 |
+| Phase 3 EventBus | `publish(event_type, payload)` | ✅ 已就绪 |
+| Phase 3 BaseAgentAdapter | 抽象基类 | ✅ 已就绪 |
+| Phase 5 ArtifactService | 消费 `artifact.detected` 事件 | ✅ 已就绪 |
+| AgentConfig 模型 | `executable` + `init_args` + `env_vars` 字段 | 🔧 需 ALTER TABLE |
+
+---
+
+## 10. Non-Goals（明确不做什么）
+
+| 不做的事 | 原因 | 由谁负责 |
+|---------|------|---------|
+| 不在 AgentHub 内安装 CLI 工具 | 用户自行在系统层面安装 | 用户 |
+| 不写 Artifact 数据库记录 | Adapter 只上报 artifact_signal | Phase 6F Artifact Bridge |
+| 不做 CLI 工具的多版本管理 | 超出范围 | 用户 |
+| 不做 CLI 工具的输出翻译/多语言 | 保持原始输出 | — |
+| 不渲染 Drawer / 审批卡片 | 下游链路 | Phase 7 |
+| 不做远程 CLI 执行（SSH 到远端执行） | P1 本机版范围外 | P2 |
+
+---
+
+## 11. 破坏性变更与迁移
+
+| 维度 | V1 行为 | V2 行为 | 迁移路径 |
+|------|--------|--------|---------|
+| agent_configs 表 | 无 executable/init_args/env_vars 字段 | 新增三列；agent_type 新增 `cli_wrapper` | ALTER TABLE 自动迁移，已有 Agent 的字段为 NULL |
+| AgentPanel | 只显示 API 代理配置 | 新增 CLI 包装器模式 + executable 检测 | 前端新增组件，不影响已有 Agent |
+| 纯聊天 Session | 之前可直接无 workspace 单聊 | 所有聊天必须归属 Project | 数据迁移脚本：为旧 Session 创建默认 Project |
+
+> **版本历史**
+> - v1.0 (2026-06-02): 初始版本（通用抽象层）
+> - v2.0 (2026-06-04): 新增 Per-CLI 接入方案（§8）+ 分层渲染
+> - v3.0 (2026-06-04): 按新 Spec 模板全面重构：跨模块契约、六态覆盖、前端交互序列、架构追溯

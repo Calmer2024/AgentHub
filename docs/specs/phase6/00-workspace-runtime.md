@@ -1,379 +1,350 @@
-# Spec: Phase 6A — 本机 Workspace Runtime
+# Spec: Phase 6A — Workspace Runtime
 
-**版本**: v1.0  
-**创建日期**: 2026-06-03  
-**状态**: Draft  
-**关联**: [PRD-06 MVP 本机 Workspace](../../PRD/06-MVP_Local_Workspace_Delivery.md), [PRD-05](../../PRD/05-End_to_End_Product_Flow.md), [PRD-01](../../PRD/01-Architecture_Adapter.md)  
-**依赖**: Phase 5 ArtifactService, Phase 3 EventBus / SessionService
+**版本**: v2.0
+**更新日期**: 2026-06-04
+**状态**: Draft
+**关联 ADR/PRD**: [ADR-0009](../../adr/0009-project-workspace-model.md)、[PRD-06](../../PRD/06-MVP_Local_Workspace_Delivery.md)、[PRD-05](../../PRD/05-End_to_End_Product_Flow.md)
+**依赖模块**: Phase 5 ArtifactService、Phase 3 EventBus / SessionService
 
 ---
 
-## 1. 背景
+## 1. 目标
 
-Phase 5 已经完成”已有 Artifact 的工作台能力”：版本链、Diff、局部编辑和确认创建新版本。但 Phase 5 仍然缺少一个上游执行底座。
+Phase 5 已完成 Artifact 的版本链、Diff 和在线编辑。但它缺少一个根本性的上游执行底座——用户的任务具体在哪个目录执行？Agent 的文件变更如何被追踪？
 
-Phase 6 引入 **Project** 作为顶层组织实体（详见 [ADR-0009](../../adr/0009-project-workspace-model.md)），Project 绑定 workspace 目录，Project 下所有 Session 共享此目录。
+本模块引入 **Project** 作为顶层组织实体，绑定 workspace 目录，为后续 CLI Adapter 和 Artifact Bridge 提供可信的文件系统上下文。
+
+**成功标准**（可证伪）：
+
+- [ ] 用户创建 Project 后，本机对应目录被创建，`.agenthub/project.json` 存在且内容正确
+- [ ] 同一 Project 下的 3 个 Session（2 个私聊 + 1 个群聊）的 Agent 启动 cwd 指向同一个 workspace 目录
+- [ ] `GET /api/projects/{id}/tree` 在 Agent 执行前后返回不同的文件树（证明文件变更被追踪）
+- [ ] 对 `POST /api/projects/{id}/files?path=../../secret` 返回 403
+- [ ] `POST /api/projects/{id}/preview` 对含 `index.html` 的静态 workspace 返回可访问的 preview URL
+- [ ] 不通过标准：任何一个 API 端点未经 allowlist 校验即允许读取 workspace 外的文件
+
+---
+
+## 2. 全局定位
+
+### 2.1 北极星链路位置
 
 ```text
-Project 绑定哪个项目目录？
-  → Project.workspace_path（用户创建 Project 时选择）
-Agent CLI 在哪里执行？
-  → cwd = Project.workspace_path
-文件变更如何变成 Artifact？
-  → Adapter 检测 → artifact.detected → ArtifactService → artifact.created
+用户创建 Project（选择/新建目录）
+  → [本模块] Project 记录 workspace_path + 创建目录结构
+  → 用户创建 Session（私聊/群聊）
+  → CLI Adapter 获取 Project.workspace_path 作为 cwd
+  → Agent 读写 workspace 文件
+  → FileChangeDetector 生成 diff
+  → Artifact Output Bridge 创建 Artifact
+  → Artifact Card → Drawer
 ```
 
-本 Spec 定义 Phase 6A：MVP 本机 Workspace Runtime 的最小可落地实现。
+### 2.2 上下游契约
+
+| 方向 | 模块/事件/API | 本模块的角色 |
+|------|-------------|------------|
+| **上游输入** | 用户通过前端创建 Project（选目录/命名）；Phase 3 SessionService | 接收 Project 创建请求，初始化目录和元数据 |
+| **下游产出** | `project.created` 事件；`workspace.file_changed` 事件；`workspace.diff_ready` 事件；CLI Adapter 通过 `WorkspaceService.get_workspace_path()` 获取 cwd；Artifact Bridge 通过 `workspace.diff_ready` 检测文件变更 | 产出可信的 workspace_path、文件树、Diff、预览 URL |
+| **本模块不通** | 不执行 Agent（→ CLI Adapter）；不创建 Artifact（→ Artifact Bridge）；不渲染 Drawer（→ Phase 7）；不做 SaaS 云端 sandbox（→ P2） | |
 
 ---
 
-## 2. 全局链路定位
+## 3. 跨模块契约
 
-Phase 6A 位于北极星链路的最前段：
+### 3.1 API 端点
 
-```text
-创建 Project + 绑定 workspace_path
-  -> 在 Project 下创建私聊/群聊 Session
-  -> 用户输入 / Orchestrator 子任务
-  -> Agent 以 Project.workspace_path 作为 cwd
-  -> 文件变更 / Agent 输出检测
-  -> Artifact 创建
-  -> Artifact Card / Drawer / 编辑 / 版本化
-```
+| 端点 | 方法 | 请求体 | 成功响应 | 错误响应 |
+|------|------|--------|---------|---------|
+| `/api/projects` | POST | `{ "name": string, "workspacePath"?: string }` | `201: { "id", "name", "workspacePath", "projectType", "status", "createdAt" }` | `400: { "error": "msg" }` |
+| `/api/projects` | GET | — | `200: [{ "id", "name", "workspacePath", "status", "createdAt" }]` | — |
+| `/api/projects/{project_id}` | GET | — | `200: { "id", "name", "workspacePath", "projectType", "status", "fileCount", "totalSizeBytes" }` | `404` |
+| `/api/projects/{project_id}` | DELETE | — | `200: { "status": "archived" }` | `404` |
+| `/api/projects/{project_id}/tree` | GET | `?subpath=` | `200: { "tree": [{ "path", "type": "file"|"dir", "size" }] }` | `403`（越界）、`404` |
+| `/api/projects/{project_id}/files` | GET | `?path=src/App.tsx` | `200: { "path", "content", "size" }` | `403`、`404` |
+| `/api/projects/{project_id}/diff` | GET | `?baseRef=` | `200: { "changedFiles": [{ "path", "change": "created"|"modified"|"deleted", "diffPreview" }] }` | `404` |
+| `/api/projects/{project_id}/snapshot` | POST | `{ "label": string }` | `201: { "snapshotId", "label", "createdAt" }` | `400` |
+| `/api/projects/{project_id}/preview` | POST | `{ "type": "static"|"vite-react" }` | `200: { "previewId", "previewUrl" }` | `400`、`500`（构建失败） |
+| `/api/projects/{project_id}/build` | POST | — | `200: { "buildId", "status": "building" }` | `400`、`500` |
 
-完成 Phase 6A 后，系统应具备一个明确事实：
+### 3.2 事件
 
-> 每个 Project 都有一个受后端管理的本机 workspace；Project 内所有 Session 的所有 Agent 都在这个 workspace 内执行。
+| 事件类型 | 方向 | payload 字段 |
+|---------|------|-------------|
+| `project.created` | WorkspaceService → EventBus | `{ projectId, name, workspacePath, projectType }` |
+| `workspace.file_changed` | FileChangeDetector → EventBus | `{ projectId, sessionId, changes: [{ path, change }] }` |
+| `workspace.diff_ready` | FileChangeDetector → EventBus | `{ projectId, sessionId, changedFiles: int, diffSummary }` |
+| `preview.ready` | PreviewService → EventBus | `{ projectId, previewId, previewUrl }` |
+| `build.started` / `build.log` / `build.completed` | BuildService → EventBus | `{ projectId, buildId, status/content }` |
 
----
-
-## 3. 设计原则
-
-- **不重开 Phase 5**：Phase 5 仍然是已完成的 Artifact 工作台能力。Workspace 是 Phase 6 的前置执行底座。
-- **本机优先**：MVP 实现 `LocalWorkspaceProvider`，不做云端 sandbox。
-- **ID 优先**：前端只拿 `workspaceId`、`previewId`、`artifactId`，不直接拼本机路径。
-- **路径受控**：所有 `workspace_path` 必须位于 `AGENTHUB_WORKSPACE_ROOT` 或用户显式授权目录下。
-- **可迁移**：Service 接口保留 `WorkspaceProvider` 抽象，未来 SaaS 可替换为 `CloudWorkspaceProvider`。
-- **Artifact 不等于 Workspace**：Artifact 是版本化展示产物；Workspace 是 Agent 读写的项目目录。
-
----
-
-## 4. 数据模型
-
-### 4.1 新增 `workspaces` 表
+### 3.3 数据库 Schema 变更
 
 ```sql
-CREATE TABLE IF NOT EXISTS workspaces (
-  id VARCHAR PRIMARY KEY,
-  name VARCHAR NOT NULL,
-  root_path VARCHAR NOT NULL,
-  project_type VARCHAR NOT NULL DEFAULT 'static',
-  status VARCHAR NOT NULL DEFAULT 'ready',
-  created_by VARCHAR NOT NULL DEFAULT 'agenthub',
-  metadata_json TEXT NOT NULL DEFAULT '{}',
-  created_at DATETIME NOT NULL,
-  updated_at DATETIME NOT NULL
-);
-```
-
-字段说明：
-
-| 字段 | 说明 |
-|---|---|
-| `id` | `ws_...` 或 UUID |
-| `name` | 用户可见项目名 |
-| `root_path` | 后端内部使用的本机绝对路径 |
-| `project_type` | `static` / `vite-react` / `existing` |
-| `status` | `creating` / `ready` / `building` / `error` / `archived` |
-| `metadata_json` | 预览端口、模板、最后 snapshot 等扩展信息 |
-
-### 4.2 `projects` 表（新增）+ `sessions` 增加 `project_id`
-
-```sql
--- 新增 projects 表
 CREATE TABLE projects (
     id VARCHAR PRIMARY KEY,
     name VARCHAR NOT NULL,
-    workspace_path VARCHAR NOT NULL,  -- 本机绝对路径
-    project_type VARCHAR DEFAULT 'existing',  -- static / vite-react / existing
+    workspace_path VARCHAR NOT NULL,
+    project_type VARCHAR DEFAULT 'existing',
     status VARCHAR DEFAULT 'creating',
-    metadata_json TEXT,
+    metadata_json TEXT DEFAULT '{}',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- sessions 增加 project_id（NOT NULL，所有聊天必须归属 Project）
 ALTER TABLE sessions ADD COLUMN project_id VARCHAR NOT NULL REFERENCES projects(id);
-
--- sessions 移除旧的 workspace_id（如果存在）
--- ALTER TABLE sessions DROP COLUMN workspace_id;
+ALTER TABLE artifacts ADD COLUMN project_id VARCHAR REFERENCES projects(id);
+ALTER TABLE artifacts ADD COLUMN file_path VARCHAR;
+ALTER TABLE artifacts ADD COLUMN preview_id VARCHAR;
 ```
 
-规则：
+### 3.4 跨组件 TypeScript 类型
 
-- 所有聊天（Session）必须归属某个 Project。不存在”无 Project 的聊天”。
-- Project 创建时绑定 `workspace_path`（用户选择/新建目录），此后不可更改。
-- Project 内所有 Session 的所有 Agent 共享 `Project.workspace_path` 作为 `cwd`。
-- 详见 [ADR-0009](../../adr/0009-project-workspace-model.md)。
-
-### 4.3 `artifacts` 增加 workspace 关联字段
-
-```sql
-ALTER TABLE artifacts ADD COLUMN workspace_id VARCHAR NULL REFERENCES workspaces(id);
-ALTER TABLE artifacts ADD COLUMN file_path VARCHAR NULL;
-ALTER TABLE artifacts ADD COLUMN preview_id VARCHAR NULL;
-```
-
-规则：
-
-- 纯文本/历史 Artifact 可以没有 `workspace_id`。
-- 由 workspace 文件或构建产物生成的 Artifact 必须带 `workspace_id`。
-- `file_path` 必须是 workspace 内相对路径。
-
----
-
-## 5. 后端模块
-
-### 5.1 WorkspaceProvider
-
-```python
-class WorkspaceProvider:
-    async def create_workspace(self, *, name: str, project_type: str) -> Workspace: ...
-    async def bind_existing(self, *, path: str, name: str) -> Workspace: ...
-    async def get_tree(self, workspace_id: str) -> FileTree: ...
-    async def read_file(self, workspace_id: str, file_path: str) -> str: ...
-    async def write_file(self, workspace_id: str, file_path: str, content: str) -> None: ...
-    async def diff(self, workspace_id: str, base_ref: str | None = None) -> WorkspaceDiff: ...
-    async def snapshot(self, workspace_id: str, label: str) -> WorkspaceSnapshot: ...
-    async def build(self, workspace_id: str) -> BuildResult: ...
-    async def preview(self, workspace_id: str) -> PreviewResult: ...
-```
-
-MVP 实现：
-
-```text
-LocalWorkspaceProvider
-  -> pathlib
-  -> local git 或 snapshot
-  -> subprocess build
-  -> backend static preview
-```
-
-### 5.2 WorkspaceService
-
-职责：
-
-- 创建 workspace 记录。
-- 创建本机目录和 `.agenthub/workspace.json`。
-- 将 session 与 workspace 绑定。
-- 提供文件树、文件读取、Diff、snapshot。
-- 为 CLI Adapter 提供可信 `workspace_path`。
-- 发布 workspace 标准事件。
-
-推荐文件：
-
-```text
-backend/app/models/workspace.py
-backend/app/services/workspace_service.py
-backend/app/infrastructure/local_workspace_provider.py
-backend/app/api/workspaces.py
-backend/migrations/009_create_workspaces.sql
-```
-
-### 5.3 FileChangeDetector
-
-MVP 不需要常驻文件监听。推荐用“执行前后快照 diff”：
-
-```text
-Agent 执行前记录文件 hash tree
-  -> Agent 执行
-  -> 执行后重新扫描 hash tree
-  -> 得到 created/modified/deleted 列表
-  -> 发布 workspace.file_changed / workspace.diff_ready
-```
-
-这样比实时 watcher 更稳定，也更适合 Windows。
-
-### 5.4 PreviewService
-
-MVP 最小支持：
-
-| 项目类型 | 预览方式 |
-|---|---|
-| `static` | 读取 `index.html` 或 Artifact HTML，iframe `srcDoc` |
-| `vite-react` | 执行 `npm install` / `npm run build`，托管 `dist/` |
-| `existing` | 用户手动配置 build/preview command，缺失时只显示文件树和 Diff |
-
-后端静态预览路径：
-
-```text
-GET /api/previews/{preview_id}/
-GET /api/previews/{preview_id}/assets/{path}
-```
-
----
-
-## 6. API 契约
-
-### 6.1 Workspace
-
-```text
-POST /api/workspaces
-Body: { "name": "coffee-site", "projectType": "vite-react" }
--> 201 { "id": "...", "name": "...", "projectType": "...", "status": "ready" }
-
-POST /api/workspaces/bind
-Body: { "name": "existing-app", "path": "D:\\Projects\\existing-app" }
--> 201 { "id": "...", "name": "...", "projectType": "existing" }
-
-GET /api/workspaces/{workspace_id}
-GET /api/workspaces/{workspace_id}/tree
-GET /api/workspaces/{workspace_id}/files?path=src/App.tsx
-GET /api/workspaces/{workspace_id}/diff
-POST /api/workspaces/{workspace_id}/snapshot
-```
-
-### 6.2 Session 绑定
-
-```text
-POST /api/sessions/{session_id}/workspace
-Body: { "workspaceId": "ws_abc123" }
--> 200 { "sessionId": "...", "workspaceId": "..." }
-```
-
-创建项目型 session 时也可直接传：
-
-```text
-POST /api/sessions
-Body: {
-  "title": "咖啡店官网",
-  "mode": "single",
-  "workspace": {
-    "name": "coffee-site",
-    "projectType": "vite-react"
-  }
+```typescript
+interface ProjectRead {
+  id: string;
+  name: string;
+  workspacePath: string;
+  projectType: 'static' | 'vite-react' | 'existing';
+  status: 'creating' | 'ready' | 'building' | 'error' | 'archived';
+  fileCount: number;
+  totalSizeBytes: number;
+  createdAt: string;
 }
 ```
 
-### 6.3 Build / Preview
+---
 
-```text
-POST /api/workspaces/{workspace_id}/build
-POST /api/workspaces/{workspace_id}/preview
-GET  /api/previews/{preview_id}
+## 4. 行为规格
+
+### 4.1 正常流程
+
+```
+1. 用户 → 前端 ProjectList 页面点击 [新建项目]
+2. 前端 → 弹出 ProjectCreator 弹窗：输入项目名 + 选择/新建目录 + 选择项目类型
+3. 前端 → POST /api/projects { name, workspacePath?, projectType? }
+4. 后端 → ProjectService.create(): 校验路径、创建目录 + .agenthub/project.json、写入 DB、发布 project.created
+5. 前端 → 跳转到 Project 工作区 → 展示 Project 下的 Session 列表（初始为空）
+6. 用户 → 在 Project 内创建私聊/群聊 Session → Session 自动绑定 project_id
+7. CLI Adapter → 调用 WorkspaceService.get_workspace_path(session_id) → 获取 Project.workspace_path → 作为 cwd
+8. Agent 执行 → 读写 workspace 文件
+9. FileChangeDetector → 执行前后 hash diff → 发布 workspace.diff_ready
+10. Artifact Bridge → 消费 workspace.diff_ready → 创建 Artifact
+11. 用户 → 在 Drawer 中预览 workspace 内的 index.html / 查看 Diff
+```
+
+### 4.2 UX 六态覆盖
+
+| 状态 | 用户看到什么 | 触发条件 |
+|------|------------|---------|
+| **空态** | 项目栏仅显示好友区 + `[+ 新建项目]` 按钮；对话列表栏显示"选择一个项目开始"的引导文字；对话页面显示欢迎页 | 用户首次使用，无 Project |
+| **加载态** | 项目栏中 Project 卡片显示 skeleton；对话列表栏显示 spinner；对话页面顶部状态条显示"⏳ 正在初始化 workspace..." | Project 创建中 / 文件树加载中 / 构建中 |
+| **正常态** | 三栏布局正常：项目栏显示所有 Project（当前选中高亮）；对话列表栏显示当前 Project 下的 Session 列表；对话页面显示聊天消息流 | Project 就绪，正常工作 |
+| **完成态** | 构建完成：对话页面顶部状态徽章变绿 ✓；Drawer 中预览 iframe 显示网页 | 构建成功 / 预览就绪 |
+| **错误态** | 见 §4.3 | |
+| **边界态** | Project 名称为空 → [创建项目] 按钮置灰；workspace 路径包含非法字符 → 输入框红框 + 提示；删除 Project → 右键菜单选择"归档项目"→ 弹出二次确认"工作目录不会被删除"→ 确认后 Project 从列表消失（status=archived）；同一目录被两个 Project 绑定 → 创建时 409 + 提示；Project 列表过长 → 项目栏可滚动，当前选中 Project 始终可见 | |
+
+### 4.3 错误处理
+
+| 错误场景 | 错误码 | 用户可见文案 | 恢复路径 |
+|---------|--------|------------|---------|
+| 目录不存在（bind existing） | 400 | "所选目录不存在，请检查路径" | 重新选择 |
+| 路径越界（`../` 攻击） | 403 | "无权访问此路径" | — |
+| 目录已被其他 Project 绑定 | 409 | "此目录已被项目 '{name}' 使用" | 选择其他目录 |
+| 磁盘空间不足 | 500 | "磁盘空间不足，无法创建项目" | 清理磁盘后重试 |
+| 构建失败（npm install 报错） | 500 | "构建失败：{错误摘要}"，[查看日志] 按钮 | 在聊天中让 Agent 修复 |
+| 预览目标文件不存在 | 404 | "未找到可预览的文件（需要 index.html 或构建产物）" | 让 Agent 生成文件 |
+| 文件读取超限（>10MB） | 400 | "文件过大，无法在编辑器中打开" | — |
+
+---
+
+## 5. 前端交互序列
+
+### 5.0 全局布局：三栏结构
+
+AgentHub 主界面采用三栏布局（参考 Codex + Telegram 的混合范式）：
+
+```
+┌──────────┬───────────────┬──────────────────────────────┐
+│ 项目栏    │ 对话列表栏      │ 对话页面                       │
+│ (Projects│ (Sessions)    │ (Chat View)                  │
+│  Sidebar)│               │                              │
+│          │               │                              │
+│ 👥 好友   │ 🔍 搜索       │  ┌──────────────────────────┐ │
+│  Claude  │               │  │ 消息气泡                   │ │
+│  Code    │ 📁 Project A  │  │                          │ │
+│  Codex   │  ├ 私聊: 前端  │  │ 用户: 写一个登录页面       │ │
+│  OpenCode│  ├ 私聊: 后端  │  │                          │ │
+│          │  ├ 群聊: 全栈  │  │ Claude Code: 好的...     │ │
+│ ──────── │  │            │  │                          │ │
+│ 📁 项目   │  │ [+ 新建聊天]│  │ ┌────────────────────┐   │ │
+│  ├ 我的  │               │  │ │ Artifact Card      │   │ │
+│  │ 网站  │               │  │ │ 🌐 登录页面  v1    │   │ │
+│  ├ 后台  │               │  │ │ [👀 预览] [💬 引用] │   │ │
+│  │ 系统  │               │  │ └────────────────────┘   │ │
+│  │       │               │  │                          │ │
+│  └ [+ 新│               │  └──────────────────────────┘ │
+│     项目]│               │                              │
+└──────────┴───────────────┴──────────────────────────────┘
+```
+
+**项目栏**（最左，宽 ~220px）：
+- 顶部：**好友区**（见 [01-cli-adapter.md](01-cli-adapter.md) §5）— 展示已接入的 Agent CLI 工具
+- 底部分隔线
+- 下部：**项目区** — 每个 Project 显示为一个文件夹图标 + 项目名称（如 `📁 我的网站`）。当前选中的 Project 高亮。底部 `[+ 新建项目]` 按钮
+
+**对话列表栏**（中间，宽 ~260px）：
+- 顶部：当前选中 Project 的名称（如"我的网站"）+ workspace 路径缩略显示
+- 搜索框：可搜索当前 Project 下的对话
+- 对话列表：每条对话显示 Agent 头像 + 对话标题 + 最后消息预览 + 时间。私聊显示单个 Agent 头像，群聊显示重叠头像
+- 底部：`[+ 新建聊天]` 按钮
+
+**对话页面**（右侧，剩余宽度）：
+- 顶部栏：当前对话标题 + Agent 状态指示灯（🟢 运行中 / ⚪ 空闲 / 🔴 超时）
+- 中间：消息流（用户消息右对齐，Agent 消息左对齐 + Artifact Card）
+- 底部：消息输入框 + 发送按钮
+
+### 5.1 创建 Project
+
+```
+用户: 在项目栏底部点击 [+ 新建项目]
+  → 前端: 项目栏底部展开 ProjectCreator 内联表单（非弹窗）
+    - "项目名称" 输入框（必填，placeholder: "例如：我的网页应用"）
+    - "项目目录" 选择区：两个 radio：[🆕 新建目录] [📁 选择已有目录]
+      - 新建：显示父目录选择器 + 子目录名输入框（默认填项目名）
+      - 已有：显示系统目录选择器（调用系统原生文件对话框）
+    - "项目类型" 下拉：[静态网页] [Vite React] [已有项目]
+    - 底部：[取消] [创建项目]
+  → 用户: 填写完毕，点击 [创建项目]
+  → 前端: POST /api/projects → 按钮显示 spinner + "创建中..."
+  → 后端: 校验 → 创建目录 → 写入 .agenthub/project.json → 返回 201
+  → 前端: 内联表单收起 → 项目栏出现新 Project（📁 我的网站）→ 自动选中新 Project → 对话列表栏切换为该 Project 的 Session 列表（初始为空）
+  → SSE: project.created 事件 → 其他打开的客户端同步更新
+```
+
+### 5.2 切换 Project
+
+```
+用户: 在项目栏点击另一个 Project（如 📁 后台系统）
+  → 前端: 被点击的 Project 高亮 → 上一个 Project 取消高亮
+  → 前端: 对话列表栏刷新 → 显示"后台系统"下的所有 Session
+  → 前端: 对话页面切换为该 Project 下最近一次打开的 Session（或空态）
+```
+
+### 5.3 在 Project 下创建聊天
+
+```
+用户: 在对话列表栏底部点击 [+ 新建聊天]
+  → 前端: 按钮展开为两个选项（上滑动画）：
+    [👤 私聊]  [👥 群聊]
+  → 用户: 点击 [👤 私聊]
+  → 前端: 弹出 Agent 选择列表 — 展示已配置的 CLI Agent（Claude Code / Codex / OpenCode），每个显示头像 + 名称 + 状态指示灯
+  → 用户: 选择一个 Agent（如 Claude Code）
+  → 前端: POST /api/sessions { projectId, mode: "single", agentId, title: "Claude Code" }
+  → 后端: 创建 Session（自动继承 project_id）→ 返回 201
+  → 前端: 对话列表栏刷新 → 新 Session 出现在列表顶部（头像 + "Claude Code" + 时间戳）
+  → 前端: 自动进入该聊天 → 对话页面显示 Agent 信息 + 空消息流
+
+（群聊流程类似 [👥 群聊] 则选择多个 Agent + 可选启用 Orchestrator）
+```
+
+### 5.4 预览 workspace 产物
+
+```
+用户: 在 Drawer 中看到 Artifact Card，点击 [👀 预览]
+  → 前端: 判断 artifactType
+    - web_preview: POST /api/projects/{project_id}/preview
+    - code_diff: GET /api/projects/{project_id}/diff
+  → 后端 PreviewService: 检测项目类型 → 启动对应预览
+  → SSE: preview.ready { previewId, previewUrl }
+  → 前端: Drawer 内容区切换为 iframe（src=previewUrl）或 DiffViewer
 ```
 
 ---
 
-## 7. 标准事件
+## 6. 验收标准
 
-```json
-{ "type": "workspace.created", "workspaceId": "ws_abc123", "sessionId": "session_abc123" }
-{ "type": "workspace.bound", "workspaceId": "ws_abc123", "sessionId": "session_abc123" }
-{ "type": "workspace.file_changed", "workspaceId": "ws_abc123", "path": "src/App.tsx", "change": "modified" }
-{ "type": "workspace.diff_ready", "workspaceId": "ws_abc123", "changedFiles": 3 }
-{ "type": "build.started", "workspaceId": "ws_abc123" }
-{ "type": "build.log", "workspaceId": "ws_abc123", "content": "vite build..." }
-{ "type": "preview.ready", "workspaceId": "ws_abc123", "previewId": "preview_abc123" }
-```
-
-Phase 6B-6F 消费这些事件：
-
-- CLI Adapter 使用 `workspace_path` 作为 `cwd`。
-- Artifact Output Bridge 使用 `workspace.diff_ready` 和 Agent 输出创建 Artifact。
-- Phase 7 Drawer 使用 `preview.ready` 打开网页预览。
+- [ ] AC-01: `POST /api/projects { name, workspacePath }` 返回 201 + 本机目录被创建 + `.agenthub/project.json` 存在
+- [ ] AC-02: 三栏布局正确渲染：项目栏（好友 + Project 列表）→ 对话列表栏 → 对话页面
+- [ ] AC-03: 项目栏底部 `[+ 新建项目]` → 内联展开创建表单 → 创建成功 → Project 出现在列表中并自动选中
+- [ ] AC-04: 点击不同 Project → 对话列表栏切换到该 Project 下的 Session 列表
+- [ ] AC-05: `GET /api/projects/{id}/tree` 返回文件树（不含 `.agenthub/`、`node_modules/`、`.git/`）
+- [ ] AC-06: `GET /api/projects/{id}/files?path=../../secret` 返回 403
+- [ ] AC-07: 对话列表栏 `[+ 新建聊天]` → 展开 [👤 私聊] [👥 群聊] → 选择后创建 Session → 对话列表刷新
+- [ ] AC-08: 同一 Project 下创建 2 个 Session → 两个 Session 的 Agent cwd 指向同一 `workspace_path`
+- [ ] AC-09: Agent 执行前后 hash diff 正确识别 created/modified/deleted 文件
+- [ ] AC-10: `POST /api/projects/{id}/preview { type: "static" }` 返回可访问的 previewUrl
+- [ ] AC-11: `DELETE /api/projects/{id}` → status=archived → 不删除实际目录 → Project 从列表消失
 
 ---
 
-## 8. 前端交互
+## 7. 测试策略
 
-### 8.1 Workspace 状态入口
+### 7.1 单元测试 (22 条)
 
-MVP 前端最小展示：
+| 测试对象 | 条数 | 覆盖内容 |
+|---------|------|---------|
+| ProjectService | 8 | create/bind existing/delete/get_tree/路径校验/重名 |
+| LocalWorkspaceProvider | 6 | 创建目录/.agenthub 初始化/文件树过滤/路径越界拒绝 |
+| FileChangeDetector | 5 | hash diff/created/modified/deleted/空变更 |
+| PreviewService | 3 | static 预览/vite-react 构建/缺失文件错误 |
 
-- 会话标题旁显示 workspace 名称。
-- 左栏或设置区显示 workspace 健康状态。
-- 创建项目型会话时可选模板。
-- Artifact Drawer 中能打开文件树、Diff 或预览 URL。
+### 7.2 集成测试
 
-### 8.2 用户流程
+- Project 创建 → Session 绑定 → Agent cwd 校验 → 文件写入 → hash diff 检测 → 事件发布全流程
 
-```text
-用户点击新建项目
-  -> 输入项目名和需求
-  -> 后端创建 session + workspace
-  -> 聊天流显示 workspace.created 状态
-  -> 用户发送任务
-  -> Agent 在 workspace 中写文件
-  -> 生成 Artifact Card / Preview
-```
+### 7.3 E2E 测试
+
+- 真实浏览器：创建 Project → 选择已有目录 → 在 Project 下创建私聊 → Mock Agent 写入 index.html → Drawer 预览网页
 
 ---
 
-## 9. 路径安全
+## 8. 架构约束追溯
 
-必须满足：
-
-- `root_path` 保存绝对路径。
-- `file_path` 只能是 workspace 相对路径。
-- 所有读写前都要 `resolve()` 后确认仍在 `root_path` 内。
-- 禁止读取 `.env`、密钥文件和 `.agenthub/secrets`。
-- 预览服务只暴露 `dist/` 或被允许的静态目录。
-- 删除/归档 workspace 不得递归删除用户绑定的外部目录，除非用户显式确认。
-
----
-
-## 10. 测试策略
-
-### Unit
-
-- `LocalWorkspaceProvider` 创建目录和 `.agenthub/workspace.json`。
-- 路径越界被拒绝。
-- 文件树忽略 `node_modules/.git/.agenthub`。
-- 执行前后 hash diff 能识别 created/modified/deleted。
-- session 绑定 workspace 后可查询。
-
-### API
-
-- `POST /api/workspaces` 创建记录和目录。
-- `POST /api/sessions/{id}/workspace` 绑定成功。
-- `GET /api/workspaces/{id}/tree` 返回相对路径。
-- 越界读取 `../secret` 返回 400/403。
-- `POST /api/workspaces/{id}/preview` 对静态 HTML 返回 previewId。
-
-### E2E
-
-最小真实验收：
-
-```text
-创建项目型 session
-  -> workspace 自动创建
-  -> mock agent 写入 index.html
-  -> file diff 检测到 index.html
-  -> 生成 web_preview Artifact
-  -> preview API 可访问
-```
+| 本模块的决策 | 依据 |
+|------------|------|
+| Project 作为顶层实体，workspace 绑定 Project 而非 Session | ADR-0009 §核心规则 1-3 |
+| 所有 Session 必须归属 Project | ADR-0009 §核心规则 1 |
+| cwd 从 Session → Project.workspace_path 获取 | ADR-0009 §核心规则 3 |
+| WorkspaceProvider 抽象接口，本机用 LocalWorkspaceProvider | ADR-0009 §配套决策 |
+| 路径校验必须在 allowlist 范围内 | PRD-06 §4.2 |
+| Agent 不直接写数据库，通过事件解耦 | ADR-0005 §接口契约 |
 
 ---
 
-## 11. 验收标准
+## 9. 依赖
 
-- [ ] 新建 Project 时绑定 workspace_path，Project 下所有 Session 自动继承。
-- [ ] 绑定已有本机目录时，后端做 allowlist/路径越界校验。
-- [ ] WorkspaceService 能返回文件树、读取文件、生成 Diff。
-- [ ] CLI Adapter 可以从 WorkspaceService 获取可信 `workspace_path`，并以它作为进程 `cwd`。
-- [ ] Agent 执行前后能检测文件变更，并发布 `workspace.diff_ready`。
-- [ ] 静态 HTML workspace 能生成 previewId，并通过后端预览 URL 打开。
-- [ ] Artifact 记录可绑定 `workspace_id/file_path/preview_id`。
-- [ ] 所有新增 API 有 Unit/API 测试覆盖。
+| 依赖模块 | 需要的接口 | 当前状态 |
+|---------|-----------|---------|
+| Phase 3 SessionService | `create_session(project_id)` 自动绑定 | ✅ 已就绪（需加 project_id 参数） |
+| Phase 3 EventBus | `publish(event_type, payload)` | ✅ 已就绪 |
+| Phase 5 ArtifactService | Artifact 模型（需加 project_id/file_path/preview_id） | ✅ 已就绪（需 ALTER TABLE） |
+| FileChangeDetector | — | ❌ 本模块新建 |
+| PreviewService | — | ❌ 本模块新建 |
 
 ---
 
-## 12. Non-Goals
+## 10. Non-Goals（明确不做什么）
 
-- 不做 SaaS 云端 sandbox。
-- 不做完整 Web IDE。
-- 不做文件实时协同编辑。
-- 不做公网部署发布。
-- 不在 Phase 6A 实现真正 Claude Code 调用；真实 CLI 由 Phase 6B-6E 承接。
+| 不做的事 | 原因 | 由谁负责 |
+|---------|------|---------|
+| 不执行 Agent 进程 | 不是本模块职责 | Phase 6B-6E CLI Adapter |
+| 不创建 Artifact | 不是本模块职责 | Phase 6F Artifact Bridge |
+| 不渲染 Drawer UI | 下游链路 | Phase 7 |
+| 不做 SaaS 云端 sandbox | P2 范围 | P2 CloudWorkspaceProvider |
+| 不做 Docker 容器隔离 | P1 本机版不需要 | P2 |
+| 不做实时文件监听（fs watcher） | Windows 兼容性 + 稳定性 | 用执行前后 hash diff 替代 |
+| 不做多 Project 共享同一 workspace | MVP 简化 | 未来扩展 |
 
+---
+
+## 11. 破坏性变更与迁移
+
+| 维度 | V1 行为 | V2 行为 | 迁移路径 |
+|------|--------|--------|---------|
+| 数据模型 | `sessions.workspace_id` 直接绑定 workspace | 新增 `projects` 表；`sessions.project_id` FK | 数据迁移脚本：创建默认 Project → 迁移旧 session 的 workspace_id → 删除 workspace_id 列 |
+| API | `POST /api/sessions/{id}/workspace` | `POST /api/projects` + Session 自动继承 | 前端同步更新 API 调用路径 |
+| 事件 | `workspace.created { sessionId }` | `project.created { projectId }` | 消费者同步更新事件类型 |
+
+> **版本历史**
+> - v1.0 (2026-06-03): 初始版本（Session→Workspace 直接绑定）
+> - v2.0 (2026-06-04): 按 ADR-0009 重构为 Project→Workspace 模型
