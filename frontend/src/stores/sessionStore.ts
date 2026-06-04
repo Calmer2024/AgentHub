@@ -1,15 +1,17 @@
 import { create } from "zustand";
 import type { Session, AgentConfig, Provider } from "../types";
 
+export type SidebarTab = "sessions" | "agents" | "debug" | "settings";
+
 interface SessionState {
   sessions: Session[];
   agents: AgentConfig[];
   providers: Provider[];
-  sidebarTab: "sessions" | "agents" | "settings";
+  sidebarTab: SidebarTab;
   setSessions: (sessions: Session[]) => void;
   setAgents: (agents: AgentConfig[]) => void;
   setProviders: (providers: Provider[]) => void;
-  setSidebarTab: (tab: "sessions" | "agents" | "settings") => void;
+  setSidebarTab: (tab: SidebarTab) => void;
   updateSession: (session: Session) => void;
 }
 

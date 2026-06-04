@@ -6,6 +6,7 @@ import { ChatWindow } from "./components/ChatWindow";
 import { AgentPanel } from "./components/AgentPanel";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { GroupChatCreator } from "./components/GroupChatCreator";
+import { OrchestratorDebugPanel } from "./components/OrchestratorDebugPanel";
 import {
   createSession, createGroupSession, fetchSessions, fetchMessages, fetchAgents,
   fetchProviders, updateSessionAgent, deleteSession, renameSession, summarizeSession,
@@ -224,6 +225,7 @@ function App() {
   const tabs = [
     { key: "sessions" as const, label: "会话" },
     { key: "agents" as const, label: "Agent" },
+    { key: "debug" as const, label: "调试" },
     { key: "settings" as const, label: "设置" },
   ];
 
@@ -256,6 +258,24 @@ function App() {
             <AgentPanel providers={providers} onChanged={loadData} />
           </div>
         )}
+        {sidebarTab === "debug" && (
+          <div className="flex-1 overflow-y-auto bg-gray-50 p-3">
+            <div className="space-y-3">
+              <button
+                type="button"
+                className="w-full border border-blue-200 bg-white px-3 py-3 text-left shadow-sm"
+              >
+                <span className="block text-sm font-semibold text-blue-700">调度器调试台</span>
+                <span className="mt-1 block text-xs leading-5 text-gray-500">
+                  输入需求，查看意图、选人、执行计划和调度图。
+                </span>
+              </button>
+              <div className="border border-dashed border-gray-200 bg-white px-3 py-3 text-xs leading-5 text-gray-500">
+                后续可以继续添加 Prompt 调试、Agent 评分调试、上下文预算调试等工具。
+              </div>
+            </div>
+          </div>
+        )}
         {sidebarTab === "settings" && (
           <div className="flex-1 overflow-y-auto">
             <SettingsPanel providers={providers} onSaved={loadData} />
@@ -263,7 +283,11 @@ function App() {
         )}
       </div>
 
-      {currentSessionId ? (
+      {sidebarTab === "debug" ? (
+        <div className="flex-1 min-h-0">
+          <OrchestratorDebugPanel agents={agents} />
+        </div>
+      ) : currentSessionId ? (
         <ChatWindow
           messages={messages} isStreaming={isStreaming}
           artifacts={artifacts}

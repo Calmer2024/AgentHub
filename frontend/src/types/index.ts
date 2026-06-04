@@ -226,3 +226,77 @@ export interface SettingsUpdate {
   orchestratorProvider?: string;
   orchestratorModel?: string;
 }
+
+// === Orchestrator Debug types ===
+
+export interface OrchestratorDebugAgent {
+  id: string;
+  name: string;
+  description: string;
+  provider: string;
+  model: string;
+}
+
+export interface OrchestratorDebugScoredAgent extends OrchestratorDebugAgent {
+  score: number;
+  matchTags: string[];
+  reason: "exact_mention" | "tag_match" | "fallback";
+}
+
+export interface OrchestratorDebugCall {
+  agent: OrchestratorDebugAgent;
+  task: string;
+  role: string;
+  phase: number;
+  dependsOn: string[];
+  rolePromptOverride: string | null;
+  inputMessageCount: number;
+}
+
+export interface OrchestratorDebugPhase {
+  phase: number;
+  mode: "serial" | "parallel";
+  calls: OrchestratorDebugCall[];
+}
+
+export interface OrchestratorDebugResult {
+  input: {
+    content: string;
+    mentions: string[];
+    supplemental: boolean;
+    agentCount: number;
+  };
+  intent: {
+    type: string;
+    requiredTags: string[];
+    confidence: number;
+    evidence: string;
+  };
+  context: {
+    messageCount: number;
+    assembledMessages: Array<{ role: string; content: string }>;
+    truncated: boolean;
+    estimatedTokens: number;
+  };
+  agentSelection: OrchestratorDebugScoredAgent[];
+  selectedAgents: OrchestratorDebugAgent[];
+  executionPlan: {
+    mode: "single" | "parallel" | "chain" | "dag" | "empty";
+    planSummary: string;
+    decomposerUsed: boolean;
+    chainAutoTriggered: boolean;
+    calls: OrchestratorDebugCall[];
+    dagPhases: OrchestratorDebugPhase[];
+  };
+  visualization: {
+    mermaid: string;
+  };
+}
+
+export interface OrchestratorDebugRequest {
+  content: string;
+  agentIds?: string[];
+  mentions?: string[];
+  useMockAgents?: boolean;
+  supplemental?: boolean;
+}

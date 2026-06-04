@@ -3,6 +3,7 @@ import type {
   Settings, SettingsUpdate, RouteAgent, CollabTask, ChainStep, ChainConfigInput,
   DAGPhase, PhaseChangeEvent, AgentStartEvent, OrchestratorSummaryStartEvent,
   Artifact, ArtifactDiff, ArtifactEditRequest, ArtifactEditResult, ArtifactVersion,
+  OrchestratorDebugRequest, OrchestratorDebugResult,
 } from "../types";
 import { parseDagPhases, parseTasks } from "./orchestratorEvents";
 
@@ -453,5 +454,20 @@ export async function editArtifact(
     body: JSON.stringify(data),
   });
   if (!res.ok) throw new Error("Failed to edit artifact");
+  return res.json();
+}
+
+export async function dryRunOrchestrator(
+  data: OrchestratorDebugRequest,
+): Promise<OrchestratorDebugResult> {
+  const res = await fetch(`${API_BASE}/debug/orchestrator/dry-run`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(text || `HTTP ${res.status}`);
+  }
   return res.json();
 }
