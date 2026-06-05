@@ -5,7 +5,9 @@ from __future__ import annotations
 from typing import AsyncIterator
 
 from ..agents.cli_adapters import CliEvent, get_cli_adapter, render_transcript_prompt
+from ..domain.skill_registry import SkillRegistry
 from ..models import AgentConfig
+from .cli_agent_registry import decode_json_list
 
 
 class CliAgentService:
@@ -13,6 +15,7 @@ class CliAgentService:
 
     def __init__(self, event_bus=None):
         self.event_bus = event_bus
+        self._skills = SkillRegistry()
 
     async def stream(
         self,
@@ -38,10 +41,38 @@ class CliAgentService:
             session_id=session_id,
             cwd=workspace_path,
             user_prompt=prompt,
-            system_prompt=system_prompt,
+            system_prompt=self._assemble_system_prompt(agent, system_prompt),
             event_bus=self.event_bus,
         ):
             yield event
+
+    def _assemble_system_prompt(self, agent: AgentConfig, base_prompt: str) -> str:
+        parts: list[str] = [
+            (
+                "[AgentHub Agent Profile]\n"
+                f"当前会话中的用户可见 Agent 名称: {agent.name}\n"
+                f"底层 Engine: {agent.cli_tool or 'custom'}\n"
+                "你必须按这个 Agent Profile 的身份、Skill 和职责回答。"
+                "当用户询问你是什么角色时，回答 Agent Profile 身份，而不是只回答底层 Engine 名称。"
+            )
+        ]
+        primary = self._skills.get(agent.primary_skill or "general_coding")
+        if primary:
+            parts.append(f"[Primary Skill: {primary.id}]\n{primary.prompt}")
+
+        for skill_id in decode_json_list(agent.auxiliary_skills):
+            skill = self._skills.get(skill_id)
+            if skill:
+                parts.append(f"[Auxiliary Skill: {skill.id}]\n{skill.prompt}")
+
+        if base_prompt.strip():
+            parts.append(base_prompt.strip())
+
+        policy = (agent.context_policy or "workspace_coding").strip()
+        if policy:
+            parts.append(f"[Context Policy: {policy}]")
+
+        return "\n\n".join(parts)
 
 
 def render_cli_prompt(messages: list[dict]) -> str:

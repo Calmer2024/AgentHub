@@ -16,7 +16,25 @@ class TestCreateAgent:
         assert data["agentType"] == "cli_wrapper"
         assert data["cliTool"] == "claude_code"
         assert data["executable"] == "claude"
+        assert data["primarySkill"] == "general_coding"
+        assert data["auxiliarySkills"] == []
+        assert data["contextPolicy"] == "workspace_coding"
         assert "id" in data
+
+    async def test_create_with_skill_profile(self, test_client):
+        res = await test_client.post("/api/agents", json={
+            "name": "前端专家",
+            "cliTool": "claude_code",
+            "executable": "claude",
+            "primarySkill": "frontend_engineer",
+            "auxiliarySkills": ["react", "workspace_editing", "react"],
+            "contextPolicy": "workspace_coding",
+        })
+        assert res.status_code == 201
+        data = res.json()
+        assert data["primarySkill"] == "frontend_engineer"
+        assert data["auxiliarySkills"] == ["react", "workspace_editing"]
+        assert data["contextPolicy"] == "workspace_coding"
 
     async def test_create_defaults(self, test_client):
         res = await test_client.post("/api/agents", json={"name": "Test"})
@@ -106,6 +124,8 @@ class TestListAgents:
         claude = next(agent for agent in agents if agent["name"] == "Claude Code")
         assert "--verbose" in claude["initArgs"]
         assert claude["envVars"] == {}
+        assert claude["primarySkill"] == "general_coding"
+        assert "workspace_editing" in claude["auxiliarySkills"]
         codex = next(agent for agent in agents if agent["name"] == "Codex")
         assert "--ignore-user-config" not in codex["initArgs"]
         assert "--dangerously-bypass-approvals-and-sandbox" in codex["initArgs"]
@@ -130,6 +150,18 @@ class TestUpdateAgent:
         assert data["name"] == "新名称"
         assert data["initArgs"] == ["--verbose"]
 
+    async def test_update_skill_profile(self, test_client, test_agent):
+        res = await test_client.patch(f"/api/agents/{test_agent.id}", json={
+            "primarySkill": "code_reviewer",
+            "auxiliarySkills": ["security", "workspace_editing"],
+            "contextPolicy": "review_only",
+        })
+        assert res.status_code == 200
+        data = res.json()
+        assert data["primarySkill"] == "code_reviewer"
+        assert data["auxiliarySkills"] == ["security", "workspace_editing"]
+        assert data["contextPolicy"] == "review_only"
+
     async def test_update_nonexistent(self, test_client):
         res = await test_client.patch("/api/agents/nonexistent", json={"name": "X"})
         assert res.status_code == 404
@@ -142,3 +174,26 @@ class TestDeleteAgent:
         assert res.status_code == 200
         r2 = await test_client.get("/api/agents")
         assert len(r2.json()) == len(before) - 1  # 软删除后少一个
+
+
+class TestSkillsApi:
+    async def test_list_builtin_skills(self, test_client):
+        res = await test_client.get("/api/skills")
+        assert res.status_code == 200
+        skill_ids = {skill["id"] for skill in res.json()}
+        assert {"general_coding", "frontend_engineer", "orchestrator_planner"}.issubset(skill_ids)
+        general = next(skill for skill in res.json() if skill["id"] == "general_coding")
+        assert general["source"] == "builtin"
+
+    async def test_list_filesystem_skills(self, test_client, monkeypatch):
+        monkeypatch.setenv("AGENTHUB_SKILL_ROOTS", "test_fixtures/skills")
+
+        res = await test_client.get("/api/skills")
+
+        assert res.status_code == 200
+        skill = next(item for item in res.json() if item["id"] == "local-fixture-skill")
+        assert skill["name"] == "local-fixture-skill"
+        assert skill["description"] == "Local fixture skill for registry tests."
+        assert skill["source"] == "filesystem"
+        assert skill["path"].endswith("SKILL.md")
+        assert "fixture" in skill["tags"]

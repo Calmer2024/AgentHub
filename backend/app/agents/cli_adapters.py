@@ -171,6 +171,8 @@ class CliAgentAdapter:
             yield CliEvent("error", "", error=str(exc))
 
     def build_prompt(self, system_prompt: str, user_prompt: str) -> str:
+        if system_prompt.strip():
+            return f"{system_prompt.strip()}\n\n{user_prompt.rstrip()}\n"
         return f"{user_prompt.rstrip()}\n"
 
     def render_prompt_messages(self, messages: list[dict]) -> str:
@@ -237,6 +239,19 @@ class ClaudeCodeAdapter(CliAgentAdapter):
         re.compile(r"^(?:⏺|⎿)\s+", re.M),
         re.compile(r"调用工具|正在读取|正在写入"),
     )
+
+    def build_prompt(self, system_prompt: str, user_prompt: str) -> str:
+        if not system_prompt.strip():
+            return super().build_prompt(system_prompt, user_prompt)
+        return (
+            "<agenthub_system_context>\n"
+            f"{system_prompt.strip()}\n"
+            "</agenthub_system_context>\n\n"
+            "上面的 AgentHub system context 定义了你在当前会话中的 Agent Profile 身份、"
+            "Skill 和上下文策略。回答用户询问身份或职责时，优先使用这个 Agent Profile，"
+            "不要只回答底层 CLI Engine 名称。\n\n"
+            f"{user_prompt.rstrip()}\n"
+        )
 
     def parse_json_event(self, data: object, seen_text: bool) -> list[ParsedOutput]:
         if not isinstance(data, dict):

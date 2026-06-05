@@ -1,4 +1,4 @@
-"""Agent 选择器 —— 基于 Agent 元数据标签匹配。
+"""Agent 选择器 —— 基于 Agent Skill Profile 和元数据标签匹配。
 
 Domain 层纯逻辑，零框架依赖。
 
@@ -8,9 +8,11 @@ Domain 层纯逻辑，零框架依赖。
   - 执行能力来自 CLI 配置，调度评分只看 Agent 元数据
 """
 
+import json
 from dataclasses import dataclass, field
 
 from ..models import AgentConfig
+from .skill_registry import SkillRegistry
 
 
 @dataclass
@@ -38,6 +40,9 @@ class AgentSelector:
 
     MAX_MENTION_SCORE = 9999
     FALLBACK_SCORE = 1
+
+    def __init__(self, skill_registry: SkillRegistry | None = None):
+        self._skills = skill_registry or SkillRegistry()
 
     def select(
         self,
@@ -68,7 +73,7 @@ class AgentSelector:
             if mention_ids:
                 continue
 
-            # 优先级 2: 标签匹配
+            # 优先级 2: Skill 显式匹配
             tag_score, matched = self._match_tags(required_tags, agent)
             if tag_score > 0:
                 scored.append(ScoredAgent(
@@ -91,27 +96,62 @@ class AgentSelector:
         return scored
 
     def _match_tags(self, tags: list[str], agent: AgentConfig) -> tuple[int, list[str]]:
-        """在 Agent 的 description + system_prompt 中匹配标签，返回 (得分, 命中标签列表)。"""
+        """匹配 required tags 与 Agent Skill Profile，返回 (得分, 命中标签列表)。"""
         if not tags:
             return (self.FALLBACK_SCORE, [])
 
+        skill_score, skill_matched = self._match_skill_tags(tags, agent)
         search_text = self._build_search_text(agent).lower()
-        matched: list[str] = []
-        score = 0
+        matched: list[str] = list(skill_matched)
+        score = skill_score
 
         for tag in tags:
             tag_lower = tag.lower()
             if tag_lower in search_text:
-                matched.append(tag)
+                if tag not in matched:
+                    matched.append(tag)
                 # 权重: name 命中 > description 命中 > system_prompt 命中
                 if tag_lower in agent.name.lower():
-                    score += 3
+                    score += 5
                 elif tag_lower in (agent.description or "").lower():
-                    score += 2
+                    score += 5
                 else:
-                    score += 1
+                    score += 5
 
         return (score, matched)
+
+    def _match_skill_tags(self, tags: list[str], agent: AgentConfig) -> tuple[int, list[str]]:
+        matched: list[str] = []
+        score = 0
+        normalized_tags = [(tag, tag.lower()) for tag in tags]
+
+        primary_id = agent.primary_skill or "general_coding"
+        primary = self._skills.get(primary_id)
+        primary_terms = {primary_id.lower()}
+        if primary:
+            primary_terms.update(tag.lower() for tag in primary.tags)
+
+        auxiliary_ids = _decode_json_list(agent.auxiliary_skills)
+        auxiliary_terms: dict[str, set[str]] = {}
+        for skill_id in auxiliary_ids:
+            skill = self._skills.get(skill_id)
+            terms = {skill_id.lower()}
+            if skill:
+                terms.update(tag.lower() for tag in skill.tags)
+            auxiliary_terms[skill_id] = terms
+
+        for original, lower in normalized_tags:
+            if lower in primary_terms:
+                matched.append(original)
+                score += 100 if lower == primary_id.lower() else 50
+                continue
+            for skill_id, terms in auxiliary_terms.items():
+                if lower in terms:
+                    matched.append(original)
+                    score += 30 if lower == skill_id.lower() else 15
+                    break
+
+        return score, matched
 
     def _build_search_text(self, agent: AgentConfig) -> str:
         """构建用于标签匹配的搜索文本。"""
@@ -119,5 +159,17 @@ class AgentSelector:
             agent.name or "",
             agent.description or "",
             agent.system_prompt or "",
+            agent.primary_skill or "",
+            " ".join(_decode_json_list(agent.auxiliary_skills)),
         ]
         return " ".join(parts)
+
+
+def _decode_json_list(value: str | None) -> list[str]:
+    if not value:
+        return []
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return []
+    return [str(item) for item in parsed] if isinstance(parsed, list) else []

@@ -82,6 +82,20 @@ def test_claude_stream_event_text_delta_is_streamed_immediately():
     assert parsed[0].text == "TRACE"
 
 
+def test_claude_build_prompt_preserves_agenthub_system_context():
+    adapter = ClaudeCodeAdapter()
+
+    prompt = adapter.build_prompt(
+        "[Primary Skill: grill-me]\nInterview the user relentlessly.",
+        "User:\n哈喽，你是什么角色Agent？\n",
+    )
+
+    assert "<agenthub_system_context>" in prompt
+    assert "[Primary Skill: grill-me]" in prompt
+    assert "Agent Profile 身份" in prompt
+    assert "User:\n哈喽，你是什么角色Agent？" in prompt
+
+
 def test_claude_tool_result_has_structured_output_trace():
     adapter = ClaudeCodeAdapter()
     parsed = adapter.parse_json_event({

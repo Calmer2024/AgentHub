@@ -25,6 +25,10 @@ from ..core.agent_env import (
 from ..models import AgentConfig
 
 
+DEFAULT_PRIMARY_SKILL = "general_coding"
+DEFAULT_CONTEXT_POLICY = "workspace_coding"
+
+
 class CliAgentNotFoundError(LookupError):
     pass
 
@@ -90,6 +94,9 @@ class CliAgentRegistry:
                 data.env_vars or defaults.get("env_vars", {}),
                 allowed_sensitive_keys=allowed_sensitive_env_keys_for_cli(data.cli_tool),
             ),
+            primary_skill=_normalize_skill_id(data.primary_skill) or DEFAULT_PRIMARY_SKILL,
+            auxiliary_skills=encode_json(_normalize_skill_list(data.auxiliary_skills)),
+            context_policy=_normalize_context_policy(data.context_policy),
         )
         self.db.add(agent)
         await self.db.commit()
@@ -122,6 +129,12 @@ class CliAgentRegistry:
                 data.env_vars,
                 allowed_sensitive_keys=allowed_sensitive_env_keys_for_cli(agent.cli_tool),
             )
+        if data.primary_skill is not None:
+            agent.primary_skill = _normalize_skill_id(data.primary_skill) or DEFAULT_PRIMARY_SKILL
+        if data.auxiliary_skills is not None:
+            agent.auxiliary_skills = encode_json(_normalize_skill_list(data.auxiliary_skills))
+        if data.context_policy is not None:
+            agent.context_policy = _normalize_context_policy(data.context_policy)
 
         await self.db.commit()
         await self.db.refresh(agent)
@@ -171,6 +184,26 @@ def decode_json_dict(
         {str(k): str(v) for k, v in data.items()},
         allowed_sensitive_keys=allowed_sensitive_env_keys_for_cli(cli_tool),
     )
+
+
+def _normalize_skill_id(value: str | None) -> str:
+    return str(value or "").strip()
+
+
+def _normalize_skill_list(value: list[str] | None) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for item in value or []:
+        skill_id = _normalize_skill_id(item)
+        if not skill_id or skill_id in seen:
+            continue
+        seen.add(skill_id)
+        result.append(skill_id)
+    return result
+
+
+def _normalize_context_policy(value: str | None) -> str:
+    return str(value or DEFAULT_CONTEXT_POLICY).strip() or DEFAULT_CONTEXT_POLICY
 
 
 def _decode_json(value: str | None, fallback):
