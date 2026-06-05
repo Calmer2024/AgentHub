@@ -13,6 +13,12 @@ from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..domain.context_manager import ContextManager, PromptAssemblyInput
+from ..domain.orchestrator_plan import (
+    extract_json_object,
+    normalize_plan,
+    validate_plan,
+    visualize_mermaid,
+)
 from ..models import AgentConfig, Message as DBMessage, Session as DBSession
 from ..agents.cli_trace import trace_text
 from .cli_agent_service import CliAgentService
@@ -231,6 +237,8 @@ class SingleCliChatStream:
 
         if raw_output and raw_output != visible:
             metadata["rawOutputPreview"] = raw_output[-4000:]
+        if (agent_config.primary_skill or "") == "orchestrator_planner":
+            metadata.update(_orchestrator_plan_metadata(visible))
         metadata = merge_trace_metadata(metadata, trace)
 
         await self._persist_message(
@@ -422,6 +430,22 @@ def _split_system_prompt(messages: list[dict], fallback: str) -> tuple[list[dict
     if messages and messages[0].get("role") == "system":
         return messages[1:], str(messages[0].get("content") or fallback)
     return messages, fallback
+
+
+def _orchestrator_plan_metadata(output: str) -> dict:
+    try:
+        plan = normalize_plan(extract_json_object(output))
+        validation = validate_plan(plan)
+    except ValueError as exc:
+        return {"orchestratorPlanError": str(exc)}
+    return {
+        "orchestratorPlan": {
+            "ok": validation["ok"],
+            "normalizedPlan": plan,
+            "validation": validation,
+            "visualization": {"mermaid": visualize_mermaid(plan)},
+        }
+    }
 
 
 async def _broadcast_ws(session_id: str, payload: dict) -> None:

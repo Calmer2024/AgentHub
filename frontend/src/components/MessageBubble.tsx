@@ -8,6 +8,7 @@ import { MessageActions } from "./MessageActions";
 import { ReplyPreview } from "./ReplyPreview";
 import { ExecutionTracePanel } from "./ExecutionTracePanel";
 import { AgentAvatar } from "./AgentAvatar";
+import { OrchestratorPlanPanel } from "./OrchestratorPlanPanel";
 
 interface Props {
   message: Message;
@@ -93,6 +94,8 @@ export function MessageBubble({
   const isUser = message.role === "user";
   const isEmpty = message.content === "";
   const traceStatus = message.metadata?.executionTrace?.status;
+  const orchestratorPlan = message.metadata?.orchestratorPlan;
+  const orchestratorPlanError = message.metadata?.orchestratorPlanError;
   const isLocalPending = message.id.startsWith("local-");
   const showTyping = !isUser && isEmpty && (
     traceStatus === "running" || (!traceStatus && isStreaming && isLocalPending)
@@ -112,6 +115,11 @@ export function MessageBubble({
     : "border border-white/10 bg-[#1d2733]/95 text-[#ececf1] shadow-[0_14px_34px_rgba(0,0,0,0.18)]";
   const roundClass = isUser ? "rounded-[20px] rounded-br-md" : "rounded-[20px] rounded-bl-md";
   const summaryClass = "border border-indigo-300/25 bg-indigo-950/25 text-[#ececf1] shadow-sm";
+  const bubbleClass = isSummary
+    ? summaryClass
+    : isCollaborating && !isUser
+      ? `border-l-4 border-white/10 bg-[#1d2733]/95 text-[#ececf1] shadow-[0_14px_34px_rgba(0,0,0,0.18)] ${roleStyle.split(" ")[0]}`
+      : bgClass;
 
   const hasPreviousVersion = Array.isArray(message.metadata?.versions)
     && message.metadata.versions.length > 0;
@@ -140,9 +148,7 @@ export function MessageBubble({
         size="md"
         className="mb-0.5"
       />
-      <div className={`${isSummary ? "max-w-[92%]" : "max-w-[min(78%,860px)]"} relative transition-transform duration-150 group-hover:-translate-y-0.5 ${
-        isSummary ? summaryClass : isCollaborating && !isUser ? `border-l-4 ${roleStyle}` : bgClass
-      } ${roundClass}`}>
+      <div className={`${isSummary || orchestratorPlan ? "max-w-[min(92%,1080px)]" : "max-w-[min(78%,860px)]"} relative transition-transform duration-150 group-hover:-translate-y-0.5 ${bubbleClass} ${roundClass}`}>
         <MessageActions
           message={message}
           onReply={onReply}
@@ -182,7 +188,22 @@ export function MessageBubble({
             onJump={onJumpToMessage}
           />
         )}
-        {showTyping ? (
+        {orchestratorPlan ? (
+          <OrchestratorPlanPanel plan={orchestratorPlan} rawJson={message.content} />
+        ) : orchestratorPlanError ? (
+          <div className="rounded-lg border border-red-300/25 bg-red-950/25 p-3 text-sm text-red-100">
+            <p className="font-semibold">调度计划解析失败</p>
+            <p className="mt-1 text-xs text-red-100/80">{orchestratorPlanError}</p>
+            {message.content && (
+              <details className="mt-3">
+                <summary className="cursor-pointer text-xs font-semibold">查看原始输出</summary>
+                <pre className="mt-2 max-h-72 overflow-auto rounded-md bg-black/35 p-2 text-[11px] leading-5 text-red-50">
+                  {message.content}
+                </pre>
+              </details>
+            )}
+          </div>
+        ) : showTyping ? (
           <TypingIndicator />
         ) : isUser ? (
           <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>

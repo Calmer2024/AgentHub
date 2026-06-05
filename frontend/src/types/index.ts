@@ -95,7 +95,11 @@ export interface Message {
   sourceType?: "user" | "agent" | "orchestrator" | "assistant" | "system";
   sourceId?: string | null;
   sourceName?: string | null;
-  metadata?: (Record<string, unknown> & { executionTrace?: ExecutionTrace }) | null;
+  metadata?: (Record<string, unknown> & {
+    executionTrace?: ExecutionTrace;
+    orchestratorPlan?: OrchestratorPlanMetadata;
+    orchestratorPlanError?: string;
+  }) | null;
   agentRole?: string | null;
   phase?: number | null;
   taskName?: string | null;
@@ -337,6 +341,15 @@ export interface ChainConfigInput {
   agentOrder?: string[];
 }
 
+export interface OrchestratorPlanMetadata {
+  ok: boolean;
+  normalizedPlan: OrchestratorPlan;
+  validation: OrchestratorValidation;
+  visualization: {
+    mermaid: string;
+  };
+}
+
 export interface SettingsUpdate {
   anthropicApiKey?: string;
   deepseekApiKey?: string;
@@ -399,11 +412,16 @@ export interface OrchestratorPlanPhase {
 export interface OrchestratorPlan {
   plan_id: string;
   status: string;
-  execution_policy: string;
+  execution_policy: string | {
+    mode?: string;
+    requires_approval_before_execution?: boolean;
+  };
   tasks: OrchestratorPlanTask[];
   execution_strategy: {
-    summary: string;
-    phases: OrchestratorPlanPhase[];
+    summary?: string;
+    phases?: OrchestratorPlanPhase[];
+    parallelizable_groups?: string[][];
+    critical_path?: string[];
   };
 }
 
