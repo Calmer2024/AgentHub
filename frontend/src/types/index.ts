@@ -336,3 +336,123 @@ export interface ChainConfigInput {
   chainName?: string;
   agentOrder?: string[];
 }
+
+export interface SettingsUpdate {
+  anthropicApiKey?: string;
+  deepseekApiKey?: string;
+  geminiApiKey?: string;
+  openaiApiKey?: string;
+  minimaxApiKey?: string;
+  glmApiKey?: string;
+  openaiModel?: string;
+  claudeModel?: string;
+  deepseekModel?: string;
+  geminiModel?: string;
+  minimaxModel?: string;
+  glmModel?: string;
+  orchestratorProvider?: string;
+  orchestratorModel?: string;
+}
+
+// === Orchestrator Manual Bridge Debug types ===
+
+export interface OrchestratorDebugAgent {
+  id: string;
+  name: string;
+  description: string;
+  provider: string;
+  model: string;
+  primarySkill?: string;
+  auxiliarySkills?: string[];
+}
+
+export interface OrchestratorAgentProfile {
+  id: string;
+  name: string;
+  engine: string;
+  primarySkill: string;
+  auxiliarySkills: string[];
+}
+
+export interface OrchestratorPlanTask {
+  task_id: string;
+  title: string;
+  goal: string;
+  required_skills: string[];
+  assigned_agent_id: string | null;
+  assigned_agent_name: string | null;
+  assignment_reason: string;
+  depends_on: string[];
+  expected_outputs: string[];
+  acceptance_criteria: string[];
+  needs_approval: boolean;
+  is_blocking: boolean;
+}
+
+export interface OrchestratorPlanPhase {
+  phase: number;
+  mode: "serial" | "parallel";
+  tasks: string[];
+  reason: string;
+}
+
+export interface OrchestratorPlan {
+  plan_id: string;
+  status: string;
+  execution_policy: string;
+  tasks: OrchestratorPlanTask[];
+  execution_strategy: {
+    summary: string;
+    phases: OrchestratorPlanPhase[];
+  };
+}
+
+export interface OrchestratorValidation {
+  ok: boolean;
+  errors: string[];
+  warnings: string[];
+}
+
+export interface BuildOrchestratorInputRequest {
+  content: string;
+  agentIds?: string[];
+  useMockAgents?: boolean;
+}
+
+export interface BuildOrchestratorInputResult {
+  input: {
+    content: string;
+    agentCount: number;
+  };
+  orchestratorAgent: OrchestratorAgentProfile;
+  candidateAgents: OrchestratorDebugAgent[];
+  prompt: string;
+  outputSchema: Record<string, unknown>;
+}
+
+export interface ParseOrchestratorOutputRequest {
+  rawOutput: string;
+  candidateAgents: OrchestratorDebugAgent[];
+}
+
+export interface ParseOrchestratorOutputResult {
+  rawOutput: string;
+  normalizedPlan: OrchestratorPlan;
+  validation: OrchestratorValidation;
+  visualization: {
+    mermaid: string;
+  };
+}
+
+export interface GenerateOrchestratorPlanRequest extends BuildOrchestratorInputRequest {
+  provider?: string;
+  model?: string;
+}
+
+export interface GenerateOrchestratorPlanResult
+  extends BuildOrchestratorInputResult, ParseOrchestratorOutputResult {
+  llm: {
+    provider: string;
+    model: string;
+  };
+}

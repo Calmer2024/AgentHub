@@ -5,6 +5,7 @@ import { ChatWindow } from "./components/ChatWindow";
 import { ProjectSidebar } from "./components/ProjectSidebar";
 import { AgentPanel } from "./components/AgentPanel";
 import { GroupChatCreator } from "./components/GroupChatCreator";
+import { OrchestratorDebugPanel } from "./components/OrchestratorDebugPanel";
 import { deleteAgent, fetchArtifacts, fetchMessages, pinMessage, regenerateMessageStream, unpinMessage } from "./api/client";
 import { useSendMessage } from "./hooks/useSendMessage";
 import { useWorkspaceRuntime } from "./hooks/useWorkspaceRuntime";
@@ -141,20 +142,26 @@ function App() {
         }}
       />
 
-      <div className="w-full md:w-[300px] h-[32dvh] md:h-full bg-[#171717] border-r border-white/[0.08] flex flex-col shrink-0">
-        <SessionList
-          project={currentProject}
-          sessions={sessions} currentSessionId={currentSessionId}
-          agents={agents} onSelectSession={handleSelectSession}
-          onNewSession={handleNewSession}
-          onNewGroupSession={() => setShowGroupCreator(true)}
-          onDeleteSession={handleDeleteSession}
-          onRenameSession={handleRenameSession}
-          onSummarizeSession={handleSummarizeSession}
-        />
-      </div>
+      {sidebarTab !== "debug" && (
+        <div className="w-full md:w-[300px] h-[32dvh] md:h-full bg-[#171717] border-r border-white/[0.08] flex flex-col shrink-0">
+          <SessionList
+            project={currentProject}
+            sessions={sessions} currentSessionId={currentSessionId}
+            agents={agents} onSelectSession={handleSelectSession}
+            onNewSession={handleNewSession}
+            onNewGroupSession={() => setShowGroupCreator(true)}
+            onDeleteSession={handleDeleteSession}
+            onRenameSession={handleRenameSession}
+            onSummarizeSession={handleSummarizeSession}
+          />
+        </div>
+      )}
 
-      {currentSessionId ? (
+      {sidebarTab === "debug" ? (
+        <div className="flex-1 min-h-0">
+          <OrchestratorDebugPanel agents={agents} />
+        </div>
+      ) : currentSessionId ? (
         <ChatWindow
           messages={messages} isStreaming={isStreaming}
           artifacts={artifacts}

@@ -10,16 +10,18 @@ import {
   Plus,
   Settings,
   Trash2,
+  Workflow,
   type LucideIcon,
 } from "lucide-react";
 import type { AgentConfig, Project } from "../types";
 import { AgentAvatar } from "./AgentAvatar";
+import type { SidebarTab } from "../stores/sessionStore";
 
 interface Props {
   projects: Project[];
   currentProjectId: string | null;
   agents: AgentConfig[];
-  activePanel: "sessions" | "agents";
+  activePanel: SidebarTab;
   creating: boolean;
   onSelectProject: (id: string) => void;
   onCreateBlankProject: (name?: string) => Promise<void>;
@@ -27,7 +29,7 @@ interface Props {
   onArchiveProject: (id: string) => Promise<void>;
   onRenameProject: (id: string, name: string) => Promise<void>;
   onDeleteProject: (id: string, deleteFiles: boolean) => Promise<void>;
-  onOpenPanel: (panel: "sessions" | "agents") => void;
+  onOpenPanel: (panel: SidebarTab) => void;
   onStartAgentChat: (agentId: string) => Promise<void>;
   onCreateAgent: () => void;
   onEditAgent: (agentId: string) => void;
@@ -118,6 +120,12 @@ export function ProjectSidebar({
           label="对话"
           active={activePanel === "sessions"}
           onClick={() => onOpenPanel("sessions")}
+        />
+        <NavButton
+          icon={Workflow}
+          label="调度器调试台"
+          active={activePanel === "debug"}
+          onClick={() => onOpenPanel("debug")}
         />
         <NavButton icon={Bot} label="添加 Agent" onClick={onCreateAgent} />
       </div>
