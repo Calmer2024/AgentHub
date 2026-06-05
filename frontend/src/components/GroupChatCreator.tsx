@@ -3,7 +3,7 @@
 自动化优先: 链式协作由 Orchestrator 自动触发，用户只需选择 Agent。
 */
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Check, Users, X } from "lucide-react";
 import type { AgentConfig } from "../types";
 
@@ -14,7 +14,11 @@ interface Props {
 }
 
 export function GroupChatCreator({ agents, onConfirm, onCancel }: Props) {
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const defaultSelected = useMemo(
+    () => agents.filter((agent) => agent.primarySkill === "orchestrator_planner").map((agent) => agent.id),
+    [agents],
+  );
+  const [selected, setSelected] = useState<Set<string>>(new Set(defaultSelected));
   const [title, setTitle] = useState("");
 
   const toggle = (id: string) => {
@@ -24,7 +28,7 @@ export function GroupChatCreator({ agents, onConfirm, onCancel }: Props) {
   };
 
   const selectedList = [...selected];
-  const canCreate = selectedList.length >= 2 && selectedList.length <= 5;
+  const canCreate = selectedList.length >= 2 && selectedList.length <= 6;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
@@ -34,7 +38,7 @@ export function GroupChatCreator({ agents, onConfirm, onCancel }: Props) {
           <h2 className="text-lg font-semibold text-gray-900">新建群聊</h2>
         </div>
         <p className="text-xs text-gray-400 mb-3">
-          选择 2-5 个 Agent，Orchestrator 自动编排协作
+          默认带上调度器；在群聊中 @调度器 生成计划，普通消息仍按群聊协作处理
         </p>
 
         <input value={title} onChange={(e) => setTitle(e.target.value)}
@@ -49,7 +53,11 @@ export function GroupChatCreator({ agents, onConfirm, onCancel }: Props) {
                 className="w-4 h-4 text-blue-600 rounded" />
               <div>
                 <p className="text-sm font-medium text-gray-900">{a.name}</p>
-                <p className="text-xs text-gray-400">{a.description || `${a.cliTool} · ${a.executable ?? "未配置"}`}</p>
+                <p className="text-xs text-gray-400">
+                  {a.primarySkill === "orchestrator_planner"
+                    ? "调度器 · @它生成 draft plan"
+                    : a.description || `${a.cliTool} · ${a.executable ?? "未配置"}`}
+                </p>
               </div>
             </label>
           ))}

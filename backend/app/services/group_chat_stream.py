@@ -11,7 +11,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..models import Session as DBSession, AgentConfig, SessionMember
 from ..domain.orchestrator_v2 import OrchestratorV2, PipelineRequest
 from ..domain.execution_planner import AgentCall, ChainConfig
+from ..domain.orchestrator_plan import (
+    build_plan_prompt,
+    extract_json_object,
+    normalize_plan,
+    plan_to_collab_payload,
+    validate_plan,
+    visualize_mermaid,
+)
 from .agent_executor import AgentExecutor
+from .cli_agent_service import CliAgentService
 from .project_service import ProjectService, ProjectNotFoundError
 from .shared_context import SharedContext
 from .group_chat_finalizer import GroupChatFinalizer
@@ -42,6 +51,19 @@ class GroupChatStream:
             workspace_path = await ProjectService(self.db).get_workspace_path_for_session(session_id)
         except ProjectNotFoundError:
             yield self._err("当前会话未绑定项目，无法启动 CLI Agent")
+            return
+
+        orchestrator_agent = self._mentioned_orchestrator(member_agents, mentions)
+        if orchestrator_agent:
+            async for item in self._run_plan_only(
+                session_id=session_id,
+                content=content,
+                history=history,
+                workspace_path=workspace_path,
+                orchestrator_agent=orchestrator_agent,
+                member_agents=member_agents,
+            ):
+                yield item
             return
 
         cc = None
@@ -119,6 +141,125 @@ class GroupChatStream:
             )
         )
         return list(rows.scalars().all())
+
+    async def _run_plan_only(
+        self,
+        *,
+        session_id: str,
+        content: str,
+        history: list[dict],
+        workspace_path: str,
+        orchestrator_agent: AgentConfig,
+        member_agents: list[AgentConfig],
+    ) -> AsyncGenerator[str, None]:
+        candidate_agents = [
+            self._agent_snapshot(agent)
+            for agent in member_agents
+            if agent.id != orchestrator_agent.id
+        ]
+        prompt = build_plan_prompt(content, candidate_agents)
+        raw_output = ""
+        process_id = ""
+        message_id = str(uuid.uuid4())
+
+        yield self._sse({
+            "type": "orchestrator.route",
+            "agents": [{"id": orchestrator_agent.id, "name": orchestrator_agent.name}],
+        })
+        yield self._sse({
+            "type": "orchestrator.plan_started",
+            "agentId": orchestrator_agent.id,
+            "agentName": orchestrator_agent.name,
+            "messageId": message_id,
+        })
+
+        async for event in CliAgentService().stream(
+            agent=orchestrator_agent,
+            session_id=session_id,
+            workspace_path=workspace_path,
+            messages=[*history, {"role": "user", "content": prompt}],
+            system_prompt=orchestrator_agent.system_prompt or "",
+        ):
+            process_id = event.process_id or process_id
+            if event.type == "agent.output" and event.chunk_type in {"text", "artifact_signal"}:
+                raw_output += event.chunk
+                yield self._sse({
+                    "type": "orchestrator.plan_delta",
+                    "token": event.chunk,
+                    "messageId": message_id,
+                    "processId": process_id,
+                    "done": False,
+                })
+            elif event.type == "error":
+                yield self._err(event.error or "调度器执行失败")
+                return
+
+        try:
+            parsed = extract_json_object(raw_output)
+            plan = normalize_plan(parsed)
+            validation = validate_plan(
+                plan,
+                {str(agent["id"]) for agent in candidate_agents},
+            )
+        except ValueError as exc:
+            yield self._sse({
+                "type": "orchestrator.plan_completed",
+                "ok": False,
+                "rawOutput": raw_output,
+                "error": str(exc),
+                "token": "",
+                "done": True,
+                "messageId": message_id,
+            })
+            return
+
+        tasks, dag = plan_to_collab_payload(plan)
+        yield self._sse({
+            "type": "orchestrator.task_started",
+            "intent": "orchestrator_plan",
+            "plan_summary": f"调度器已生成 draft plan：{len(tasks)} 个任务，等待确认。",
+            "tasks": tasks,
+            "dag": dag,
+        })
+        yield self._sse({
+            "type": "orchestrator.plan_completed",
+            "ok": validation["ok"],
+            "rawOutput": raw_output,
+            "normalizedPlan": plan,
+            "validation": validation,
+            "visualization": {"mermaid": visualize_mermaid(plan)},
+            "token": "",
+            "done": True,
+            "messageId": message_id,
+        })
+
+    @staticmethod
+    def _mentioned_orchestrator(
+        agents: list[AgentConfig],
+        mentions: list[str] | None,
+    ) -> AgentConfig | None:
+        mention_ids = set(mentions or [])
+        if not mention_ids:
+            return None
+        for agent in agents:
+            if agent.id in mention_ids and (agent.primary_skill or "") == "orchestrator_planner":
+                return agent
+        return None
+
+    @staticmethod
+    def _agent_snapshot(agent: AgentConfig) -> dict:
+        try:
+            auxiliary = json.loads(agent.auxiliary_skills or "[]")
+        except json.JSONDecodeError:
+            auxiliary = []
+        return {
+            "id": agent.id,
+            "name": agent.name,
+            "engine": agent.cli_tool or "custom",
+            "primary_skill": agent.primary_skill or "general_coding",
+            "auxiliary_skills": auxiliary if isinstance(auxiliary, list) else [],
+            "context_policy": agent.context_policy or "workspace_coding",
+        }
 
     async def _event_to_sse(
         self, ev, agent_names, msg_ids, agent_errors, seen_calls, agent_traces,

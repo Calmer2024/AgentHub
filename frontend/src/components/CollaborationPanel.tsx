@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { ArrowRight, ChevronDown, ChevronRight, Workflow } from "lucide-react";
-import type { CollabTask, DAGPhase } from "../types";
+import type { CollabTask, DAGPhase, DraftOrchestratorPlan } from "../types";
 
 interface Props {
   intent: string | null;
@@ -8,6 +8,7 @@ interface Props {
   phases: DAGPhase[];
   isCompleted: boolean;
   completedSummary: string | null;
+  draftPlan?: DraftOrchestratorPlan | null;
 }
 
 const ROLE_LABELS: Record<string, string> = {
@@ -38,6 +39,7 @@ const INTENT_LABELS: Record<string, string> = {
   research: "调研分析",
   design_ui: "UI 设计",
   general_qa: "通用问答",
+  orchestrator_plan: "调度计划",
 };
 
 function buildFallbackPhases(tasks: CollabTask[]): DAGPhase[] {
@@ -51,7 +53,7 @@ function buildFallbackPhases(tasks: CollabTask[]): DAGPhase[] {
 }
 
 export function CollaborationPanel({
-  intent, tasks, phases, isCompleted, completedSummary,
+  intent, tasks, phases, isCompleted, completedSummary, draftPlan,
 }: Props) {
   const [collapsed, setCollapsed] = useState(false);
   const visiblePhases = phases.length > 0 ? phases : buildFallbackPhases(tasks);
@@ -74,7 +76,7 @@ export function CollaborationPanel({
         <div className="min-w-0">
           <div className="flex items-center gap-2 truncate text-sm font-semibold text-slate-900">
             <Workflow size={15} className="shrink-0 text-slate-500" />
-            <span className="truncate">Orchestrator · {title} · {tasks.length} Agent</span>
+            <span className="truncate">Orchestrator · {title} · {tasks.length} 任务</span>
           </div>
           <div className="text-xs text-slate-500 mt-0.5">
             {isCompleted ? completedSummary ?? `${doneCount}/${tasks.length} 完成` : `${doneCount}/${tasks.length} 完成`}
@@ -87,6 +89,31 @@ export function CollaborationPanel({
 
       {!collapsed && (
         <div className="border-t border-slate-100 px-4 py-4 overflow-x-auto">
+          {draftPlan && (
+            <div className={`mb-4 rounded-lg border px-3 py-3 text-xs ${
+              draftPlan.ok ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-red-200 bg-red-50 text-red-800"
+            }`}>
+              <div className="font-semibold">
+                {draftPlan.ok ? "调度计划校验通过" : "调度计划需要修正"}
+              </div>
+              {draftPlan.error && <div className="mt-1">{draftPlan.error}</div>}
+              {draftPlan.validation?.errors.length ? (
+                <div className="mt-2 space-y-1">
+                  {draftPlan.validation.errors.map((error) => <div key={error}>错误：{error}</div>)}
+                </div>
+              ) : null}
+              {draftPlan.validation?.warnings.length ? (
+                <div className="mt-2 space-y-1 text-amber-700">
+                  {draftPlan.validation.warnings.map((warning) => <div key={warning}>提醒：{warning}</div>)}
+                </div>
+              ) : null}
+              {draftPlan.visualization?.mermaid && (
+                <pre className="mt-3 max-h-40 overflow-auto rounded-md bg-white/70 p-2 font-mono text-[11px] leading-5 text-slate-700">
+                  {draftPlan.visualization.mermaid}
+                </pre>
+              )}
+            </div>
+          )}
           <div className="flex items-stretch gap-3 min-w-max">
             {visiblePhases.map((phase, index) => (
               <div key={phase.phase} className="flex items-center gap-3">

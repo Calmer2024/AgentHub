@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type {
   Message, RouteAgent, CollabTask, ChainStep, DAGPhase, Artifact,
   InteractivePrompt, ExecutionTraceItem,
+  DraftOrchestratorPlan,
 } from "../types";
 
 /** 每个会话的协作状态快照，切换会话时保留。 */
@@ -14,6 +15,7 @@ export interface CollabSnapshot {
   planSummary: string | null;
   collabCompleted: boolean;
   collabSummary: string | null;
+  draftPlan: DraftOrchestratorPlan | null;
 }
 
 function emptyCollab(): CollabSnapshot {
@@ -26,6 +28,7 @@ function emptyCollab(): CollabSnapshot {
     planSummary: null,
     collabCompleted: false,
     collabSummary: null,
+    draftPlan: null,
   };
 }
 

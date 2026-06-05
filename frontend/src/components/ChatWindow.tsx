@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Boxes, Search, X } from "lucide-react";
-import type { Message, AgentConfig, CollabTask, ChainStep, DAGPhase, Artifact } from "../types";
+import type { Message, AgentConfig, CollabTask, ChainStep, DAGPhase, Artifact, DraftOrchestratorPlan } from "../types";
 import { MessageBubble } from "./MessageBubble";
 import { ChatInput } from "./ChatInput";
 import { CollaborationPanel } from "./CollaborationPanel";
@@ -30,6 +30,7 @@ interface Props {
   chainSteps: ChainStep[];
   collabCompleted: boolean;
   collabSummary: string | null;
+  draftPlan: DraftOrchestratorPlan | null;
   onSend: (content: string, mentions: string[]) => void;
   onDismissError: () => void;
   onReply: (message: Message) => void;
@@ -48,7 +49,7 @@ const INTENT_LABELS: Record<string, string> = {
 export function ChatWindow({
   messages, artifacts, isStreaming, streamingError,
   currentAgent, currentSessionId, agents, mode, routeAgents, orchestratorIntent, planSummary, mentionableAgents,
-  collabTasks, dagPhases, collabCompleted, collabSummary,
+  collabTasks, dagPhases, collabCompleted, collabSummary, draftPlan,
   onSend, onDismissError, onReply, onRegenerate, onTogglePin, onArtifactsChanged,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -190,6 +191,7 @@ export function ChatWindow({
           phases={dagPhases}
           isCompleted={collabCompleted}
           completedSummary={collabSummary}
+          draftPlan={draftPlan}
         />
       )}
 

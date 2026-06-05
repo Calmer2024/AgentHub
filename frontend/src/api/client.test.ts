@@ -65,6 +65,35 @@ describe("createChatStream", () => {
     expect(onTaskStarted.mock.calls[0][3]).toBe("已安排: 先由@架构师规划。");
   });
 
+  it("解析 Orchestrator draft plan 完成事件", async () => {
+    const onDone = vi.fn();
+    const onPlan = vi.fn();
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(sseResponse([
+      JSON.stringify({
+        type: "orchestrator.plan_completed",
+        ok: true,
+        messageId: "plan-1",
+        normalizedPlan: { plan_id: "p1", tasks: [] },
+        validation: { ok: true, errors: [], warnings: ["缺少分配"] },
+        visualization: { mermaid: "graph TD" },
+      }),
+    ]));
+
+    createChatStream("s1", "hello", [], {
+      onToken: vi.fn(),
+      onDone,
+      onOrchestratorPlanCompleted: onPlan,
+    });
+
+    await vi.waitFor(() => expect(onPlan).toHaveBeenCalled());
+    expect(onPlan.mock.calls[0][0]).toMatchObject({
+      ok: true,
+      validation: { ok: true, errors: [], warnings: ["缺少分配"] },
+      visualization: { mermaid: "graph TD" },
+    });
+    expect(onDone).toHaveBeenCalledWith("plan-1", undefined);
+  });
+
   it("发送引用消息时带上 parentMessageId", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(sseResponse([
       JSON.stringify({ token: "", done: true, messageId: "m2" }),

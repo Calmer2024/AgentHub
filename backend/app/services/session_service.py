@@ -32,7 +32,8 @@ class SessionService:
 
     async def create_session(self, data: SessionCreate) -> SessionRead:
         project_id = await self._resolve_project_id(data.project_id)
-        is_group = data.mode == "group" and data.agent_config_ids and len(data.agent_config_ids) >= 2
+        group_agent_ids = await self._with_default_orchestrator(data.agent_config_ids or [])
+        is_group = data.mode == "group" and len(group_agent_ids) >= 2
 
         session = DBSession(
             id=str(uuid.uuid4()),
@@ -41,8 +42,8 @@ class SessionService:
             mode="group" if is_group else "single",
         )
 
-        if is_group and data.agent_config_ids:
-            session.agent_config_id = data.agent_config_ids[0]
+        if is_group and group_agent_ids:
+            session.agent_config_id = group_agent_ids[0]
         elif data.agent_config_id:
             session.agent_config_id = data.agent_config_id
         else:
@@ -54,8 +55,8 @@ class SessionService:
 
         self.db.add(session)
 
-        if is_group and data.agent_config_ids:
-            for aid in data.agent_config_ids[:5]:
+        if is_group and group_agent_ids:
+            for aid in group_agent_ids[:6]:
                 self.db.add(SessionMember(session_id=session.id, agent_config_id=aid))
 
         await self.db.commit()
@@ -169,3 +170,22 @@ class SessionService:
             return project.id
         project = await ProjectService(self.db).ensure_default_project()
         return project.id
+
+    async def _with_default_orchestrator(self, agent_ids: list[str]) -> list[str]:
+        result = []
+        seen: set[str] = set()
+        for agent_id in agent_ids:
+            if agent_id and agent_id not in seen:
+                result.append(agent_id)
+                seen.add(agent_id)
+
+        row = await self.db.execute(
+            select(AgentConfig).where(
+                AgentConfig.primary_skill == "orchestrator_planner",
+                AgentConfig.is_active == True,
+            ).limit(1)
+        )
+        orchestrator = row.scalars().first()
+        if orchestrator and orchestrator.id not in seen:
+            result.append(orchestrator.id)
+        return result

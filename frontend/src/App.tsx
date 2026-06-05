@@ -21,6 +21,7 @@ function emptyCollab(): CollabSnapshot {
     planSummary: null,
     collabCompleted: false,
     collabSummary: null,
+    draftPlan: null,
   };
 }
 
@@ -61,6 +62,7 @@ function App() {
   const planSummary = collab.planSummary;
   const collabCompleted = collab.collabCompleted;
   const collabSummary = collab.collabSummary;
+  const draftPlan = collab.draftPlan;
 
   const [showGroupCreator, setShowGroupCreator] = useState(false);
   const [agentModal, setAgentModal] = useState<{ mode: "create" | "edit"; agentId?: string } | null>(null);
@@ -167,6 +169,7 @@ function App() {
           chainSteps={chainSteps}
           collabCompleted={collabCompleted}
           collabSummary={collabSummary}
+          draftPlan={draftPlan}
           onSend={handleSend}
           onDismissError={() => setStreamingError(null)}
           onReply={setReplyTarget}

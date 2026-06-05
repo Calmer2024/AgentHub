@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from app.models import AgentConfig
+from app.agents.cli_events import CliEvent
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
@@ -63,7 +64,9 @@ class TestGroupSession:
         res2 = await test_client.get(f"/api/sessions/{sid}/members")
         assert res2.status_code == 200
         members = res2.json()
-        assert len(members) == 2
+        assert len(members) == 3
+        names = {member["agentName"] for member in members}
+        assert {"A2", test_agent.name, "Orchestrator 调度器"}.issubset(names)
 
     async def test_single_mode_still_works(self, test_client, test_agent):
         res = await test_client.post("/api/sessions", json={
@@ -308,3 +311,63 @@ class TestGroupSession:
         assert "orchestrator.summary_delta" in summary_events
         assert "orchestrator.summary_completed" in summary_events
         assert token_with_role
+
+    async def test_mention_orchestrator_returns_draft_plan_only(
+        self, test_client, test_agent, db_session, monkeypatch,
+    ):
+        agent2 = make_test_cli_agent("A2")
+        orchestrator = make_test_cli_agent("Orchestrator 调度器")
+        orchestrator.primary_skill = "orchestrator_planner"
+        orchestrator.context_policy = "planning_only"
+        db_session.add_all([agent2, orchestrator])
+        await db_session.commit()
+
+        async def fake_stream(self, **kwargs):
+            yield CliEvent(
+                "agent.output",
+                "proc-1",
+                chunk=json.dumps({
+                    "tasks": [
+                        {
+                            "task_id": "T1",
+                            "title": "需求澄清",
+                            "goal": "明确业务边界",
+                            "required_skills": ["requirements"],
+                            "assigned_agent_id": test_agent.id,
+                            "assigned_agent_name": test_agent.name,
+                            "depends_on": [],
+                        }
+                    ]
+                }, ensure_ascii=False),
+                chunk_type="text",
+            )
+            yield CliEvent("agent.process.completed", "proc-1", exit_code=0)
+
+        from app.services.cli_agent_service import CliAgentService
+        monkeypatch.setattr(CliAgentService, "stream", fake_stream)
+
+        res = await test_client.post("/api/sessions", json={
+            "mode": "group", "agentConfigIds": [test_agent.id, agent2.id, orchestrator.id],
+        })
+        sid = res.json()["id"]
+
+        resp = await test_client.post(
+            f"/api/sessions/{sid}/chat",
+            json={"content": "@Orchestrator 调度器 做员工报销系统", "mentions": [orchestrator.id]},
+        )
+
+        event_types = []
+        plan_completed = None
+        async for line in resp.aiter_lines():
+            if not line.startswith("data: "):
+                continue
+            data = json.loads(line[6:])
+            event_types.append(data.get("type", ""))
+            if data.get("type") == "orchestrator.plan_completed":
+                plan_completed = data
+
+        assert "orchestrator.plan_started" in event_types
+        assert "orchestrator.plan_completed" in event_types
+        assert "agent.start" not in event_types
+        assert plan_completed["ok"] is True
+        assert plan_completed["normalizedPlan"]["tasks"][0]["title"] == "需求澄清"
