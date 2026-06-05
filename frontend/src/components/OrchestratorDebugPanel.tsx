@@ -1,34 +1,29 @@
-import { useMemo, useState } from "react";
-import { dryRunOrchestrator } from "../api/client";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { buildOrchestratorInput, generateOrchestratorPlan, parseOrchestratorOutput } from "../api/client";
 import type {
   AgentConfig,
-  OrchestratorDebugCall,
-  OrchestratorDebugResult,
-  OrchestratorDebugScoredAgent,
+  BuildOrchestratorInputResult,
+  GenerateOrchestratorPlanResult,
+  OrchestratorDebugAgent,
+  OrchestratorPlanTask,
+  ParseOrchestratorOutputResult,
 } from "../types";
 
 interface Props {
   agents: AgentConfig[];
 }
 
-const SAMPLE = "先设计登录系统再前后端实现最后审查";
-
-const ROLE_LABELS: Record<string, string> = {
-  planner: "规划",
-  executor: "执行",
-  reviewer: "审查",
-  researcher: "调研",
-  synthesizer: "综合",
-  critic: "质疑",
-};
+const SAMPLE = "我们要给公司开发一个基础的员工报销单管理系统，员工可以增删改查自己的报销单，财务可以进行批量审批和查看。";
 
 export function OrchestratorDebugPanel({ agents }: Props) {
   const [content, setContent] = useState(SAMPLE);
   const [useMockAgents, setUseMockAgents] = useState(true);
   const [selectedAgentIds, setSelectedAgentIds] = useState<string[]>([]);
-  const [supplemental, setSupplemental] = useState(false);
-  const [result, setResult] = useState<OrchestratorDebugResult | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [bridgeInput, setBridgeInput] = useState<BuildOrchestratorInputResult | null>(null);
+  const [rawOutput, setRawOutput] = useState("");
+  const [parsed, setParsed] = useState<ParseOrchestratorOutputResult | null>(null);
+  const [generatedPlan, setGeneratedPlan] = useState<GenerateOrchestratorPlanResult | null>(null);
+  const [loading, setLoading] = useState<"build" | "parse" | "generate" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const selectedNames = useMemo(() => {
@@ -36,20 +31,77 @@ export function OrchestratorDebugPanel({ agents }: Props) {
     return selectedAgentIds.map((id) => byId.get(id) ?? id);
   }, [agents, selectedAgentIds]);
 
-  const run = async () => {
-    setLoading(true);
+  const generateInput = async () => {
+    setLoading("build");
     setError(null);
+    setParsed(null);
+    setGeneratedPlan(null);
     try {
-      setResult(await dryRunOrchestrator({
+      const result = await buildOrchestratorInput({
         content,
         agentIds: useMockAgents ? undefined : selectedAgentIds,
         useMockAgents,
-        supplemental,
+      });
+      setBridgeInput(result);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "生成调度器输入失败");
+    } finally {
+      setLoading(null);
+    }
+  };
+
+  const generatePlan = async () => {
+    setLoading("generate");
+    setError(null);
+    setParsed(null);
+    setGeneratedPlan(null);
+    try {
+      const result = await generateOrchestratorPlan({
+        content,
+        agentIds: useMockAgents ? undefined : selectedAgentIds,
+        useMockAgents,
+      });
+      setBridgeInput(result);
+      setRawOutput(result.rawOutput);
+      setParsed(result);
+      setGeneratedPlan(result);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "一步生成 DAG 失败");
+    } finally {
+      setLoading(null);
+    }
+  };
+
+  const parseOutput = async () => {
+    if (!bridgeInput) return;
+    setLoading("parse");
+    setError(null);
+    setGeneratedPlan(null);
+    try {
+      setParsed(await parseOrchestratorOutput({
+        rawOutput,
+        candidateAgents: bridgeInput.candidateAgents,
       }));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "调试请求失败");
+      setError(err instanceof Error ? err.message : "解析调度器输出失败");
     } finally {
-      setLoading(false);
+      setLoading(null);
+    }
+  };
+
+  const copyPrompt = async () => {
+    if (!bridgeInput) return;
+    await navigator.clipboard.writeText(bridgeInput.prompt);
+  };
+
+  const importOutputFile = async (file: File | null) => {
+    if (!file) return;
+    setError(null);
+    setParsed(null);
+    try {
+      setRawOutput(await file.text());
+    } catch {
+      setError("读取 JSON 文件失败");
     }
   };
 
@@ -63,19 +115,19 @@ export function OrchestratorDebugPanel({ agents }: Props) {
     <div className="h-full overflow-y-auto bg-[#f7f7f2] text-[#1f2421]">
       <div className="border-b border-[#d8d8cc] bg-[#fbfbf7] px-6 py-5">
         <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#6f766d]">
-          Orchestrator Lab
+          Manual Orchestrator Bridge
         </p>
-        <h2 className="mt-1 text-2xl font-semibold text-[#151814]">调度器调试台</h2>
+        <h2 className="mt-1 text-2xl font-semibold text-[#151814]">调度器手动桥接</h2>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-[#667064]">
-          输入一段用户需求，观察当前 Orchestrator 如何识别意图、选择 Agent、决定执行模式并生成调度图。Dry-run 不调用真实 Agent。
+          生成最终调度器输入，复制给本机 ClaudeCode，再把输出粘回来解析、校验并可视化。这里不调用真实 Agent，也不自动执行。
         </p>
       </div>
 
-      <div className="grid gap-5 px-6 py-5 xl:grid-cols-[380px_minmax(0,1fr)]">
+      <div className="grid gap-5 px-6 py-5 xl:grid-cols-[420px_minmax(0,1fr)]">
         <div className="space-y-4">
           <section className="space-y-2 border border-[#d8d8cc] bg-white p-4">
             <div className="flex items-center justify-between">
-              <label className="text-xs font-semibold text-[#30362f]">输入文本</label>
+              <label className="text-xs font-semibold text-[#30362f]">用户需求</label>
               <button
                 type="button"
                 onClick={() => setContent(SAMPLE)}
@@ -87,9 +139,9 @@ export function OrchestratorDebugPanel({ agents }: Props) {
             <textarea
               value={content}
               onChange={(e) => setContent(e.target.value)}
-              rows={8}
+              rows={7}
               className="w-full resize-none border border-[#c9cbbf] bg-[#fbfbf7] px-3 py-2 text-sm leading-6 outline-none transition focus:border-[#49624a] focus:ring-2 focus:ring-[#49624a]/15"
-              placeholder="输入一段用户需求，观察调度器怎么拆。"
+              placeholder="输入要交给调度器拆解的需求。"
             />
           </section>
 
@@ -97,7 +149,7 @@ export function OrchestratorDebugPanel({ agents }: Props) {
             <label className="flex items-center justify-between gap-3 text-sm">
               <span>
                 <span className="block font-semibold text-[#30362f]">Mock Agent 小队</span>
-                <span className="text-xs text-[#697166]">内置五个典型角色，用来排除真实 Agent 配置噪声。</span>
+                <span className="text-xs text-[#697166]">内置典型角色，方便先排除真实 Agent 配置噪声。</span>
               </span>
               <input
                 type="checkbox"
@@ -112,7 +164,7 @@ export function OrchestratorDebugPanel({ agents }: Props) {
                 <div className="text-xs text-[#697166]">
                   已选：{selectedNames.length ? selectedNames.join("、") : "未选择，将使用空 Agent 列表"}
                 </div>
-                <div className="max-h-56 space-y-1 overflow-y-auto pr-1">
+                <div className="max-h-48 space-y-1 overflow-y-auto pr-1">
                   {agents.map((agent) => (
                     <label
                       key={agent.id}
@@ -133,29 +185,80 @@ export function OrchestratorDebugPanel({ agents }: Props) {
                 </div>
               </div>
             )}
-
-            <label className="flex items-center justify-between gap-3 border-t border-[#ecece4] pt-3 text-sm">
-              <span>
-                <span className="block font-semibold text-[#30362f]">补充轮次</span>
-                <span className="text-xs text-[#697166]">模拟“补上/缺失”场景，不重建完整 DAG。</span>
-              </span>
-              <input
-                type="checkbox"
-                checked={supplemental}
-                onChange={(e) => setSupplemental(e.target.checked)}
-                className="h-4 w-4 accent-[#49624a]"
-              />
-            </label>
           </section>
 
-          <button
-            type="button"
-            onClick={run}
-            disabled={loading || !content.trim()}
-            className="w-full bg-[#1f2421] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#303830] disabled:cursor-not-allowed disabled:bg-[#9ca397]"
-          >
-            {loading ? "分析中..." : "运行调度 dry-run"}
-          </button>
+          <div className="grid gap-2">
+            <button
+              type="button"
+              onClick={generatePlan}
+              disabled={loading !== null || !content.trim()}
+              className="w-full bg-[#1f2421] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#303830] disabled:cursor-not-allowed disabled:bg-[#9ca397]"
+            >
+              {loading === "generate" ? "生成 DAG 中..." : "一步生成 DAG"}
+            </button>
+            <button
+              type="button"
+              onClick={generateInput}
+              disabled={loading !== null || !content.trim()}
+              className="w-full border border-[#1f2421] bg-white px-4 py-2 text-sm font-semibold text-[#1f2421] transition hover:bg-[#eef0e8] disabled:cursor-not-allowed disabled:border-[#c9cbbf] disabled:text-[#9ca397]"
+            >
+              {loading === "build" ? "生成中..." : "仅生成调度器输入"}
+            </button>
+          </div>
+
+          {bridgeInput && (
+            <section className="space-y-3 border border-[#d8d8cc] bg-white p-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-[#30362f]">复制给 ClaudeCode</h3>
+                <button
+                  type="button"
+                  onClick={copyPrompt}
+                  className="border border-[#c9cbbf] px-2 py-1 text-xs font-semibold text-[#49624a] hover:bg-[#f7f7f2]"
+                >
+                  复制 Prompt
+                </button>
+              </div>
+              <textarea
+                readOnly
+                value={bridgeInput.prompt}
+                rows={12}
+                className="w-full resize-none border border-[#c9cbbf] bg-[#fbfbf7] px-3 py-2 font-mono text-[11px] leading-5 outline-none"
+              />
+            </section>
+          )}
+
+          <section className="space-y-3 border border-[#d8d8cc] bg-white p-4">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-sm font-semibold text-[#30362f]">粘贴调度器输出</h3>
+              <label className="cursor-pointer border border-[#c9cbbf] px-2 py-1 text-xs font-semibold text-[#49624a] hover:bg-[#f7f7f2]">
+                导入 JSON 文件
+                <input
+                  type="file"
+                  accept=".json,application/json,text/plain"
+                  className="hidden"
+                  onChange={(e) => {
+                    void importOutputFile(e.currentTarget.files?.[0] ?? null);
+                    e.currentTarget.value = "";
+                  }}
+                />
+              </label>
+            </div>
+            <textarea
+              value={rawOutput}
+              onChange={(e) => setRawOutput(e.target.value)}
+              rows={10}
+              className="w-full resize-none border border-[#c9cbbf] bg-[#fbfbf7] px-3 py-2 font-mono text-[11px] leading-5 outline-none transition focus:border-[#49624a] focus:ring-2 focus:ring-[#49624a]/15"
+              placeholder="把 ClaudeCode 输出的 JSON 或 ```json 代码块粘贴到这里。"
+            />
+            <button
+              type="button"
+              onClick={parseOutput}
+              disabled={loading !== null || !bridgeInput || !rawOutput.trim()}
+              className="w-full border border-[#1f2421] bg-white px-4 py-2 text-sm font-semibold text-[#1f2421] transition hover:bg-[#eef0e8] disabled:cursor-not-allowed disabled:border-[#c9cbbf] disabled:text-[#9ca397]"
+            >
+              {loading === "parse" ? "解析中..." : "解析并校验输出"}
+            </button>
+          </section>
 
           {error && (
             <div className="border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
@@ -165,7 +268,17 @@ export function OrchestratorDebugPanel({ agents }: Props) {
         </div>
 
         <div className="min-w-0">
-          {result ? <DebugResult result={result} /> : <EmptyState />}
+          {parsed ? (
+            <PlanResult
+              parsed={parsed}
+              candidateAgents={bridgeInput?.candidateAgents ?? []}
+              generatedPlan={generatedPlan}
+            />
+          ) : bridgeInput ? (
+            <BridgeInputSummary bridgeInput={bridgeInput} />
+          ) : (
+            <EmptyState />
+          )}
         </div>
       </div>
     </div>
@@ -176,94 +289,223 @@ function EmptyState() {
   return (
     <div className="flex min-h-[520px] items-center justify-center border border-dashed border-[#c9cbbf] bg-[#fbfbf7] px-8 py-10 text-center">
       <div className="max-w-md">
-        <p className="text-sm font-semibold text-[#30362f]">等待一次 dry-run</p>
+        <p className="text-sm font-semibold text-[#30362f]">等待生成调度器输入</p>
         <p className="mt-2 text-sm leading-6 text-[#697166]">
-          运行后会显示意图识别、Agent 评分、执行模式、DAG 阶段和 Mermaid 源码。
+          先生成 Prompt，再把本机 ClaudeCode 的输出粘回来解析。
         </p>
       </div>
     </div>
   );
 }
 
-function DebugResult({ result }: { result: OrchestratorDebugResult }) {
+function BridgeInputSummary({ bridgeInput }: { bridgeInput: BuildOrchestratorInputResult }) {
+  return (
+    <div className="space-y-4">
+      <section className="border border-[#d8d8cc] bg-white p-4">
+        <p className="text-[11px] uppercase tracking-[0.14em] text-[#6f766d]">Orchestrator Profile</p>
+        <h3 className="mt-1 text-xl font-semibold text-[#1f2421]">{bridgeInput.orchestratorAgent.name}</h3>
+        <p className="mt-2 text-xs text-[#697166]">
+          {bridgeInput.orchestratorAgent.engine} · {bridgeInput.orchestratorAgent.primarySkill}
+        </p>
+        <TagRow tags={bridgeInput.orchestratorAgent.auxiliarySkills} />
+      </section>
+      <AgentSnapshot agents={bridgeInput.candidateAgents} />
+    </div>
+  );
+}
+
+function PlanResult({
+  parsed,
+  candidateAgents,
+  generatedPlan,
+}: {
+  parsed: ParseOrchestratorOutputResult;
+  candidateAgents: OrchestratorDebugAgent[];
+  generatedPlan?: GenerateOrchestratorPlanResult | null;
+}) {
+  const plan = parsed.normalizedPlan;
   return (
     <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_360px]">
       <section className="border border-[#d8d8cc] bg-white p-4 2xl:col-span-2">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-[11px] uppercase tracking-[0.14em] text-[#6f766d]">Intent / 意图识别</p>
-            <h3 className="text-2xl font-semibold text-[#1f2421]">{result.intent.type}</h3>
+            <p className="text-[11px] uppercase tracking-[0.14em] text-[#6f766d]">Draft Plan</p>
+            <h3 className="text-2xl font-semibold text-[#1f2421]">{plan.plan_id}</h3>
+            <p className="mt-2 text-xs leading-5 text-[#697166]">{plan.execution_strategy.summary}</p>
+            {generatedPlan && (
+              <p className="mt-2 text-[11px] text-[#6f766d]">
+                LLM: {generatedPlan.llm.provider} / {generatedPlan.llm.model}
+              </p>
+            )}
           </div>
-          <div className="text-right">
-            <p className="text-[11px] text-[#6f766d]">confidence</p>
-            <p className="text-lg font-semibold">{Math.round(result.intent.confidence * 100)}%</p>
-          </div>
-        </div>
-        <p className="mt-2 text-xs text-[#697166]">{result.intent.evidence}</p>
-        <TagRow tags={result.intent.requiredTags} />
-      </section>
-
-      <section className="border border-[#d8d8cc] bg-white p-4 2xl:col-span-2">
-        <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-[#30362f]">执行计划</h3>
-          <span className="border border-[#c9cbbf] px-2 py-1 text-xs font-semibold uppercase text-[#49624a]">
-            {result.executionPlan.mode}
+          <span className={parsed.validation.ok
+            ? "border border-green-200 bg-green-50 px-2 py-1 text-xs font-semibold text-green-700"
+            : "border border-red-200 bg-red-50 px-2 py-1 text-xs font-semibold text-red-700"}
+          >
+            {parsed.validation.ok ? "VALID" : "INVALID"}
           </span>
         </div>
-        <p className="text-xs leading-5 text-[#4f594f]">{result.executionPlan.planSummary}</p>
-        <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-          <Metric label="decomposer" value={result.executionPlan.decomposerUsed ? "used" : "off"} />
-          <Metric label="auto chain" value={result.executionPlan.chainAutoTriggered ? "yes" : "no"} />
-          <Metric label="tokens" value={String(result.context.estimatedTokens)} />
-          <Metric label="messages" value={String(result.context.messageCount)} />
-        </div>
       </section>
 
-      <PhaseMap result={result} />
-
-      <section className="border border-[#d8d8cc] bg-white p-4">
-        <h3 className="mb-3 text-sm font-semibold text-[#30362f]">Agent 评分</h3>
-        <div className="space-y-2">
-          {result.agentSelection.map((agent) => (
-            <AgentScore key={agent.id} agent={agent} />
-          ))}
-        </div>
-      </section>
+      <ValidationPanel parsed={parsed} />
+      <TaskList tasks={plan.tasks} />
+      <AgentSnapshot agents={candidateAgents} compact />
 
       <section className="border border-[#d8d8cc] bg-[#1f2421] p-4 text-[#e8eadf] 2xl:col-span-2">
+        <MermaidPreview chart={parsed.visualization.mermaid} />
         <div className="mb-2 flex items-center justify-between">
           <h3 className="text-sm font-semibold">Mermaid</h3>
           <span className="text-[11px] text-[#aeb6aa]">可复制到 Markdown</span>
         </div>
         <pre className="max-h-64 overflow-auto whitespace-pre-wrap text-[11px] leading-5">
-          {result.visualization.mermaid}
+          {parsed.visualization.mermaid}
+        </pre>
+      </section>
+
+      <section className="border border-[#d8d8cc] bg-white p-4 2xl:col-span-2">
+        <h3 className="mb-3 text-sm font-semibold text-[#30362f]">Normalized Plan JSON</h3>
+        <pre className="max-h-96 overflow-auto whitespace-pre-wrap bg-[#fbfbf7] p-3 font-mono text-[11px] leading-5 text-[#30362f]">
+          {JSON.stringify(plan, null, 2)}
         </pre>
       </section>
     </div>
   );
 }
 
-function PhaseMap({ result }: { result: OrchestratorDebugResult }) {
-  const phases = result.executionPlan.dagPhases.length
-    ? result.executionPlan.dagPhases
-    : [{ phase: 0, mode: result.executionPlan.mode === "parallel" ? "parallel" as const : "serial" as const, calls: result.executionPlan.calls }];
+function MermaidPreview({ chart }: { chart: string }) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const render = async () => {
+      if (!containerRef.current || !chart.trim()) return;
+      setError(null);
+      try {
+        const mermaid = (await import("mermaid")).default;
+        mermaid.initialize({
+          startOnLoad: false,
+          securityLevel: "strict",
+          theme: "base",
+          themeVariables: {
+            background: "#ffffff",
+            primaryColor: "#eef0e8",
+            primaryTextColor: "#1f2421",
+            primaryBorderColor: "#49624a",
+            lineColor: "#6f766d",
+            fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
+          },
+        });
+        const id = `orchestrator-plan-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const { svg } = await mermaid.render(id, chart);
+        if (!cancelled && containerRef.current) {
+          containerRef.current.innerHTML = svg;
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Mermaid 渲染失败");
+          if (containerRef.current) containerRef.current.innerHTML = "";
+        }
+      }
+    };
+
+    void render();
+    return () => {
+      cancelled = true;
+    };
+  }, [chart]);
 
   return (
+    <div className="mb-4 border border-[#d8d8cc] bg-white p-3 text-[#1f2421]">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <h3 className="text-sm font-semibold text-[#30362f]">Mermaid 预览</h3>
+        {error && <span className="text-[11px] text-red-600">渲染失败</span>}
+      </div>
+      {error ? (
+        <p className="text-xs leading-5 text-red-700">{error}</p>
+      ) : (
+        <div
+          ref={containerRef}
+          className="max-h-[520px] overflow-auto [&_svg]:mx-auto [&_svg]:h-auto [&_svg]:max-w-none"
+        />
+      )}
+    </div>
+  );
+}
+
+function ValidationPanel({ parsed }: { parsed: ParseOrchestratorOutputResult }) {
+  const { errors, warnings } = parsed.validation;
+  return (
+    <section className="border border-[#d8d8cc] bg-white p-4 2xl:col-span-2">
+      <h3 className="mb-3 text-sm font-semibold text-[#30362f]">校验结果</h3>
+      {errors.length === 0 && warnings.length === 0 ? (
+        <p className="text-xs text-green-700">结构校验通过，无 warning。</p>
+      ) : (
+        <div className="grid gap-3 md:grid-cols-2">
+          <MessageList title="Errors" items={errors} tone="error" />
+          <MessageList title="Warnings" items={warnings} tone="warning" />
+        </div>
+      )}
+    </section>
+  );
+}
+
+function MessageList({ title, items, tone }: { title: string; items: string[]; tone: "error" | "warning" }) {
+  const cls = tone === "error" ? "text-red-700 bg-red-50 border-red-200" : "text-amber-700 bg-amber-50 border-amber-200";
+  return (
+    <div className={`border px-3 py-2 ${cls}`}>
+      <p className="text-xs font-semibold">{title}</p>
+      {items.length === 0 ? (
+        <p className="mt-2 text-xs opacity-70">无</p>
+      ) : (
+        <ul className="mt-2 space-y-1 text-xs">
+          {items.map((item) => <li key={item}>{item}</li>)}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function TaskList({ tasks }: { tasks: OrchestratorPlanTask[] }) {
+  return (
     <section className="border border-[#d8d8cc] bg-white p-3">
-      <h3 className="mb-3 text-sm font-semibold text-[#30362f]">调度图</h3>
-      <div className="space-y-3">
-        {phases.map((phase, index) => (
-          <div key={phase.phase} className="relative">
-            {index > 0 && <div className="mx-auto mb-2 h-5 w-px bg-[#aeb6aa]" />}
-            <div className="border border-[#c9cbbf] bg-[#fbfbf7]">
-              <div className="flex items-center justify-between border-b border-[#e2e3d9] px-3 py-2">
-                <span className="text-xs font-semibold text-[#30362f]">Phase {phase.phase}</span>
-                <span className="text-[11px] uppercase tracking-[0.12em] text-[#6f766d]">{phase.mode}</span>
+      <h3 className="mb-3 text-sm font-semibold text-[#30362f]">任务 DAG</h3>
+      <div className="space-y-2">
+        {tasks.map((task) => (
+          <div key={task.task_id} className="border-l-4 border-[#49624a] bg-[#fbfbf7] px-3 py-2">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold text-[#1f2421]">{task.task_id} · {task.title}</p>
+                <p className="mt-1 text-xs leading-5 text-[#697166]">{task.goal}</p>
               </div>
-              <div className="grid gap-2 p-2">
-                {phase.calls.map((call) => <CallCard key={`${call.phase}-${call.task}-${call.agent.id}`} call={call} />)}
-              </div>
+              <span className="shrink-0 bg-[#e7eadf] px-2 py-1 text-[11px] font-semibold text-[#384438]">
+                {task.is_blocking ? "阻塞" : "普通"}
+              </span>
             </div>
+            <p className="mt-2 text-[11px] text-[#6f766d]">
+              @{task.assigned_agent_name ?? "未分配"} · 依赖：{task.depends_on.length ? task.depends_on.join(" / ") : "无"}
+            </p>
+            <TagRow tags={task.required_skills} />
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function AgentSnapshot({ agents, compact = false }: { agents: OrchestratorDebugAgent[]; compact?: boolean }) {
+  return (
+    <section className="border border-[#d8d8cc] bg-white p-4">
+      <h3 className="mb-3 text-sm font-semibold text-[#30362f]">候选 Agent 快照</h3>
+      <div className="space-y-2">
+        {agents.map((agent) => (
+          <div key={agent.id} className="border border-[#ecece4] px-3 py-2">
+            <p className="text-sm font-semibold text-[#30362f]">{agent.name}</p>
+            {!compact && <p className="mt-1 text-xs leading-5 text-[#697166]">{agent.description}</p>}
+            <p className="mt-1 text-[11px] text-[#6f766d]">
+              {agent.id} · {agent.primarySkill ?? "unknown"}
+            </p>
+            <TagRow tags={agent.auxiliarySkills ?? []} />
           </div>
         ))}
       </div>
@@ -273,11 +515,11 @@ function PhaseMap({ result }: { result: OrchestratorDebugResult }) {
 
 function MockAgentRoster() {
   const roster = [
-    ["架构师", "架构设计、方案拆解"],
+    ["架构专家", "架构设计、方案拆解"],
     ["前端专家", "React、UI、组件"],
     ["后端专家", "Python、API、数据库"],
-    ["审查员", "测试、安全、质量评估"],
-    ["研究员", "调研、分析、总结"],
+    ["审查专家", "测试、安全、质量评估"],
+    ["研究专家", "调研、分析、总结"],
   ];
   return (
     <div className="grid gap-1 border-t border-[#ecece4] pt-3">
@@ -291,43 +533,9 @@ function MockAgentRoster() {
   );
 }
 
-function CallCard({ call }: { call: OrchestratorDebugCall }) {
-  return (
-    <div className="border-l-4 border-[#49624a] bg-white px-3 py-2 shadow-sm">
-      <div className="flex items-start justify-between gap-2">
-        <div>
-          <p className="text-sm font-semibold text-[#1f2421]">@{call.agent.name}</p>
-          <p className="text-xs text-[#697166]">{call.task}</p>
-        </div>
-        <span className="shrink-0 bg-[#e7eadf] px-2 py-1 text-[11px] font-semibold text-[#384438]">
-          {ROLE_LABELS[call.role] ?? call.role}
-        </span>
-      </div>
-      {call.dependsOn.length > 0 && (
-        <p className="mt-2 text-[11px] text-[#6f766d]">依赖：{call.dependsOn.join(" / ")}</p>
-      )}
-    </div>
-  );
-}
-
-function AgentScore({ agent }: { agent: OrchestratorDebugScoredAgent }) {
-  return (
-    <div className="border border-[#ecece4] px-3 py-2">
-      <div className="flex items-center justify-between gap-2">
-        <div>
-          <p className="text-sm font-semibold text-[#30362f]">{agent.name}</p>
-          <p className="text-[11px] text-[#697166]">{agent.reason}</p>
-        </div>
-        <span className="text-sm font-semibold text-[#1f2421]">{agent.score}</span>
-      </div>
-      <TagRow tags={agent.matchTags} />
-    </div>
-  );
-}
-
 function TagRow({ tags }: { tags: string[] }) {
   if (tags.length === 0) {
-    return <p className="mt-2 text-[11px] text-[#9a9f95]">无命中标签</p>;
+    return <p className="mt-2 text-[11px] text-[#9a9f95]">无标签</p>;
   }
   return (
     <div className="mt-2 flex flex-wrap gap-1">
@@ -336,15 +544,6 @@ function TagRow({ tags }: { tags: string[] }) {
           {tag}
         </span>
       ))}
-    </div>
-  );
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="border border-[#ecece4] bg-[#fbfbf7] px-2 py-2">
-      <p className="text-[10px] uppercase tracking-[0.12em] text-[#7a8177]">{label}</p>
-      <p className="mt-1 font-semibold text-[#30362f]">{value}</p>
     </div>
   );
 }

@@ -271,7 +271,7 @@ function App() {
                 </span>
               </button>
               <div className="border border-dashed border-gray-200 bg-white px-3 py-3 text-xs leading-5 text-gray-500">
-                后续可以继续添加 Prompt 调试、Agent 评分调试、上下文预算调试等工具。
+                后续可以继续添加 Prompt 调试、Agent 分配调试、Plan 校验调试等工具。
               </div>
             </div>
           </div>

@@ -227,7 +227,7 @@ export interface SettingsUpdate {
   orchestratorModel?: string;
 }
 
-// === Orchestrator Debug types ===
+// === Orchestrator Manual Bridge Debug types ===
 
 export interface OrchestratorDebugAgent {
   id: string;
@@ -235,68 +235,97 @@ export interface OrchestratorDebugAgent {
   description: string;
   provider: string;
   model: string;
+  primarySkill?: string;
+  auxiliarySkills?: string[];
 }
 
-export interface OrchestratorDebugScoredAgent extends OrchestratorDebugAgent {
-  score: number;
-  matchTags: string[];
-  reason: "exact_mention" | "tag_match" | "fallback";
+export interface OrchestratorAgentProfile {
+  id: string;
+  name: string;
+  engine: string;
+  primarySkill: string;
+  auxiliarySkills: string[];
 }
 
-export interface OrchestratorDebugCall {
-  agent: OrchestratorDebugAgent;
-  task: string;
-  role: string;
-  phase: number;
-  dependsOn: string[];
-  rolePromptOverride: string | null;
-  inputMessageCount: number;
+export interface OrchestratorPlanTask {
+  task_id: string;
+  title: string;
+  goal: string;
+  required_skills: string[];
+  assigned_agent_id: string | null;
+  assigned_agent_name: string | null;
+  assignment_reason: string;
+  depends_on: string[];
+  expected_outputs: string[];
+  acceptance_criteria: string[];
+  needs_approval: boolean;
+  is_blocking: boolean;
 }
 
-export interface OrchestratorDebugPhase {
+export interface OrchestratorPlanPhase {
   phase: number;
   mode: "serial" | "parallel";
-  calls: OrchestratorDebugCall[];
+  tasks: string[];
+  reason: string;
 }
 
-export interface OrchestratorDebugResult {
+export interface OrchestratorPlan {
+  plan_id: string;
+  status: string;
+  execution_policy: string;
+  tasks: OrchestratorPlanTask[];
+  execution_strategy: {
+    summary: string;
+    phases: OrchestratorPlanPhase[];
+  };
+}
+
+export interface OrchestratorValidation {
+  ok: boolean;
+  errors: string[];
+  warnings: string[];
+}
+
+export interface BuildOrchestratorInputRequest {
+  content: string;
+  agentIds?: string[];
+  useMockAgents?: boolean;
+}
+
+export interface BuildOrchestratorInputResult {
   input: {
     content: string;
-    mentions: string[];
-    supplemental: boolean;
     agentCount: number;
   };
-  intent: {
-    type: string;
-    requiredTags: string[];
-    confidence: number;
-    evidence: string;
-  };
-  context: {
-    messageCount: number;
-    assembledMessages: Array<{ role: string; content: string }>;
-    truncated: boolean;
-    estimatedTokens: number;
-  };
-  agentSelection: OrchestratorDebugScoredAgent[];
-  selectedAgents: OrchestratorDebugAgent[];
-  executionPlan: {
-    mode: "single" | "parallel" | "chain" | "dag" | "empty";
-    planSummary: string;
-    decomposerUsed: boolean;
-    chainAutoTriggered: boolean;
-    calls: OrchestratorDebugCall[];
-    dagPhases: OrchestratorDebugPhase[];
-  };
+  orchestratorAgent: OrchestratorAgentProfile;
+  candidateAgents: OrchestratorDebugAgent[];
+  prompt: string;
+  outputSchema: Record<string, unknown>;
+}
+
+export interface ParseOrchestratorOutputRequest {
+  rawOutput: string;
+  candidateAgents: OrchestratorDebugAgent[];
+}
+
+export interface ParseOrchestratorOutputResult {
+  rawOutput: string;
+  normalizedPlan: OrchestratorPlan;
+  validation: OrchestratorValidation;
   visualization: {
     mermaid: string;
   };
 }
 
-export interface OrchestratorDebugRequest {
-  content: string;
-  agentIds?: string[];
-  mentions?: string[];
-  useMockAgents?: boolean;
-  supplemental?: boolean;
+export interface GenerateOrchestratorPlanRequest extends BuildOrchestratorInputRequest {
+  provider?: string;
+  model?: string;
+}
+
+export interface GenerateOrchestratorPlanResult
+  extends BuildOrchestratorInputResult, ParseOrchestratorOutputResult {
+  llm: {
+    provider: string;
+    model: string;
+  };
 }

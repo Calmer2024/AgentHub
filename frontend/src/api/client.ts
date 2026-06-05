@@ -3,7 +3,9 @@ import type {
   Settings, SettingsUpdate, RouteAgent, CollabTask, ChainStep, ChainConfigInput,
   DAGPhase, PhaseChangeEvent, AgentStartEvent, OrchestratorSummaryStartEvent,
   Artifact, ArtifactDiff, ArtifactEditRequest, ArtifactEditResult, ArtifactVersion,
-  OrchestratorDebugRequest, OrchestratorDebugResult,
+  BuildOrchestratorInputRequest, BuildOrchestratorInputResult,
+  GenerateOrchestratorPlanRequest, GenerateOrchestratorPlanResult,
+  ParseOrchestratorOutputRequest, ParseOrchestratorOutputResult,
 } from "../types";
 import { parseDagPhases, parseTasks } from "./orchestratorEvents";
 
@@ -457,10 +459,40 @@ export async function editArtifact(
   return res.json();
 }
 
-export async function dryRunOrchestrator(
-  data: OrchestratorDebugRequest,
-): Promise<OrchestratorDebugResult> {
-  const res = await fetch(`${API_BASE}/debug/orchestrator/dry-run`, {
+export async function buildOrchestratorInput(
+  data: BuildOrchestratorInputRequest,
+): Promise<BuildOrchestratorInputResult> {
+  const res = await fetch(`${API_BASE}/debug/orchestrator/build-input`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(text || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function parseOrchestratorOutput(
+  data: ParseOrchestratorOutputRequest,
+): Promise<ParseOrchestratorOutputResult> {
+  const res = await fetch(`${API_BASE}/debug/orchestrator/parse-output`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(text || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function generateOrchestratorPlan(
+  data: GenerateOrchestratorPlanRequest,
+): Promise<GenerateOrchestratorPlanResult> {
+  const res = await fetch(`${API_BASE}/debug/orchestrator/generate-plan`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
