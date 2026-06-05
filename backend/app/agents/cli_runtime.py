@@ -20,6 +20,10 @@ class CliExecutableNotFound(FileNotFoundError):
     pass
 
 
+class CliSubprocessNotSupported(RuntimeError):
+    pass
+
+
 class CliProcessNotFound(LookupError):
     pass
 
@@ -108,6 +112,8 @@ class CliProcessManager:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
+        except NotImplementedError as exc:
+            raise CliSubprocessNotSupported(_subprocess_not_supported_message()) from exc
         except FileNotFoundError as exc:
             raise CliExecutableNotFound(executable) from exc
 
@@ -273,6 +279,16 @@ class CliProcessManager:
 
 
 cli_process_manager = CliProcessManager()
+
+
+def _subprocess_not_supported_message() -> str:
+    if os.name == "nt":
+        return (
+            "当前 Python asyncio 事件循环不支持启动 CLI 子进程。"
+            "Windows 下请使用支持 subprocess 的 Proactor 事件循环启动后端，"
+            "并避免 uvicorn --reload/Selector loop 启动方式。"
+        )
+    return "当前 Python asyncio 事件循环不支持启动 CLI 子进程。"
 
 
 def resolve_cli_command(executable: str, args: list[str]) -> list[str]:

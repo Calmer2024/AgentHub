@@ -4,6 +4,8 @@
 本文档为 AgentHub 的底层核心通信层设计规范，主要面向**系统架构师**、**后端核心研发人员**。
 本章节将详细论述 AgentHub 如何摒弃传统的”裸调 HTTP LLM API”的伪 Agent 模式，转而利用操作系统底层进程管理技术，直接封装 Anthropic 官方的 `claude` CLI、OpenAI 的 `codex` CLI、开源的 `opencode` 三个真实物理工具。涵盖：通用进程管理层（PTY/subprocess、ANSI 清洗、交互拦截）、每个 CLI 的专属适配策略（各自理解其输出格式和交互模式）、分层渲染方案（文本/进度/产物/交互 → 前端不同渲染形态）。这是本课题取得高分、实现工业级”Agent-as-a-Service”的关键基石。
 
+> **2026-06-05 口径修订**：本 PRD 中的 CLI 工具应理解为 **Engine**，而不是用户最终调度的 Agent 本体。用户可见 Agent Profile = Engine + Skills + Context Policy + Runtime Config。详见 [ADR-0010 Agent = Engine + Skills 建模](../adr/0010-agent-engine-skill-model.md)。
+
 ---
 
 ## 2. 核心架构冲突与路线选择 (Architecture Pivot)
@@ -104,7 +106,7 @@ Codex 默认启动参数应贴近用户本机终端行为：读取用户 Codex �
 
 所有 Adapter 通过统一 CLI 事件契约产出标准化事件（`agent.output` / `artifact.detected` / `interactive_prompt`）。新增 CLI 工具只需写一个新 Adapter。
 
-CLI 工具由用户在操作系统层面安装（如 `npm install -g @anthropic-ai/claude-code`），AgentHub 只管理配置：在 AgentPanel 中配置 `executable` 路径、`init_args` 启动参数和非敏感环境变量覆盖。
+CLI 工具由用户在操作系统层面安装（如 `npm install -g @anthropic-ai/claude-code`），AgentHub 只管理 Engine runtime 配置：在 AgentPanel 中配置 `executable` 路径、`init_args` 启动参数和非敏感环境变量覆盖。用户创建的“前端专家”“架构专家”“调度器”等 Agent Profile 会在该 Engine 之上绑定 primary skill、auxiliary skills 和 context policy。
 
 ## 4. 容错与生命周期管理 (Lifecycle & Fault Tolerance)
 

@@ -16,7 +16,7 @@ specs/
 ├── phase3/                      ← Phase 3: Orchestrator + Infrastructure ✅
 ├── phase4/                      ← Phase 4: 消息交互闭环 ✅
 ├── phase5/                      ← Phase 5: 产物工作台能力 ✅
-├── phase6/                      ← Phase 6: Workspace Runtime + CLI 适配器 + 产物入口桥接 📋
+├── phase6/                      ← Phase 6: Workspace Runtime + CLI Engine + Agent Profile + 产物入口桥接 📋
 ├── phase7/                      ← Phase 7: UX 体验闭环 + MVP 演示闭环 📋
 └── planning/                    ← 历史规划文档（参考）
 ```
@@ -34,7 +34,7 @@ specs/
 | [Phase 3](phase3/) | Orchestrator + Infrastructure | ✅ | EventBus、Orchestrator v2 (Pipeline + DAG)、CollaborationPanel |
 | [Phase 4](phase4/) | 消息交互闭环 | ✅ | Reply/Regenerate/Pin、全文搜索 FTS5 |
 | [Phase 5](phase5/) | 产物工作台能力 | ✅ | 对已有 Artifact 提供版本链 + Diff、在线编辑；不宣称上游产物生成入口已完整打通 |
-| [Phase 6](phase6/) | Workspace Runtime + CLI 适配器 + 产物入口桥接 | 📋 | 本机 workspace 创建/绑定、Agent cwd、PTY 进程管理、ANSI 清洗、交互拦截，并把 Agent 输出和文件变更转为标准 Artifact 事件 |
+| [Phase 6](phase6/) | Workspace Runtime + CLI Engine + Agent Profile + 产物入口桥接 | 📋 | 本机 workspace 创建/绑定、CLI Engine 进程管理、Agent = Engine + Skills 建模、ANSI 清洗、交互拦截，并把 Agent 输出和文件变更转为标准 Artifact 事件 |
 | [Phase 7](phase7/) | UX 体验闭环 + MVP 演示闭环 | 📋 | 三栏布局、产物抽屉、审批卡片、环境体检，跑通 workspace→输入→Agent→Artifact→预览→编辑→审批 |
 
 ---

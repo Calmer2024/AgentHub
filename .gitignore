@@ -33,9 +33,15 @@ dist-ssr/
 data/
 backend/.test-bin/
 backend/.test-workspaces/
+backend/pytest-cache-files-*/
 backend/backend/
 backend/.agenthub-backend-*.log
 frontend/.agenthub-frontend-*.log
+
+# Local temporary files
+.tmp-test/
+HANDOFF-*.md
+frontend/vite.config.js.timestamp-*.mjs
 
 # Environment
 .env

@@ -1,3 +1,4 @@
+import asyncio
 import sys
 from pathlib import Path
 
@@ -8,6 +9,29 @@ from app.agents.cli_output_parser import CliOutputParser
 from app.agents.cli_runtime import CliProcessManager, PromptInterceptor, StreamSanitizer, cli_process_manager
 from app.services.streaming_text import iter_stream_pieces
 from app.models import AgentConfig
+
+
+@pytest.mark.asyncio
+async def test_cli_process_manager_reports_unsupported_subprocess_loop(monkeypatch):
+    async def raise_not_implemented(*args, **kwargs):
+        raise NotImplementedError
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", raise_not_implemented)
+    manager = CliProcessManager()
+
+    with pytest.raises(RuntimeError) as exc:
+        async for _ in manager.stream(
+            session_id="session-1",
+            agent_id="agent-1",
+            executable=sys.executable,
+            args=["-c", "print(1)"],
+            env_vars={},
+            cwd=str(Path.cwd()),
+            prompt="",
+        ):
+            pass
+
+    assert "不支持启动 CLI 子进程" in str(exc.value)
 
 
 def test_stream_sanitizer_removes_ansi_and_carriage_returns():

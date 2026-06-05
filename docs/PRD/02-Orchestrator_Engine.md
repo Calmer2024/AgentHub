@@ -4,6 +4,8 @@
 本文档面向**核心业务逻辑研发**、**AI 算法/Prompt 工程师**。
 如果说底层 CLI Agent 是 AgentHub 的“手脚”，那么 Orchestrator（协调器）就是平台唯一的“大脑”。本文档详细规定了 Orchestrator 如何处理宏大需求，如何避免大模型在长上下文中崩溃，以及如何实现类似 GitHub Actions 的工业级流水线调度。
 
+> **2026-06-05 口径修订**：底层 Claude Code / Codex / OpenCode 应理解为 Engine。用户可见 Agent Profile = Engine + Skills + Context Policy。Orchestrator 也遵循同一模型，是绑定 `orchestrator_planner` Skill 的特殊 Agent Profile；Scheduler/Executor 则是读取 Plan/DAG 后启动任务的后端执行机制。详见 [ADR-0010](../adr/0010-agent-engine-skill-model.md)。
+
 ---
 
 ## 2. 核心挑战：大模型物理上限的突破 (Breaking the LLM Limits)
@@ -19,10 +21,10 @@
 
 ### 3.1 意图拦截与宏观拆解
 当用户在群聊中输入大段需求后，请求首先打到 Orchestrator。
-Orchestrator 本身是一个无状态的纯 LLM API 调用者（建议使用最聪明的模型如 GPT-4o 或 Claude 3.5 Sonnet）。
+Orchestrator 第一版可以由后端以系统能力调用，也可以由一个绑定 `orchestrator_planner` Skill 的 Agent Profile 承载。产品口径上，Orchestrator 是特殊 Agent：它只负责规划、拆解、分配和产出 JSON DAG，不直接改文件、不直接执行子任务。
 
 *   **System Prompt 设定**：
-    > “你是一个硅谷顶级的软件架构师和敏捷教练（Scrum Master）。你的任务不是写代码，而是将用户庞大、模糊的业务需求，拆解为一系列严密的、细粒度的开发任务。每个任务必须能够由单个工程师在短时间内独立完成。你需要明确指出每个任务需要哪种特定技能的 Agent（如：UI设计师、前端、DBA、后端），以及这些任务之间的绝对先后依赖关系。”
+    > “你是一个硅谷顶级的软件架构师和敏捷教练（Scrum Master）。你的任务不是写代码，而是将用户庞大、模糊的业务需求，拆解为一系列严密的、细粒度的开发任务。每个任务必须能够由单个工程师在短时间内独立完成。你需要明确指出每个任务需要哪些 Skill（如：frontend、backend、database、review），可以推荐 assigned_agent_id，并解释分配原因，以及这些任务之间的绝对先后依赖关系。”
 
 ### 3.2 结构化输出契约 (JSON DAG)
 Orchestrator 解析需求后，必须向后端返回符合强校验 Schema 的 JSON 数组。这个数组在数学上构成了一个 **有向无环图 (Directed Acyclic Graph, DAG)**。
@@ -34,35 +36,40 @@ Orchestrator 解析需求后，必须向后端返回符合强校验 Schema 的 J
     {
       "task_id": "T1",
       "name": "需求澄清与 PRD 编写",
-      "agent_role": "产品经理",
+      "required_skills": ["product", "requirements"],
+      "assigned_agent_id": "agent_product_or_architect",
       "dependencies": [],
       "requires_human_approval": true
     },
     {
       "task_id": "T2",
       "name": "数据库表结构设计 (SQL)",
-      "agent_role": "架构师",
+      "required_skills": ["architecture", "database", "schema"],
+      "assigned_agent_id": "agent_architect",
       "dependencies": ["T1"],
       "requires_human_approval": true
     },
     {
       "task_id": "T3",
       "name": "鉴权模块后端开发 (FastAPI)",
-      "agent_role": "后端专家",
+      "required_skills": ["backend", "api", "python"],
+      "assigned_agent_id": "agent_backend",
       "dependencies": ["T2"],
       "requires_human_approval": false
     },
     {
       "task_id": "T4",
       "name": "登录注册页前端开发 (React)",
-      "agent_role": "前端专家",
+      "required_skills": ["frontend", "react", "ui"],
+      "assigned_agent_id": "agent_frontend",
       "dependencies": ["T1", "T2"],
       "requires_human_approval": false
     },
     {
       "task_id": "T5",
       "name": "前后端联调与单元测试",
-      "agent_role": "测试专家",
+      "required_skills": ["testing", "integration", "review"],
+      "assigned_agent_id": "agent_reviewer",
       "dependencies": ["T3", "T4"],
       "requires_human_approval": false
     }

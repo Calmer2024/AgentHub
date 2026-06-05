@@ -24,13 +24,16 @@
 ### 核心概念
 
 - **AgentHub**：多 Agent 协作平台，采用 IM 聊天作为核心交互范式。
-- **Agent**：用户创建的"AI 联系人"，具有自定义名称、描述、system_prompt。Agent 是可被后端管理的真实 CLI 工具实例，通过 CLI Wrapper 封装 Anthropic `claude` CLI、OpenAI `codex` CLI、开源 `opencode`。Agent ≠ 模型厂商。
+- **Engine**：Agent 的底层执行引擎，例如 Claude Code、Codex、OpenCode 或自定义 CLI。Engine 负责真实进程、工具调用、文件读写和 stdout/stderr 输出；Engine 本身不是用户最终调度的 Agent。
+- **Skill**：可复用能力定义，包含能力标签、职责说明和 Prompt 片段，例如 `frontend_engineer`、`backend_engineer`、`code_reviewer`、`orchestrator_planner`。Skill 来自全局 Skill Pool，第一版可内置，后续支持目录扫描和用户自定义。
+- **Agent / Agent Profile**：用户创建的"AI 联系人"。Agent = Engine + Skills + Context Policy + Runtime Config。比如“前端专家”可以是 Claude Code Engine + `frontend_engineer` 主 Skill + `react/typescript` 辅助 Skill。Agent ≠ 模型厂商，也 ≠ 裸 CLI 工具。
 - **CLI Adapter**：底层执行适配器，每个 CLI 工具单独适配（`ClaudeCodeAdapter`、`CodexAdapter`、`OpenCodeAdapter`），各自理解该 CLI 的特定输出格式。Adapter 通过 PTY/subprocess 孵化进程、读取 stdout/stderr、做语义分层解析（文本→聊天消息、进度指示器→状态条、Diff/代码块→Artifact Card）、ANSI 清洗、交互式提示（y/n）拦截。Adapter 把 CLI 输出转为标准事件（`agent.output` / `artifact.detected` / `interactive_prompt`）。CLI 工具由用户在外部安装，AgentHub 只管理配置（executable 路径、init_args、env vars）。DeepSeek 仅作为系统模型用于中枢总结、标题生成和产物编辑辅助，不作为用户可聊天 Agent。
-- **Orchestrator**：主 Agent 协调器，负责意图分析 → Agent 选择 → 任务拆解 → 角色分配 → 执行调度。**自动化优先**：链式协作、角色分配等复杂决策由后端自动完成，不暴露给用户配置。
+- **Orchestrator Agent**：绑定 `orchestrator_planner` Skill 的特殊 Agent Profile，负责意图分析、任务拆解、DAG/Plan 生成和 Agent 分配建议。它本质上也是 Agent 的一种，第一版先产出计划，不直接执行子 Agent。
+- **Scheduler / Executor**：读取 Orchestrator Agent 产出的 Plan/DAG，校验依赖关系，并启动对应 Agent Profile 的后端服务。它是执行机制，不是一个用户可聊天 Agent。
 - **Project（项目）**：AgentHub 的顶层组织实体。用户必须先创建 Project（新建空白文件夹，或通过系统原生目录选择器选择已有文件夹），然后在该 Project 下创建任意数量的私聊或群聊 Session。一个 Project 绑定一个 workspace 目录，Project 内所有 Session 共享此目录。所有聊天必须属于某个 Project，不存在"无 Project 的聊天"。详见 [ADR-0009](docs/adr/0009-project-workspace-model.md)。
 - **Workspace**：Project 绑定的物理或云端工作目录。MVP 版是本机 `workspace_path`（Project 创建时指定）；Project 内所有 CLI Agent 以该路径作为 `cwd` 执行。SaaS 版是云端隔离 workspace，由 sandbox/runner 挂载。详见 [PRD-06](docs/PRD/06-MVP_Local_Workspace_Delivery.md) 和 [PRD-07](docs/PRD/07-SaaS_Cloud_Workspace_Delivery.md)。
 - **单聊模式**：在某个 Project 下，1v1 与单个 Agent 的私聊 Session。该 Agent 以 Project 的 `workspace_path` 为 `cwd` 执行。
-- **群聊模式**：在某个 Project 下，包含多个 Agent 的对话 Session，支持 @ 指定，Orchestrator 自动协调分工。所有 Agent 共享 Project 的 `workspace_path`。
+- **群聊模式**：在某个 Project 下，包含多个 Agent Profile 的对话 Session，支持 @ 指定，Orchestrator Agent 自动协调分工。所有 Agent 共享 Project 的 `workspace_path`。
 - **分层渲染**：CLI Adapter 对 stdout 输出做语义解析，按类型分层渲染到前端：纯文本 → 聊天消息气泡；spinner/进度条 → UI 状态指示条（如 `🔧 正在修改文件...`）；Diff/代码块 → Artifact Card；交互式提示 → 确认卡片。不同 CLI 的输出格式由其专属 Adapter 解析。
 - **链式协作**：多 Agent 按阶段顺序协作（规划→执行→审查→综合），由 Orchestrator 自动触发，动态分配角色。
 - **协作角色**：6 种模板角色 — planner / executor / reviewer / researcher / synthesizer / critic。Phase 3 模板驱动，未来可升级 LLM 动态分配。
@@ -38,7 +41,7 @@
 - **共享上下文 (SharedContext)**：所有 Agent 可读的对话历史，Agent 完成后其产出自动追加。链式依赖的 Agent 额外接收前驱产出的定向注入。
 - **引用消息**：用户显式点选某条历史消息后发出的当前消息。引用必须保存 `parentMessageId` + `metadata.replyReference` 快照，并在 Agent prompt 中注入 `[Reply context]` 块——仅显示引用卡片不算完成。
 - **Pin 消息**：用户固定的关键历史消息。Phase 4 起由 ContextManager 在单聊与群聊中以 `[Pinned message]` 长期上下文块优先注入——仅显示 Pin 标记不算完成。
-- **中枢总结**：Orchestrator 在 DAG/chain 等多 Agent 结构化协作完成后生成的系统整理消息。由系统模型（DeepSeek）生成，独立于用户 CLI Agent。
+- **中枢总结**：Orchestrator 在 DAG/chain 等多 Agent 结构化协作完成后生成的系统整理消息。由系统模型（DeepSeek）生成，独立于普通工程 Agent Profile。
 - **CollaborationPanel**：前端 DAG 可视化面板，展示协作流程的各 Phase 及其实时状态。
 - **产物 (Artifact)**：Agent 生成的富媒体内容，类型包括 `code_diff`、`web_preview`、`document`、`file_tree`。Phase 5 已完成已有 Artifact 的版本历史、Diff 和在线编辑；Phase 6/7 负责补齐 Agent 输出入口、Artifact Card、Drawer 预览和审批回流。
 - **Artifact Card**：聊天流中的产物卡片，由标准 `artifact.created` 事件驱动，绑定 `artifact_id / message_id / task_id / version`，不是前端临时扫描 Markdown 得到的装饰。
@@ -147,6 +150,7 @@ Phase 4-7 采用**功能板块制**：每板块独立完整交付。板块间按
 | ADR-0007 | [0007-orchestrator-architecture.md](docs/adr/0007-orchestrator-architecture.md) | Orchestrator 架构：Pipeline 四阶段 + DAG |
 | ADR-0008 | [0008-revised-development-strategy.md](docs/adr/0008-revised-development-strategy.md) | 功能板块制 + Phase 4-7 路线图 + 文档治理 |
 | ADR-0009 | [0009-project-workspace-model.md](docs/adr/0009-project-workspace-model.md) | **🆕** Project-Workspace 模型 + CLI 适配策略 + 分层渲染 |
+| ADR-0010 | [0010-agent-engine-skill-model.md](docs/adr/0010-agent-engine-skill-model.md) | **🆕** Agent = Engine + Skills 建模；调度器作为特殊 Agent |
 
 ### Specs — 功能规格（按 Phase）
 
@@ -157,7 +161,7 @@ Phase 4-7 采用**功能板块制**：每板块独立完整交付。板块间按
 | Phase 3 | [specs/phase3/](docs/specs/phase3/) | [README](docs/specs/phase3/README.md) + [Orchestrator 9 篇](docs/specs/phase3/02-orchestrator/README.md) |
 | Phase 4 | [specs/phase4/](docs/specs/phase4/) | [README](docs/specs/phase4/README.md) + 消息操作 + 搜索 |
 | Phase 5 | [specs/phase5/](docs/specs/phase5/) | [README](docs/specs/phase5/README.md) + [版本/Diff](docs/specs/phase5/01-artifact-versioning.md) + [在线编辑](docs/specs/phase5/02-artifact-editing.md) |
-| Phase 6 | [specs/phase6/](docs/specs/phase6/) | [README](docs/specs/phase6/README.md) + [Workspace Runtime](docs/specs/phase6/00-workspace-runtime.md) + [CLI 适配器](docs/specs/phase6/01-cli-adapter.md) + [产物桥接](docs/specs/phase6/02-artifact-output-bridge.md) |
+| Phase 6 | [specs/phase6/](docs/specs/phase6/) | [README](docs/specs/phase6/README.md) + [Workspace Runtime](docs/specs/phase6/00-workspace-runtime.md) + [CLI 适配器](docs/specs/phase6/01-cli-adapter.md) + [产物桥接](docs/specs/phase6/02-artifact-output-bridge.md) + [Agent Profile](docs/specs/phase6/03-agent-engine-skill-profile.md) |
 | Phase 7 | [specs/phase7/](docs/specs/phase7/) | [README](docs/specs/phase7/README.md) + Drawer + 审批 + 环境体检 + Store 收尾 |
 | 模板 | [SPEC_TEMPLATE.md](docs/specs/SPEC_TEMPLATE.md) | 新建模块 Spec 的标准模板 |
 | 历史 | [specs/planning/](docs/specs/planning/) | 旧规划文档（参考） |

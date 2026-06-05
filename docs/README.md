@@ -77,6 +77,7 @@ docs/
 | ADR-0007 | [0007-orchestrator-architecture.md](adr/0007-orchestrator-architecture.md) | Orchestrator 架构: Pipeline + DAG |
 | ADR-0008 | [0008-revised-development-strategy.md](adr/0008-revised-development-strategy.md) | **🆕** 功能板块制 + Phase 4-7 路线图 |
 | ADR-0009 | [0009-project-workspace-model.md](adr/0009-project-workspace-model.md) | **🆕** Project-Workspace 绑定模型 + CLI 适配策略 + 分层渲染 |
+| ADR-0010 | [0010-agent-engine-skill-model.md](adr/0010-agent-engine-skill-model.md) | **🆕** Agent = Engine + Skills 建模；调度器作为特殊 Agent |
 
 **阅读建议**: 新成员按编号顺序读。开发者遇到设计疑问时，先查对应 ADR 是否有记录。
 
@@ -91,7 +92,7 @@ docs/
 | [phase3/](specs/phase3/) | Orchestrator + Infrastructure | ✅ | EventBus + Pipeline + DAG + CollaborationPanel |
 | [phase4/](specs/phase4/) | 消息交互闭环 | ✅ | Reply/Regenerate/Pin + FTS5 搜索 |
 | [phase5/](specs/phase5/) | 产物工作台能力 | ✅ | 对已有 Artifact 做版本链 + Diff + 在线编辑；上游入口由 Phase 6/7 补齐 |
-| [phase6/](specs/phase6/) | Workspace Runtime + CLI 适配器 + 产物入口桥接 | 🚧 | 6A 本机 Project/workspace runtime 已验收；6B-6E CLI Adapter 实现基线已落地；6F 继续做 `artifact.detected` 与 Artifact Card 闭环 |
+| [phase6/](specs/phase6/) | Workspace Runtime + CLI Engine + Agent Profile + 产物入口桥接 | 🚧 | 6A 本机 Project/workspace runtime 已验收；6B-6E CLI Adapter 实现基线已落地；6F 继续做 `artifact.detected` 与 Artifact Card 闭环；6G 规划 Agent = Engine + Skills 建模 |
 
 ### deliverables/ — 阶段性交付快照
 

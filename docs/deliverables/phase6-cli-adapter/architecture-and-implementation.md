@@ -6,14 +6,14 @@
 
 ## 1. Design Position
 
-AgentHub now treats Agent as a local CLI friend. The product-facing agents are Claude Code, Codex, and OpenCode. Legacy API-style pseudo agents, provider configuration panels, default role assistants, and user-facing model/temperature configuration are deprecated.
+AgentHub now treats Claude Code, Codex, and OpenCode as local CLI engines. A product-facing Agent is an Agent Profile: Engine + Skills + Context Policy + runtime config. Legacy API-style pseudo agents, provider configuration panels, default role assistants, and user-facing model/temperature configuration are deprecated.
 
 DeepSeek remains allowed as an internal system LLM for product functions such as automatic conversation title generation and group-chat finalization. It is not exposed as a user-selectable Agent friend.
 
-The core rule is:
+The current runtime rule is:
 
 ```text
-Project -> Session -> CLI Agent process
+Project -> Session -> Agent Profile -> CLI Engine process
 ```
 
 Each Session belongs to a Project. Each CLI process is spawned with `cwd = Project.workspace_path`, so file writes land in the user's selected local workspace rather than in an abstract chat sandbox.

@@ -10,21 +10,27 @@
 
 建议使用 PostgreSQL 或 SQLite。以下采用标准的 SQL 或 ORM 伪代码描述核心业务表。
 
-### 2.1 Agent 实体表 (`agents`)
-代表了平台中“专家”的物理身份。注意，我们剥离了传统的 LLM Provider 概念，Agent 实体强绑定本地的 CLI 可执行文件。
+### 2.1 Agent Profile 实体表 (`agents`)
+代表平台中“专家”的用户可见身份。注意，我们剥离了传统的 LLM Provider 概念，也不再把 Claude Code / Codex / OpenCode 这些 CLI 工具直接等同为 Agent。CLI 工具是 Engine；Agent Profile = Engine + Skills + Context Policy + Runtime Config。
 
 ```sql
 CREATE TABLE agents (
     id UUID PRIMARY KEY,
     name VARCHAR(255) NOT NULL, -- 展示名称，如 "前端专家"
     avatar_url VARCHAR(1024),   -- 头像
-    agent_type VARCHAR(50) NOT NULL, -- 枚举: 'cli_wrapper', 'orchestrator'
-    executable VARCHAR(255),    -- 当 type 为 cli_wrapper 时必填，如 'claude', 'opencode'
+    agent_type VARCHAR(50) NOT NULL, -- 当前主要为 'cli_wrapper'
+    engine_type VARCHAR(50) NOT NULL, -- claude_code, codex, opencode, custom
+    executable VARCHAR(255),    -- Engine 可执行文件，如 'claude', 'codex', 'opencode'
     init_args JSONB,            -- CLI 启动参数，如 ["--theme=dark", "--compact"]
-    system_prompt TEXT,         -- 角色设定（注入到 CLI 的第一句话）
+    primary_skill VARCHAR(100), -- 主 Skill，如 frontend_engineer
+    auxiliary_skills JSONB,     -- 辅助 Skill ID 数组，如 ["react", "typescript"]
+    context_policy VARCHAR(100),-- workspace_coding, planning_only, review_only 等
+    system_prompt TEXT,         -- 用户自定义补充提示，排在 Skill prompt 之后
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 ```
+
+兼容说明：当前实现表名为 `agent_configs`，字段 `cli_tool` 对应此处的 `engine_type`。后续文档统一采用 Engine 语言，代码可渐进迁移。
 
 ### 2.2 Project、会话与历史记录 (`projects`, `sessions` & `messages`)
 由于我们需要高度复用传统 IM 聊天的 UI，会话表设计接近微信/Slack。
@@ -71,6 +77,8 @@ CREATE TABLE tasks (
     name VARCHAR(255) NOT NULL,
     description TEXT,
     assigned_agent_id UUID REFERENCES agents(id),
+    required_skills JSONB, -- Orchestrator 声明该任务需要的 Skill，如 ["frontend", "react"]
+    assignment_reason TEXT,
     status VARCHAR(50) DEFAULT 'PENDING', -- PENDING, RUNNING, PAUSED, COMPLETED, FAILED
     requires_approval BOOLEAN DEFAULT FALSE,
     expected_outputs JSONB, -- [{ type: 'artifact', artifact_type: 'web_preview', title_hint: 'LoginPage' }]

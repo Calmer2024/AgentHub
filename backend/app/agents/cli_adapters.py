@@ -21,6 +21,7 @@ from .cli_output_parser import (
 )
 from .cli_runtime import (
     CliExecutableNotFound,
+    CliSubprocessNotSupported,
     cli_process_manager,
 )
 from .cli_stream import PromptInterceptor, StreamSanitizer
@@ -165,6 +166,9 @@ class CliAgentAdapter:
                 "",
                 error=f"未找到 '{executable}' 命令。请安装 CLI 后重试。",
             )
+
+        except CliSubprocessNotSupported as exc:
+            yield CliEvent("error", "", error=str(exc))
 
     def build_prompt(self, system_prompt: str, user_prompt: str) -> str:
         return f"{user_prompt.rstrip()}\n"
