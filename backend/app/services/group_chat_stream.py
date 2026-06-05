@@ -12,6 +12,7 @@ from ..models import Session as DBSession, AgentConfig, SessionMember
 from ..domain.orchestrator_v2 import OrchestratorV2, PipelineRequest
 from ..domain.execution_planner import AgentCall, ChainConfig
 from .agent_executor import AgentExecutor
+from .project_service import ProjectService, ProjectNotFoundError
 from .shared_context import SharedContext
 from .group_chat_finalizer import GroupChatFinalizer
 
@@ -36,6 +37,11 @@ class GroupChatStream:
         member_agents = await self._member_agents(session_id)
         if not member_agents:
             yield self._err("该群聊没有可用的 Agent")
+            return
+        try:
+            workspace_path = await ProjectService(self.db).get_workspace_path_for_session(session_id)
+        except ProjectNotFoundError:
+            yield self._err("当前会话未绑定项目，无法启动 CLI Agent")
             return
 
         cc = None
@@ -77,6 +83,7 @@ class GroupChatStream:
         msg_ids: dict[str, str] = {}
         agent_texts: dict[str, str] = {}
         agent_errors: dict[str, str] = {}
+        agent_traces: dict[str, list[dict]] = {}
         seen_calls: set[str] = set()
         shared_context = SharedContext(result.assembled_messages) \
             if result.execution_mode == "dag" else None
@@ -86,15 +93,19 @@ class GroupChatStream:
             result.execution_mode,
             dag_phases=result.dag_phases,
             shared_context=shared_context,
+            session_id=session_id,
+            workspace_path=workspace_path,
         ):
-            async for item in self._event_to_sse(ev, agent_names, msg_ids, agent_errors, seen_calls):
+            async for item in self._event_to_sse(
+                ev, agent_names, msg_ids, agent_errors, seen_calls, agent_traces,
+            ):
                 yield item
             if ev.event_type == "token" and ev.token and not ev.done:
                 agent_texts[self._event_key(ev)] = agent_texts.get(self._event_key(ev), "") + ev.token
 
         async for item in self._finalizer.finish(
             session_id, session, result, agent_names, agent_calls,
-            msg_ids, agent_texts, agent_errors,
+            msg_ids, agent_texts, agent_errors, agent_traces,
         ):
             yield item
 
@@ -109,7 +120,9 @@ class GroupChatStream:
         )
         return list(rows.scalars().all())
 
-    async def _event_to_sse(self, ev, agent_names, msg_ids, agent_errors, seen_calls):
+    async def _event_to_sse(
+        self, ev, agent_names, msg_ids, agent_errors, seen_calls, agent_traces,
+    ):
         if ev.is_chain_step:
             yield self._sse({
                 "type": "orchestrator.chain_step",
@@ -146,12 +159,13 @@ class GroupChatStream:
             return
 
         if ev.is_structured:
-            yield self._sse({
-                "type": ev.event_type,
-                "agentId": ev.agent_id,
-                "agentName": ev.agent_name or agent_names.get(call_key, ""),
-                "metadata": ev.metadata,
-            })
+            trace = ev.metadata.get("trace")
+            if isinstance(trace, dict):
+                agent_traces.setdefault(call_key, []).append(trace)
+                yield self._trace_delta(
+                    ev, agent_names.get(call_key, ""), msg_ids.get(call_key), call_key, trace,
+                )
+            yield self._structured_event(ev, agent_names.get(call_key, ""), msg_ids.get(call_key), call_key)
             return
 
         yield self._sse({
@@ -193,6 +207,62 @@ class GroupChatStream:
         if ev.error:
             data["error"] = ev.error
         return self._sse(data)
+
+    def _structured_event(self, ev, fallback_name: str, msg_id: str | None, call_key: str) -> str:
+        base = {
+            "type": ev.event_type,
+            "agentId": ev.agent_id,
+            "agentName": ev.agent_name or fallback_name,
+            "messageId": msg_id,
+            "role": ev.metadata.get("role"),
+            "phase": ev.metadata.get("phase"),
+            "task": ev.metadata.get("task"),
+            "callKey": call_key,
+            "metadata": ev.metadata,
+        }
+        if ev.event_type == "agent.output":
+            base.update({
+                "chunk": ev.metadata.get("chunk", ev.token),
+                "chunkType": ev.metadata.get("chunkType", "text"),
+                "token": ev.token,
+                "done": False,
+                "processId": ev.metadata.get("processId"),
+            })
+        elif ev.event_type == "interactive_prompt":
+            base.update({
+                "sessionId": ev.metadata.get("sessionId"),
+                "processId": ev.metadata.get("processId"),
+                "content": ev.metadata.get("content", ""),
+                "promptType": ev.metadata.get("promptType", "confirm"),
+                "token": "",
+                "done": False,
+            })
+        elif ev.event_type.startswith("agent.process."):
+            base.update({
+                "processId": ev.metadata.get("processId"),
+                "exitCode": ev.metadata.get("exitCode"),
+                "token": "",
+                "done": False,
+            })
+        return self._sse(base)
+
+    def _trace_delta(
+        self, ev, fallback_name: str, msg_id: str | None, call_key: str, trace: dict,
+    ) -> str:
+        return self._sse({
+            "type": "agent.trace.delta",
+            "agentId": ev.agent_id,
+            "agentName": ev.agent_name or fallback_name,
+            "messageId": msg_id,
+            "role": ev.metadata.get("role"),
+            "phase": ev.metadata.get("phase"),
+            "task": ev.metadata.get("task"),
+            "callKey": call_key,
+            "processId": ev.metadata.get("processId"),
+            "item": trace,
+            "token": "",
+            "done": False,
+        })
 
     @staticmethod
     def _task_started_payload(result) -> dict:

@@ -6,40 +6,29 @@ from app.services import orchestrator_summarizer as summarizer_module
 from app.services.orchestrator_summarizer import OrchestratorSummarizer
 
 
-class RecordingAdapter:
+class RecordingSystemLLM:
     def __init__(self):
         self.calls = []
+        self.model = "deepseek-v4-flash"
 
-    async def chat_stream(self, messages, system_prompt, model=None, tools=None):
+    async def chat_stream(self, *, messages, system_prompt):
         self.calls.append({
             "messages": messages,
             "system_prompt": system_prompt,
-            "model": model,
         })
         yield "central"
         yield " summary"
 
 
 @pytest.mark.asyncio
-async def test_summarizer_uses_independent_orchestrator_model(monkeypatch):
-    adapter = RecordingAdapter()
-    requested_providers = []
-
-    def get_adapter(provider):
-        requested_providers.append(provider)
-        return adapter if provider == "openai" else None
-
-    monkeypatch.setattr(summarizer_module.settings, "orchestrator_provider", "openai")
-    monkeypatch.setattr(summarizer_module.settings, "orchestrator_model", "gpt-4o-mini")
-    monkeypatch.setattr(summarizer_module.agent_registry, "get_adapter", get_adapter)
-
+async def test_summarizer_uses_system_llm_not_agent_model(monkeypatch):
+    system_llm = RecordingSystemLLM()
+    monkeypatch.setattr(summarizer_module, "system_llm", system_llm)
     agent = AgentConfig(
         id="agent-1",
         name="Worker",
         description="",
         system_prompt="",
-        provider="deepseek",
-        model="agent-owned-model",
     )
     calls = {
         "agent-1:0:primary": AgentCall(
@@ -56,23 +45,30 @@ async def test_summarizer_uses_independent_orchestrator_model(monkeypatch):
     ]
 
     assert "".join(tokens) == "central summary"
-    assert requested_providers == ["openai"]
-    assert adapter.calls[0]["model"] == "gpt-4o-mini"
+    assert system_llm.calls[0]["messages"][0]["content"].count("Agent output") == 1
+
+
+def test_summarizer_metadata_uses_system_model_names():
+    config = OrchestratorSummarizer().current_model_config()
+    assert config == {
+        "system_model_provider": "deepseek",
+        "system_model": "deepseek-v4-flash",
+    }
 
 
 @pytest.mark.asyncio
-async def test_summarizer_falls_back_without_agent_model(monkeypatch):
-    monkeypatch.setattr(summarizer_module.settings, "orchestrator_provider", "missing")
-    monkeypatch.setattr(summarizer_module.settings, "orchestrator_model", "missing-model")
-    monkeypatch.setattr(summarizer_module.agent_registry, "get_adapter", lambda provider: None)
+async def test_summarizer_falls_back_when_system_llm_unavailable(monkeypatch):
+    class MissingSystemLLM:
+        async def chat_stream(self, *, messages, system_prompt):
+            raise summarizer_module.SystemLLMUnavailableError("missing")
+
+    monkeypatch.setattr(summarizer_module, "system_llm", MissingSystemLLM())
 
     agent = AgentConfig(
         id="agent-1",
         name="Worker",
         description="",
         system_prompt="",
-        provider="deepseek",
-        model="agent-owned-model",
     )
     calls = {
         "agent-1:0:primary": AgentCall(

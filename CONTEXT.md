@@ -25,7 +25,7 @@
 
 - **AgentHub**：多 Agent 协作平台，采用 IM 聊天作为核心交互范式。
 - **Agent**：用户创建的"AI 联系人"，具有自定义名称、描述、system_prompt。Agent 是可被后端管理的真实 CLI 工具实例，通过 CLI Wrapper 封装 Anthropic `claude` CLI、OpenAI `codex` CLI、开源 `opencode`。Agent ≠ 模型厂商。
-- **Provider / Adapter**：底层执行适配器，每个 CLI 工具单独适配（`ClaudeCodeAdapter`、`CodexAdapter`、`OpenCodeAdapter`），各自理解该 CLI 的特定输出格式。Adapter 通过 PTY/subprocess 孵化进程、读取 stdout/stderr、做语义分层解析（文本→聊天消息、进度指示器→状态条、Diff/代码块→Artifact Card）、ANSI 清洗、交互式提示（y/n）拦截。Adapter 把 CLI 输出转为标准事件（`agent.output` / `artifact.detected` / `interactive_prompt`）。CLI 工具由用户在外部安装，AgentHub 只管理配置（executable 路径、init_args、env vars）。Orchestrator 自身通过 LLM API 做意图分析和任务拆解。
+- **CLI Adapter**：底层执行适配器，每个 CLI 工具单独适配（`ClaudeCodeAdapter`、`CodexAdapter`、`OpenCodeAdapter`），各自理解该 CLI 的特定输出格式。Adapter 通过 PTY/subprocess 孵化进程、读取 stdout/stderr、做语义分层解析（文本→聊天消息、进度指示器→状态条、Diff/代码块→Artifact Card）、ANSI 清洗、交互式提示（y/n）拦截。Adapter 把 CLI 输出转为标准事件（`agent.output` / `artifact.detected` / `interactive_prompt`）。CLI 工具由用户在外部安装，AgentHub 只管理配置（executable 路径、init_args、env vars）。DeepSeek 仅作为系统模型用于中枢总结、标题生成和产物编辑辅助，不作为用户可聊天 Agent。
 - **Orchestrator**：主 Agent 协调器，负责意图分析 → Agent 选择 → 任务拆解 → 角色分配 → 执行调度。**自动化优先**：链式协作、角色分配等复杂决策由后端自动完成，不暴露给用户配置。
 - **Project（项目）**：AgentHub 的顶层组织实体。用户必须先创建 Project（新建空白文件夹，或通过系统原生目录选择器选择已有文件夹），然后在该 Project 下创建任意数量的私聊或群聊 Session。一个 Project 绑定一个 workspace 目录，Project 内所有 Session 共享此目录。所有聊天必须属于某个 Project，不存在"无 Project 的聊天"。详见 [ADR-0009](docs/adr/0009-project-workspace-model.md)。
 - **Workspace**：Project 绑定的物理或云端工作目录。MVP 版是本机 `workspace_path`（Project 创建时指定）；Project 内所有 CLI Agent 以该路径作为 `cwd` 执行。SaaS 版是云端隔离 workspace，由 sandbox/runner 挂载。详见 [PRD-06](docs/PRD/06-MVP_Local_Workspace_Delivery.md) 和 [PRD-07](docs/PRD/07-SaaS_Cloud_Workspace_Delivery.md)。
@@ -38,7 +38,7 @@
 - **共享上下文 (SharedContext)**：所有 Agent 可读的对话历史，Agent 完成后其产出自动追加。链式依赖的 Agent 额外接收前驱产出的定向注入。
 - **引用消息**：用户显式点选某条历史消息后发出的当前消息。引用必须保存 `parentMessageId` + `metadata.replyReference` 快照，并在 Agent prompt 中注入 `[Reply context]` 块——仅显示引用卡片不算完成。
 - **Pin 消息**：用户固定的关键历史消息。Phase 4 起由 ContextManager 在单聊与群聊中以 `[Pinned message]` 长期上下文块优先注入——仅显示 Pin 标记不算完成。
-- **中枢总结**：Orchestrator 在 DAG/chain 等多 Agent 结构化协作完成后生成的系统整理消息。使用独立的 `orchestratorProvider / orchestratorModel` 配置。
+- **中枢总结**：Orchestrator 在 DAG/chain 等多 Agent 结构化协作完成后生成的系统整理消息。由系统模型（DeepSeek）生成，独立于用户 CLI Agent。
 - **CollaborationPanel**：前端 DAG 可视化面板，展示协作流程的各 Phase 及其实时状态。
 - **产物 (Artifact)**：Agent 生成的富媒体内容，类型包括 `code_diff`、`web_preview`、`document`、`file_tree`。Phase 5 已完成已有 Artifact 的版本历史、Diff 和在线编辑；Phase 6/7 负责补齐 Agent 输出入口、Artifact Card、Drawer 预览和审批回流。
 - **Artifact Card**：聊天流中的产物卡片，由标准 `artifact.created` 事件驱动，绑定 `artifact_id / message_id / task_id / version`，不是前端临时扫描 Markdown 得到的装饰。

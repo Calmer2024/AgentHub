@@ -1,13 +1,43 @@
 import uuid
 import json
+import sys
+from pathlib import Path
 import pytest
+
+from app.models import AgentConfig
+
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+
+
+def make_test_cli_agent(name: str = "测试 Agent") -> AgentConfig:
+    cli = BACKEND_ROOT / ".test-bin" / "fixture_cli.py"
+    cli.parent.mkdir(parents=True, exist_ok=True)
+    cli.write_text(
+        "import os, sys\n"
+        "data = os.read(sys.stdin.fileno(), 65536).decode('utf-8', errors='replace')\n"
+        "with open('.agenthub-cli-stdin.txt', 'w', encoding='utf-8') as f:\n"
+        "    f.write(data)\n"
+        "sys.stdout.write('\\x1b[32mHello\\x1b[0m, World!')\n"
+        "sys.stdout.flush()\n",
+        encoding="utf-8",
+    )
+    return AgentConfig(
+        id=str(uuid.uuid4()),
+        name=name,
+        description="测试 CLI Agent",
+        system_prompt="你是一个测试助手。",
+        agent_type="cli_wrapper",
+        cli_tool="custom",
+        executable=sys.executable,
+        init_args=json.dumps([str(cli)]),
+        env_vars="{}",
+    )
 
 
 @pytest.mark.asyncio
 class TestGroupSession:
     async def test_create_group_session(self, test_client, test_agent, db_session):
-        from app.models import AgentConfig
-        agent2 = AgentConfig(id=str(uuid.uuid4()), name="A2", provider="deepseek", model="d")
+        agent2 = make_test_cli_agent("A2")
         db_session.add(agent2)
         await db_session.commit()
 
@@ -21,8 +51,7 @@ class TestGroupSession:
         assert data["mode"] == "group"
 
     async def test_get_members(self, test_client, test_agent, db_session):
-        from app.models import AgentConfig
-        agent2 = AgentConfig(id=str(uuid.uuid4()), name="A2", provider="deepseek", model="d")
+        agent2 = make_test_cli_agent("A2")
         db_session.add(agent2)
         await db_session.commit()
 
@@ -47,8 +76,7 @@ class TestGroupSession:
 
     async def test_group_chat_sse_returns_200(self, test_client, test_agent, db_session):
         """群聊发送消息 → AgentExecutor 路径 → 200 响应。"""
-        from app.models import AgentConfig
-        agent2 = AgentConfig(id=str(uuid.uuid4()), name="A2", provider="deepseek", model="d")
+        agent2 = make_test_cli_agent("A2")
         db_session.add(agent2)
         await db_session.commit()
 
@@ -65,8 +93,7 @@ class TestGroupSession:
 
     async def test_group_chat_has_orchestrator_events(self, test_client, test_agent, db_session):
         """群聊 SSE 必须包含 orchestrator.route 和 orchestrator.task_started 事件。"""
-        from app.models import AgentConfig
-        agent2 = AgentConfig(id=str(uuid.uuid4()), name="A2", provider="deepseek", model="d")
+        agent2 = make_test_cli_agent("A2")
         db_session.add(agent2)
         await db_session.commit()
 
@@ -96,10 +123,9 @@ class TestGroupSession:
         assert "agent.done" in events
         assert not any(e.startswith("orchestrator.summary_") for e in events)
 
-    async def test_group_chat_mock_agent_produces_tokens(self, test_client, test_agent, db_session):
-        """MockAgent 在群聊模式下应产出完整 token 流。"""
-        from app.models import AgentConfig
-        agent2 = AgentConfig(id=str(uuid.uuid4()), name="A2", provider="deepseek", model="d")
+    async def test_group_chat_cli_agents_produce_tokens(self, test_client, test_agent, db_session):
+        """测试 CLI Agent 在群聊模式下通过 subprocess 产出完整 token 流。"""
+        agent2 = make_test_cli_agent("A2")
         db_session.add(agent2)
         await db_session.commit()
 
@@ -120,7 +146,7 @@ class TestGroupSession:
                     aid = d["agentId"]
                     agent_tokens[aid] = agent_tokens.get(aid, "") + d["token"]
 
-        # MockAgent 对每个 Agent 产生 ["Hello", ", ", "World", "!"]
+        # 测试 CLI 脚本对每个 Agent 输出 "Hello, World!"。
         assert len(agent_tokens) == 2, f"Expected 2 agents to produce tokens, got {len(agent_tokens)}"
         for aid, text in agent_tokens.items():
             assert "Hello" in text, f"Agent {aid[:6]} missing 'Hello' in: {text[:50]}"
@@ -128,8 +154,7 @@ class TestGroupSession:
 
     async def test_group_chat_no_agent_crash(self, test_client, test_agent, db_session):
         """所有 SSE 事件必须是合法 JSON，done 事件不早于 task_completed 之前截断。"""
-        from app.models import AgentConfig
-        agent2 = AgentConfig(id=str(uuid.uuid4()), name="A2", provider="deepseek", model="d")
+        agent2 = make_test_cli_agent("A2")
         db_session.add(agent2)
         await db_session.commit()
 
@@ -153,12 +178,11 @@ class TestGroupSession:
                     had_error = True
 
         assert event_count > 0, "SSE stream produced zero events"
-        assert not had_error, "Group chat should not produce global error with MockAgent"
+        assert not had_error, "Group chat should not produce global error with test CLI fixture"
 
     async def test_group_chat_messages_persisted(self, test_client, test_agent, db_session):
         """群聊完成后，Agent 消息应持久化到数据库。"""
-        from app.models import AgentConfig
-        agent2 = AgentConfig(id=str(uuid.uuid4()), name="A2", provider="deepseek", model="d")
+        agent2 = make_test_cli_agent("A2")
         db_session.add(agent2)
         await db_session.commit()
 
@@ -184,10 +208,10 @@ class TestGroupSession:
         self, test_client, test_agent, db_session, monkeypatch,
     ):
         """Phase 4: 群聊也必须把 Pin 消息接入 Orchestrator ContextAssembly。"""
-        from app.models import AgentConfig, Message
+        from app.models import Message
         from app.domain.orchestrator_v2 import OrchestratorV2
 
-        agent2 = AgentConfig(id=str(uuid.uuid4()), name="A2", provider="deepseek", model="d")
+        agent2 = make_test_cli_agent("A2")
         db_session.add(agent2)
         await db_session.commit()
 
@@ -228,17 +252,20 @@ class TestGroupSession:
 
     async def test_group_chat_dag_sse_protocol(self, test_client, test_agent, db_session):
         """复杂多阶段请求应返回 DAG task_started + phase_change 协议。"""
-        from app.models import AgentConfig
         agents = [
-            AgentConfig(id=str(uuid.uuid4()), name="架构师", provider="deepseek", model="d",
-                        description="架构 设计 方案", system_prompt="擅长架构设计"),
-            AgentConfig(id=str(uuid.uuid4()), name="前端", provider="deepseek", model="d",
-                        description="React 前端 UI", system_prompt="擅长前端开发"),
-            AgentConfig(id=str(uuid.uuid4()), name="后端", provider="deepseek", model="d",
-                        description="Python 后端 API 数据库", system_prompt="擅长后端开发"),
-            AgentConfig(id=str(uuid.uuid4()), name="审查员", provider="deepseek", model="d",
-                        description="审查 测试 安全", system_prompt="擅长代码审查"),
+            make_test_cli_agent("架构师"),
+            make_test_cli_agent("前端"),
+            make_test_cli_agent("后端"),
+            make_test_cli_agent("审查员"),
         ]
+        agents[0].description = "架构 设计 方案"
+        agents[0].system_prompt = "擅长架构设计"
+        agents[1].description = "React 前端 UI"
+        agents[1].system_prompt = "擅长前端开发"
+        agents[2].description = "Python 后端 API 数据库"
+        agents[2].system_prompt = "擅长后端开发"
+        agents[3].description = "审查 测试 安全"
+        agents[3].system_prompt = "擅长代码审查"
         db_session.add_all(agents)
         await db_session.commit()
 

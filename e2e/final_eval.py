@@ -185,20 +185,18 @@ with sync_playwright() as p:
             has_multi = "agent.start" in body.lower() or page.locator("[class*='agent']").count() > 0
             check("Multi-agent response in group chat", True, "P0")  # Just verify doesn't crash
 
-    # === 7. PROVIDERS API ===
-    log("\n=== 7. PROVIDERS CAPABILITIES ===")
+    # === 7. CLI AGENTS API ===
+    log("\n=== 7. CLI AGENTS ===")
     try:
-        resp = urllib.request.urlopen("http://127.0.0.1:8000/api/providers")
-        providers = json.loads(resp.read())
-        for p in providers:
-            cap = p.get("capability", {})
-            name = p.get("displayName", "?")
-            tc = cap.get("supportsToolCall", False)
-            expected = name in ("GPT-4o", "Claude 3.5 Sonnet", "DeepSeek V3", "Gemini 3.5 Flash")
-            check(f"{name} supports_tool_call={tc}",
-                  tc == expected, "P1")
+        resp = urllib.request.urlopen("http://127.0.0.1:8000/api/agents")
+        agents = json.loads(resp.read())
+        names = {a.get("name") for a in agents}
+        check("Default CLI agents present",
+              {"Claude Code", "Codex", "OpenCode"}.issubset(names), "P0")
+        check("No provider field exposed",
+              all("provider" not in a and "model" not in a for a in agents), "P1")
     except Exception as e:
-        log(f"Providers API error: {e}")
+        log(f"Agents API error: {e}")
 
     # === 8. JS ERRORS ===
     log(f"\n=== 8. JS CONSOLE ERRORS: {len(errs)} ===")

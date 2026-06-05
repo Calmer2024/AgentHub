@@ -101,6 +101,12 @@ class ProjectCreate(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class ProjectUpdate(BaseModel):
+    name: str | None = None
+
+    model_config = {"populate_by_name": True}
+
+
 class ProjectRead(BaseModel):
     id: str
     name: str

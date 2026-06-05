@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import { useChatStore, type CollabSnapshot } from "../stores/chatStore";
 import { useSessionStore } from "../stores/sessionStore";
-import { createChatStream, fetchMessages } from "../api/client";
+import { createChatStream, fetchArtifacts, fetchMessages, summarizeSession } from "../api/client";
 import type { Message, CollabTask, DAGPhase, PhaseChangeEvent, AgentStartEvent } from "../types";
 
 function emptyCollab(): CollabSnapshot {
@@ -48,23 +48,43 @@ export function useSendMessage() {
     replyTarget,
     appendMessage,
     appendStreamingToken,
+    appendStreamingTokenToMessage,
     appendAgentStreamingToken,
-    setMessages,
-    setIsStreaming,
+    bindMessageId,
+    appendExecutionTraceItem,
+    finalizeExecutionTrace,
+    setMessagesForSession,
+    setArtifactsForSession,
     setStreamingError,
+    setActiveProgress,
+    addInteractivePrompt,
+    clearRuntimeNotices,
+    startStreamRun,
+    finishStreamRun,
     getCollab,
     saveCollab,
     setReplyTarget,
   } = useChatStore();
-  const { sessions } = useSessionStore();
+  const { agents, sessions, updateSession } = useSessionStore();
 
   return useCallback(async (content: string, mentions: string[]) => {
     if (!currentSessionId) return;
     const collabKey = currentSessionId;
+    const runId = `run-${currentSessionId}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const isCurrentRun = () => useChatStore.getState().activeRunId === runId
+      && useChatStore.getState().currentSessionId === currentSessionId;
     setStreamingError(null);
+    clearRuntimeNotices();
     saveCollab(collabKey, emptyCollab());
 
-    const currentMode = sessions.find((s) => s.id === currentSessionId)?.mode ?? "single";
+    const currentSession = sessions.find((s) => s.id === currentSessionId);
+    const currentMode = currentSession?.mode ?? "single";
+    const shouldSummarizeTitle = shouldAutoSummarizeTitle(
+      currentSession?.title ?? "",
+      currentMode,
+      currentSession?.agentConfigId ?? null,
+      agents,
+    );
     const userMsg: Message = {
       id: `local-${Date.now()}`, sessionId: currentSessionId,
       role: "user", content, agentName: null, createdAt: new Date().toISOString(),
@@ -72,13 +92,27 @@ export function useSendMessage() {
     };
     appendMessage(userMsg);
 
-    if (currentMode !== "group") {
+    const singleAssistantLocalId = currentMode !== "group"
+      ? `local-ai-${Date.now()}`
+      : null;
+    let singleAssistantBoundId = singleAssistantLocalId;
+    const ensureSingleAssistantId = (serverId?: string) => {
+      if (currentMode === "group" || !singleAssistantLocalId) return serverId ?? "";
+      if (serverId && singleAssistantBoundId !== serverId) {
+        bindMessageId(singleAssistantBoundId ?? singleAssistantLocalId, serverId);
+        singleAssistantBoundId = serverId;
+      }
+      return singleAssistantBoundId ?? singleAssistantLocalId;
+    };
+
+    if (singleAssistantLocalId) {
       appendMessage({
-        id: `local-ai-${Date.now()}`, sessionId: currentSessionId,
+        id: singleAssistantLocalId, sessionId: currentSessionId,
         role: "assistant", content: "", agentName: null,
         createdAt: new Date().toISOString(),
       });
     }
+    startStreamRun(runId);
 
     const agentPlaceholders = new Map<string, string>();
     const messagePlaceholders = new Map<string, string>();
@@ -109,21 +143,76 @@ export function useSendMessage() {
     setReplyTarget(null);
 
     createChatStream(currentSessionId, content, mentions, {
-      onToken: (token) => appendStreamingToken(token),
+      onToken: (token) => {
+        if (!isCurrentRun()) return;
+        if (currentMode === "group") {
+          appendStreamingToken(token);
+          return;
+        }
+        const targetId = ensureSingleAssistantId();
+        if (targetId) appendStreamingTokenToMessage(targetId, token);
+      },
       onDone: (messageId, error) => {
-        setIsStreaming(false);
+        if (!isCurrentRun()) return;
+        finishStreamRun(runId);
+        setActiveProgress(null);
         if (error) {
           setStreamingError(error === "Stream ended unexpectedly"
             ? "连接中断，请检查网络后重试" : `请求失败：${error}`);
           return;
         }
-        if (messageId) fetchMessages(currentSessionId).then(setMessages);
+        if (messageId) {
+          fetchMessages(currentSessionId).then((messages) => {
+            if (useChatStore.getState().latestRunId !== runId) return;
+            setMessagesForSession(currentSessionId, messages);
+          });
+          fetchArtifacts(currentSessionId)
+            .then((artifacts) => {
+              if (useChatStore.getState().latestRunId !== runId) return;
+              setArtifactsForSession(currentSessionId, artifacts);
+            })
+            .catch(() => {});
+        }
+        if (shouldSummarizeTitle) {
+          summarizeSession(currentSessionId)
+            .then(updateSession)
+            .catch(() => {});
+        }
       },
       onRoute: (agents) => {
+        if (!isCurrentRun()) return;
         saveCollab(collabKey, { ...emptyCollab(), routeAgents: agents });
-        setIsStreaming(true);
+      },
+      onProgress: (progress) => {
+        if (!isCurrentRun()) return;
+        setActiveProgress(progress);
+      },
+      onInteractivePrompt: (prompt) => {
+        if (!isCurrentRun()) return;
+        addInteractivePrompt(prompt);
+      },
+      onTraceDelta: (messageId, item, meta) => {
+        if (!isCurrentRun()) return;
+        if (currentMode === "group") {
+          const localId = messagePlaceholders.get(messageId);
+          if (localId) appendExecutionTraceItem(localId, item, meta);
+          return;
+        }
+        const targetId = ensureSingleAssistantId(messageId);
+        if (targetId) appendExecutionTraceItem(targetId, item, meta);
+      },
+      onTraceCompleted: (messageId, status, exitCode) => {
+        if (!isCurrentRun()) return;
+        if (currentMode === "group") {
+          const localId = messagePlaceholders.get(messageId);
+          if (localId) finalizeExecutionTrace(localId, status, exitCode);
+          return;
+        }
+        const targetId = ensureSingleAssistantId(messageId);
+        if (targetId) finalizeExecutionTrace(targetId, status, exitCode);
       },
       onTaskStarted: (tasks, intent, nextPhases, planSummary) => {
+        if (!isCurrentRun()) return;
         const snap = getCollab(collabKey);
         saveCollab(collabKey, {
           ...(snap ?? emptyCollab()),
@@ -135,6 +224,7 @@ export function useSendMessage() {
         if (nextPhases.length === 0) tasks.forEach(createTaskPlaceholder);
       },
       onChainStep: (step) => {
+        if (!isCurrentRun()) return;
         const snap = getCollab(collabKey);
         const existing = (snap?.chainSteps ?? []).filter((s) => s.step !== step.step);
         const updatedSteps = [...existing, step].sort((a, b) => a.step - b.step);
@@ -152,6 +242,7 @@ export function useSendMessage() {
         });
       },
       onPhaseChange: (event) => {
+        if (!isCurrentRun()) return;
         const base = getCollab(collabKey) ?? emptyCollab();
         const phaseTasks = findPhaseTasks(base.dagPhases, event);
         saveCollab(collabKey, {
@@ -164,6 +255,7 @@ export function useSendMessage() {
         if (event.status === "running") phaseTasks.forEach(createTaskPlaceholder);
       },
       onTaskCompleted: (summary) => {
+        if (!isCurrentRun()) return;
         const snap = getCollab(collabKey);
         saveCollab(collabKey, {
           ...(snap ?? emptyCollab()),
@@ -184,6 +276,7 @@ export function useSendMessage() {
         });
       },
       onAgentStart: (event: AgentStartEvent) => {
+        if (!isCurrentRun()) return;
         const key = event.callKey ?? taskKey(event.agentId, event.phase, event.task);
         let localId = agentPlaceholders.get(key);
         if (!localId) {
@@ -200,6 +293,7 @@ export function useSendMessage() {
         messagePlaceholders.set(event.messageId, localId);
       },
       onOrchestratorSummaryStart: (event) => {
+        if (!isCurrentRun()) return;
         appendMessage({
           id: event.messageId,
           sessionId: currentSessionId,
@@ -216,9 +310,11 @@ export function useSendMessage() {
         });
       },
       onOrchestratorSummaryToken: (messageId, token) => {
+        if (!isCurrentRun()) return;
         appendAgentStreamingToken(messageId, "Orchestrator 中枢", token);
       },
       onAgentToken: (agentId, agentName, token, messageId, _role, phase, task) => {
+        if (!isCurrentRun()) return;
         const key = taskKey(agentId, phase, task);
         const localId = (messageId ? messagePlaceholders.get(messageId) : undefined)
           ?? agentPlaceholders.get(key)
@@ -227,10 +323,26 @@ export function useSendMessage() {
       },
     }, undefined, parentMessageId);
 
-    if (currentMode !== "group") setIsStreaming(true);
   }, [
-    currentSessionId, sessions, appendMessage, appendStreamingToken,
-    appendAgentStreamingToken, setMessages, setIsStreaming, setStreamingError,
+    currentSessionId, agents, sessions, updateSession, appendMessage, appendStreamingToken,
+    appendAgentStreamingToken, bindMessageId, appendExecutionTraceItem,
+    finalizeExecutionTrace, setArtifactsForSession, setMessagesForSession, setStreamingError,
+    setActiveProgress, addInteractivePrompt, clearRuntimeNotices,
+    appendStreamingTokenToMessage, startStreamRun, finishStreamRun,
     getCollab, saveCollab, replyTarget, setReplyTarget,
   ]);
+}
+
+function shouldAutoSummarizeTitle(
+  title: string,
+  mode: string,
+  agentConfigId: string | null,
+  agents: Array<{ id: string; name: string }>,
+): boolean {
+  const clean = title.trim();
+  if (!clean) return true;
+  if (clean === "新对话" || clean === "群聊") return true;
+  if (mode === "group" && /^群聊\s*\d*$/.test(clean)) return true;
+  const agentName = agents.find((agent) => agent.id === agentConfigId)?.name;
+  return Boolean(agentName && clean === agentName);
 }

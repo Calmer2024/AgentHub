@@ -143,7 +143,7 @@ App.tsx → ChatWindow → CollaborationView + MessageBubble
 |---------|--------|------|
 | ContextManager | Stage 1: assemble() | Orchestrator → ContextManager |
 | EventBus | Stage 4: publish(task_started/completed) | Orchestrator → EventBus |
-| AgentRegistry | AgentExecutor: get_adapter(provider) | AgentExecutor → Registry |
+| CLI Agent Runner | AgentExecutor: execute CLI Agent call | Executor → CLI adapter |
 | StreamMerger | AgentExecutor._execute_parallel | Executor → Infrastructure |
 | ChatServiceImpl | send_message_stream → _group_chat | Service → Orchestrator |
 | WebSocket Manager | SSE 广播: message.completed, token | Service → WS |

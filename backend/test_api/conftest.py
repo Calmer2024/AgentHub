@@ -1,5 +1,7 @@
 import uuid
-from unittest import mock
+import json
+import sys
+from pathlib import Path
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
@@ -7,32 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.main import app, lifespan
 from app.database import get_db, AsyncSessionLocal
-from app.agents.base import BaseAgentAdapter, AgentCapability, AgentResponse
-from app.agents.registry import agent_registry
-from app.models import AgentConfig
+from app.models import AgentConfig, Project
 
-
-class MockAgent(BaseAgentAdapter):
-    MODELS = ["mock-model"]
-    DEFAULT_MODEL = "mock-model"
-
-    @property
-    def capability(self) -> AgentCapability:
-        return AgentCapability(name="mock", supports_streaming=True)
-
-    async def chat(self, messages, system_prompt, on_token=None, model=None, tools=None):
-        return AgentResponse(content="Hello World!", finish_reason="stop")
-
-    async def chat_stream(self, messages, system_prompt, model=None, tools=None):
-        for token in ["Hello", ", ", "World", "!"]:
-            yield token
-
-
-@pytest.fixture(autouse=True)
-def _mock_write_env():
-    with mock.patch("app.api.settings._write_env"):
-        yield
-
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
 @pytest_asyncio.fixture(loop_scope="session")
 async def _lifespan():
@@ -64,32 +43,14 @@ async def _cleanup_db():
         await conn.execute(text("PRAGMA foreign_keys=ON"))
         await conn.commit()
     # 重新种子默认 Agent（lifespan 只在 session 级别运行一次）
-    from app.models import AgentConfig
-    import uuid as _uuid
     async with AsyncSessionLocal() as s:
-        from sqlalchemy import select
-        r = await s.execute(select(AgentConfig).limit(1))
-        if not r.scalars().first():
-            s.add(AgentConfig(
-                id=str(_uuid.uuid4()),
-                name="默认助手",
-                description="通用对话助手，基于 DeepSeek V4 Flash",
-                system_prompt="你是一个有帮助的 AI 助手。请用简洁清晰的方式回答用户的问题。",
-                provider="deepseek",
-                model="deepseek-v4-flash",
-            ))
-            await s.commit()
+        from app.services.agent_seed import seed_default_cli_agents
+        await seed_default_cli_agents(s)
 
 
 @pytest_asyncio.fixture(loop_scope="function")
 async def test_client(_lifespan, _cleanup_db):
-    """主测试客户端 —— 文件 DB + MockAgent。"""
-    mock_agent = MockAgent()
-    original_adapters = dict(agent_registry._adapters)
-
-    for provider in agent_registry._adapters:
-        agent_registry._adapters[provider] = mock_agent
-
+    """主测试客户端 —— 文件 DB + 真实应用路由。"""
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         from app.database import engine
 
@@ -106,8 +67,6 @@ async def test_client(_lifespan, _cleanup_db):
             app.dependency_overrides.clear()
             await session.close()
 
-    agent_registry._adapters = original_adapters
-
 
 @pytest_asyncio.fixture(loop_scope="function")
 async def db_session(test_client):
@@ -122,13 +81,17 @@ async def db_session(test_client):
 
 @pytest_asyncio.fixture
 async def test_agent(db_session):
+    cli = _ensure_fixture_cli()
     agent = AgentConfig(
         id=str(uuid.uuid4()),
         name="测试 Agent",
         description="测试",
         system_prompt="你是一个测试助手。",
-        provider="deepseek",
-        model="deepseek-v4-flash",
+        agent_type="cli_wrapper",
+        cli_tool="custom",
+        executable=sys.executable,
+        init_args=json.dumps([str(cli)]),
+        env_vars="{}",
     )
     db_session.add(agent)
     await db_session.commit()
@@ -139,8 +102,36 @@ async def test_agent(db_session):
 async def test_session(test_client, db_session, test_agent):
     from app.models.session import Session
 
+    project = Project(
+        id=str(uuid.uuid4()),
+        name="测试项目",
+        workspace_path=str(BACKEND_ROOT / ".test-workspaces" / str(uuid.uuid4())),
+        status="ready",
+    )
+    Path(project.workspace_path).mkdir(parents=True, exist_ok=True)
     sid = str(uuid.uuid4())
-    sess = Session(id=sid, title="测试会话", agent_config_id=test_agent.id)
+    sess = Session(
+        id=sid,
+        title="测试会话",
+        project_id=project.id,
+        agent_config_id=test_agent.id,
+    )
+    db_session.add(project)
     db_session.add(sess)
     await db_session.commit()
     return sid
+
+
+def _ensure_fixture_cli() -> Path:
+    script = BACKEND_ROOT / ".test-bin" / "fixture_cli.py"
+    script.parent.mkdir(parents=True, exist_ok=True)
+    script.write_text(
+        "import os, sys\n"
+        "data = os.read(sys.stdin.fileno(), 65536).decode('utf-8', errors='replace')\n"
+        "with open('.agenthub-cli-stdin.txt', 'w', encoding='utf-8') as f:\n"
+        "    f.write(data)\n"
+        "sys.stdout.write('\\x1b[32mHello\\x1b[0m, World!')\n"
+        "sys.stdout.flush()\n",
+        encoding="utf-8",
+    )
+    return script

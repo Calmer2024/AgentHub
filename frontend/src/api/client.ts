@@ -1,19 +1,16 @@
 import type {
-  Session, Message, Provider, AgentConfig, AgentConfigCreate, AgentConfigUpdate,
-  Settings, SettingsUpdate, RouteAgent, CollabTask, ChainStep, ChainConfigInput,
+  Session, Message, AgentConfig, AgentConfigCreate, AgentConfigUpdate,
+  RouteAgent, CollabTask, ChainStep, ChainConfigInput,
   DAGPhase, PhaseChangeEvent, AgentStartEvent, OrchestratorSummaryStartEvent,
   Artifact, ArtifactDiff, ArtifactEditRequest, ArtifactEditResult, ArtifactVersion,
-  Project, ProjectCreateInput, FolderPickResult,
+  Project, ProjectCreateInput, ProjectUpdateInput, ProjectDeleteResult, FolderPickResult,
+  PreviewResult,
+  ExecutionTraceItem,
+  CodexLocalConfig, CodexLocalConfigUpdate,
 } from "../types";
 import { parseDagPhases, parseTasks } from "./orchestratorEvents";
 
 const API_BASE = "/api";
-
-export async function fetchProviders(): Promise<Provider[]> {
-  const res = await fetch(`${API_BASE}/providers`);
-  if (!res.ok) throw new Error("Failed to fetch providers");
-  return res.json();
-}
 
 export async function fetchAgents(): Promise<AgentConfig[]> {
   const res = await fetch(`${API_BASE}/agents`);
@@ -46,6 +43,54 @@ export async function deleteAgent(id: string): Promise<void> {
   if (!res.ok) throw new Error("Failed to delete agent");
 }
 
+export async function checkAgentExecutable(path: string): Promise<{
+  found: boolean;
+  status: string;
+  version?: string | null;
+  path?: string | null;
+}> {
+  const params = new URLSearchParams({ path });
+  const res = await fetch(`${API_BASE}/agents/check-executable?${params.toString()}`);
+  if (!res.ok) throw new Error("Failed to check executable");
+  return res.json();
+}
+
+export async function fetchCodexLocalConfig(): Promise<CodexLocalConfig> {
+  const res = await fetch(`${API_BASE}/agents/codex-config`);
+  if (!res.ok) throw new Error("Failed to fetch Codex config");
+  return res.json();
+}
+
+export async function updateCodexLocalConfig(data: CodexLocalConfigUpdate): Promise<CodexLocalConfig> {
+  const res = await fetch(`${API_BASE}/agents/codex-config`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    let detail = "Failed to update Codex config";
+    try {
+      const body = await res.json();
+      if (typeof body.detail === "string") detail = body.detail;
+    } catch { /* keep fallback */ }
+    throw new Error(detail);
+  }
+  return res.json();
+}
+
+export async function replyToInteractivePrompt(
+  sessionId: string,
+  processId: string,
+  reply: "y" | "n",
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/sessions/${sessionId}/interactive_reply`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ processId, reply }),
+  });
+  if (!res.ok) throw new Error("Failed to reply to interactive prompt");
+}
+
 export async function fetchProjects(): Promise<Project[]> {
   const res = await fetch(`${API_BASE}/projects`);
   if (!res.ok) throw new Error("Failed to fetch projects");
@@ -68,9 +113,63 @@ export async function pickProjectFolder(): Promise<FolderPickResult> {
   return res.json();
 }
 
+export async function updateProject(
+  projectId: string,
+  data: ProjectUpdateInput,
+): Promise<Project> {
+  const res = await fetch(`${API_BASE}/projects/${projectId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error("Failed to update project");
+  return res.json();
+}
+
 export async function archiveProject(projectId: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/projects/${projectId}`, { method: "DELETE" });
+  const res = await fetch(`${API_BASE}/projects/${projectId}/archive`, { method: "POST" });
   if (!res.ok) throw new Error("Failed to archive project");
+}
+
+export async function createProjectPreview(
+  projectId: string,
+  filePath?: string | null,
+): Promise<PreviewResult> {
+  const body: Record<string, string> = { type: "static" };
+  if (filePath) body.filePath = filePath;
+  const res = await fetch(`${API_BASE}/projects/${projectId}/preview`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    let detail = "Failed to create preview";
+    try {
+      const bodyJson = await res.json();
+      if (typeof bodyJson.detail === "string") detail = bodyJson.detail;
+    } catch { /* keep fallback */ }
+    throw new Error(detail);
+  }
+  return res.json();
+}
+
+export async function deleteProject(
+  projectId: string,
+  deleteFiles = false,
+): Promise<ProjectDeleteResult> {
+  const params = new URLSearchParams({ deleteFiles: String(deleteFiles) });
+  const res = await fetch(`${API_BASE}/projects/${projectId}?${params.toString()}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) {
+    let detail = "Failed to delete project";
+    try {
+      const body = await res.json();
+      if (typeof body.detail === "string") detail = body.detail;
+    } catch { /* keep fallback */ }
+    throw new Error(detail);
+  }
+  return res.json();
 }
 
 export async function fetchSessions(projectId?: string): Promise<Session[]> {
@@ -134,16 +233,6 @@ export async function summarizeSession(sessionId: string): Promise<Session> {
   return res.json();
 }
 
-export async function updateSessionAgent(sessionId: string, agentConfigId: string): Promise<Session> {
-  const res = await fetch(`${API_BASE}/sessions/${sessionId}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ agentConfigId }),
-  });
-  if (!res.ok) throw new Error("Failed to update session");
-  return res.json();
-}
-
 export async function fetchMessages(sessionId: string): Promise<Message[]> {
   const res = await fetch(`${API_BASE}/sessions/${sessionId}/messages`);
   if (!res.ok) throw new Error("Failed to fetch messages");
@@ -172,6 +261,22 @@ export interface StreamCallbacks {
     phase?: number,
     task?: string,
   ) => void;
+  onProgress?: (progress: string) => void;
+  onInteractivePrompt?: (prompt: {
+    sessionId: string;
+    agentId: string;
+    agentName: string;
+    messageId: string;
+    processId: string;
+    content: string;
+    promptType: "confirm";
+  }) => void;
+  onTraceDelta?: (
+    messageId: string,
+    item: ExecutionTraceItem,
+    meta: { agentName?: string; cliTool?: string; processId?: string },
+  ) => void;
+  onTraceCompleted?: (messageId: string, status: "completed" | "error", exitCode?: number | null) => void;
 }
 
 export function createChatStream(
@@ -185,7 +290,8 @@ export function createChatStream(
   const {
     onToken, onDone, onRoute, onTaskStarted, onChainStep, onPhaseChange,
     onTaskCompleted, onAgentStart, onOrchestratorSummaryStart,
-    onOrchestratorSummaryToken, onAgentToken,
+    onOrchestratorSummaryToken, onAgentToken, onProgress, onInteractivePrompt,
+    onTraceDelta, onTraceCompleted,
   } = callbacks;
   const url = `${API_BASE}/sessions/${sessionId}/chat`;
   const abortCtrl = new AbortController();
@@ -320,12 +426,127 @@ export function createChatStream(
             // error event (global error)
             if (data.type === "error") {
               completed = true;
+              if (data.messageId && onTraceCompleted) {
+                onTraceCompleted(data.messageId, "error", data.exitCode ?? null);
+              }
               onDone(undefined, data.error || "未知错误");
               return;
             }
 
+            if (data.type === "agent.trace.delta") {
+              if (onTraceDelta && data.messageId && data.item) {
+                onTraceDelta(data.messageId, data.item, {
+                  agentName: data.agentName,
+                  cliTool: data.cliTool,
+                  processId: data.processId,
+                });
+              }
+              continue;
+            }
+
+            if (data.type === "agent.output") {
+              const token = typeof data.token === "string" && data.token
+                ? data.token
+                : data.chunkType === "text" && typeof data.chunk === "string"
+                  ? data.chunk
+                  : "";
+              if (token && data.agentId && data.callKey && onAgentToken) {
+                onAgentToken(
+                  data.agentId,
+                  data.agentName || "",
+                  token,
+                  data.messageId,
+                  data.role,
+                  data.phase,
+                  data.task,
+                );
+              } else if (token) {
+                onToken(token);
+              }
+              if (data.chunkType !== "progress") continue;
+            }
+
+            if (data.type === "agent.output" && data.chunkType === "progress") {
+              const hasStructuredTrace = data.metadata?.trace && typeof data.metadata.trace === "object";
+              if (onTraceDelta && data.messageId && data.callKey && data.chunk && !hasStructuredTrace) {
+                const trace = data.metadata?.trace && typeof data.metadata.trace === "object"
+                  ? data.metadata.trace
+                  : {};
+                onTraceDelta(data.messageId, {
+                  id: `trace-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+                  kind: trace.kind ?? "progress",
+                  text: trace.text ?? data.chunk,
+                  title: trace.title,
+                  detail: trace.detail,
+                  summary: trace.summary,
+                  action: trace.action,
+                  target: trace.target,
+                  command: trace.command,
+                  toolName: trace.toolName,
+                  provider: trace.provider,
+                  level: trace.level,
+                  raw: trace.raw,
+                  source: "cli",
+                  chunkType: data.chunkType,
+                  processId: data.processId ?? null,
+                  timestamp: trace.timestamp ?? new Date().toISOString(),
+                }, {
+                  agentName: data.agentName,
+                  processId: data.processId,
+                });
+              }
+              if (onProgress && data.chunk) onProgress(data.chunk);
+              continue;
+            }
+
+            if (data.type === "agent.process.started") {
+              if (onTraceDelta && data.messageId && data.callKey) {
+                onTraceDelta(data.messageId, {
+                  id: `trace-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+                  kind: "process",
+                  text: `正在启动 ${data.agentName || "CLI Agent"}`,
+                  source: "system",
+                  chunkType: "process",
+                  processId: data.processId ?? null,
+                  timestamp: new Date().toISOString(),
+                }, {
+                  agentName: data.agentName,
+                  processId: data.processId,
+                });
+              }
+              if (onProgress) onProgress(`正在启动 ${data.agentName || "CLI Agent"}...`);
+              continue;
+            }
+
+            if (data.type === "agent.process.completed") {
+              if (onProgress) onProgress(`已完成 ${data.agentName || "CLI Agent"}`);
+              if (onTraceCompleted && data.messageId) {
+                onTraceCompleted(
+                  data.messageId,
+                  data.exitCode === 0 || data.exitCode == null ? "completed" : "error",
+                  data.exitCode ?? null,
+                );
+              }
+              continue;
+            }
+
+            if (data.type === "interactive_prompt") {
+              if (onInteractivePrompt) {
+                onInteractivePrompt({
+                  sessionId: data.sessionId ?? sessionId,
+                  agentId: data.agentId ?? "",
+                  agentName: data.agentName ?? "",
+                  messageId: data.messageId ?? "",
+                  processId: data.processId ?? "",
+                  content: data.content ?? "",
+                  promptType: "confirm",
+                });
+              }
+              continue;
+            }
+
             // token streaming
-            if (data.agentId && data.token && onAgentToken) {
+            if (data.agentId && data.token && data.callKey && onAgentToken) {
               onAgentToken(
                 data.agentId,
                 data.agentName || "",
@@ -437,22 +658,6 @@ export function regenerateMessageStream(
   })();
 
   return () => abortCtrl.abort();
-}
-
-export async function fetchSettings(): Promise<Settings> {
-  const res = await fetch(`${API_BASE}/settings`);
-  if (!res.ok) throw new Error("Failed to fetch settings");
-  return res.json();
-}
-
-export async function updateSettings(data: SettingsUpdate): Promise<Settings> {
-  const res = await fetch(`${API_BASE}/settings`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) throw new Error("Failed to update settings");
-  return res.json();
 }
 
 export async function fetchArtifacts(sessionId: string): Promise<Artifact[]> {

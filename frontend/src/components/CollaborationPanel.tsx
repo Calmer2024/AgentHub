@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ArrowRight, ChevronDown, ChevronRight, Workflow } from "lucide-react";
 import type { CollabTask, DAGPhase } from "../types";
 
 interface Props {
@@ -71,14 +72,17 @@ export function CollaborationPanel({
         className="w-full min-h-12 px-4 py-3 flex items-center justify-between gap-3 text-left hover:bg-slate-50"
       >
         <div className="min-w-0">
-          <div className="text-sm font-semibold text-slate-900 truncate">
-            Orchestrator · {title} · {tasks.length} Agent
+          <div className="flex items-center gap-2 truncate text-sm font-semibold text-slate-900">
+            <Workflow size={15} className="shrink-0 text-slate-500" />
+            <span className="truncate">Orchestrator · {title} · {tasks.length} Agent</span>
           </div>
           <div className="text-xs text-slate-500 mt-0.5">
             {isCompleted ? completedSummary ?? `${doneCount}/${tasks.length} 完成` : `${doneCount}/${tasks.length} 完成`}
           </div>
         </div>
-        <span className="text-xs text-slate-500 shrink-0">{collapsed ? "展开" : "收起"}</span>
+        <span className="rounded-md border border-slate-200 p-1 text-slate-500" aria-hidden="true">
+          {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+        </span>
       </button>
 
       {!collapsed && (
@@ -108,8 +112,8 @@ export function CollaborationPanel({
                   </div>
                 </div>
                 {index < visiblePhases.length - 1 && (
-                  <div className="w-8 h-px bg-slate-300 relative">
-                    <span className="absolute right-0 -top-1 h-2 w-2 rotate-45 border-r border-t border-slate-300" />
+                  <div className="flex w-8 items-center justify-center text-slate-300" aria-hidden="true">
+                    <ArrowRight size={17} />
                   </div>
                 )}
               </div>

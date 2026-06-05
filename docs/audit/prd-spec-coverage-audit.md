@@ -56,7 +56,7 @@
 | 链路节点 | 当前问题 | 应补设计 |
 |---|---|---|
 | 产物生成入口 | 文档没有定义“Agent 输出什么事件时创建 Artifact” | 定义 `artifact.detected` / `artifact.created` 事件、消息卡片写入规则、会话产物列表刷新规则 |
-| Agent 输出到 Artifact | CLI/API Agent 输出与 ArtifactService 的边界不清 | Orchestrator/Adapter 只发事件；ArtifactService 统一解析、落库、版本化 |
+| Agent 输出到 Artifact | CLI Agent 输出与 ArtifactService 的边界不清 | Orchestrator/Adapter 只发事件；ArtifactService 统一解析、落库、版本化 |
 | Artifact 到聊天流 | Phase 5 有工作台能力，但未定义卡片何时出现 | 定义 `content_type='artifact_card'` 消息，绑定 `message_id`、`task_id`、`artifact_id` |
 | Artifact 到右侧抽屉 | Phase 7 只写抽屉 UI，缺数据加载与状态同步 | 定义 Drawer 从卡片、会话产物库、审批卡片三个入口打开 |
 | 编辑指令回到 Agent | Phase 5 支持 edit API，但缺“在聊天中描述修改”的入口 | 定义引用当前 Artifact 后发送自然语言，自动转换为 edit intent |

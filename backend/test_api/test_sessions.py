@@ -53,7 +53,15 @@ class TestUpdateSession:
         from app.models import AgentConfig
         import uuid
         agent2 = AgentConfig(
-            id=str(uuid.uuid4()), name="A2", provider="deepseek", model="d"
+            id=str(uuid.uuid4()),
+            name="A2",
+            description="",
+            system_prompt="",
+            agent_type="cli_wrapper",
+            cli_tool="custom",
+            executable="python",
+            init_args="[]",
+            env_vars="{}",
         )
         db_session.add(agent2)
         await db_session.commit()

@@ -65,12 +65,12 @@ sessions
 **A. CLI 工具由用户在外部安装**
 - CLI 工具（`claude`、`codex`、`opencode` 等）由用户在操作系统层面自行安装
 - AgentHub 不提供"一键安装 CLI"功能（面向 Persona 1：开发者极客）
-- AgentHub 只管理配置：在 AgentPanel 中配置 `executable` 路径、`init_args` 启动参数、环境变量（API Keys 等）
+- AgentHub 只管理配置：在 AgentPanel 中配置 `executable` 路径、`init_args` 启动参数和非敏感环境变量覆盖。CLI 认证来自用户本机登录态；DeepSeek API Key 只属于后端内部系统模型配置，不进入 Agent 环境变量。
 
 **B. 每个 CLI 工具单独适配**
 - 不同 CLI 的输出格式、进度表示、交互模式完全不同
 - 为每个 CLI 实现专属 Adapter：`ClaudeCodeAdapter`、`CodexAdapter`、`OpenCodeAdapter`
-- 所有 Adapter 实现统一 `BaseAgentAdapter` 接口，产出标准化事件
+- 所有 Adapter 实现统一 CLI 事件契约，产出标准化事件
 - 新增 CLI 工具只需写一个新 Adapter
 
 **C. 分层渲染**
@@ -101,7 +101,7 @@ sessions
 - 前端需要新增 Project 创建/选择流程（在进入聊天之前）
 - CLI Agent 的 `cwd` 不再从 Session 获取，而是从 `Session.project.workspace_path` 获取
 - `agent_configs` 表需要新增 `executable`、`init_args` 字段（CLI 工具配置）
-- 每个 CLI 工具需要一个专属 Adapter 类，实现 `BaseAgentAdapter`
+- 每个 CLI 工具需要一个专属 Adapter 类，实现统一 CLI 事件契约
 - Adapter 需要实现语义分层解析（区分文本/进度/产物/交互）
 - Spec 文档（PRD-01、PRD-06、Phase 6 Specs）需相应更新
 

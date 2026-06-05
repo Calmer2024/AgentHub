@@ -39,7 +39,12 @@ async def db(engine):
 async def test_agent(db: AsyncSession):
     agent = AgentConfig(
         id=str(uuid.uuid4()), name="测试 Agent", description="测试",
-        system_prompt="你是一个测试助手。", provider="deepseek", model="deepseek-v4-flash",
+        system_prompt="你是一个测试助手。",
+        agent_type="cli_wrapper",
+        cli_tool="custom",
+        executable="python",
+        init_args="[]",
+        env_vars="{}",
     )
     db.add(agent)
     await db.commit()

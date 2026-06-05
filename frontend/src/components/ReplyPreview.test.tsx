@@ -17,7 +17,7 @@ describe("ReplyPreview", () => {
     const onJump = vi.fn();
     render(<ReplyPreview message={message} onJump={onJump} />);
 
-    fireEvent.click(screen.getByText("回复 用户"));
+    fireEvent.click(screen.getByRole("button", { name: "用户" }));
     expect(screen.getByText("这是一条需要引用的消息")).toBeInTheDocument();
     expect(onJump).toHaveBeenCalledWith("m-parent");
   });

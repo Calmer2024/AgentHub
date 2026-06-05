@@ -299,7 +299,7 @@ AgentHub 主界面采用三栏布局（参考 Codex + Telegram 的混合范式�
 
 ### 7.3 E2E 测试
 
-- 真实浏览器：创建 Project → 选择已有目录 → 在 Project 下创建私聊 → Mock Agent 写入 index.html → Drawer 预览网页
+- 真实浏览器：创建 Project → 选择已有目录 → 在 Project 下创建私聊 → 测试 CLI fixture 写入 index.html → Drawer 预览网页
 
 ---
 

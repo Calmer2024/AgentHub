@@ -8,9 +8,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Session as DBSession, AgentConfig, SessionMember, Message, Project
-from ..agents.registry import agent_registry
 from .schemas import SessionCreate, SessionRead, SessionUpdate, MemberRead
 from .project_service import ProjectService
+from .system_llm import SystemLLMUnavailableError, system_llm
 
 
 class SessionNotFoundError(Exception):
@@ -139,21 +139,6 @@ class SessionService:
         if not session:
             raise ValueError("会话不存在")
 
-        agent_config = None
-        if session.agent_config_id:
-            agent_config = await self.db.get(AgentConfig, session.agent_config_id)
-        if not agent_config:
-            result2 = await self.db.execute(
-                select(AgentConfig).where(AgentConfig.is_active == True).limit(1)
-            )
-            agent_config = result2.scalars().first()
-        if not agent_config:
-            raise ValueError("无可用 Agent")
-
-        adapter = agent_registry.get_adapter(agent_config.provider)
-        if not adapter:
-            raise ValueError("Agent 不可用")
-
         history = [{"role": m.role, "content": m.content} for m in reversed(msgs)]
         history.append({
             "role": "user",
@@ -161,12 +146,15 @@ class SessionService:
         })
 
         title = ""
-        async for token in adapter.chat_stream(
-            messages=history,
-            system_prompt="你是一个标题生成器。",
-            model=agent_config.model or None,
-        ):
-            title += token
+        try:
+            stream = system_llm.chat_stream(
+                messages=history,
+                system_prompt="你是一个标题生成器。",
+            )
+            async for token in stream:
+                title += token
+        except SystemLLMUnavailableError as exc:
+            raise ValueError(str(exc))
 
         session.title = title.strip()[:20] or "新对话"
         await self.db.commit()

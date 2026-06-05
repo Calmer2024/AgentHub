@@ -58,6 +58,22 @@ class TestChatStream:
         assert "messageId" in last_data
         assert last_data["messageId"] is not None
 
+    async def test_execution_trace_streamed(self, test_client, test_session):
+        resp = await test_client.post(
+            f"/api/sessions/{test_session}/chat",
+            json={"content": "Hello"},
+        )
+        trace_events = []
+        async for line in resp.aiter_lines():
+            if not line.startswith("data: "):
+                continue
+            data = json.loads(line[6:])
+            if data.get("type") == "agent.trace.delta":
+                trace_events.append(data)
+
+        assert trace_events
+        assert any(event["item"]["kind"] == "process" for event in trace_events)
+
 
 @pytest.mark.asyncio
 class TestChatErrors:
@@ -98,6 +114,19 @@ class TestChatPersistence:
         roles = [m["role"] for m in messages]
         assert "user" in roles
         assert "assistant" in roles
+
+    async def test_execution_trace_persisted_after_chat(self, test_client, test_session):
+        await test_client.post(
+            f"/api/sessions/{test_session}/chat",
+            json={"content": "Hello"},
+        )
+        resp = await test_client.get(f"/api/sessions/{test_session}/messages")
+        assistant = [m for m in resp.json() if m["role"] == "assistant"][0]
+        trace = assistant["metadata"]["executionTrace"]
+
+        assert trace["status"] == "completed"
+        assert trace["items"]
+        assert trace["items"][0]["kind"] == "process"
 
     async def test_multiple_rounds_accumulate(self, test_client, test_session):
         """验证多轮对话消息累积。"""

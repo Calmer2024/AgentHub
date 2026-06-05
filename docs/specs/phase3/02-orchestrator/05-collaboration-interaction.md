@@ -22,7 +22,7 @@
 
 DAG/chain 等多 Agent 结构化协作完成后，Orchestrator 必须生成**中枢总结**：它是独立的系统整理消息，不属于任何 Agent。中枢总结负责把各 Agent 的产出合并成最终答复，处理重复、冲突、遗漏和下一步建议。普通并列群聊回复只展示各 Agent 产出，不自动追加中枢总结。
 
-中枢总结由独立的 Orchestrator 模型配置生成，配置项为 `orchestratorProvider` 与 `orchestratorModel`。它不借用首个成功 Agent 或任一成员 Agent 的 provider/model；如果该配置不可用，后端降级为本地提取式总结。
+中枢总结由后端内部 SystemLLM（DeepSeek）生成。它不借用任一成员 CLI Agent；如果内部系统模型不可用，后端降级为本地提取式总结。
 
 ## 2. 前端渲染模型: 面板 + 气泡混合
 

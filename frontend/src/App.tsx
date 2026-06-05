@@ -4,9 +4,8 @@ import { SessionList } from "./components/SessionList";
 import { ChatWindow } from "./components/ChatWindow";
 import { ProjectSidebar } from "./components/ProjectSidebar";
 import { AgentPanel } from "./components/AgentPanel";
-import { SettingsPanel } from "./components/SettingsPanel";
 import { GroupChatCreator } from "./components/GroupChatCreator";
-import { fetchArtifacts, fetchMessages, pinMessage, regenerateMessageStream, unpinMessage } from "./api/client";
+import { deleteAgent, fetchArtifacts, fetchMessages, pinMessage, regenerateMessageStream, unpinMessage } from "./api/client";
 import { useSendMessage } from "./hooks/useSendMessage";
 import { useWorkspaceRuntime } from "./hooks/useWorkspaceRuntime";
 import type { Message } from "./types";
@@ -29,8 +28,8 @@ function App() {
   const {
     currentSessionId, messages, isStreaming, streamingError,
     artifacts,
-    setMessages,
-    setArtifacts,
+    setMessagesForSession,
+    setArtifactsForSession,
     setStreamingError,
     setIsStreaming,
     setReplyTarget,
@@ -40,14 +39,14 @@ function App() {
   } = useChatStore();
 
   const {
-    projects, currentProjectId, currentProject, sessions, agents, providers, sidebarTab,
+    projects, currentProjectId, currentProject, sessions, agents, sidebarTab,
     creatingProject, sessionMembers, currentAgent, currentMode,
     setSidebarTab, loadData,
     handleSelectProject, handleArchiveProject,
+    handleRenameProject, handleDeleteProject,
     handleCreateBlankProject, handlePickExistingFolder,
     handleSelectSession, handleNewSession, handleCreateGroup,
     handleDeleteSession, handleRenameSession, handleSummarizeSession,
-    handleSwitchAgent,
   } = useWorkspaceRuntime();
 
   // --- 协作状态的读写桥接 (store ↔ 组件) ---
@@ -64,6 +63,7 @@ function App() {
   const collabSummary = collab.collabSummary;
 
   const [showGroupCreator, setShowGroupCreator] = useState(false);
+  const [agentModal, setAgentModal] = useState<{ mode: "create" | "edit"; agentId?: string } | null>(null);
   const handleSend = useSendMessage();
 
   const handleTogglePin = async (message: Message) => {
@@ -98,15 +98,21 @@ function App() {
           replaceMessageContent(message.id, message.content);
           return;
         }
-        try { setMessages(await fetchMessages(currentSessionId)); } catch { /* */ }
-        try { setArtifacts(await fetchArtifacts(currentSessionId)); } catch { /* */ }
+        try {
+          setMessagesForSession(currentSessionId, await fetchMessages(currentSessionId));
+        } catch { /* */ }
+        try {
+          setArtifactsForSession(currentSessionId, await fetchArtifacts(currentSessionId));
+        } catch { /* */ }
       },
     });
   };
 
   const handleArtifactsChanged = async () => {
     if (!currentSessionId) return;
-    try { setArtifacts(await fetchArtifacts(currentSessionId)); } catch { /* */ }
+    try {
+      setArtifactsForSession(currentSessionId, await fetchArtifacts(currentSessionId));
+    } catch { /* */ }
   };
 
   return (
@@ -121,30 +127,29 @@ function App() {
         onCreateBlankProject={handleCreateBlankProject}
         onPickExistingFolder={handlePickExistingFolder}
         onArchiveProject={handleArchiveProject}
+        onRenameProject={handleRenameProject}
+        onDeleteProject={handleDeleteProject}
         onOpenPanel={setSidebarTab}
+        onStartAgentChat={handleNewSession}
+        onCreateAgent={() => setAgentModal({ mode: "create" })}
+        onEditAgent={(agentId) => setAgentModal({ mode: "edit", agentId })}
+        onDeleteAgent={async (agentId) => {
+          await deleteAgent(agentId);
+          await loadData();
+        }}
       />
 
       <div className="w-full md:w-[300px] h-[32dvh] md:h-full bg-[#171717] border-r border-white/[0.08] flex flex-col shrink-0">
-        {sidebarTab === "sessions" ? (
-          <SessionList
-            project={currentProject}
-            sessions={sessions} currentSessionId={currentSessionId}
-            agents={agents} onSelectSession={handleSelectSession}
-            onNewSession={handleNewSession}
-            onNewGroupSession={() => setShowGroupCreator(true)}
-            onDeleteSession={handleDeleteSession}
-            onRenameSession={handleRenameSession}
-            onSummarizeSession={handleSummarizeSession}
-          />
-        ) : sidebarTab === "agents" ? (
-          <div className="flex-1 overflow-y-auto">
-            <AgentPanel providers={providers} onChanged={loadData} />
-          </div>
-        ) : (
-          <div className="flex-1 overflow-y-auto">
-            <SettingsPanel providers={providers} onSaved={loadData} />
-          </div>
-        )}
+        <SessionList
+          project={currentProject}
+          sessions={sessions} currentSessionId={currentSessionId}
+          agents={agents} onSelectSession={handleSelectSession}
+          onNewSession={handleNewSession}
+          onNewGroupSession={() => setShowGroupCreator(true)}
+          onDeleteSession={handleDeleteSession}
+          onRenameSession={handleRenameSession}
+          onSummarizeSession={handleSummarizeSession}
+        />
       </div>
 
       {currentSessionId ? (
@@ -164,7 +169,6 @@ function App() {
           collabSummary={collabSummary}
           onSend={handleSend}
           onDismissError={() => setStreamingError(null)}
-          onSwitchAgent={handleSwitchAgent}
           onReply={setReplyTarget}
           onRegenerate={handleRegenerate}
           onTogglePin={handleTogglePin}
@@ -186,6 +190,13 @@ function App() {
           onCancel={() => setShowGroupCreator(false)}
         />
       )}
+
+      <AgentPanel
+        mode={agentModal?.mode ?? "hidden"}
+        agentId={agentModal?.agentId ?? null}
+        onChanged={loadData}
+        onClose={() => setAgentModal(null)}
+      />
     </div>
   );
 }

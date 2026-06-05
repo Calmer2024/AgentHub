@@ -1,8 +1,8 @@
 # Phase 6: Workspace Runtime + CLI 适配器 + 产物入口桥接
 
-**状态**: 🚧 进行中（6A Workspace Runtime 已验收）
-**版本**: v3.1
-**更新日期**: 2026-06-04
+**状态**: 🚧 进行中（6A 已验收；6B-6E CLI Adapter 实现基线已落地；6F Artifact Bridge 待强化）
+**版本**: v3.2
+**更新日期**: 2026-06-05
 **关联 ADR**: [ADR-0005](../../adr/0005-target-architecture.md)、[ADR-0009](../../adr/0009-project-workspace-model.md)
 **关联 PRD**: [PRD-01](../../PRD/01-Architecture_Adapter.md)、[PRD-05](../../PRD/05-End_to_End_Product_Flow.md)、[PRD-06](../../PRD/06-MVP_Local_Workspace_Delivery.md)
 **依赖**: Phase 3（BaseAgentAdapter / EventBus / SessionService）、Phase 5（ArtifactService）
@@ -15,7 +15,7 @@ Phase 5 完成了"已有 Artifact 的工作台能力"（版本链、Diff、在�
 
 Phase 6 回答这三个问题。它引入 **Project** 作为顶层组织实体，实现三个 CLI 工具的专属适配器，并打通从 CLI 输出到 Artifact Card 的完整链路。
 
-当前进度：**6A Workspace Runtime 已完成并通过人工验收**。已落地 Project-first 三栏 UI、Project CRUD、系统目录选择器、Session→Project workspace 查询、文件树、文件读取安全校验、snapshot/diff、静态 preview。CLI Adapter 与 Artifact Bridge 仍在后续子模块中开发。
+当前进度：**6A Workspace Runtime 已完成并通过人工验收，6B-6E CLI Adapter 实现基线已落地**。已落地 Project-first 三栏 UI、Project CRUD、系统目录选择器、Session→Project workspace 查询、文件树、文件读取安全校验、snapshot/diff、静态 preview；同时已接入真实本机 Claude Code / Codex / OpenCode CLI 进程、CLI-only Agent 配置、Codex 官方/中转配置托管、执行轨迹块与 Agent 设置弹窗。6F Artifact Bridge 仍需继续强化，确保 CLI 输出、workspace diff 与 Artifact Card 形成稳定闭环。
 
 ```text
 创建 Project + 绑定 workspace 目录
@@ -42,8 +42,9 @@ Phase 6 完成后，AgentHub 能明确回答：
 | 模块 | Spec 文档 | 核心交付 |
 |------|----------|---------|
 | **6A: Workspace Runtime** | [00-workspace-runtime.md](00-workspace-runtime.md) | ✅ Project 实体 + workspace 目录管理 + 文件树/Diff/静态预览 + 路径安全 + 项目创建菜单 |
-| **6B-6E: CLI Adapter** | [01-cli-adapter.md](01-cli-adapter.md) | 📋 ClaudeCodeAdapter / CodexAdapter / OpenCodeAdapter + PTY 进程管理 + ANSI 清洗 + 交互拦截 + 分层渲染 |
-| **6F: Artifact Bridge** | [02-artifact-output-bridge.md](02-artifact-output-bridge.md) | 📋 输出检测规则 + 置信度分层 + artifact.detected → artifact.created 桥接 |
+| **6B-6E: CLI Adapter** | [01-cli-adapter.md](01-cli-adapter.md) | ✅ ClaudeCodeAdapter / CodexAdapter / OpenCodeAdapter + subprocess 进程管理 + ANSI 清洗 + Codex 官方/中转配置 + 执行轨迹分层渲染 |
+| **6F: Artifact Bridge** | [02-artifact-output-bridge.md](02-artifact-output-bridge.md) | 🚧 输出检测规则 + workspace diff + 置信度分层 + artifact.detected → artifact.created 桥接 |
+| **交付快照** | [../../deliverables/phase6-cli-adapter/README.md](../../deliverables/phase6-cli-adapter/README.md) | CLI Adapter 架构原理、使用指南、阶段开发日志 |
 
 ---
 
@@ -141,7 +142,7 @@ Phase 6 完成后，AgentHub 能明确回答：
 | 层级 | 条数 | 覆盖 |
 |------|------|------|
 | 单元测试 | ~90 条 | Workspace(已覆盖核心 API/组件) + CLI Adapter(50) + Artifact Bridge(18) |
-| 集成测试 | 5 场景 | Project→Session→cwd、Mock CLI→SSE、Diff→Artifact 全链路 |
+| 集成测试 | 5 场景 | Project→Session→cwd、测试 CLI fixture→SSE、Diff→Artifact 全链路 |
 | E2E | 4 场景 | 创建 Project→CLI Agent 执行→Artifact Card→Drawer 预览 |
 
 6A 已有测试入口：
@@ -184,10 +185,11 @@ Phase 6 完成后：
 - AgentPanel 新增 CLI 包装器配置模式
 - 前端新增 ProjectList 页面和 Project 工作区布局
 
-6A 当前已完成其中的 Project / workspace runtime / Project 工作区布局部分；CLI 进程管理与 Artifact 自动入口仍由 6B-6F 完成。
+6A 当前已完成 Project / workspace runtime / Project 工作区布局部分；6B-6E 已完成 CLI 进程管理、三类本机 CLI Agent 接入、Codex 配置托管与执行轨迹 UI 的实现基线；6F Artifact 自动入口仍需继续强化。
 
 > **版本历史**
 > - v1.0 (2026-06-02): 初始版本
 > - v2.0 (2026-06-04): 引入 Project 模型 + Per-CLI 适配 + 分层渲染
 > - v3.0 (2026-06-04): 按新 Spec 模板全面重构，去 MVP 最小实现限制，全量覆盖
 > - v3.1 (2026-06-04): 记录 Phase 6A 人工验收通过；同步项目创建菜单、系统目录选择器、去除用户可选 project type 的实现口径
+> - v3.2 (2026-06-05): 同步 CLI Adapter 实现基线、Codex 官方/中转配置托管、执行轨迹 UI 与交付文档入口

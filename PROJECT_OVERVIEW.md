@@ -35,7 +35,7 @@
 前端：React 18 + TypeScript + Vite + Tailwind CSS + shadcn/ui + Zustand
 后端：Python FastAPI + SQLAlchemy 2.0 (async) + SQLite
 通信：SSE（流式推送） + WebSocket（实时双向）
-AI  ：CLI Wrapper 模式（PTY/subprocess 管理 claude / opencode 等真实 CLI 工具）+ Orchestrator 通过 LLM API 做意图分析/任务拆解
+AI  ：CLI Wrapper 模式（PTY/subprocess 管理 claude / codex / opencode 等真实 CLI 工具）+ DeepSeek 后端内部系统模型能力
 ```
 
 前后端分离，后端是 API 服务器，前端是 SPA。SQLite 是文件数据库，不需要装额外的数据库服务。
@@ -52,7 +52,8 @@ AgentHub/
 │       ├── api/                ← 路由层（HTTP 接口）
 │       ├── services/           ← 业务逻辑层
 │       ├── domain/             ← 纯逻辑层（Orchestrator、ContextManager）
-│       ├── agents/             ← AI 适配器（每家厂商一个）
+│       ├── agents/             ← CLI 适配器
+│       ├── system_models/      ← DeepSeek 内部系统模型适配器
 │       ├── event_bus/          ← 事件总线（解耦消息通知）
 │       ├── models/             ← 数据库表定义
 │       └── migrations/         ← 数据库迁移脚本
@@ -89,7 +90,7 @@ AgentHub/
 
 从"单人单 AI"升级到"多人多 AI 协作"。
 
-- 多 Agent 支持：6 家厂商适配器，统一接口
+- 多 Agent 支持：历史版本曾用 6 家 HTTP 厂商适配器；当前已迁移为 CLI Agent 好友模型
 - Agent 管理：CRUD API + 前端 AgentPanel 配置界面
 - 群聊模式：Session 支持 single/group 两种模式，SessionMember 多对多关联
 - Orchestrator V1：消息路由 + 多 Agent 并发协调
@@ -143,7 +144,7 @@ Phase 3 聚焦多 Agent 协作基础设施与 Orchestrator 深化。
 - 下一步让项目型会话有真实执行目录：CLI Agent 启动时必须以当前 session 继承的 `Project.workspace_path` 作为 `cwd`
 - 通过 PTY/subprocess 管理 Claude Code、opencode 等真实 CLI 工具
 - stdout 流式推送、ANSI 清洗、交互式确认拦截
-- 把 CLI/API Agent 输出中的 HTML、代码块、patch、workspace 文件变更摘要转换为标准 `artifact.detected` 事件
+- 把 CLI Agent 输出中的 HTML、代码块、patch、workspace 文件变更摘要转换为标准 `artifact.detected` 事件
 - 由 ArtifactService 创建 Artifact，并让聊天流出现可预览的 Artifact Card
 
 ### Phase 7：UX 体验闭环 + MVP 演示闭环
@@ -174,7 +175,7 @@ API 路由层 (FastAPI)
 
 关键设计决策：
 
-- **Agent 适配器模式**：CLI Wrapper 通过统一的 `BaseAgentAdapter` 接口封装真实 CLI 工具（Claude Code、OpenCode 等），通过 PTY/subprocess 管理进程、ANSI 清洗、交互拦截。新增工具只需实现一个适配器
+- **Agent 适配器模式**：CLI Wrapper 通过统一 CLI 事件契约封装真实 CLI 工具（Claude Code、Codex、OpenCode 等），通过 PTY/subprocess 管理进程、ANSI 清洗、交互拦截。新增工具只需实现一个适配器
 - **EventBus 解耦**：Agent 流式输出 → EventBus 广播 → WebSocket 推送 / 持久化 / 产物检测，各模块不直接依赖
 - **Orchestrator 四阶段流水线**：意图分析 → Agent 选择 → 任务拆解 → 执行调度，每个阶段独立可测试
 - **SQLite + FTS5**：零配置数据库，内置全文搜索，课题项目够用
@@ -189,7 +190,7 @@ API 路由层 (FastAPI)
 | `sessions` | 会话（single/group 模式，归属某个 Project） |
 | `messages` | 消息（支持 parent_message_id 引用、is_pinned 标记） |
 | `session_members` | 群聊成员关联表 |
-| `agent_configs` | Agent 配置（名称、描述、system_prompt、executable、init_args、env vars） |
+| `agent_configs` | CLI Agent 配置（名称、备注、executable、init_args、非敏感 env vars） |
 | `artifacts` | 产物（代码、网页预览等，支持版本链） |
 | `messages_fts` | FTS5 全文搜索虚拟表 |
 
@@ -212,7 +213,7 @@ POST   /api/sessions/{id}/chat    发消息（SSE 流式返回）
 # Agent 配置
 GET    /api/agents                Agent 列表
 POST   /api/agents                创建 Agent
-PUT    /api/agents/{id}           更新 Agent
+PATCH  /api/agents/{id}           更新 Agent
 DELETE /api/agents/{id}           删除 Agent
 
 # 产物
@@ -245,7 +246,7 @@ GET    /api/messages/search?session_id=&q=&limit=   消息搜索
 
 1. **聊天 Tab**（默认）：左侧会话列表 + 右侧聊天窗口 + 底部输入框
 2. **Agent Tab**：Agent 配置管理（创建/编辑/删除 Agent）
-3. **设置 Tab**：API Key 配置
+3. **CLI Agent 配置视图**：接入和检测本机 Claude Code / Codex / OpenCode。DeepSeek 属于后端内部系统配置，不进入用户界面。
 
 群聊创建通过 GroupChatCreator 弹窗完成。Orchestrator 协作状态通过 CollaborationView 内联展示。
 
@@ -265,7 +266,7 @@ npx vite --host 127.0.0.1 --port 5173
 # 浏览器打开 http://127.0.0.1:5173
 ```
 
-需要在 `backend/.env` 里配置至少一个 API Key（推荐 DeepSeek，便宜）。
+用户聊天 Agent 走本机 CLI 认证：请先在系统终端完成 `claude` / `codex` / `opencode` 的安装和登录。`DEEPSEEK_API_KEY` 仅由后端内部读取，用于标题生成、中枢总结、产物编辑辅助等系统能力，不向用户暴露。
 
 ---
 

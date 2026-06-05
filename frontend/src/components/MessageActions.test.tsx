@@ -24,9 +24,9 @@ describe("MessageActions", () => {
       />,
     );
 
-    expect(screen.getByText("引用")).toBeInTheDocument();
-    expect(screen.getByText("重生成")).toBeInTheDocument();
-    expect(screen.getByText("Pin")).toBeInTheDocument();
+    expect(screen.getByLabelText("引用回复")).toBeInTheDocument();
+    expect(screen.getByLabelText("重新生成")).toBeInTheDocument();
+    expect(screen.getByLabelText("Pin 消息")).toBeInTheDocument();
   });
 
   it("用户消息不显示重新生成操作", () => {
@@ -40,7 +40,7 @@ describe("MessageActions", () => {
       />,
     );
 
-    expect(screen.queryByText("重生成")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("重新生成")).not.toBeInTheDocument();
   });
 
   it("点击 Pin 触发回调", () => {
@@ -55,7 +55,7 @@ describe("MessageActions", () => {
       />,
     );
 
-    fireEvent.click(screen.getByText("Pin"));
+    fireEvent.click(screen.getByLabelText("Pin 消息"));
     expect(onTogglePin).toHaveBeenCalledWith(assistant);
   });
 });

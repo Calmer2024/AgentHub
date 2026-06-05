@@ -1,5 +1,15 @@
 import { useState } from "react";
+import {
+  FolderOpen,
+  MessageCircle,
+  MoreHorizontal,
+  Pencil,
+  Search,
+  Trash2,
+  Users,
+} from "lucide-react";
 import type { Session, AgentConfig, Project } from "../types";
+import { AgentAvatar } from "./AgentAvatar";
 
 interface Props {
   project: Project | null;
@@ -7,74 +17,130 @@ interface Props {
   currentSessionId: string | null;
   agents: AgentConfig[];
   onSelectSession: (id: string) => void;
-  onNewSession: () => void;
+  onNewSession: (agentId?: string) => void;
   onNewGroupSession: () => void;
   onDeleteSession: (id: string) => void;
   onRenameSession: (id: string, title: string) => void;
-  onSummarizeSession: (id: string) => void;
+  onSummarizeSession?: (id: string) => void;
 }
 
 export function SessionList({ project, sessions, currentSessionId, agents, onSelectSession, onNewSession, onNewGroupSession, onDeleteSession, onRenameSession, onSummarizeSession }: Props) {
   const [creating, setCreating] = useState(false);
+  const [agentPickerOpen, setAgentPickerOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [renameTitle, setRenameTitle] = useState("");
 
-  const handleCreate = async () => {
+  const handleCreate = async (agentId?: string) => {
     setCreating(true);
-    try { await onNewSession(); }
+    try {
+      await onNewSession(agentId);
+      setAgentPickerOpen(false);
+    }
     finally { setCreating(false); }
   };
 
   const getSessionInfo = (session: Session) => {
     if (session.mode === "group") {
-      return { label: "群聊", sub: "" };
+      return { label: "群聊", agent: null };
     }
-    const name = agents.find((a) => a.id === session.agentConfigId)?.name ?? "";
-    return { label: name, sub: "" };
+    const agent = agents.find((a) => a.id === session.agentConfigId) ?? null;
+    return { label: agent?.name ?? "私聊", agent };
   };
 
   return (
     <div className="w-full h-full bg-[#171717] text-[#ececf1] flex flex-col">
-      <div className="p-4 border-b border-white/[0.08]">
+      <div className="p-4">
         {project ? (
-          <>
-            <h2 className="text-sm font-semibold text-white truncate">{project.name}</h2>
-            <p className="text-xs text-[#8f8f98] truncate mt-0.5">{project.workspacePath}</p>
-          </>
+          <div className="flex items-start gap-3">
+            <span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-[#d8d8df]">
+              <FolderOpen size={18} strokeWidth={1.8} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <h2 className="truncate text-sm font-semibold text-white">{project.name}</h2>
+              <p className="mt-0.5 truncate text-xs text-[#8f8f98]">{project.workspacePath}</p>
+            </div>
+          </div>
         ) : (
-          <>
-            <h2 className="text-sm font-semibold text-white">选择项目开始</h2>
-            <p className="text-xs text-[#8f8f98] mt-0.5">所有聊天都会绑定到项目 workspace。</p>
-          </>
+          <div className="flex items-start gap-3">
+            <span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-[#8f8f98]">
+              <FolderOpen size={18} strokeWidth={1.8} />
+            </span>
+            <div>
+              <h2 className="text-sm font-semibold text-white">选择项目开始</h2>
+              <p className="mt-0.5 text-xs text-[#8f8f98]">所有聊天都会绑定到项目 workspace。</p>
+            </div>
+          </div>
+        )}
+
+        {project && (
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <div className="relative">
+              <button
+                onClick={() => setAgentPickerOpen((open) => !open)}
+                disabled={creating || agents.length === 0}
+                className="flex h-10 w-full items-center justify-center gap-2 rounded-full bg-[#2f7cf6] text-sm font-medium text-white shadow-[0_10px_26px_rgba(47,124,246,0.24)] transition hover:bg-[#3d88ff] active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {creating ? (
+                  <span className="h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                ) : (
+                  <MessageCircle size={15} />
+                )}
+                私聊
+              </button>
+              {agentPickerOpen && (
+                <div className="absolute left-0 top-12 z-20 w-72 rounded-2xl border border-white/10 bg-[#242528]/95 p-1.5 shadow-2xl backdrop-blur">
+                  {agents.map((agent) => (
+                    <button
+                      key={agent.id}
+                      type="button"
+                      onClick={() => handleCreate(agent.id)}
+                      className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-[#f3f3f4] transition hover:bg-white/[0.08]"
+                    >
+                      <AgentAvatar agent={agent} size="sm" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-medium">{agent.name}</span>
+                        <span className="mt-0.5 block truncate text-xs text-[#8f8f98]">{agent.executable || agent.cliTool}</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <button
+              onClick={onNewGroupSession}
+              className="flex h-10 items-center justify-center gap-2 rounded-full border border-white/10 bg-white/[0.06] text-sm font-medium text-[#ececf1] transition hover:bg-white/10 active:translate-y-px"
+            >
+              <Users size={15} />
+              群聊
+            </button>
+          </div>
         )}
       </div>
 
       <div className="flex-1 overflow-y-auto px-2">
         {!project ? (
           <div className="flex flex-col items-center justify-center py-12 text-[#74747d]">
-            <svg className="w-11 h-11 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                d="M3 7h18M6 7v10a2 2 0 002 2h8a2 2 0 002-2V7M8 7V5a2 2 0 012-2h4a2 2 0 012 2v2" />
-            </svg>
+            <FolderOpen size={44} strokeWidth={1.5} className="mb-3" />
             <p className="text-sm">选择或创建 Project</p>
           </div>
         ) : sessions.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-[#74747d]">
-            <svg className="w-12 h-12 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-            </svg>
+            <MessageCircle size={48} strokeWidth={1.5} className="mb-3" />
             <p className="text-sm">还没有对话</p>
             <p className="text-xs mt-1">点击上方按钮开始</p>
           </div>
         ) : (
-          sessions.map((session) => (
+          sessions.map((session) => {
+            const info = getSessionInfo(session);
+            return (
             <div key={session.id} className="relative group mb-1">
               <button
                 onClick={() => onSelectSession(session.id)}
-                className={`w-full text-left px-3 py-3 rounded-xl transition-colors ${
-                  currentSessionId === session.id ? "bg-white/10 text-white" : "hover:bg-white/[0.07] text-[#d8d8df]"
+                className={`w-full text-left px-3 py-2.5 rounded-2xl transition-all duration-150 ${
+                  currentSessionId === session.id
+                    ? "bg-[#2b5278] text-white shadow-[inset_3px_0_0_rgba(96,165,250,0.95)]"
+                    : "hover:bg-white/[0.07] text-[#d8d8df]"
                 }`}
               >
                 {renaming === session.id ? (
@@ -83,62 +149,64 @@ export function SessionList({ project, sessions, currentSessionId, agents, onSel
                     onBlur={() => { if (renameTitle.trim()) onRenameSession(session.id, renameTitle.trim()); setRenaming(null); }}
                     onKeyDown={(e) => { if (e.key === "Enter") { if (renameTitle.trim()) onRenameSession(session.id, renameTitle.trim()); setRenaming(null); } }}
                     onClick={(e) => e.stopPropagation()}
-                    className="w-full px-2 py-1 border border-blue-300 rounded text-sm"
+                    className="w-full rounded-xl border border-blue-300 bg-[#111318] px-2 py-1 text-sm text-white outline-none"
                     autoFocus
                   />
                 ) : (
-                  <>
-                    <div className="flex items-center gap-1.5">
-                      {session.mode === "group" && <span className="text-xs">👥</span>}
-                      <p className="font-medium truncate">{session.title}</p>
+                  <div className="flex items-center gap-3">
+                    {session.mode === "group"
+                      ? <AgentAvatar kind="group" name="群聊" size="md" />
+                      : <AgentAvatar agent={info.agent} name={info.label} size="md" />}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <p className="truncate text-sm font-semibold">{session.title}</p>
+                        {session.mode === "group" && <Users size={13} className="shrink-0 text-[#b8c7d9]" />}
+                      </div>
+                      <div className="mt-0.5 flex items-center justify-between gap-2">
+                        <p className="truncate text-xs text-[#9aa5b1]">
+                          {info.label}
+                        </p>
+                        <p className="shrink-0 text-[11px] text-[#74747d]">
+                          {new Date(session.updatedAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                        </p>
+                      </div>
                     </div>
-                    <div className="flex items-center justify-between mt-0.5">
-                      <p className="text-xs text-[#8f8f98]">
-                        {new Date(session.updatedAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}
-                      </p>
-                      <p className="text-xs text-[#74747d]">{getSessionInfo(session).label}</p>
-                    </div>
-                  </>
+                  </div>
                 )}
               </button>
               <button
                 onClick={(e) => { e.stopPropagation(); setMenuOpen(menuOpen === session.id ? null : session.id); }}
-                className="absolute right-1 top-2 p-1 text-[#8f8f98] hover:text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                className="absolute right-1 top-2 inline-flex h-7 w-7 items-center justify-center rounded-lg text-[#8f8f98] opacity-0 transition-opacity hover:bg-white/10 hover:text-white group-hover:opacity-100"
+                aria-label="会话操作"
+                title="会话操作"
               >
-                ···
+                <MoreHorizontal size={16} />
               </button>
               {menuOpen === session.id && (
-                <div className="absolute right-0 top-8 z-10 bg-[#2b2b2f] border border-white/10 rounded-xl shadow-lg py-1 w-36">
+                <div className="absolute right-0 top-8 z-10 w-40 rounded-2xl border border-white/10 bg-[#2b2b2f] p-1 shadow-2xl">
                   <button onClick={() => { setRenaming(session.id); setRenameTitle(session.title); setMenuOpen(null); }}
-                    className="w-full text-left px-3 py-1.5 text-sm text-[#ececf1] hover:bg-white/[0.08]">重命名</button>
-                  <button onClick={() => { onSummarizeSession(session.id); setMenuOpen(null); }}
-                    className="w-full text-left px-3 py-1.5 text-sm text-[#ececf1] hover:bg-white/[0.08]">AI 总结标题</button>
+                    className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm text-[#ececf1] hover:bg-white/[0.08]">
+                    <Pencil size={14} />
+                    重命名
+                  </button>
+                  {onSummarizeSession && (
+                    <button onClick={() => { onSummarizeSession(session.id); setMenuOpen(null); }}
+                      className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm text-[#ececf1] hover:bg-white/[0.08]">
+                      <Search size={14} />
+                      重新总结
+                    </button>
+                  )}
                   <button onClick={() => { onDeleteSession(session.id); setMenuOpen(null); }}
-                    className="w-full text-left px-3 py-1.5 text-sm text-red-300 hover:bg-red-500/15">删除</button>
+                    className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm text-red-300 hover:bg-red-500/15">
+                    <Trash2 size={14} />
+                    删除
+                  </button>
                 </div>
               )}
             </div>
-          ))
+          );})
         )}
       </div>
-
-      {project && (
-        <div className="p-3 border-t border-white/[0.08] grid grid-cols-2 gap-2">
-          <button
-            onClick={handleCreate} disabled={creating}
-            className="py-2 bg-[#ececf1] text-[#171717] rounded-lg hover:bg-white disabled:opacity-50 disabled:cursor-not-allowed text-sm flex items-center justify-center gap-2"
-          >
-            {creating && <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
-            私聊
-          </button>
-          <button
-            onClick={onNewGroupSession}
-            className="py-2 bg-white/[0.06] text-[#ececf1] border border-white/10 rounded-lg hover:bg-white/10 text-sm"
-          >
-            群聊
-          </button>
-        </div>
-      )}
     </div>
   );
 }

@@ -33,7 +33,7 @@ Artifact Card / Approval Card / HealthCheck
 ```
 stores/
   chatStore.ts    ← messages, isStreaming, streamingError
-  sessionStore.ts ← sessions, agents, providers, sidebarTab
+  sessionStore.ts ← sessions, agents, sidebarTab
   searchStore.ts  ← searchQuery, searchResults, isSearchOpen (NEW)
   artifactStore.ts ← drawerState, selectedArtifact, versions, diffMode (NEW)
   taskStore.ts     ← collaboration tasks, approval checkpoints (NEW)
@@ -71,5 +71,5 @@ stores/
 - E2E: 搜索 → 跳转 → 高亮
 - E2E: Artifact Card → Drawer → 引用 → 编辑 → 新版本
 - E2E: Approval Card → Drawer → 确认继续
-- E2E: Health warning → AgentPanel/Settings 跳转
+- E2E: Health warning → AgentPanel 跳转
 - 目标: 20 条

@@ -10,8 +10,7 @@
 App.tsx
 ├── Sidebar
 │   ├── SessionList        (会话列表, 新建群聊入口)
-│   ├── AgentPanel         (Agent 管理)
-│   └── SettingsPanel      (API Key 配置)
+│   └── AgentPanel         (CLI Agent 管理)
 │
 ├── ChatWindow             (主聊天区域)
 │   ├── Header             (标题 + Agent 选择器 + 流式指示器)
@@ -91,9 +90,9 @@ interface Message {
 
 当 `sourceType === "orchestrator"` 或 `contentType === "orchestrator_summary"` 时，前端显示“系统整理 · Orchestrator 中枢”，不得显示为 `@某个 Agent`。该气泡只由后端 `summary_*` SSE 事件驱动创建；普通并列群聊没有该事件时，前端不得自行生成总结。
 
-### 3.4 Orchestrator 模型设置
+### 3.4 中枢系统模型
 
-设置页必须提供独立的 Orchestrator 中枢模型选择，字段为 `orchestratorProvider` 与 `orchestratorModel`。该配置只影响中枢总结等编排层输出，不改变成员 Agent 的 provider/model。前端只提交配置并展示当前选择，实际调用与降级策略由后端负责。
+中枢总结由后端内部 SystemLLM（DeepSeek）生成，不提供用户可见 Provider/Model 设置面。前端只展示 `sourceType="orchestrator"` 和 `contentType="orchestrator_summary"` 的系统整理消息。
 
 ### 3.5 视觉规范
 

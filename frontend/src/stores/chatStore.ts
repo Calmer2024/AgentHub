@@ -1,5 +1,8 @@
 import { create } from "zustand";
-import type { Message, RouteAgent, CollabTask, ChainStep, DAGPhase, Artifact } from "../types";
+import type {
+  Message, RouteAgent, CollabTask, ChainStep, DAGPhase, Artifact,
+  InteractivePrompt, ExecutionTraceItem,
+} from "../types";
 
 /** 每个会话的协作状态快照，切换会话时保留。 */
 export interface CollabSnapshot {
@@ -31,8 +34,12 @@ interface ChatState {
   messages: Message[];
   artifacts: Artifact[];
   isStreaming: boolean;
+  activeRunId: string | null;
+  latestRunId: string | null;
   streamingError: string | null;
   replyTarget: Message | null;
+  activeProgress: string | null;
+  interactivePrompts: InteractivePrompt[];
 
   // === 协作状态 (per-session persisted) ===
   collabSnapshots: Record<string, CollabSnapshot>;
@@ -43,14 +50,30 @@ interface ChatState {
   // === 原有 actions ===
   setCurrentSessionId: (id: string | null) => void;
   setMessages: (messages: Message[]) => void;
+  setMessagesForSession: (sessionId: string, messages: Message[]) => void;
   setArtifacts: (artifacts: Artifact[]) => void;
+  setArtifactsForSession: (sessionId: string, artifacts: Artifact[]) => void;
   upsertArtifact: (artifact: Artifact) => void;
   appendMessage: (msg: Message) => void;
   appendStreamingToken: (token: string) => void;
+  appendStreamingTokenToMessage: (messageId: string, token: string) => void;
   appendAgentStreamingToken: (localId: string, agentName: string, token: string) => void;
+  bindMessageId: (localId: string, serverId: string) => void;
+  appendExecutionTraceItem: (
+    messageId: string,
+    item: ExecutionTraceItem,
+    seed?: { agentName?: string; cliTool?: string; processId?: string },
+  ) => void;
+  finalizeExecutionTrace: (messageId: string, status: "completed" | "error", exitCode?: number | null) => void;
   updateMessage: (id: string, patch: Partial<Message>) => void;
   replaceMessageContent: (id: string, content: string) => void;
   setReplyTarget: (message: Message | null) => void;
+  setActiveProgress: (progress: string | null) => void;
+  addInteractivePrompt: (prompt: InteractivePrompt) => void;
+  removeInteractivePrompt: (processId: string) => void;
+  clearRuntimeNotices: () => void;
+  startStreamRun: (runId: string) => void;
+  finishStreamRun: (runId: string) => void;
   setIsStreaming: (v: boolean) => void;
   setStreamingError: (error: string | null) => void;
 }
@@ -60,8 +83,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
   messages: [],
   artifacts: [],
   isStreaming: false,
+  activeRunId: null,
+  latestRunId: null,
   streamingError: null,
   replyTarget: null,
+  activeProgress: null,
+  interactivePrompts: [],
   collabSnapshots: {},
 
   getCollab: (sessionId) => get().collabSnapshots[sessionId] ?? emptyCollab(),
@@ -76,7 +103,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   setCurrentSessionId: (id) => set({ currentSessionId: id }),
   setMessages: (messages) => set({ messages }),
+  setMessagesForSession: (sessionId, messages) =>
+    set((s) => (s.currentSessionId === sessionId ? { messages } : {})),
   setArtifacts: (artifacts) => set({ artifacts }),
+  setArtifactsForSession: (sessionId, artifacts) =>
+    set((s) => (s.currentSessionId === sessionId ? { artifacts } : {})),
   upsertArtifact: (artifact) =>
     set((s) => {
       const withoutChain = s.artifacts.filter((a) => (
@@ -96,6 +127,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }
       return s;
     }),
+  appendStreamingTokenToMessage: (messageId, token) =>
+    set((s) => ({
+      messages: s.messages.map((m) => (
+        m.id === messageId ? { ...m, content: m.content + token } : m
+      )),
+    })),
   appendAgentStreamingToken: (localId, agentName, token) =>
     set((s) => {
       const msgs = [...s.messages];
@@ -105,6 +142,48 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }
       return { messages: msgs };
     }),
+  bindMessageId: (localId, serverId) =>
+    set((s) => ({
+      messages: s.messages.map((m) => (m.id === localId ? { ...m, id: serverId } : m)),
+    })),
+  appendExecutionTraceItem: (messageId, item, seed) =>
+    set((s) => ({
+      messages: s.messages.map((m) => {
+        if (m.id !== messageId) return m;
+        const metadata = { ...(m.metadata ?? {}) };
+        const current = metadata.executionTrace;
+        metadata.executionTrace = {
+          status: current?.status ?? "running",
+          agentName: current?.agentName ?? seed?.agentName ?? m.agentName,
+          cliTool: current?.cliTool ?? seed?.cliTool ?? null,
+          workspacePath: current?.workspacePath ?? null,
+          startedAt: current?.startedAt ?? item.timestamp,
+          completedAt: current?.completedAt ?? null,
+          processId: current?.processId ?? seed?.processId ?? item.processId ?? null,
+          exitCode: current?.exitCode ?? null,
+          items: [...(current?.items ?? []), item].slice(-300),
+        };
+        return { ...m, metadata };
+      }),
+    })),
+  finalizeExecutionTrace: (messageId, status, exitCode = null) =>
+    set((s) => ({
+      messages: s.messages.map((m) => {
+        if (m.id !== messageId || !m.metadata?.executionTrace) return m;
+        return {
+          ...m,
+          metadata: {
+            ...m.metadata,
+            executionTrace: {
+              ...m.metadata.executionTrace,
+              status,
+              exitCode,
+              completedAt: new Date().toISOString(),
+            },
+          },
+        };
+      }),
+    })),
   updateMessage: (id, patch) =>
     set((s) => ({
       messages: s.messages.map((m) => (m.id === id ? { ...m, ...patch } : m)),
@@ -114,6 +193,25 @@ export const useChatStore = create<ChatState>((set, get) => ({
       messages: s.messages.map((m) => (m.id === id ? { ...m, content } : m)),
     })),
   setReplyTarget: (message) => set({ replyTarget: message }),
+  setActiveProgress: (progress) => set({ activeProgress: progress }),
+  addInteractivePrompt: (prompt) =>
+    set((s) => ({
+      interactivePrompts: [
+        ...s.interactivePrompts.filter((item) => item.processId !== prompt.processId),
+        prompt,
+      ],
+    })),
+  removeInteractivePrompt: (processId) =>
+    set((s) => ({
+      interactivePrompts: s.interactivePrompts.filter((item) => item.processId !== processId),
+    })),
+  clearRuntimeNotices: () => set({ activeProgress: null, interactivePrompts: [] }),
+  startStreamRun: (runId) => set({ activeRunId: runId, latestRunId: runId, isStreaming: true }),
+  finishStreamRun: (runId) =>
+    set((s) => (s.activeRunId === runId ? {
+      activeRunId: null,
+      isStreaming: false,
+    } : {})),
   setIsStreaming: (v) => set({ isStreaming: v }),
   setStreamingError: (error) => set({ streamingError: error }),
 }));

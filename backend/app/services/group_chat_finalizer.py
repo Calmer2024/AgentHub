@@ -29,16 +29,22 @@ class GroupChatFinalizer:
         self, session_id, session, result, agent_names: dict[str, str],
         agent_calls: dict[str, AgentCall], msg_ids: dict[str, str],
         agent_texts: dict[str, str], agent_errors: dict[str, str],
+        agent_traces: dict[str, list[dict]] | None = None,
     ) -> AsyncIterator[str]:
+        agent_traces = agent_traces or {}
         if not agent_texts:
             yield self._all_failed(agent_names, agent_errors)
         elif self._should_generate_summary(result, agent_texts):
             async for item in self._summarize_and_persist(
-                session_id, session, result, agent_names, agent_calls, msg_ids, agent_texts,
+                session_id, session, result, agent_names, agent_calls,
+                msg_ids, agent_texts, agent_errors, agent_traces,
             ):
                 yield item
         else:
-            self._add_agent_messages(session_id, agent_names, agent_calls, msg_ids, agent_texts)
+            self._add_agent_messages(
+                session_id, agent_names, agent_calls, msg_ids, agent_texts,
+                agent_errors, agent_traces,
+            )
             session.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
             await self.db.commit()
 
@@ -55,7 +61,8 @@ class GroupChatFinalizer:
         )
 
     async def _summarize_and_persist(
-        self, session_id, session, result, agent_names, agent_calls, msg_ids, agent_texts,
+        self, session_id, session, result, agent_names, agent_calls,
+        msg_ids, agent_texts, agent_errors, agent_traces,
     ):
         summary_id = str(uuid.uuid4())
         summary = ""
@@ -70,14 +77,23 @@ class GroupChatFinalizer:
             yield self._summary_delta(summary_id, token)
         yield self._summary_completed(summary_id)
 
-        self._add_agent_messages(session_id, agent_names, agent_calls, msg_ids, agent_texts)
+        self._add_agent_messages(
+            session_id, agent_names, agent_calls, msg_ids, agent_texts,
+            agent_errors, agent_traces,
+        )
         self._add_summary_message(session_id, summary_id, summary, result, agent_texts)
         session.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
         await self.db.commit()
 
-    def _add_agent_messages(self, session_id, agent_names, agent_calls, msg_ids, agent_texts):
+    def _add_agent_messages(
+        self, session_id, agent_names, agent_calls, msg_ids, agent_texts,
+        agent_errors=None, agent_traces=None,
+    ):
+        agent_errors = agent_errors or {}
+        agent_traces = agent_traces or {}
         for key, text in agent_texts.items():
             call = agent_calls.get(key)
+            trace_items = list(agent_traces.get(key) or [])
             self.db.add(DBMessage(
                 id=msg_ids.get(key, str(uuid.uuid4())),
                 session_id=session_id,
@@ -92,6 +108,17 @@ class GroupChatFinalizer:
                     "task": call.task if call else None,
                     "role": call.role if call else None,
                     "phase": call.phase if call else None,
+                    "executionTrace": {
+                        "status": "error" if agent_errors.get(key) else "completed",
+                        "agentName": agent_names.get(key, ""),
+                        "cliTool": getattr(call.agent, "cli_tool", None) if call else None,
+                        "workspacePath": None,
+                        "startedAt": trace_items[0].get("timestamp") if trace_items else None,
+                        "completedAt": trace_items[-1].get("timestamp") if trace_items else None,
+                        "processId": _first_process_id(trace_items),
+                        "exitCode": _last_exit_code(trace_items),
+                        "items": trace_items[-300:],
+                    } if trace_items else None,
                 }, ensure_ascii=False),
             ))
 
@@ -112,8 +139,8 @@ class GroupChatFinalizer:
                 "plan_summary": result.plan_summary,
                 "summary_of": list(agent_texts),
                 "phases_completed": len(result.dag_phases) if result.dag_phases else None,
-                "orchestrator_provider": model_config.provider,
-                "orchestrator_model": model_config.model,
+                "system_model_provider": model_config["system_model_provider"],
+                "system_model": model_config["system_model"],
             }, ensure_ascii=False),
         ))
 
@@ -142,8 +169,8 @@ class GroupChatFinalizer:
                 "intent": result.intent,
                 "plan_summary": result.plan_summary,
                 "summary_of": summary_of,
-                "orchestrator_provider": model_config.provider,
-                "orchestrator_model": model_config.model,
+                "system_model_provider": model_config["system_model_provider"],
+                "system_model": model_config["system_model"],
             },
         })
 
@@ -178,3 +205,19 @@ class GroupChatFinalizer:
     @staticmethod
     def _sse(obj: dict) -> str:
         return f"data: {json.dumps(obj, ensure_ascii=False)}\n\n"
+
+
+def _first_process_id(items: list[dict]) -> str | None:
+    for item in items:
+        value = item.get("processId")
+        if value:
+            return str(value)
+    return None
+
+
+def _last_exit_code(items: list[dict]) -> int | None:
+    for item in reversed(items):
+        value = item.get("exitCode")
+        if isinstance(value, int):
+            return value
+    return None

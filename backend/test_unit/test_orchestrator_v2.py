@@ -19,16 +19,19 @@ from app.models import AgentConfig
 
 # ===== 测试辅助 =====
 
-def make_agent(name="默认助手", provider="deepseek", agent_id=None,
+def make_agent(name="CLI 助手", agent_id=None,
                description="通用助手", system_prompt="你是一个有帮助的AI助手") -> AgentConfig:
-    """创建测试 Agent。使用元数据（name/description/system_prompt）而非 provider 来描述能力。"""
+    """创建测试 CLI Agent。使用元数据描述能力，不再绑定模型厂商。"""
     return AgentConfig(
         id=agent_id or str(uuid.uuid4()),
         name=name,
         description=description,
-        provider=provider,
-        model="test-model",
         system_prompt=system_prompt,
+        agent_type="cli_wrapper",
+        cli_tool="custom",
+        executable="python",
+        init_args="[]",
+        env_vars="{}",
     )
 
 

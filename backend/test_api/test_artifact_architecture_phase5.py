@@ -1,15 +1,15 @@
 """Phase 5 architecture contract tests for Artifact domain/service boundaries."""
 
 import uuid
-from types import SimpleNamespace
 
 import pytest
 
-from app.agents.openai_adapter import OpenAIAdapter
 from app.domain.artifact_editor import ArtifactEditor
 from app.event_bus import EventType, InMemoryEventBus
 from app.models import Artifact, Message
-from app.services.artifact_service import ArtifactService
+from app.services import artifact_service as artifact_service_module
+from app.services.artifact_service import ArtifactService, EDIT_ARTIFACT_TOOL
+from app.system_models import SystemModelResponse
 
 
 def test_artifact_editor_is_pure_and_parses_tool_arguments():
@@ -84,44 +84,55 @@ async def test_artifact_service_publishes_events(db_session, test_session):
 
 
 @pytest.mark.asyncio
-async def test_openai_adapter_passes_tools_and_normalizes_tool_calls(monkeypatch):
-    adapter = OpenAIAdapter()
+async def test_artifact_service_uses_system_llm_tool_call(monkeypatch, db_session, test_session):
     seen = {}
 
-    class FakeCompletions:
-        async def create(self, **kwargs):
-            seen.update(kwargs)
-            return SimpleNamespace(choices=[
-                SimpleNamespace(
-                    finish_reason="tool_calls",
-                    message=SimpleNamespace(
-                        content=None,
-                        tool_calls=[
-                            SimpleNamespace(
-                                id="tc1",
-                                type="function",
-                                function=SimpleNamespace(
-                                    name="edit_artifact",
-                                    arguments='{"replacement":"new"}',
-                                ),
-                            ),
-                        ],
-                    ),
-                ),
-            ])
+    class FakeSystemLLM:
+        @property
+        def capability(self):
+            return type("Capability", (), {"supports_tool_call": True})()
 
-    monkeypatch.setattr(adapter, "_client", SimpleNamespace(
-        chat=SimpleNamespace(completions=FakeCompletions()),
-    ))
+        def is_configured(self):
+            return True
 
-    response = await adapter.chat(
-        messages=[{"role": "user", "content": "edit"}],
-        system_prompt="system",
-        tools=[{"name": "edit_artifact", "parameters": {"type": "object"}}],
+        async def chat(self, *, messages, system_prompt, tools=None):
+            seen["messages"] = messages
+            seen["system_prompt"] = system_prompt
+            seen["tools"] = tools
+            return SystemModelResponse(
+                content="",
+                tool_calls=[{
+                    "function": {
+                        "name": "edit_artifact",
+                        "arguments": (
+                            '{"selection":"old","edit_type":"replace",'
+                            '"replacement":"new"}'
+                        ),
+                    },
+                }],
+            )
+
+    message = Message(id=str(uuid.uuid4()), session_id=test_session, role="assistant", content="")
+    artifact = Artifact(
+        id=str(uuid.uuid4()),
+        session_id=test_session,
+        message_id=message.id,
+        type="code_diff",
+        title="a.py",
+        content="old",
+        status="ready",
+        version=1,
+    )
+    db_session.add_all([message, artifact])
+    await db_session.commit()
+    monkeypatch.setattr(artifact_service_module, "system_llm", FakeSystemLLM())
+
+    preview = await ArtifactService(db_session).preview_edit(
+        artifact.id,
+        selection="old",
+        instruction="replace it",
     )
 
-    assert seen["tools"][0]["type"] == "function"
-    assert seen["tool_choice"] == "auto"
-    assert response.finish_reason == "tool_calls"
-    assert response.tool_calls[0]["name"] == "edit_artifact"
-    assert response.tool_calls[0]["function"]["arguments"] == '{"replacement":"new"}'
+    assert seen["tools"] == [EDIT_ARTIFACT_TOOL]
+    assert preview.strategy == "system_tool_call"
+    assert preview.proposed_content == "new"

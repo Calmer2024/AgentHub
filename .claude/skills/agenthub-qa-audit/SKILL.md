@@ -112,8 +112,8 @@ uvicorn app.main:app --host 127.0.0.1 --port 8000
 - [ ] lifespan 事件无异常
 - [ ] 数据库迁移全部执行
 - [ ] EventBus 启动无错误
-- [ ] `GET /api/agents` 返回数据
-- [ ] `GET /api/providers` 返回 4 家厂商
+- [ ] `GET /api/agents` 返回 Claude Code / Codex / OpenCode CLI 好友
+- [ ] `GET /api/settings` 返回 `systemModel.provider=deepseek`
 
 **2.2 前端启动检查**
 

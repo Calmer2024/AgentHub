@@ -7,6 +7,42 @@ export interface ReplyReference {
   createdAt?: string;
 }
 
+export interface ExecutionTraceItem {
+  id: string;
+  kind: "process" | "progress" | "tool" | "command" | "file" | "artifact" | "prompt" | "error" | "info";
+  text: string;
+  title?: string | null;
+  detail?: string | null;
+  summary?: string | null;
+  action?: string | null;
+  target?: string | null;
+  command?: string | null;
+  toolName?: string | null;
+  provider?: string | null;
+  level?: "info" | "success" | "warning" | "error" | string | null;
+  status?: string | null;
+  exitCode?: number | null;
+  output?: string | null;
+  stderr?: string | null;
+  raw?: string | null;
+  source?: "system" | "cli" | "adapter";
+  chunkType?: string | null;
+  processId?: string | null;
+  timestamp: string;
+}
+
+export interface ExecutionTrace {
+  status: "running" | "completed" | "error";
+  agentName?: string | null;
+  cliTool?: string | null;
+  workspacePath?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  processId?: string | null;
+  exitCode?: number | null;
+  items: ExecutionTraceItem[];
+}
+
 export interface Session {
   id: string;
   title: string;
@@ -33,6 +69,16 @@ export interface ProjectCreateInput {
   folderToken?: string;
 }
 
+export interface ProjectUpdateInput {
+  name?: string;
+}
+
+export interface ProjectDeleteResult {
+  status: "deleted";
+  filesDeleted: boolean;
+  workspacePath: string;
+}
+
 export interface FolderPickResult {
   workspacePath: string;
   folderName: string;
@@ -49,7 +95,7 @@ export interface Message {
   sourceType?: "user" | "agent" | "orchestrator" | "assistant" | "system";
   sourceId?: string | null;
   sourceName?: string | null;
-  metadata?: Record<string, unknown> | null;
+  metadata?: (Record<string, unknown> & { executionTrace?: ExecutionTrace }) | null;
   agentRole?: string | null;
   phase?: number | null;
   taskName?: string | null;
@@ -65,9 +111,14 @@ export interface AgentConfig {
   name: string;
   description: string;
   systemPrompt: string;
-  provider: string;
-  model: string;
-  temperature: number;
+  agentType: "cli_wrapper";
+  cliTool: "claude_code" | "codex" | "opencode" | "custom";
+  executable: string | null;
+  initArgs: string[];
+  envVars: Record<string, string>;
+  status: "ready" | "not_found" | "running" | "error";
+  version?: string | null;
+  executablePath?: string | null;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -77,65 +128,75 @@ export interface AgentConfigCreate {
   name: string;
   description?: string;
   systemPrompt?: string;
-  provider?: string;
-  model?: string;
-  temperature?: number;
+  agentType?: "cli_wrapper";
+  cliTool?: "claude_code" | "codex" | "opencode" | "custom";
+  executable?: string | null;
+  initArgs?: string[];
+  envVars?: Record<string, string>;
 }
 
 export interface AgentConfigUpdate {
   name?: string;
   description?: string;
   systemPrompt?: string;
-  provider?: string;
+  agentType?: "cli_wrapper";
+  cliTool?: "claude_code" | "codex" | "opencode" | "custom";
+  executable?: string | null;
+  initArgs?: string[];
+  envVars?: Record<string, string>;
+}
+
+export interface CodexLocalConfig {
+  codexHome: string;
+  configExists: boolean;
+  envExists: boolean;
+  connection: "official" | "proxy" | "inherit" | "auto" | string;
+  providerId: string;
+  providerName: string;
+  baseUrl: string;
+  model: string;
+  wireApi: string;
+  authMode: string;
+  envKey: string;
+  apiKeySet: boolean;
+  apiKeySource: string;
+  hasChatgptAuth: boolean;
+  needsApiKey: boolean;
+  repairApplied: boolean;
+  ready: boolean;
+  message: string;
+}
+
+export interface CodexLocalConfigUpdate {
+  connection: "official" | "proxy";
+  baseUrl: string;
   model?: string;
-  temperature?: number;
-}
-
-export interface Provider {
-  name: string;
-  displayName: string;
-  provider: string;
-  isAvailable: boolean;
-  unavailableReason?: string;
-  models: string[];
-  defaultModel: string;
-  capability: {
-    supportsStreaming: boolean;
-    supportsFileInput: boolean;
-    supportsToolCall: boolean;
-    maxContextTokens: number;
-    tags: string[];
-  };
-}
-
-export interface Settings {
-  anthropicApiKey: string | null;
-  deepseekApiKey: string | null;
-  geminiApiKey: string | null;
-  openaiApiKey: string | null;
-  minimaxApiKey: string | null;
-  glmApiKey: string | null;
-  openaiModel: string;
-  claudeModel: string;
-  deepseekModel: string;
-  geminiModel: string;
-  minimaxModel: string;
-  glmModel: string;
-  orchestratorProvider: string;
-  orchestratorModel: string;
+  apiKey?: string;
+  providerId?: string;
+  providerName?: string;
+  useChatgptAuth?: boolean;
 }
 
 export interface Artifact {
   id: string;
   sessionId: string;
   messageId: string;
+  projectId?: string | null;
   type: "code_diff" | "web_preview" | "document";
   title: string;
   content: string;
   status: "rendering" | "ready" | "error";
   version: number;
   parentArtifactId?: string | null;
+  filePath?: string | null;
+  previewId?: string | null;
+  source?: string | null;
   createdAt: string;
+}
+
+export interface PreviewResult {
+  previewId: string;
+  previewUrl: string;
 }
 
 export interface ArtifactVersion {
@@ -219,6 +280,16 @@ export interface AgentStartEvent {
   callKey?: string;
 }
 
+export interface InteractivePrompt {
+  sessionId: string;
+  agentId: string;
+  agentName: string;
+  messageId: string;
+  processId: string;
+  content: string;
+  promptType: "confirm";
+}
+
 export interface OrchestratorSummaryStartEvent {
   messageId: string;
   sourceType: "orchestrator";
@@ -231,21 +302,4 @@ export interface OrchestratorSummaryStartEvent {
 export interface ChainConfigInput {
   chainName?: string;
   agentOrder?: string[];
-}
-
-export interface SettingsUpdate {
-  anthropicApiKey?: string;
-  deepseekApiKey?: string;
-  geminiApiKey?: string;
-  openaiApiKey?: string;
-  minimaxApiKey?: string;
-  glmApiKey?: string;
-  openaiModel?: string;
-  claudeModel?: string;
-  deepseekModel?: string;
-  geminiModel?: string;
-  minimaxModel?: string;
-  glmModel?: string;
-  orchestratorProvider?: string;
-  orchestratorModel?: string;
 }

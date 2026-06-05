@@ -6,38 +6,110 @@ class TestCreateAgent:
         res = await test_client.post("/api/agents", json={
             "name": "代码审查员",
             "systemPrompt": "你是代码审查专家。",
-            "provider": "deepseek",
-            "model": "deepseek-v4-flash",
+            "cliTool": "claude_code",
+            "executable": "claude",
         })
         assert res.status_code == 201
         data = res.json()
         assert data["name"] == "代码审查员"
         assert data["systemPrompt"] == "你是代码审查专家。"
-        assert data["provider"] == "deepseek"
+        assert data["agentType"] == "cli_wrapper"
+        assert data["cliTool"] == "claude_code"
+        assert data["executable"] == "claude"
         assert "id" in data
 
     async def test_create_defaults(self, test_client):
         res = await test_client.post("/api/agents", json={"name": "Test"})
         assert res.status_code == 201
         data = res.json()
-        assert data["provider"] == "deepseek"
-        assert data["model"] == "deepseek-v4-flash"
-        assert data["temperature"] == 0.7
+        assert data["agentType"] == "cli_wrapper"
+        assert data["cliTool"] == "custom"
+        assert data["initArgs"] == []
 
-    async def test_create_invalid_provider(self, test_client):
+    async def test_rejects_legacy_http_agent_type(self, test_client):
         res = await test_client.post("/api/agents", json={
-            "name": "Bad", "provider": "nonexistent"
+            "name": "Bad", "agentType": "http_provider"
         })
         assert res.status_code == 400
+
+    async def test_agent_env_vars_drop_provider_api_keys(self, test_client):
+        res = await test_client.post("/api/agents", json={
+            "name": "Safe CLI",
+            "cliTool": "custom",
+            "executable": "safe-cli",
+            "envVars": {
+                "ANTHROPIC_API_KEY": "old",
+                "OPENAI_API_KEY": "old",
+                "DEEPSEEK_API_KEY": "internal",
+                "CUSTOM_FLAG": "1",
+            },
+        })
+        assert res.status_code == 201
+        assert res.json()["envVars"] == {"CUSTOM_FLAG": "1"}
+
+    async def test_codex_agent_allows_scoped_proxy_key_only(self, test_client):
+        res = await test_client.post("/api/agents", json={
+            "name": "Codex Proxy",
+            "cliTool": "codex",
+            "executable": "codex",
+            "envVars": {
+                "OPENAI_API_KEY": "old",
+                "AGENTHUB_CODEX_BASE_URL": "https://proxy.example.com/v1",
+                "AGENTHUB_CODEX_API_KEY": "proxy-key",
+                "AGENTHUB_CODEX_MODEL": "gpt-5.5",
+            },
+        })
+        assert res.status_code == 201
+        assert res.json()["envVars"] == {
+            "AGENTHUB_CODEX_BASE_URL": "https://proxy.example.com/v1",
+            "AGENTHUB_CODEX_API_KEY": "proxy-key",
+            "AGENTHUB_CODEX_MODEL": "gpt-5.5",
+        }
+
+    async def test_check_executable(self, test_client):
+        res = await test_client.get("/api/agents/check-executable", params={"path": "definitely-missing-agenthub-cli"})
+        assert res.status_code == 200
+        assert res.json()["found"] is False
+
+    async def test_codex_config_api_writes_local_config_without_returning_key(self, test_client, tmp_path, monkeypatch):
+        monkeypatch.setenv("CODEX_HOME", str(tmp_path / ".codex"))
+
+        res = await test_client.put("/api/agents/codex-config", json={
+            "connection": "proxy",
+            "baseUrl": "https://proxy.example.com",
+            "model": "gpt-5.5",
+            "apiKey": "proxy-key",
+            "providerId": "proxy",
+            "providerName": "Proxy",
+        })
+
+        assert res.status_code == 200
+        data = res.json()
+        assert data["ready"] is True
+        assert data["apiKeySet"] is True
+        assert "proxy-key" not in res.text
+
+        status = await test_client.get("/api/agents/codex-config")
+        assert status.status_code == 200
+        assert status.json()["baseUrl"] == "https://proxy.example.com/v1"
+        assert "proxy-key" not in status.text
 
 
 class TestListAgents:
     async def test_list_has_default_seed(self, test_client):
-        """lifespan 创建默认 Agent，列表非空。"""
+        """lifespan 创建三个默认 CLI Agent。"""
         res = await test_client.get("/api/agents")
         assert res.status_code == 200
         agents = res.json()
-        assert len(agents) >= 1  # lifespan 种子的默认助手
+        names = {agent["name"] for agent in agents}
+        assert {"Claude Code", "Codex", "OpenCode"}.issubset(names)
+        claude = next(agent for agent in agents if agent["name"] == "Claude Code")
+        assert "--verbose" in claude["initArgs"]
+        assert claude["envVars"] == {}
+        codex = next(agent for agent in agents if agent["name"] == "Codex")
+        assert "--ignore-user-config" not in codex["initArgs"]
+        assert "--dangerously-bypass-approvals-and-sandbox" in codex["initArgs"]
+        assert codex["envVars"] == {}
 
     async def test_list_after_create(self, test_client):
         res_before = await test_client.get("/api/agents")
@@ -51,12 +123,12 @@ class TestListAgents:
 class TestUpdateAgent:
     async def test_update_name(self, test_client, test_agent):
         res = await test_client.patch(f"/api/agents/{test_agent.id}", json={
-            "name": "新名称", "temperature": 0.3
+            "name": "新名称", "initArgs": ["--verbose"]
         })
         assert res.status_code == 200
         data = res.json()
         assert data["name"] == "新名称"
-        assert data["temperature"] == 0.3
+        assert data["initArgs"] == ["--verbose"]
 
     async def test_update_nonexistent(self, test_client):
         res = await test_client.patch("/api/agents/nonexistent", json={"name": "X"})

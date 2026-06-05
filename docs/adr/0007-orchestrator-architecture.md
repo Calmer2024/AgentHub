@@ -4,6 +4,8 @@
 **Status**: Accepted (finalized 2026-06-01)
 **Replaces**: ADR-0005 §2 (Message Service Contract, partial), Phase 3 Spec §5.1
 
+> **2026-06-04 修订说明**：本 ADR 记录 Phase 3 Orchestrator 设计时的历史语境，其中“Agent 底层调用多家 HTTP 模型厂商”“orchestratorProvider/orchestratorModel”等表述已被 [ADR-0009](0009-project-workspace-model.md) 和 [PRD-01](../PRD/01-Architecture_Adapter.md) 覆盖。当前产品口径是：用户可见 Agent 只代表本机 CLI 工具实例；DeepSeek 只作为后端内部系统模型能力，用于标题生成、中枢总结和产物编辑辅助。
+
 ---
 
 ## 1. Context

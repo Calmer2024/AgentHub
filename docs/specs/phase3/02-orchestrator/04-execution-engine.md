@@ -58,8 +58,8 @@ async def execute(calls, mode, dag_phases=None, shared_context=None):
 流程:
   1. EventBus: AGENT_CALL_STARTED
   2. 角色 Prompt 注入 (call.role_prompt_override → 追加到 system_prompt)
-  3. agent_registry.get_adapter(provider) → adapter
-  4. asyncio.timeout(60s): async for token in adapter.chat_stream()
+  3. CliAgentCallRunner → 对应 CLI adapter
+  4. async for event in adapter.stream()
   5. 每个 token → TokenEvent(agent_id, agent_name, token)
   6. EventBus: AGENT_CALL_COMPLETED
   7. TokenEvent(done=True)
@@ -142,7 +142,7 @@ emit task_completed(phases_completed)
 
 | 场景 | 触发条件 | 用户看到 | 实现位置 |
 |------|---------|---------|---------|
-| Agent 不可用 | `agent_registry.get_adapter` 返回 None | 红色气泡 `[Agent名 不可用]` | `_execute_single` L118-125 |
+| Agent 不可用 | CLI executable 缺失或会话无 Project workspace | 红色气泡 `[Agent名 不可用]` | `_execute_single` |
 | 超时 60s | `asyncio.timeout` 触发 TimeoutError | 黄色气泡 `[Agent名 响应超时]` | `_execute_single` L127-146 |
 | Agent 异常 | `adapter.chat_stream()` 抛异常 | 红色气泡 `[Agent名 错误: {msg}]` | `_execute_single` L148-155 |
 | 并行部分失败 | 并行中个别 Agent 失败 | 成功的不受影响 | `_execute_single` 异常隔离 |

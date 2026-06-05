@@ -2,13 +2,17 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
-import type { Message, ReplyReference } from "../types";
+import { Info, Loader2, Pin } from "lucide-react";
+import type { AgentConfig, Message, ReplyReference } from "../types";
 import { MessageActions } from "./MessageActions";
 import { ReplyPreview } from "./ReplyPreview";
+import { ExecutionTracePanel } from "./ExecutionTracePanel";
+import { AgentAvatar } from "./AgentAvatar";
 
 interface Props {
   message: Message;
   isStreaming: boolean;
+  agent?: AgentConfig | null;
   parentMessage?: Message | null;
   highlighted?: boolean;
   onReply: (message: Message) => void;
@@ -64,13 +68,39 @@ function TypingIndicator() {
   );
 }
 
+function EmptyAssistantReply() {
+  return (
+    <p className="inline-flex items-center gap-2 text-sm text-zinc-400">
+      <Info size={14} aria-hidden="true" />
+      <span>未返回可见回复</span>
+    </p>
+  );
+}
+
+function StreamingStatus() {
+  return (
+    <div className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-sky-300/15 bg-sky-300/10 px-2 py-1 text-[11px] text-sky-100">
+      <Loader2 size={12} className="animate-spin" aria-hidden="true" />
+      <span>正在生成</span>
+    </div>
+  );
+}
+
 export function MessageBubble({
-  message, isStreaming, parentMessage, highlighted = false,
+  message, isStreaming, agent, parentMessage, highlighted = false,
   onReply, onRegenerate, onTogglePin, onCopy, onJumpToMessage,
 }: Props) {
   const isUser = message.role === "user";
   const isEmpty = message.content === "";
-  const showTyping = !isUser && isEmpty && isStreaming;
+  const traceStatus = message.metadata?.executionTrace?.status;
+  const isLocalPending = message.id.startsWith("local-");
+  const showTyping = !isUser && isEmpty && (
+    traceStatus === "running" || (!traceStatus && isStreaming && isLocalPending)
+  );
+  const showEmptyAssistant = !isUser && isEmpty;
+  const showStreamingStatus = !isUser && !isEmpty && (
+    traceStatus === "running" || (!traceStatus && isStreaming && isLocalPending)
+  );
   const isSummary = message.sourceType === "orchestrator" || message.contentType === "orchestrator_summary";
   const isCollaborating = Boolean(message.isCollaborating || message.agentRole);
   const roleStyle = message.agentRole
@@ -78,14 +108,11 @@ export function MessageBubble({
     : ROLE_STYLES.executor;
 
   const bgClass = isUser
-    ? "bg-blue-600 text-white justify-end"
-    : "bg-gray-100 text-gray-900 justify-start";
-  const roundClass = isUser ? "rounded-2xl rounded-tr-none" : "rounded-2xl rounded-tl-none";
-  const summaryClass = "border border-indigo-200 bg-indigo-50 text-slate-900 shadow-sm";
+    ? "bg-[#2f7cf6] text-white shadow-[0_12px_28px_rgba(47,124,246,0.28)]"
+    : "border border-white/10 bg-[#1d2733]/95 text-[#ececf1] shadow-[0_14px_34px_rgba(0,0,0,0.18)]";
+  const roundClass = isUser ? "rounded-[20px] rounded-br-md" : "rounded-[20px] rounded-bl-md";
+  const summaryClass = "border border-indigo-300/25 bg-indigo-950/25 text-[#ececf1] shadow-sm";
 
-  const agentColors = ["bg-green-100 text-green-700", "bg-orange-100 text-orange-700", "bg-purple-100 text-purple-700", "bg-pink-100 text-pink-700", "bg-teal-100 text-teal-700", "bg-indigo-100 text-indigo-700", "bg-cyan-100 text-cyan-700", "bg-amber-100 text-amber-700"];
-  const colorIdx = message.agentName ? [...message.agentName].reduce((s, c) => s + c.charCodeAt(0), 0) % agentColors.length : 0;
-  const agentColor = agentColors[colorIdx];
   const hasPreviousVersion = Array.isArray(message.metadata?.versions)
     && message.metadata.versions.length > 0;
   const versions = (message.metadata?.versions ?? []) as Array<{ content?: string }>;
@@ -93,12 +120,27 @@ export function MessageBubble({
     ? String(versions[versions.length - 1]?.content ?? "")
     : "";
   const referencedMessage = parentMessage ?? replyReference(message);
+  const avatarKind = isUser
+    ? "user"
+    : isSummary
+      ? "system"
+      : "agent";
+  const avatarName = isUser
+    ? "用户"
+    : message.agentName ?? message.sourceName ?? "AI";
 
   return (
-    <div className={`group relative flex mb-4 scroll-mt-6 ${isUser ? "justify-end" : "justify-start"} ${
-      highlighted ? "rounded-xl bg-yellow-100/70 ring-2 ring-yellow-300" : ""
-    }`}>
-      <div className={`${isSummary ? "max-w-[92%]" : "max-w-[80%]"} relative ${
+    <div className={`group relative mb-4 flex scroll-mt-6 items-end gap-2.5 transition ${
+      isUser ? "flex-row-reverse justify-start" : "justify-start"
+    } ${highlighted ? "rounded-2xl bg-yellow-100/10 ring-2 ring-yellow-300/60" : ""}`}>
+      <AgentAvatar
+        agent={avatarKind === "agent" ? agent : null}
+        name={avatarName}
+        kind={avatarKind}
+        size="md"
+        className="mb-0.5"
+      />
+      <div className={`${isSummary ? "max-w-[92%]" : "max-w-[min(78%,860px)]"} relative transition-transform duration-150 group-hover:-translate-y-0.5 ${
         isSummary ? summaryClass : isCollaborating && !isUser ? `border-l-4 ${roleStyle}` : bgClass
       } ${roundClass}`}>
         <MessageActions
@@ -109,13 +151,13 @@ export function MessageBubble({
           onCopy={onCopy}
         />
         {!isUser && isSummary && (
-          <div className="sticky top-0 z-10 px-3 py-2 text-xs font-semibold rounded-t-2xl bg-indigo-100/95 text-indigo-900 border-b border-indigo-200 shadow-sm">
+          <div className="sticky top-0 z-10 px-3 py-2 text-xs font-semibold rounded-t-[20px] bg-indigo-100/95 text-indigo-900 border-b border-indigo-200 shadow-sm">
             <span>系统整理</span>
             <span className="ml-2 text-indigo-600">{message.sourceName ?? "Orchestrator 中枢"}</span>
           </div>
         )}
         {!isUser && !isSummary && message.agentName && (
-          <div className={`px-3 py-1 text-xs font-medium rounded-t-2xl ${isCollaborating ? "bg-white/70 text-slate-700" : agentColor}`}>
+          <div className={`px-3 py-1.5 text-xs font-medium rounded-t-[20px] ${isCollaborating ? "bg-white/70 text-slate-700" : "border-b border-white/10 bg-white/[0.04] text-zinc-300"}`}>
             <span>@{message.agentName}</span>
             {message.agentRole && (
               <span className={`ml-2 px-1.5 py-0.5 rounded border ${roleStyle}`}>
@@ -129,8 +171,8 @@ export function MessageBubble({
         )}
         <div className="px-4 py-3">
         {message.isPinned && (
-          <div className={`mb-2 text-xs font-medium ${isUser ? "text-blue-100" : "text-blue-600"}`}>
-            Pin
+          <div className={`mb-2 text-xs font-medium ${isUser ? "text-blue-100" : "text-sky-300"}`}>
+            <Pin size={13} aria-label="已 Pin" />
           </div>
         )}
         {message.parentMessageId && (
@@ -142,12 +184,12 @@ export function MessageBubble({
         )}
         {showTyping ? (
           <TypingIndicator />
-        ) : isEmpty ? (
-          <p className="text-gray-400 italic">...</p>
         ) : isUser ? (
           <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
+        ) : showEmptyAssistant ? (
+          <EmptyAssistantReply />
         ) : (
-          <div className="prose prose-sm max-w-none dark:prose-invert [&_pre]:!bg-[#282c34] [&_pre]:!rounded-xl [&_pre]:!p-4 [&_code]:text-sm [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_h1]:text-lg [&_h2]:text-base [&_h3]:text-sm [&_blockquote]:border-l-2 [&_blockquote]:border-gray-300 [&_blockquote]:pl-3 [&_blockquote]:text-gray-500 [&_a]:text-blue-500 [&_a]:underline [&_table]:w-full [&_table]:border-collapse [&_th]:border [&_th]:border-gray-300 [&_th]:px-2 [&_th]:py-1 [&_th]:bg-gray-50 [&_td]:border [&_td]:border-gray-300 [&_td]:px-2 [&_td]:py-1">
+          <div className="agent-markdown max-w-none">
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
               components={{
@@ -190,10 +232,14 @@ export function MessageBubble({
           </div>
         )}
         {hasPreviousVersion && previousVersion && (
-          <details className="mt-3 rounded-md bg-white/70 px-3 py-2 text-xs text-slate-600">
+          <details className="mt-3 rounded-md bg-white/[0.06] px-3 py-2 text-xs text-zinc-300">
             <summary className="cursor-pointer font-medium">查看原版</summary>
             <p className="mt-2 whitespace-pre-wrap">{previousVersion}</p>
           </details>
+        )}
+        {showStreamingStatus && <StreamingStatus />}
+        {!isUser && (
+          <ExecutionTracePanel trace={message.metadata?.executionTrace} />
         )}
         </div>
       </div>

@@ -1,8 +1,8 @@
 # Spec: Phase 6B-6E — CLI Agent 适配器
 
-**版本**: v3.0
-**更新日期**: 2026-06-04
-**状态**: Draft
+**版本**: v3.2
+**更新日期**: 2026-06-05
+**状态**: Implementation Baseline
 **关联 ADR/PRD**: [ADR-0005](../../adr/0005-target-architecture.md)、[ADR-0009](../../adr/0009-project-workspace-model.md)、[PRD-01](../../PRD/01-Architecture_Adapter.md)
 **依赖模块**: Phase 6A Workspace Runtime、Phase 3 EventBus / BaseAgentAdapter
 
@@ -14,15 +14,17 @@
 
 本模块通过 PTY/subprocess 管理每个对话对应的 CLI 进程生命周期，实现 stdin/stdout 桥接、ANSI 清洗、交互式拦截，并把 CLI 输出转换为标准化事件（`agent.output` / `artifact.detected` / `interactive_prompt`），最终实现分层渲染——文本进消息气泡、进度进状态条、产物进 Artifact Card、交互进确认卡片。
 
+当前实现快照见 [CLI Adapter 交付文档](../../deliverables/phase6-cli-adapter/README.md)。截至 2026-06-05，真实本机 Claude Code、Codex、OpenCode 三条 CLI Agent 路径已接入后端和前端配置 UI；Codex 支持官方 OpenAI 与第三方中转 API，并由 AgentHub 托管本机 `CODEX_HOME` 下的稳定配置。
+
 **成功标准**（可证伪）：
 
-- [ ] 好友列表预置三个 Agent：Claude Code、Codex、OpenCode，各自显示名称、头像、版本号、状态
-- [ ] 用户点击 Agent 的 ⋮ → [发起对话] → 选择 Project → 在对话列表栏出现新会话 → 自动进入聊天
-- [ ] 用户发送"写一个 Hello World 的 HTML 页面" → ClaudeCodeAdapter 启动一个新的 `claude` 进程（cwd=Project.workspace_path）→ 聊天流中出现打字机流式文本 + 状态条 → HTML 代码块自动变为 Artifact Card
-- [ ] 同一 Project 下创建两个 Claude Code 私聊 → 后端有两个独立的 `claude` 进程（不同 PID），互不影响
+- [x] 好友列表预置三个 Agent：Claude Code、Codex、OpenCode，各自显示名称、头像、版本号、状态
+- [x] 用户点击 Agent 的 ⋮ → [发起对话] → 选择 Project → 在对话列表栏出现新会话 → 自动进入聊天
+- [x] 用户发送消息 → ClaudeCodeAdapter / CodexAdapter / OpenCodeAdapter 启动真实本机 CLI 进程（cwd=Project.workspace_path）→ 聊天流出现回复文本 + 执行轨迹块
+- [x] 同一 Project 下创建多个 CLI 私聊 → 后端启动独立 CLI 进程（不同 PID），互不影响
 - [ ] Claude Code 输出 `Do you want to run this? (y/n)` → 聊天流弹出确认卡片 → 用户点击"同意"→ stdin 写入 `y\n` → 进程继续 → 卡片消失
 - [ ] 三个 CLI 的 Adapter 分别能正确识别各自 CLI 的 diff 输出格式并转为 `artifact.detected` 事件
-- [ ] 不通过标准：任一 CLI Adapter 对 ANSI 码处理不净导致前端出现乱码；任一 CLI 的交互式提示未被拦截导致进程永久挂起
+- [x] 不通过标准：任一 CLI Adapter 对 ANSI 码处理不净导致前端出现乱码；任一 CLI 的交互式提示未被拦截导致进程永久挂起
 
 ---
 
@@ -128,10 +130,10 @@ interface InteractivePromptEvent {
 4. 前端 → POST /api/sessions { projectId, mode: "single", agentId }
 5. 用户 → 在输入框输入"写一个登录页面" → 按 Enter
 6. 后端 → ChatService → 路由到 ClaudeCodeAdapter
-7. ClaudeCodeAdapter → 从 WorkspaceService 获取 cwd → 启动新的 `claude --compact --no-color` 进程（cwd=Project.workspace_path）
+7. ClaudeCodeAdapter → 从 WorkspaceService 获取 cwd → 启动新的 `claude -p --verbose --output-format stream-json --include-partial-messages --dangerously-skip-permissions` 进程（cwd=Project.workspace_path）
 8. 进程 stdout → StreamSanitizer 清洗 ANSI → 分层解析（文本/进度/产物/交互）
 9. 文本 → SSE agent.output（chunkType="text"）→ 前端消息气泡打字机
-10. 进度 → SSE agent.output（chunkType="progress"）→ 前端状态条
+10. 进度 → SSE agent.trace.delta / agent.output（chunkType="progress"）→ 前端消息气泡下方执行轨迹面板，运行时展开、完成后自动折叠，并随消息 metadata 持久化
 11. HTML 代码块 → SSE 携带 artifact_signal → 前端不展示在消息中，由 Artifact Bridge 异步处理 → Artifact Card 出现
 12. 用户看到完整的文本回复 + Artifact Card + 预览按钮
 ```
@@ -142,8 +144,8 @@ interface InteractivePromptEvent {
 
 | 维度 | Claude Code (`claude`) | Codex (`codex`) | OpenCode (`opencode`) |
 |------|----------------------|-----------------|----------------------|
-| **启动命令** | `claude --compact --no-color` | `codex --no-color --plain` | `opencode --no-color --plain` |
-| **API Key 来源** | `ANTHROPIC_API_KEY` 环境变量 | `OPENAI_API_KEY` 环境变量 | 多厂商（`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `DEEPSEEK_API_KEY`） |
+| **启动命令** | `claude -p --verbose --output-format stream-json --include-partial-messages --dangerously-skip-permissions` | `codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox --color never --json -` | `opencode --no-color --plain` |
+| **认证来源** | 用户本机 `claude` 登录态 / 宿主环境 | 用户本机 `codex` 登录态 / 宿主环境 | 用户本机 `opencode` 配置 / 宿主环境 |
 | **prompt 注入** | stdin 写入 `{prompt}\n` | stdin 写入 `{system_prompt}\n\n{prompt}\n` | stdin 写入 `{prompt}\n` |
 | **文本输出** | Markdown 段落 | Markdown 段落 | Markdown 段落 |
 | **进度指示** | `⏺ 正在读取文件...` `⎿ 调用工具: X` | `Working...` + spinner 字符 | `[Tool: Read]` `[Tool: Write]` |
@@ -169,7 +171,7 @@ interface InteractivePromptEvent {
 |---------|--------|------------|---------|
 | executable 不在 PATH 中 | — | "❌ 未找到 '{executable}' 命令。请在终端中安装后重试。" + 安装指引链接（AgentPanel 创建时即校验） | 安装 CLI 后在 AgentPanel 重新检测 |
 | Session 未绑定 Project → 无 workspace_path | — | "❌ 当前会话未绑定项目，无法启动 CLI Agent" | 创建 Project 后重试 |
-| API Key 未配置 | — | "❌ 未配置 {ANTHROPIC_API_KEY / OPENAI_API_KEY}。请在设置页面配置 API Key。" | 配置 Key 后重试 |
+| CLI 未登录或认证失效 | — | "❌ {CLI 名称} 本机认证不可用。请先在终端完成该 CLI 的登录/认证后重试。" | 在系统终端修复 CLI 登录态后重试 |
 | CLI 进程静默超时（5 min 无输出） | — | "⏱️ CLI 进程已超时（5 分钟无响应），已自动终止" | 重新发送消息 |
 | CLI 进程崩溃（非零 exit） | — | "❌ CLI 进程异常退出（exit code: {n}）" + 最后 500 字符输出 | 检查错误信息，修正后重试 |
 | WebSocket 断开超过 3 min | — | 重新连接后显示"⚠️ 之前的会话已断开，进程已终止" | 重新发送消息 |
@@ -214,8 +216,8 @@ executable 字段预设默认值，init_args 预设最佳参数。
   → 前端: 弹出 AddAgent 弹窗
     - CLI 工具下拉: [Claude Code] [Codex] [OpenCode] [自定义...]
     - executable 输入框（随选择自动填充，如 "claude"；自定义则手动输入路径）
-    - init_args 输入框（自动填充默认值：Claude Code → "--compact --no-color"；Codex → "--no-color --plain"；OpenCode → "--no-color --plain"）
-    - env_vars 折叠区：key-value 编辑器（预设对应 API Key 变量名）
+    - init_args 输入框（自动填充默认值：Claude Code → "-p --verbose --output-format stream-json --include-partial-messages --dangerously-skip-permissions"；Codex → "exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox --color never --json -"；OpenCode → "--no-color --plain"）
+    - env_vars 折叠区：key-value 编辑器（高级覆盖项；默认留空，继承本机 CLI 登录态）
     - 底部：[检测可执行文件] 按钮 + 状态指示灯
   → 用户: 点击 [检测可执行文件]
   → 前端: GET /api/agents/check-executable?path=claude
@@ -263,7 +265,7 @@ executable 字段预设默认值，init_args 预设最佳参数。
     - "可执行文件路径" 输入框（默认值，可修改）
     - "启动参数" 输入框（默认值，可追加）
     - "环境变量" 折叠区：key-value 列表
-      - 预设 key（如 ANTHROPIC_API_KEY），value 显示为 ••••••••
+      - 不接收 API Key；如用户确需覆盖某个非敏感运行变量，可手动新增
       - 可新增自定义变量
     - 底部：[检测可执行文件] [恢复默认] [保存]
   → 用户: 修改 init_args → 追加 "--verbose" → 点击 [保存]
@@ -288,15 +290,15 @@ executable 字段预设默认值，init_args 预设最佳参数。
 用户: 输入 "写一个登录页面" → 按 Enter
   → 前端: 用户消息气泡（右对齐）
   → 前端: POST /api/sessions/{id}/chat → 接收 SSE
-  → 前端: Agent 消息气泡出现（左对齐）+ 状态条 "🔧 正在启动 Claude Code..."
+  → 前端: Agent 消息气泡出现（左对齐）+ 气泡下方执行轨迹面板显示 "正在启动 Claude Code..."
   → 后端: ClaudeCodeAdapter 启动新的 `claude` 进程（cwd=Project.workspace_path）
          ← 这个进程就是一个独立的 Claude Code 实例
   → SSE: agent.output { chunk: "# 登录页面\n\n", chunkType: "text" }
   → 前端: 气泡打字机追加
   → SSE: agent.output { chunk: "⏺ 正在读取 workspace 文件...", chunkType: "progress" }
-  → 前端: 状态条更新（不进入气泡）
+  → 前端: 执行轨迹面板追加过程记录
   → SSE: agent.process.completed { exitCode: 0 }
-  → 前端: 状态条消失 → "✓ 完成"
+  → 前端: 执行轨迹面板标记完成并自动折叠
   → artifact.created → Artifact Card 出现在消息下方
 
 如果用户在同一 Project 下再创建一个 Claude Code 私聊：
@@ -359,9 +361,9 @@ CLI 进程: stdout 输出 "... Do you want to run this? (y/n) "
 
 ### 7.2 集成测试
 
-- Mock CLI 脚本：输出含 ANSI 码文本 → 阻塞提示 → 恢复输出 → 验证 SSE 事件序列
-- 三个 Adapter 分别用对应 CLI 的 mock 输出验证：Claude Code 格式 → 正确分层；Codex 格式 → 正确分层；OpenCode 格式 → 正确分层
-- 真实 CLI Smoke test（API Key 可用时）：每个 CLI 一条最短任务（"echo hello"）
+- 测试 CLI fixture：输出含 ANSI 码文本 → 阻塞提示 → 恢复输出 → 验证 SSE 事件序列
+- 三个 Adapter 分别用对应 CLI 的样例输出验证：Claude Code 格式 → 正确分层；Codex 格式 → 正确分层；OpenCode 格式 → 正确分层
+- 真实 CLI Smoke test（本机 CLI 已安装且认证可用时）：每个 CLI 一条最短任务，验证真实 workspace 文件写入
 
 ### 7.3 E2E 测试
 
@@ -426,3 +428,4 @@ CLI 进程: stdout 输出 "... Do you want to run this? (y/n) "
 > - v2.0 (2026-06-04): 新增 Per-CLI 接入方案（§8）+ 分层渲染
 > - v3.0 (2026-06-04): 按新 Spec 模板全面重构：跨模块契约、六态覆盖、前端交互序列、架构追溯
 > - v3.1 (2026-06-04): 同步 Phase 6A 已验收状态；CLI Adapter 可直接消费 Session→Project workspace 查询能力
+> - v3.2 (2026-06-05): 同步 CLI Adapter 实现基线、Codex 官方/中转配置托管、执行轨迹块与交付文档

@@ -153,8 +153,8 @@ os.environ.setdefault("DEEPSEEK_API_KEY", "sk-test-dummy-key-...")  # 虚拟 key
 ```
 
 - 测试使用 **文件数据库**（系统临时目录），执行完整 lifespan（create_all + migrations + EventBus）。
-- API Key 使用虚拟值（通过 `is_available()` 格式校验但不发起真实网络请求）。
-- Agent Adapter 使用真实实例注册，仅 `chat/chat_stream` 方法用 MockAgent 替代。
+- 只默认设置 DeepSeek 系统模型虚拟 Key；用户可见 Agent 不再默认注入厂商 API Key。
+- CLI Agent 测试使用 fixture CLI 脚本走真实 subprocess 路径；系统 LLM 测试在 `system_llm` service seam 注入 fake。
 - WAL 模式避免多连接锁冲突，每测试后 DELETE 清理数据。
 - 所有测试异步 (`pytest-asyncio`)。
 
@@ -242,19 +242,20 @@ e2e/                                   ← E2E 测试（从 Phase 2 开始强制
 
 ## 5. 测试数据与 Mock 规范
 
-### 5.1 后端 Mock
+### 5.1 后端 Fake
 
 ```python
-# MockAgent 实现 BaseAgentAdapter，通过真实 registry 注册
-# registry 结构保持完整，is_available() 走真实代码路径
-class MockAgent(BaseAgentAdapter):
-    async def chat_stream(self, messages, system_prompt, model=None, tools=None):
-        for token in ["Hello", ", ", "World", "!"]:
-            yield token
+# CLI Agent: 用一个真实 Python 脚本作为 executable，仍走 subprocess/stdin/stdout。
+agent = AgentConfig(
+    agent_type="cli_wrapper",
+    cli_tool="custom",
+    executable=sys.executable,
+    init_args=json.dumps([str(fixture_cli)]),
+    env_vars="{}",
+)
 
-# 在 test_client fixture 中逐 adapter 替换，保留 registry 结构
-for provider in agent_registry._adapters:
-    agent_registry._adapters[provider] = mock_agent
+# System LLM: 在 service seam 注入 fake，不恢复旧 provider registry。
+monkeypatch.setattr(artifact_service_module, "system_llm", FakeSystemLLM())
 ```
 
 ### 5.2 前端 Mock
@@ -361,9 +362,9 @@ async def test_sse_events_are_valid_json(client, db_session):
 | `engine.begin()` DDL in lifespan | 启动时 SQLite 报错，生产不可用 | 测试触发 lifespan，立即失败 |
 | 文件 DB 跨测试数据泄漏 | 测试之间互相影响结果 | `_cleanup_db` autouse fixture DELETE 所有表 |
 | FTS5 触发器影响 DELETE | SQL logic error | 清理前 `PRAGMA foreign_keys=OFF` |
-| `asyncio.wait_for(async_gen)` | 全部 Agent 抛 `TypeError: 'async for' requires __aiter__` | **任何对 async generator 添加超时的位置必须用 `async with asyncio.timeout(seconds):` 而非 `asyncio.wait_for(generator, timeout)`。** `wait_for()` 只接受 coroutine (有 `__await__`)，不接受 async generator (有 `__aiter__`)。此 Bug 难以被 mock 发现 — MockAgent 的 `chat_stream` 同样是 async generator，但只有 group chat 路径经过 `AgentExecutor._execute_single()` 才会触发，single chat 路径直接调 adapter 不受影响。检测方式：对 group chat 发送消息的 API 测试 (MockAgent + SSE token 累积验证)。 |
+| `asyncio.wait_for(async_gen)` | 全部 Agent 抛 `TypeError: 'async for' requires __aiter__` | **任何对 async generator 添加超时的位置必须用 `async with asyncio.timeout(seconds):` 而非 `asyncio.wait_for(generator, timeout)`。** `wait_for()` 只接受 coroutine (有 `__await__`)，不接受 async generator (有 `__aiter__`)。检测方式：用 fixture CLI 覆盖 group chat 的 `AgentExecutor._execute_single()` 路径并累积 SSE token。 |
 | 测试只覆盖一条模式分支 | 所有测试通过但人工验收崩溃 | **列出端点内所有 if/switch 分支（如 `mode=single` vs `mode=group`），逐条确认每个分支都有至少 1 个测试。** 仅靠 "单聊测试" 不能保证 "群聊" 也正常 — 它们走的是不同的代码路径。**检查方法**: 阅读端点的源码，圈出所有 `if mode ==` / `if session.mode ==` 分支，在测试文件中搜索对应的测试用例名。 |
-| 能力声明与真实实现不一致 | Service 判断 `supports_tool_call=True`，但 adapter 没有把 `tools` 传给供应商 | **能力声明必须可兑现。** Phase 5 后，支持工具调用的 adapter 必须有测试验证 `chat(..., tools=[...])` 真实传参并解析 `tool_calls`；未实现者应声明 `supports_tool_call=False`，由 Service 降级。 |
+| 能力声明与真实实现不一致 | Service 判断 `supports_tool_call=True`，但系统模型没有把 `tools` 传给 DeepSeek | **能力声明必须可兑现。** Phase 5 后，系统 LLM 的工具调用路径必须测试 `chat(..., tools=[...])` 传参并解析 `tool_calls`；不可用时由 Service 降级。 |
 | 版本链列表污染当前产物 | 会话产物列表显示 v1/v2 多张重复卡 | **会话产物列表只返回版本链头节点**；历史版本通过 `/artifacts/{id}/versions` 查询。API 测试必须覆盖这一语义。 |
 | 旧进程仍在服务旧代码 | 单元测试通过，但浏览器/API 访问不到新增接口 | **每轮结束必须清理旧进程并重启新服务。** 检查端口监听进程、OpenAPI、前端 `/api` 代理和真实服务关键路径；最终回复必须给出访问地址。 |
 

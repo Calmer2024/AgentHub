@@ -22,18 +22,10 @@ except Exception as e:
     traceback.print_exc()
 
 try:
-    from app.agents.base import BaseAgentAdapter
-    print("✅ base agent OK")
+    from app.system_models import DeepSeekSystemAdapter
+    print("✅ DeepSeek system adapter OK")
 except Exception as e:
-    print(f"❌ base agent FAILED: {type(e).__name__}: {e}")
-    import traceback
-    traceback.print_exc()
-
-try:
-    from app.agents.deepseek_adapter import DeepSeekAdapter
-    print("✅ DeepSeekAdapter OK")
-except Exception as e:
-    print(f"❌ DeepSeekAdapter FAILED: {type(e).__name__}: {e}")
+    print(f"❌ DeepSeek system adapter FAILED: {type(e).__name__}: {e}")
     import traceback
     traceback.print_exc()
 

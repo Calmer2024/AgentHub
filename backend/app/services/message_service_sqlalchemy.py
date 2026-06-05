@@ -10,10 +10,11 @@ from sqlalchemy import Select, select, text
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..agents.registry import agent_registry
 from ..domain.context_manager import ContextManager, PromptAssemblyInput
 from ..models import AgentConfig, Message as DBMessage, Session as DBSession
+from .cli_agent_service import CliAgentService
 from .message_service import MessageService
+from .project_service import ProjectService, ProjectNotFoundError
 from .schemas import MessageCreate, MessageRead
 
 REGENERATE_TIMEOUT_SECONDS = 60
@@ -41,7 +42,7 @@ class SqlAlchemyMessageService(MessageService):
         stmt: Select[tuple[DBMessage]] = (
             select(DBMessage)
             .where(DBMessage.session_id == session_id)
-            .order_by(DBMessage.created_at.asc())
+            .order_by(DBMessage.created_at.asc(), DBMessage.id.asc())
             .limit(limit)
         )
         if before:
@@ -96,18 +97,37 @@ class SqlAlchemyMessageService(MessageService):
             yield self._sse({"done": True, "error": "agent not found for message"})
             return
 
-        adapter = agent_registry.get_adapter(agent_config.provider)
-        if not adapter or not agent_registry.is_available(agent_config.provider):
-            yield self._sse({"done": True, "error": f"供应商 {agent_config.provider} 不可用"})
+        history, pinned_ids = await self.history_for_session(message.session_id, before_message_id=message.id)
+        if (agent_config.agent_type or "cli_wrapper") != "cli_wrapper":
+            yield self._sse({
+                "done": True,
+                "error": f"Agent {agent_config.name} 不是 CLI Wrapper 类型，不能重新生成",
+            })
             return
 
-        history, pinned_ids = await self.history_for_session(message.session_id, before_message_id=message.id)
+        async for item in self._regenerate_cli_message(message, session, agent_config, history, pinned_ids):
+            yield item
+
+    async def _regenerate_cli_message(
+        self,
+        message: DBMessage,
+        session: DBSession,
+        agent_config: AgentConfig,
+        history: list[dict],
+        pinned_ids: list[str],
+    ) -> AsyncIterator[str]:
+        try:
+            workspace_path = await ProjectService(self.db).get_workspace_path_for_session(message.session_id)
+        except ProjectNotFoundError:
+            yield self._sse({"token": "", "done": True, "error": "当前会话未绑定项目，无法启动 CLI Agent", "messageId": message.id})
+            return
+
         assembled = self.context_manager.assemble(PromptAssemblyInput(
             session_id=message.session_id,
             system_prompt=agent_config.system_prompt or "",
             messages=history,
             pinned_message_ids=pinned_ids,
-            max_tokens=adapter.capability.max_context_tokens,
+            max_tokens=100_000,
         ))
         adapter_messages, system_prompt = _split_system_prompt(
             assembled.assembled_messages,
@@ -116,20 +136,45 @@ class SqlAlchemyMessageService(MessageService):
 
         original = message.content
         full = ""
+        exit_code = None
         try:
             async with asyncio.timeout(REGENERATE_TIMEOUT_SECONDS):
-                async for token in adapter.chat_stream(
+                async for event in CliAgentService().stream(
+                    agent=agent_config,
+                    session_id=message.session_id,
+                    workspace_path=workspace_path,
                     messages=adapter_messages,
                     system_prompt=system_prompt,
-                    model=agent_config.model or None,
                 ):
-                    full += token
-                    yield self._sse({"token": token, "done": False, "messageId": message.id})
+                    if event.type == "agent.output":
+                        if event.chunk_type in {"text", "artifact_signal"}:
+                            full += event.chunk
+                            token = event.chunk if event.chunk_type == "text" else ""
+                            yield self._sse({"token": token, "done": False, "messageId": message.id})
+                    elif event.type == "agent.process.completed":
+                        exit_code = event.exit_code
+                    elif event.type in {"agent.process.timeout", "error"}:
+                        yield self._sse({
+                            "token": "",
+                            "done": True,
+                            "error": event.error or "CLI Agent 执行失败",
+                            "messageId": message.id,
+                        })
+                        return
         except TimeoutError:
             yield self._sse({"token": "", "done": True, "error": "重新生成超时", "messageId": message.id})
             return
         except Exception as exc:
             yield self._sse({"token": "", "done": True, "error": f"{type(exc).__name__}: {exc}", "messageId": message.id})
+            return
+
+        if exit_code not in (0, None):
+            yield self._sse({
+                "token": "",
+                "done": True,
+                "error": f"CLI 进程异常退出（exit code: {exit_code}）",
+                "messageId": message.id,
+            })
             return
 
         metadata = _metadata_dict(message)
@@ -170,7 +215,7 @@ class SqlAlchemyMessageService(MessageService):
         result = await self.db.execute(
             select(DBMessage)
             .where(DBMessage.session_id == session_id, DBMessage.is_pinned == "1")
-            .order_by(DBMessage.created_at.asc())
+            .order_by(DBMessage.created_at.asc(), DBMessage.id.asc())
         )
         return [message_to_read(m) for m in result.scalars().all()]
 
@@ -202,7 +247,7 @@ class SqlAlchemyMessageService(MessageService):
         recent_result = await self.db.execute(
             select(DBMessage)
             .where(*filters)
-            .order_by(DBMessage.created_at.desc())
+            .order_by(DBMessage.created_at.desc(), DBMessage.id.desc())
             .limit(limit)
         )
         recent = list(recent_result.scalars().all())
@@ -210,12 +255,12 @@ class SqlAlchemyMessageService(MessageService):
         pinned_result = await self.db.execute(
             select(DBMessage)
             .where(*filters, DBMessage.is_pinned == "1")
-            .order_by(DBMessage.created_at.asc())
+            .order_by(DBMessage.created_at.asc(), DBMessage.id.asc())
         )
         pinned = list(pinned_result.scalars().all())
 
         by_id = {m.id: m for m in [*recent, *pinned]}
-        messages = sorted(by_id.values(), key=lambda m: m.created_at or datetime.min)
+        messages = sorted(by_id.values(), key=lambda m: (m.created_at or datetime.min, m.id))
 
         parent_lookup = dict(by_id)
         for message in messages:
@@ -257,7 +302,7 @@ class SqlAlchemyMessageService(MessageService):
         result = await self.db.execute(
             select(DBMessage)
             .where(DBMessage.session_id == session_id, DBMessage.content.like(like))
-            .order_by(DBMessage.created_at.desc())
+            .order_by(DBMessage.created_at.desc(), DBMessage.id.desc())
             .limit(limit)
         )
         return [

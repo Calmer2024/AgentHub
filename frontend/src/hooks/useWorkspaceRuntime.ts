@@ -4,18 +4,18 @@ import {
   createGroupSession,
   createProject,
   createSession,
+  deleteProject,
   deleteSession,
   fetchAgents,
   fetchArtifacts,
   fetchMessages,
   fetchProjects,
-  fetchProviders,
   fetchSessionMembers,
   fetchSessions,
   pickProjectFolder,
   renameSession,
   summarizeSession,
-  updateSessionAgent,
+  updateProject,
 } from "../api/client";
 import { WSClient } from "../api/wsClient";
 import { useChatStore } from "../stores/chatStore";
@@ -27,15 +27,16 @@ export function useWorkspaceRuntime() {
     currentSessionId,
     setCurrentSessionId,
     setMessages,
+    setMessagesForSession,
     setArtifacts,
-    appendStreamingToken,
+    setArtifactsForSession,
     setStreamingError,
     clearCollab,
   } = useChatStore();
   const {
-    projects, currentProjectId, sessions, agents, providers, sidebarTab,
+    projects, currentProjectId, sessions, agents, sidebarTab,
     setProjects, setCurrentProjectId,
-    setSessions, setAgents, setProviders, setSidebarTab, updateSession,
+    setSessions, setAgents, setSidebarTab, updateSession,
   } = useSessionStore();
 
   const wsRef = useRef<WSClient | null>(null);
@@ -47,14 +48,19 @@ export function useWorkspaceRuntime() {
     const ws = new WSClient();
     wsRef.current = ws;
 
-    ws.on("token", (data) => {
-      if (data.token && typeof data.token === "string") {
-        appendStreamingToken(data.token);
-      }
+    ws.on("token", () => {
+      // The active sender already receives chat tokens through SSE.
+      // Keeping WS tokens out avoids duplicated text in the current tab.
     });
-    ws.on("message.completed", () => {
-      fetchMessages(currentSessionId).then(setMessages);
-      fetchArtifacts(currentSessionId).then(setArtifacts).catch(() => {});
+    ws.on("message.completed", (data) => {
+      const eventSessionId = typeof data.sessionId === "string" ? data.sessionId : currentSessionId;
+      if (eventSessionId !== currentSessionId) return;
+      const activeRunId = useChatStore.getState().activeRunId;
+      if (activeRunId?.includes(`run-${eventSessionId}-`)) return;
+      fetchMessages(eventSessionId).then((messages) => setMessagesForSession(eventSessionId, messages));
+      fetchArtifacts(eventSessionId)
+        .then((artifacts) => setArtifactsForSession(eventSessionId, artifacts))
+        .catch(() => {});
     });
     ws.on("agent.changed", (data) => {
       if (typeof data.agentConfigId !== "string") return;
@@ -64,7 +70,13 @@ export function useWorkspaceRuntime() {
 
     ws.connect(currentSessionId);
     return () => { ws.disconnect(); };
-  }, [appendStreamingToken, currentSessionId, sessions, setArtifacts, setMessages, updateSession]);
+  }, [
+    currentSessionId,
+    sessions,
+    setArtifactsForSession,
+    setMessagesForSession,
+    updateSession,
+  ]);
 
   const loadSessionsForProject = useCallback(async (projectId: string | null) => {
     if (!projectId) {
@@ -82,8 +94,16 @@ export function useWorkspaceRuntime() {
         const first = loaded[0] ?? null;
         setCurrentSessionId(first?.id ?? null);
         if (first) {
-          try { setMessages(await fetchMessages(first.id)); } catch { setMessages([]); }
-          try { setArtifacts(await fetchArtifacts(first.id)); } catch { setArtifacts([]); }
+          try {
+            setMessagesForSession(first.id, await fetchMessages(first.id));
+          } catch {
+            setMessagesForSession(first.id, []);
+          }
+          try {
+            setArtifactsForSession(first.id, await fetchArtifacts(first.id));
+          } catch {
+            setArtifactsForSession(first.id, []);
+          }
         } else {
           setMessages([]);
           setArtifacts([]);
@@ -92,7 +112,15 @@ export function useWorkspaceRuntime() {
     } catch {
       setSessions([]);
     }
-  }, [currentSessionId, setArtifacts, setCurrentSessionId, setMessages, setSessions]);
+  }, [
+    currentSessionId,
+    setArtifacts,
+    setArtifactsForSession,
+    setCurrentSessionId,
+    setMessages,
+    setMessagesForSession,
+    setSessions,
+  ]);
 
   const loadData = useCallback(async () => {
     try {
@@ -103,14 +131,12 @@ export function useWorkspaceRuntime() {
       await loadSessionsForProject(nextProjectId);
     } catch { /* ignore bootstrap failures */ }
     try { setAgents(await fetchAgents()); } catch { /* ignore */ }
-    try { setProviders(await fetchProviders()); } catch { /* ignore */ }
   }, [
     currentProjectId,
     loadSessionsForProject,
     setAgents,
     setCurrentProjectId,
     setProjects,
-    setProviders,
   ]);
 
   useEffect(() => { loadData(); }, [loadData]);
@@ -121,8 +147,12 @@ export function useWorkspaceRuntime() {
     setMessages([]);
     setArtifacts([]);
     setStreamingError(null);
-    try { setMessages(await fetchMessages(id)); } catch { /* ignore */ }
-    try { setArtifacts(await fetchArtifacts(id)); } catch { /* ignore */ }
+    try {
+      setMessagesForSession(id, await fetchMessages(id));
+    } catch { /* ignore */ }
+    try {
+      setArtifactsForSession(id, await fetchArtifacts(id));
+    } catch { /* ignore */ }
 
     const sess = sessions.find((s) => s.id === id);
     if (sess?.mode !== "group") {
@@ -165,8 +195,8 @@ export function useWorkspaceRuntime() {
     }
   };
 
-  const handleCreateBlankProject = async () => {
-    const name = `项目 ${new Date().toLocaleString("zh-CN", {
+  const handleCreateBlankProject = async (inputName?: string) => {
+    const name = inputName?.trim() || `项目 ${new Date().toLocaleString("zh-CN", {
       month: "2-digit",
       day: "2-digit",
       hour: "2-digit",
@@ -202,9 +232,30 @@ export function useWorkspaceRuntime() {
     }
   };
 
-  const handleNewSession = async () => {
+  const handleRenameProject = async (id: string, name: string) => {
+    const renamed = await updateProject(id, { name });
+    setProjects(projects.map((project) => project.id === id ? renamed : project));
+  };
+
+  const handleDeleteProject = async (id: string, deleteFiles: boolean) => {
+    await deleteProject(id, deleteFiles);
+    const remaining = projects.filter((project) => project.id !== id);
+    setProjects(remaining);
+    if (currentProjectId === id) {
+      const nextId = remaining[0]?.id ?? null;
+      setCurrentProjectId(nextId);
+      setSessions([]);
+      setCurrentSessionId(null);
+      setMessages([]);
+      setArtifacts([]);
+      setStreamingError(null);
+    }
+  };
+
+  const handleNewSession = async (agentId?: string) => {
     if (!currentProjectId) return;
-    const s = await createSession(undefined, undefined, currentProjectId);
+    const agent = agents.find((item) => item.id === agentId);
+    const s = await createSession(agent?.name, agentId, currentProjectId);
     setSessions([s, ...sessions]);
     setCurrentSessionId(s.id);
     setMessages([]);
@@ -242,11 +293,6 @@ export function useWorkspaceRuntime() {
     updateSession(await summarizeSession(id));
   };
 
-  const handleSwitchAgent = async (agentId: string) => {
-    if (!currentSessionId) return;
-    try { updateSession(await updateSessionAgent(currentSessionId, agentId)); } catch { /* ignore */ }
-  };
-
   const currentSession = sessions.find((s) => s.id === currentSessionId);
   const currentProject = projects.find((p) => p.id === currentProjectId) ?? null;
   const currentAgent = agents.find((a) => a.id === currentSession?.agentConfigId) ?? null;
@@ -258,7 +304,6 @@ export function useWorkspaceRuntime() {
     currentProject,
     sessions,
     agents,
-    providers,
     sidebarTab,
     creatingProject,
     sessionMembers,
@@ -271,12 +316,13 @@ export function useWorkspaceRuntime() {
     handleCreateBlankProject,
     handlePickExistingFolder,
     handleArchiveProject,
+    handleRenameProject,
+    handleDeleteProject,
     handleSelectSession,
     handleNewSession,
     handleCreateGroup,
     handleDeleteSession,
     handleRenameSession,
     handleSummarizeSession,
-    handleSwitchAgent,
   };
 }

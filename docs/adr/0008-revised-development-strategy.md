@@ -5,6 +5,8 @@
 **Replaces**: Phase 3 并行开发指南 (`docs/specs/planning/phase3-parallel-guide.md`), Phase 3 模块化计划 (`docs/specs/planning/phase3-modules.md`) 中的开发顺序部分
 **Revision**: 2026-06-03 文档覆盖审计后补充 PRD-05 端到端闭环要求。详见 [PRD/Spec 覆盖审计](../audit/prd-spec-coverage-audit.md) 与 [PRD-05](../PRD/05-End_to_End_Product_Flow.md)。
 
+> **2026-06-04 修订说明**：Phase 6 重构后，HTTP API 伪 Agent 已被淘汰。用户可见 Agent 只保留 CLI Wrapper；DeepSeek 保留为后端内部系统模型，不进入 Agent 配置面。
+
 ---
 
 ## 1. Context
@@ -96,7 +98,7 @@ Phase 3 (已完成) ──── 基础设施 + Orchestrator
     │    注意: 完成已有 Artifact 的版本/Diff/编辑，不宣称 Agent 输出入口已完整打通
     │
     ├── Phase 6: Workspace Runtime + CLI 适配器 + 产物入口桥接
-    │    依赖: Phase 3 (BaseAgentAdapter/EventBus), Phase 5 (ArtifactService)
+    │    依赖: Phase 3 (EventBus / Orchestrator), Phase 5 (ArtifactService)
     │    注意: 先建立本机 workspace 和 session 绑定，再让 CLI Agent 以 workspace_path 为 cwd 执行；同时输出 artifact.detected 事件
     │
     └── Phase 7: UX 体验闭环 + MVP 演示闭环
@@ -119,7 +121,7 @@ Phase 3 更名为"Orchestrator + 基础设施"，其实际交付内容：
 | SharedContext + 中枢总结 | ✅ | 对话流共享 + 定向注入 + OrchestratorSummarizer |
 | CollaborationPanel + Agent 角色气泡 | ✅ | DAG 可视化 + 角色标签 |
 | SSE 协议 (6 + phase_change 事件) | ✅ | 前后端事件协议标准化 |
-| HTTP Agent Adapters (6 厂商) | ✅ | DeepSeek/Gemini/GLM/MiniMax + OpenAI/Claude |
+| Orchestrator 基础执行链路 | ✅ | Phase 3 当时基于 HTTP Adapter；Phase 6 已迁移为 CLI Wrapper 唯一路线 |
 
 **未完成（移入后续 Phase）**：
 - 消息 reply/regenerate/pin → Phase 4
@@ -212,12 +214,12 @@ Phase 5 的边界：它完成的是对已有 Artifact 的工作台能力。Agent
 
 实现 PRD-06 定义的 MVP 本机 Workspace Runtime，并在其上实现 PRD-01 定义的 CLI Agent 封装能力：通过 PTY/subprocess 管理真实 CLI 工具（Claude Code 等），支持 stdout 流式推送、ANSI 转义码清洗、交互式提示拦截。
 
-同时补齐 PRD-05 定义的产物入口桥接：CLI/API Agent 输出的 HTML、代码块、patch、workspace 文件变更摘要必须能转换为标准 `artifact.detected` 事件，由 ArtifactService 统一创建 Artifact 与 Artifact Card。
+同时补齐 PRD-05 定义的产物入口桥接：CLI Agent 输出的 HTML、代码块、patch、workspace 文件变更摘要必须能转换为标准 `artifact.detected` 事件，由 ArtifactService 统一创建 Artifact 与 Artifact Card。
 
 ### 6.2 子模块
 
 **Module 6A: Workspace Runtime**
-- `workspaces` 表 + `sessions.workspace_id`
+- `projects` 表 + `sessions.project_id`
 - 本机 workspace 创建/绑定 + 路径安全
 - 文件树、Diff、snapshot、静态预览
 - 为 CLI Adapter 提供可信 `workspace_path`
@@ -237,8 +239,8 @@ Phase 5 的边界：它完成的是对已有 Artifact 的工作台能力。Agent
 - 暂停流推送 → 前端信令卡片 → stdin 回写唤醒
 
 **Module 6E: CLI Agent Adapter (新增)**
-- `CliAgentAdapter` 实现 `BaseAgentAdapter` 接口
-- 与现有 HTTP 适配器并存（`agent_type` 新增 `cli_wrapper`）
+- `CliAgentAdapter` 输出标准 CLI 事件
+- 用户可见 Agent 只保留 CLI Wrapper（旧 HTTP Agent 数据归档/隐藏）
 
 **Module 6F: Artifact Output Bridge**
 - 检测 Agent 输出中的代码块、patch、文件变更摘要
@@ -246,7 +248,7 @@ Phase 5 的边界：它完成的是对已有 Artifact 的工作台能力。Agent
 - ArtifactService 创建 Artifact，并触发聊天流 Artifact Card
 
 ### 6.3 验收标准
-- [ ] 新建项目型 session 会自动创建 workspace，并记录 `workspace_id`
+- [ ] 新建 Project 会绑定 workspace，并在 Session 上记录 `project_id`
 - [ ] WorkspaceService 能返回文件树、Diff，并拒绝路径越界
 - [ ] CLI 进程启动时的 `cwd` 必须等于当前 session 绑定的 `workspace_path`
 - [ ] 后端启动 `claude` CLI → stdout 实时推流到前端 → 打字机效果流畅
@@ -255,7 +257,7 @@ Phase 5 的边界：它完成的是对已有 Artifact 的工作台能力。Agent
 - [ ] 用户关闭网页 → 3 分钟后进程被 SIGTERM
 - [ ] 5 分钟无 stdout → 判定死锁 → SIGKILL
 - [ ] CliAgentAdapter 可在 AgentPanel 中选择配置
-- [ ] CLI/API Agent 输出 HTML/patch 或 workspace 文件变更 → 创建 Artifact → 聊天流出现 Artifact Card
+- [ ] CLI Agent 输出 HTML/patch 或 workspace 文件变更 → 创建 Artifact → 聊天流出现 Artifact Card
 
 ### 6.4 预估
 - 后端: ~950 LOC (workspace_service/provider + process_manager + stream_sanitizer + prompt_interceptor + cli_adapter + artifact_detection)
@@ -339,7 +341,7 @@ Phase 5 的边界：它完成的是对已有 Artifact 的工作台能力。Agent
 
 - Phase 4-7 每个板块严格独立，不允许跨板块同时开发
 - Phase 3 的 Orchestrator 成果被冻结为基础设施，后续板块在其上构建但不再追加 Orchestrator 功能
-- Workspace Runtime + CLI 适配器（Phase 6）作为新增能力，不影响现有 HTTP 适配器的正常运行；Phase 6 同时承担 Agent 输出和 workspace 文件变更到 Artifact 的入口桥接
+- Workspace Runtime + CLI 适配器（Phase 6）替换旧 HTTP 伪 Agent 路线；Phase 6 同时承担 Agent 输出和 workspace 文件变更到 Artifact 的入口桥接
 - Phase 7 不只是 UX 打磨，必须以 PRD-05 的 MVP 演示脚本作为最终完成标准
 - 文档周期性审计纳入 agenthub-phase-wrapup 标准流程
 - CONTEXT.md 的 Phase 描述从五阶段更新为七阶段模型

@@ -3,16 +3,17 @@
 from __future__ import annotations
 
 import json
+import shutil
 import uuid
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
 from ..event_bus.event_types import EventType
-from ..models import Project, Session as DBSession
+from ..models import Artifact, Message, Project, Session as DBSession, SessionMember
 from .file_change_detector import FileChangeDetector
 from .preview_service import PreviewService
 from .schemas import ProjectCreate, ProjectRead
@@ -42,6 +43,10 @@ class ProjectValidationError(ValueError):
     pass
 
 
+class ProjectDeleteSafetyError(ValueError):
+    pass
+
+
 class ProjectService:
     def __init__(
         self,
@@ -67,17 +72,28 @@ class ProjectService:
             data.workspace_path,
             data.folder_token,
         )
-        await self._ensure_workspace_available(workspace_path)
+        existing = await self._find_project_by_workspace(workspace_path)
+        if existing and existing.status != "archived":
+            raise ProjectConflictError(f"workspace is already used by {existing.name}")
 
-        project = Project(
-            id=str(uuid.uuid4()),
-            name=name,
-            workspace_path=str(workspace_path),
-            project_type="existing",
-            status="ready",
-            metadata_json=json.dumps({}, ensure_ascii=False),
-        )
-        self.db.add(project)
+        if existing:
+            project = existing
+            project.name = name
+            project.workspace_path = str(workspace_path)
+            project.project_type = "existing"
+            project.status = "ready"
+            project.metadata_json = json.dumps({}, ensure_ascii=False)
+        else:
+            project = Project(
+                id=str(uuid.uuid4()),
+                name=name,
+                workspace_path=str(workspace_path),
+                project_type="existing",
+                status="ready",
+                metadata_json=json.dumps({}, ensure_ascii=False),
+            )
+            self.db.add(project)
+
         await self.db.commit()
         await self.db.refresh(project)
 
@@ -106,6 +122,53 @@ class ProjectService:
         project.status = "archived"
         await self.db.commit()
         return {"status": "archived"}
+
+    async def rename_project(self, project_id: str, name: str) -> ProjectRead:
+        project = await self._get_project(project_id)
+        clean_name = name.strip()
+        if not clean_name:
+            raise ProjectValidationError("project name must not be empty")
+
+        project.name = clean_name
+        await self.db.commit()
+        await self.db.refresh(project)
+
+        self._write_project_metadata(project)
+        return await self._to_read(project, include_stats=False)
+
+    async def delete_project(self, project_id: str, delete_files: bool = False) -> dict:
+        project = await self._get_project(project_id)
+        workspace_path = Path(project.workspace_path).expanduser().resolve()
+
+        if delete_files:
+            self._ensure_workspace_can_be_deleted(project, workspace_path)
+
+        session_ids = await self._project_session_ids(project.id)
+        if session_ids:
+            await self.db.execute(
+                delete(SessionMember).where(SessionMember.session_id.in_(session_ids))
+            )
+            await self.db.execute(
+                delete(Artifact).where(Artifact.session_id.in_(session_ids))
+            )
+            await self.db.execute(
+                delete(Message).where(Message.session_id.in_(session_ids))
+            )
+            await self.db.execute(
+                delete(DBSession).where(DBSession.id.in_(session_ids))
+            )
+        await self.db.execute(delete(Artifact).where(Artifact.project_id == project.id))
+        await self.db.delete(project)
+        await self.db.commit()
+
+        if delete_files:
+            shutil.rmtree(workspace_path)
+
+        return {
+            "status": "deleted",
+            "filesDeleted": delete_files,
+            "workspacePath": str(workspace_path),
+        }
 
     async def get_tree(self, project_id: str, subpath: str | None = None) -> list[dict]:
         project = await self._get_project(project_id)
@@ -143,11 +206,16 @@ class ProjectService:
         })
         return {"changedFiles": changes}
 
-    async def create_preview(self, project_id: str, preview_type: str) -> dict:
+    async def create_preview(
+        self,
+        project_id: str,
+        preview_type: str,
+        entry_path: str | None = None,
+    ) -> dict:
         project = await self._get_project(project_id)
         if preview_type not in {"static", "vite-react"}:
             raise ProjectValidationError("unsupported preview type")
-        result = self.preview.create_static_preview(project.id, project.workspace_path)
+        result = self.preview.create_static_preview(project.id, project.workspace_path, entry_path)
         await self._publish(EventType.PREVIEW_READY, {
             "projectId": project.id,
             "previewId": result["previewId"],
@@ -206,16 +274,19 @@ class ProjectService:
             raise ProjectNotFoundError(project_id)
         return project
 
-    async def _ensure_workspace_available(self, workspace_path: Path) -> None:
+    async def _find_project_by_workspace(self, workspace_path: Path) -> Project | None:
         result = await self.db.execute(
             select(Project).where(
                 Project.workspace_path == str(workspace_path),
-                Project.status != "archived",
             )
         )
-        existing = result.scalars().first()
-        if existing:
-            raise ProjectConflictError(f"workspace is already used by {existing.name}")
+        return result.scalars().first()
+
+    async def _project_session_ids(self, project_id: str) -> list[str]:
+        result = await self.db.execute(
+            select(DBSession.id).where(DBSession.project_id == project_id)
+        )
+        return [str(session_id) for session_id in result.scalars().all()]
 
     def _resolve_workspace_path(
         self,
@@ -254,6 +325,39 @@ class ProjectService:
             created_at=project.created_at,
         )
 
+    def _write_project_metadata(self, project: Project) -> None:
+        target = Path(project.workspace_path) / ".agenthub" / "project.json"
+        if not target.exists():
+            return
+        target.write_text(
+            json.dumps(self._metadata(project), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+    def _ensure_workspace_can_be_deleted(self, project: Project, workspace_path: Path) -> None:
+        if not workspace_path.exists() or not workspace_path.is_dir():
+            raise ProjectDeleteSafetyError("workspace folder not found")
+
+        marker = workspace_path / ".agenthub" / "project.json"
+        if not marker.exists():
+            raise ProjectDeleteSafetyError("missing AgentHub workspace marker")
+
+        try:
+            metadata = json.loads(marker.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ProjectDeleteSafetyError("invalid AgentHub workspace marker") from exc
+
+        if metadata.get("projectId") != project.id:
+            raise ProjectDeleteSafetyError("workspace marker does not match project")
+
+        protected_roots = {
+            Path.home().resolve(),
+            Path(settings.agenthub_workspace_root).expanduser().resolve(),
+            Path.cwd().resolve(),
+        }
+        if workspace_path in protected_roots or workspace_path.parent == workspace_path:
+            raise ProjectDeleteSafetyError("refusing to delete protected workspace path")
+
     def _metadata(self, project: Project) -> dict:
         return {
             "projectId": project.id,
@@ -275,7 +379,7 @@ def _next_available_path(base: Path) -> Path:
         candidate = base.with_name(f"{base.name}-{i}")
         if not candidate.exists():
             return candidate
-    raise ProjectConflictError("cannot allocate workspace path")
+    return base.with_name(f"{base.name}-{uuid.uuid4().hex[:8]}")
 
 
 def register_folder_grant(workspace_path: str) -> str:

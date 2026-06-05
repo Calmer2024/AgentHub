@@ -1,11 +1,12 @@
 """Phase 5 artifact versioning, diff, and editing acceptance tests."""
 
+import json
 import uuid
 
 import pytest
 
-from app.agents.base import AgentCapability, AgentResponse
 from app.models import AgentConfig, Artifact, Message
+from app.system_models import SystemModelResponse
 
 
 async def _seed_artifact(db_session, session_id: str, agent_id: str | None = None) -> Artifact:
@@ -159,44 +160,42 @@ class TestPhase5ArtifactEditing:
     async def test_tool_calling_agent_uses_edit_artifact_tool(
         self, test_client, db_session, test_session, monkeypatch,
     ):
-        from app.agents.registry import agent_registry
+        from app.services import artifact_service as artifact_service_module
 
-        class ToolAgent:
-            MODELS = ["tool-model"]
-            DEFAULT_MODEL = "tool-model"
-
+        class ToolSystemLLM:
             @property
             def capability(self):
-                return AgentCapability(name="tool", supports_tool_call=True)
+                return type("Capability", (), {"supports_tool_call": True})()
 
-            async def chat(self, messages, system_prompt, on_token=None, model=None, tools=None):
+            def is_configured(self):
+                return True
+
+            async def chat(self, *, messages, system_prompt, tools=None):
                 assert tools and tools[0]["name"] == "edit_artifact"
-                return AgentResponse(
+                arguments = json.dumps({
+                    "selection": "return 'hello'",
+                    "instruction": "改返回值",
+                    "edit_type": "replace",
+                    "replacement": "return 'tool edited'",
+                }, ensure_ascii=False)
+                return SystemModelResponse(
                     content="",
                     tool_calls=[{
-                        "name": "edit_artifact",
-                        "input": {
-                            "selection": "return 'hello'",
-                            "instruction": "改返回值",
-                            "edit_type": "replace",
-                            "replacement": "return 'tool edited'",
+                        "function": {
+                            "name": "edit_artifact",
+                            "arguments": arguments,
                         },
                     }],
                 )
 
-            async def chat_stream(self, messages, system_prompt, model=None, tools=None):
-                yield "unused"
-
         agent = AgentConfig(
             id=str(uuid.uuid4()),
             name="工具 Agent",
-            provider="deepseek",
-            model="tool-model",
         )
         db_session.add(agent)
         await db_session.commit()
         artifact = await _seed_artifact(db_session, test_session, agent.id)
-        monkeypatch.setitem(agent_registry._adapters, "deepseek", ToolAgent())
+        monkeypatch.setattr(artifact_service_module, "system_llm", ToolSystemLLM())
 
         resp = await test_client.post(
             f"/api/artifacts/{artifact.id}/edit",
@@ -205,41 +204,36 @@ class TestPhase5ArtifactEditing:
 
         assert resp.status_code == 200
         data = resp.json()
-        assert data["strategy"] == "tool_call"
+        assert data["strategy"] == "system_tool_call"
         assert "return 'tool edited'" in data["proposedContent"]
 
     async def test_non_tool_agent_falls_back_to_context_injection(
         self, test_client, db_session, test_session, monkeypatch,
     ):
-        from app.agents.registry import agent_registry
+        from app.services import artifact_service as artifact_service_module
 
-        class PlainAgent:
-            MODELS = ["plain-model"]
-            DEFAULT_MODEL = "plain-model"
-
+        class PlainSystemLLM:
             @property
             def capability(self):
-                return AgentCapability(name="plain", supports_tool_call=False)
+                return type("Capability", (), {"supports_tool_call": False})()
 
-            async def chat(self, messages, system_prompt, on_token=None, model=None, tools=None):
+            def is_configured(self):
+                return True
+
+            async def chat(self, *, messages, system_prompt, tools=None):
                 assert tools is None
                 prompt = messages[0]["content"]
                 assert "选中内容" in prompt
-                return AgentResponse(content="return 'fallback edited'")
-
-            async def chat_stream(self, messages, system_prompt, model=None, tools=None):
-                yield "unused"
+                return SystemModelResponse(content="return 'fallback edited'")
 
         agent = AgentConfig(
             id=str(uuid.uuid4()),
             name="普通 Agent",
-            provider="deepseek",
-            model="plain-model",
         )
         db_session.add(agent)
         await db_session.commit()
         artifact = await _seed_artifact(db_session, test_session, agent.id)
-        monkeypatch.setitem(agent_registry._adapters, "deepseek", PlainAgent())
+        monkeypatch.setattr(artifact_service_module, "system_llm", PlainSystemLLM())
 
         resp = await test_client.post(
             f"/api/artifacts/{artifact.id}/edit",

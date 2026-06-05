@@ -8,7 +8,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 def test_import_config():
     from app.config import settings
     assert hasattr(settings, "database_url")
-    assert hasattr(settings, "anthropic_api_key")
     assert hasattr(settings, "deepseek_api_key")
 
 
@@ -24,21 +23,18 @@ def test_import_models():
     assert hasattr(Message, "__tablename__")
 
 
-def test_import_agent_base():
-    from app.agents.base import BaseAgentAdapter, AgentCapability, AgentResponse
-    assert BaseAgentAdapter is not None
+def test_import_cli_adapters():
+    from app.agents import ClaudeCodeAdapter, CodexAdapter, OpenCodeAdapter
+    assert ClaudeCodeAdapter is not None
+    assert CodexAdapter is not None
+    assert OpenCodeAdapter is not None
 
 
-def test_import_claude_adapter():
-    from app.agents import ClaudeAdapter
-    from app.agents.base import BaseAgentAdapter
-    assert issubclass(ClaudeAdapter, BaseAgentAdapter)
-
-
-def test_import_deepseek_adapter():
-    from app.agents.deepseek_adapter import DeepSeekAdapter
-    from app.agents.base import BaseAgentAdapter
-    assert issubclass(DeepSeekAdapter, BaseAgentAdapter)
+def test_import_system_models():
+    from app.system_models import DeepSeekSystemAdapter, SystemModelCapability, SystemModelResponse
+    assert DeepSeekSystemAdapter.DEFAULT_MODEL
+    assert SystemModelCapability is not None
+    assert SystemModelResponse is not None
 
 
 def test_import_api_routes():

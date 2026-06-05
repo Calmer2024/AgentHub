@@ -4,14 +4,14 @@
 **创建日期**: 2026-05-28 (v1.0), 2026-06-02 (v2.0 重组)
 **状态**: Completed (2026-06-02)
 **关联**: [PRD-03: User Experience](../../PRD/03-User_Experience.md) §3.4, [PRD-02: Orchestrator](../../PRD/02-Orchestrator_Engine.md)
-**依赖**: Phase 5A (版本链), Phase 3 (BaseAgentAdapter tools 参数)
+**依赖**: Phase 5A (版本链), 后端内部系统模型能力
 
 ## 1. 全局链路定位
 
 ```text
 用户引用/打开已有 Artifact
   -> 选中代码片段并描述修改
-  -> Agent 生成候选内容与 Diff
+  -> 系统模型生成候选内容与 Diff
   -> 用户确认
   -> 创建新版本
   -> Phase 7 Drawer 切换到新版本
@@ -51,11 +51,11 @@ POST /api/artifacts/{id}/edit
 ```
 用户选中代码片段 → 弹出 "描述修改" 输入框 → 输入意图
   │
-  ├─ Agent supports_tool_call == True?
-  │   └─ YES → chat(tools=[edit_artifact]) → Agent 返回 tool_use
+  ├─ SystemLLM supports_tool_call == True?
+  │   └─ YES → system_llm.chat(tools=[edit_artifact]) → 返回 tool_call
   │   └─ NO  → 降级: 上下文注入 "请对代码执行修改: {selection}, 意图: {instruction}"
   │
-  └─ Agent 返回修改结果
+  └─ 系统模型返回修改结果
        ├─ 后端用 difflib 对比生成 Diff
        ├─ 前端 DiffViewer 展示
        └─ 用户确认 → 创建新版本 | 用户拒绝 → 保持原版
@@ -67,11 +67,8 @@ POST /api/artifacts/{id}/edit
 
 ```python
 async def apply_edit(self, artifact_id, selection, instruction):
-    agent = self._get_agent_for_artifact(artifact_id)
-    adapter = agent_registry.get_adapter(agent.provider)
-
-    if adapter.capability.supports_tool_call:
-        response = await adapter.chat(
+    if system_llm.is_configured() and system_llm.capability.supports_tool_call:
+        response = await system_llm.chat(
             messages=[{"role": "user", "content": f"修改产物 {artifact_id}: {instruction}"}],
             system_prompt="你是一个代码编辑器。使用 edit_artifact tool 进行修改。",
             tools=[EDIT_ARTIFACT_TOOL],
@@ -86,10 +83,10 @@ async def apply_edit(self, artifact_id, selection, instruction):
 
 ### Tool 响应解析
 
-不同 provider 的 tool_use 格式不同，需要适配层：
+系统模型返回 OpenAI-compatible tool_call，由 `ArtifactEditor` 做格式解析：
 
 ```python
-def _parse_tool_call(self, response: AgentResponse) -> dict | None:
+def _parse_tool_call(self, response: SystemModelResponse) -> dict | None:
     for tc in response.tool_calls:
         if tc.get("name") == "edit_artifact":
             return tc.get("input", {})
@@ -98,14 +95,14 @@ def _parse_tool_call(self, response: AgentResponse) -> dict | None:
 
 ## 6. 验收标准
 
-- [x] 选中代码 + 描述修改 → Agent 返回 Diff → 确认后应用
-- [x] Tool calling Agent → edit_artifact 调用成功
-- [x] 不支持 tool calling → 降级为上下文注入，编辑仍可用
+- [x] 选中代码 + 描述修改 → 系统模型返回 Diff → 确认后应用
+- [x] 系统模型 tool calling → edit_artifact 调用成功
+- [x] 系统模型不可用或不支持 tool calling → 降级为上下文注入，编辑仍可用
 - [x] 拒绝 Diff → 保持原版不变
 
 ## 7. 测试
 
 - API: tool calling 正常流程、降级流程、selection 异常、确认创建新版本
-- 架构契约: Domain 纯编辑器、Service 事件发布、OpenAI-compatible tools 传递
+- 架构契约: Domain 纯编辑器、Service 事件发布、SystemLLM OpenAI-compatible tools 传递
 - 前端: CodeSelector 选中交互、Diff 预览、确认/拒绝 UI
 - 真实验收: `e2e/phase5_real_acceptance.py`

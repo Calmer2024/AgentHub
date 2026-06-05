@@ -3,10 +3,12 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import type { Artifact, ArtifactDiff, ArtifactEditResult, ArtifactVersion } from "../types";
 import {
+  createProjectPreview,
   editArtifact,
   fetchArtifactDiff,
   fetchArtifactVersions,
 } from "../api/client";
+import { Check, ExternalLink, FileCode2, FileText, Globe2, Loader2, Maximize2, X } from "lucide-react";
 import { CodeSelector } from "./CodeSelector";
 import { DiffViewer } from "./DiffViewer";
 import { VersionHistory } from "./VersionHistory";
@@ -20,6 +22,12 @@ function artifactLabel(artifact: Artifact) {
   if (artifact.type === "code_diff") return "代码";
   if (artifact.type === "web_preview") return "网页";
   return "文档";
+}
+
+function artifactIcon(artifact: Artifact) {
+  if (artifact.type === "code_diff") return <FileCode2 size={15} className="shrink-0 text-slate-500" />;
+  if (artifact.type === "web_preview") return <Globe2 size={15} className="shrink-0 text-slate-500" />;
+  return <FileText size={15} className="shrink-0 text-slate-500" />;
 }
 
 function statusDot(status: Artifact["status"]) {
@@ -42,6 +50,9 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
   const [editType, setEditType] = useState<"replace" | "insert_after" | "insert_before" | "delete">("replace");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -72,9 +83,43 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
     return () => { alive = false; };
   }, [artifact.id, versions.length, fromVersion, toVersion]);
 
+  useEffect(() => {
+    if (artifact.type !== "web_preview" || !artifact.projectId) {
+      setPreviewUrl(null);
+      setPreviewError(null);
+      setPreviewLoading(false);
+      return;
+    }
+    let alive = true;
+    setPreviewLoading(true);
+    setPreviewError(null);
+    createProjectPreview(artifact.projectId, artifact.filePath)
+      .then((result) => {
+        if (!alive) return;
+        setPreviewUrl(result.previewUrl);
+      })
+      .catch((err) => {
+        if (!alive) return;
+        setPreviewUrl(null);
+        setPreviewError(err instanceof Error ? err.message : "预览加载失败");
+      })
+      .finally(() => {
+        if (alive) setPreviewLoading(false);
+      });
+    return () => { alive = false; };
+  }, [artifact.filePath, artifact.projectId, artifact.type]);
+
   const displayedContent = useMemo(() => {
     return versions.find((version) => version.version === selectedVersion)?.content ?? artifact.content;
   }, [artifact.content, selectedVersion, versions]);
+
+  const iframeProps = previewUrl
+    ? { src: previewUrl }
+    : { srcDoc: displayedContent };
+
+  const openExternalPreview = () => {
+    if (previewUrl) window.open(previewUrl, "_blank", "noopener,noreferrer");
+  };
 
   const previewEdit = async (
     selectedText: string,
@@ -143,7 +188,20 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
           {artifact.content}
         </SyntaxHighlighter>
       ) : artifact.type === "web_preview" ? (
-        <iframe srcDoc={artifact.content} sandbox="allow-scripts" className="w-full h-40 border-0 rounded" title="preview" />
+        <div className="relative h-40 overflow-hidden rounded bg-slate-100">
+          {previewLoading && (
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/85 text-xs text-slate-500">
+              <Loader2 size={14} className="mr-2 animate-spin" />
+              正在加载本机预览
+            </div>
+          )}
+          {previewError && (
+            <div className="absolute left-2 top-2 z-10 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] text-amber-700">
+              已回退到内容预览
+            </div>
+          )}
+          <iframe {...iframeProps} sandbox="allow-scripts" className="h-full w-full border-0" title="preview" />
+        </div>
       ) : (
         <pre className="text-xs whitespace-pre-wrap">{artifact.content}</pre>
       )}
@@ -156,6 +214,7 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
         <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-white px-3 py-2">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
+              {artifactIcon(artifact)}
               <span className="text-xs font-medium text-slate-700">{artifactLabel(artifact)}</span>
               <span className={`h-2 w-2 rounded-full ${statusDot(artifact.status)}`} />
               <span className="text-xs text-slate-400">v{artifact.version}</span>
@@ -167,8 +226,9 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
           <button
             type="button"
             onClick={() => setFullscreen(true)}
-            className="shrink-0 rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
           >
+            <Maximize2 size={13} />
             打开
           </button>
         </div>
@@ -202,9 +262,11 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
                 <button
                   type="button"
                   onClick={() => setFullscreen(false)}
-                  className="rounded-md border border-slate-200 px-2 py-1 text-sm text-slate-500 hover:bg-slate-50"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50"
+                  aria-label="关闭产物预览"
+                  title="关闭"
                 >
-                  关闭
+                  <X size={15} />
                 </button>
               </div>
             </div>
@@ -212,7 +274,39 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
             <div className="grid min-h-0 flex-1 gap-0 overflow-hidden lg:grid-cols-[minmax(0,1fr)_420px]">
               <div className="min-h-0 overflow-y-auto p-4">
                 {artifact.type === "web_preview" ? (
-                  <iframe srcDoc={displayedContent} sandbox="allow-scripts" className="h-[70vh] w-full rounded-lg border border-slate-200" />
+                  <div className="flex h-[70vh] min-h-0 flex-col overflow-hidden rounded-lg border border-slate-200 bg-slate-100">
+                    {(previewUrl || previewError || previewLoading) && (
+                      <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-white px-3 py-2">
+                        <div className="min-w-0 text-xs text-slate-500">
+                          {previewLoading
+                            ? "正在连接本机预览"
+                            : previewUrl
+                              ? "本机 workspace 预览"
+                              : "真实预览不可用，已显示内容快照"}
+                          {artifact.filePath && (
+                            <span className="ml-2 text-slate-400">{artifact.filePath}</span>
+                          )}
+                        </div>
+                        {previewUrl && (
+                          <button
+                            type="button"
+                            onClick={openExternalPreview}
+                            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50"
+                            aria-label="在浏览器中打开"
+                            title="在浏览器中打开"
+                          >
+                            <ExternalLink size={14} />
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    <iframe
+                      {...iframeProps}
+                      sandbox="allow-scripts"
+                      className="min-h-0 flex-1 border-0 bg-white"
+                      title="网页预览"
+                    />
+                  </div>
                 ) : (
                   <SyntaxHighlighter
                     language={artifact.type === "code_diff" ? "python" : "text"}
@@ -251,16 +345,18 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
                         type="button"
                         disabled={loading}
                         onClick={confirmEdit}
-                        className="rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white disabled:bg-slate-300"
+                        className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white disabled:bg-slate-300"
                       >
+                        <Check size={15} />
                         确认应用
                       </button>
                       <button
                         type="button"
                         disabled={loading}
                         onClick={rejectEdit}
-                        className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 disabled:text-slate-300"
+                        className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 disabled:text-slate-300"
                       >
+                        <X size={15} />
                         拒绝
                       </button>
                     </div>

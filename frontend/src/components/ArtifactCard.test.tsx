@@ -127,4 +127,41 @@ describe("ArtifactCard", () => {
 
     await vi.waitFor(() => expect(onChanged).toHaveBeenCalled());
   });
+
+  it("网页产物优先加载本机 workspace 预览 URL", async () => {
+    const webArtifact: Artifact = {
+      ...artifact,
+      id: "web-a1",
+      type: "web_preview",
+      title: "demo.html",
+      content: "<html><body>fallback</body></html>",
+      projectId: "proj-1",
+      filePath: "pages/demo.html",
+      version: 1,
+      parentArtifactId: null,
+    };
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = String(input);
+      if (url.endsWith("/versions")) {
+        return jsonResponse([
+          { id: "web-a1", version: 1, content: webArtifact.content, createdAt: "" },
+        ]);
+      }
+      if (url.endsWith("/preview")) {
+        return jsonResponse({
+          previewId: "p1",
+          previewUrl: "/api/projects/proj-1/preview/p1/pages/demo.html",
+        });
+      }
+      return jsonResponse({});
+    });
+
+    render(<ArtifactCard artifact={webArtifact} />);
+
+    await vi.waitFor(() => {
+      expect(String(vi.mocked(globalThis.fetch).mock.calls.some(([url]) => String(url).endsWith("/preview")))).toBe("true");
+    });
+    const iframe = screen.getByTitle("preview") as HTMLIFrameElement;
+    await vi.waitFor(() => expect(iframe.getAttribute("src")).toContain("/api/projects/proj-1/preview/p1/pages/demo.html"));
+  });
 });

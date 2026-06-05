@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
+  createProjectPreview,
   createChatStream,
   editArtifact,
   fetchArtifactDiff,
@@ -117,6 +118,27 @@ describe("createChatStream", () => {
     });
     expect(onToken).toHaveBeenCalledWith("sum-1", "综合结论");
   });
+
+  it("agent.output 文本事件即使缺少 token 字段也会进入回复流", async () => {
+    const onToken = vi.fn();
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(sseResponse([
+      JSON.stringify({
+        type: "agent.output",
+        messageId: "m1",
+        chunkType: "text",
+        chunk: "OpenCode visible text",
+      }),
+      JSON.stringify({ token: "", done: true, messageId: "m1" }),
+    ]));
+
+    createChatStream("s1", "hello", [], {
+      onToken,
+      onDone: vi.fn(),
+    });
+
+    await vi.waitFor(() => expect(onToken).toHaveBeenCalled());
+    expect(onToken).toHaveBeenCalledWith("OpenCode visible text");
+  });
 });
 
 describe("artifact APIs", () => {
@@ -133,6 +155,23 @@ describe("artifact APIs", () => {
 
     expect(globalThis.fetch).toHaveBeenCalledWith("/api/sessions/s1/artifacts");
     expect(artifacts[0].version).toBe(2);
+  });
+
+  it("为项目文件创建本机预览", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      previewId: "p1",
+      previewUrl: "/api/projects/proj-1/preview/p1/pages/demo.html",
+    }), { status: 200 }));
+
+    const result = await createProjectPreview("proj-1", "pages/demo.html");
+
+    expect(result.previewUrl).toContain("pages/demo.html");
+    const [url, init] = vi.mocked(globalThis.fetch).mock.calls[0];
+    expect(url).toBe("/api/projects/proj-1/preview");
+    expect(JSON.parse(String((init as RequestInit).body))).toMatchObject({
+      type: "static",
+      filePath: "pages/demo.html",
+    });
   });
 
   it("加载产物版本链", async () => {

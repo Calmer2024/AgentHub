@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { GitCompareArrows } from "lucide-react";
 
 interface Props {
   content: string;
@@ -63,8 +64,9 @@ export function CodeSelector({ content, loading = false, error = null, onPreview
             type="button"
             disabled={!canSubmit}
             onClick={() => onPreview(selection, instruction, editType)}
-            className="rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+            className="inline-flex items-center justify-center gap-1.5 rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:bg-slate-300"
           >
+            <GitCompareArrows size={15} />
             生成 Diff
           </button>
         </div>

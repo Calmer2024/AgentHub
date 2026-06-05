@@ -1,10 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Boxes, Search, X } from "lucide-react";
 import type { Message, AgentConfig, CollabTask, ChainStep, DAGPhase, Artifact } from "../types";
 import { MessageBubble } from "./MessageBubble";
 import { ChatInput } from "./ChatInput";
 import { CollaborationPanel } from "./CollaborationPanel";
 import { SearchPanel } from "./SearchPanel";
 import { ArtifactCard } from "./ArtifactCard";
+import { replyToInteractivePrompt } from "../api/client";
+import { useChatStore } from "../stores/chatStore";
+import { InteractivePromptCard } from "./InteractivePromptCard";
+import { AgentAvatar } from "./AgentAvatar";
 
 interface Props {
   messages: Message[];
@@ -27,7 +32,6 @@ interface Props {
   collabSummary: string | null;
   onSend: (content: string, mentions: string[]) => void;
   onDismissError: () => void;
-  onSwitchAgent: (agentId: string) => void;
   onReply: (message: Message) => void;
   onRegenerate: (message: Message) => void;
   onTogglePin: (message: Message) => void;
@@ -45,15 +49,15 @@ export function ChatWindow({
   messages, artifacts, isStreaming, streamingError,
   currentAgent, currentSessionId, agents, mode, routeAgents, orchestratorIntent, planSummary, mentionableAgents,
   collabTasks, dagPhases, collabCompleted, collabSummary,
-  onSend, onDismissError, onSwitchAgent, onReply, onRegenerate, onTogglePin, onArtifactsChanged,
+  onSend, onDismissError, onReply, onRegenerate, onTogglePin, onArtifactsChanged,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const autoScrollSessionRef = useRef<string | null>(null);
+  const autoScrollUserSignatureRef = useRef<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
-  useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [messages, collabTasks, dagPhases]);
+  const { interactivePrompts, removeInteractivePrompt, setStreamingError } = useChatStore();
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
@@ -67,6 +71,34 @@ export function ChatWindow({
 
   const isGroup = mode === "group";
   const messageById = useMemo(() => new Map(messages.map((m) => [m.id, m])), [messages]);
+  const agentByName = useMemo(() => {
+    const map = new Map<string, AgentConfig>();
+    agents.forEach((agent) => map.set(agent.name, agent));
+    return map;
+  }, [agents]);
+
+  useEffect(() => {
+    const userMessages = messages.filter((message) => message.role === "user");
+    const latestUser = userMessages[userMessages.length - 1] ?? null;
+    const signature = latestUser
+      ? `${currentSessionId}:${userMessages.length}:${latestUser.parentMessageId ?? ""}:${latestUser.content}`
+      : null;
+
+    if (autoScrollSessionRef.current !== currentSessionId) {
+      autoScrollSessionRef.current = currentSessionId;
+      autoScrollUserSignatureRef.current = signature;
+      return;
+    }
+    if (!latestUser || !signature || signature === autoScrollUserSignatureRef.current) return;
+
+    autoScrollUserSignatureRef.current = signature;
+    window.requestAnimationFrame(() => {
+      messageRefs.current[latestUser.id]?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
+  }, [currentSessionId, messages]);
 
   const jumpToMessage = (messageId: string) => {
     const el = messageRefs.current[messageId];
@@ -77,23 +109,34 @@ export function ChatWindow({
   };
 
   return (
-    <div className="relative flex-1 h-full min-h-0 flex flex-col overflow-hidden bg-[#171717] text-[#ececf1]">
+    <div className="relative flex-1 h-full min-h-0 flex flex-col overflow-hidden bg-[#0f141a] text-[#ececf1]">
       {/* Header */}
-      <div className="px-6 py-3 border-b border-white/[0.08] bg-[#171717] flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          {isGroup && <span className="text-sm">👥</span>}
-          <h1 className="text-lg font-semibold text-white">
-            {isGroup ? "群聊" : currentAgent?.name ?? "未选择 Agent"}
-          </h1>
-          {isGroup && <span className="text-xs text-[#8f8f98] bg-white/[0.06] px-2 py-0.5 rounded">@提及 Agent</span>}
+      <div className="flex items-center justify-between border-b border-white/[0.08] bg-[#17212b]/95 px-4 py-3 backdrop-blur md:px-6">
+        <div className="flex min-w-0 items-center gap-3">
+          <AgentAvatar
+            agent={!isGroup ? currentAgent : undefined}
+            name={isGroup ? "群聊" : currentAgent?.name ?? "未选择 Agent"}
+            kind={isGroup ? "group" : "agent"}
+            size="md"
+          />
+          <div className="min-w-0">
+            <h1 className="truncate text-base font-semibold text-white">
+              {isGroup ? "群聊" : currentAgent?.name ?? "未选择 Agent"}
+            </h1>
+            <p className="mt-0.5 truncate text-xs text-[#9aa5b1]">
+              {isStreaming ? "正在输入" : isGroup ? "多人 Agent 协作" : currentAgent?.cliTool ?? "CLI Agent"}
+            </p>
+          </div>
         </div>
         <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={() => setSearchOpen(true)}
-            className="rounded-lg border border-white/10 px-3 py-1.5 text-sm text-[#d8d8df] hover:bg-white/[0.07]"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 text-[#d8d8df] transition hover:bg-white/[0.07] active:translate-y-px"
+            aria-label="搜索"
+            title="搜索"
           >
-            搜索
+            <Search size={15} />
           </button>
           {isStreaming && (
             <span className="inline-flex items-center gap-2 text-sm text-[#d8d8df]">
@@ -101,7 +144,7 @@ export function ChatWindow({
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#ececf1] opacity-50" />
                 <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[#ececf1]" />
               </span>
-              AI 正在回复...
+              正在回复
             </span>
           )}
         </div>
@@ -154,15 +197,23 @@ export function ChatWindow({
       {streamingError && (
         <div className="mx-6 mt-3 px-4 py-3 bg-red-50 border border-red-200 rounded-xl flex items-center justify-between">
           <span className="text-sm text-red-700">{streamingError}</span>
-          <button onClick={onDismissError} className="ml-2 text-red-400 hover:text-red-600 text-sm">x</button>
+          <button
+            type="button"
+            onClick={onDismissError}
+            className="ml-2 inline-flex h-7 w-7 items-center justify-center rounded-lg text-red-400 hover:bg-red-100 hover:text-red-600"
+            aria-label="关闭错误提示"
+            title="关闭错误提示"
+          >
+            <X size={15} />
+          </button>
         </div>
       )}
 
-      <div className="relative flex-1 min-h-0 flex overflow-hidden bg-[#171717]">
+      <div className="relative flex-1 min-h-0 flex overflow-hidden bg-[#0f141a]">
         {/* Messages area (scrollable) */}
         <div
           ref={scrollRef}
-          className={`relative min-h-0 overflow-y-auto p-4 md:p-6 bg-[#171717] ${
+          className={`relative min-h-0 overflow-y-auto bg-[radial-gradient(circle_at_top_left,rgba(47,124,246,0.12),transparent_32%),linear-gradient(180deg,#0f141a_0%,#111820_100%)] p-4 md:p-6 ${
             artifacts.length > 0 ? "flex-1" : "w-full"
           }`}
         >
@@ -173,21 +224,43 @@ export function ChatWindow({
               </p>
             </div>
           ) : (
-            messages.map((msg) => (
-              <div key={msg.id} ref={(el) => { messageRefs.current[msg.id] = el; }}>
-                <MessageBubble
-                  message={msg}
-                  isStreaming={isStreaming}
-                  parentMessage={msg.parentMessageId ? messageById.get(msg.parentMessageId) ?? null : null}
-                  highlighted={highlightedMessageId === msg.id}
-                  onReply={onReply}
-                  onRegenerate={onRegenerate}
-                  onTogglePin={onTogglePin}
-                  onCopy={(content) => navigator.clipboard?.writeText(content)}
-                  onJumpToMessage={jumpToMessage}
-                />
-              </div>
-            ))
+            messages.map((msg) => {
+              const prompts = interactivePrompts.filter((prompt) => prompt.messageId === msg.id);
+              return (
+                <div key={msg.id} ref={(el) => { messageRefs.current[msg.id] = el; }}>
+                  <MessageBubble
+                    message={msg}
+                    isStreaming={isStreaming}
+                    agent={msg.agentName ? agentByName.get(msg.agentName) ?? null : null}
+                    parentMessage={msg.parentMessageId ? messageById.get(msg.parentMessageId) ?? null : null}
+                    highlighted={highlightedMessageId === msg.id}
+                    onReply={onReply}
+                    onRegenerate={onRegenerate}
+                    onTogglePin={onTogglePin}
+                    onCopy={(content) => navigator.clipboard?.writeText(content)}
+                    onJumpToMessage={jumpToMessage}
+                  />
+                  {prompts.length > 0 && (
+                    <div className="mb-4 ml-3 max-w-[min(82%,860px)] space-y-2">
+                      {prompts.map((prompt) => (
+                        <InteractivePromptCard
+                          key={prompt.processId}
+                          content={prompt.content}
+                          onReply={async (reply) => {
+                            try {
+                              await replyToInteractivePrompt(prompt.sessionId, prompt.processId, reply);
+                              removeInteractivePrompt(prompt.processId);
+                            } catch {
+                              setStreamingError("确认回复失败，CLI 进程可能已经退出");
+                            }
+                          }}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })
           )}
         </div>
 
@@ -214,9 +287,11 @@ export function ChatWindow({
             <button
               type="button"
               onClick={() => document.getElementById("mobile-artifacts")?.scrollIntoView({ behavior: "smooth" })}
-              className="rounded-lg bg-[#ececf1] px-3 py-2 text-sm font-medium text-[#171717] shadow-lg"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-[#ececf1] text-[#171717] shadow-lg"
+              aria-label="产物"
+              title="产物"
             >
-              产物
+              <Boxes size={18} />
             </button>
           </div>
         )}
@@ -234,24 +309,31 @@ export function ChatWindow({
         </div>
       )}
 
+      {interactivePrompts.some((prompt) => !messages.some((msg) => msg.id === prompt.messageId)) && (
+        <div className="mx-6 mt-3 space-y-2">
+          {interactivePrompts.filter((prompt) => !messages.some((msg) => msg.id === prompt.messageId)).map((prompt) => (
+            <InteractivePromptCard
+              key={prompt.processId}
+              content={prompt.content}
+              onReply={async (reply) => {
+                try {
+                  await replyToInteractivePrompt(prompt.sessionId, prompt.processId, reply);
+                  removeInteractivePrompt(prompt.processId);
+                } catch {
+                  setStreamingError("确认回复失败，CLI 进程可能已经退出");
+                }
+              }}
+            />
+          ))}
+        </div>
+      )}
+
       <SearchPanel
         sessionId={currentSessionId}
         open={searchOpen}
         onClose={() => setSearchOpen(false)}
         onJump={(_, messageId) => jumpToMessage(messageId)}
       />
-
-      {/* Agent selector (single chat only) */}
-      {!isGroup && (
-        <div className="border-t border-white/[0.08] px-4 py-2 flex items-center gap-3">
-          <span className="text-xs text-[#8f8f98]">Agent:</span>
-          <select value={currentAgent?.id ?? ""} onChange={(e) => onSwitchAgent(e.target.value)} disabled={isStreaming}
-            className="text-xs px-2 py-1 border border-white/10 rounded-lg bg-[#2b2b2f] text-[#ececf1] focus:outline-none focus:ring-2 focus:ring-white/20 max-w-[200px]">
-            {agents.length === 0 && <option value="">无可用 Agent</option>}
-            {agents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-          </select>
-        </div>
-      )}
 
       {/* Chat input */}
       <ChatInput onSubmit={onSend} disabled={isStreaming || (!isGroup && !currentAgent)} mentionableAgents={isGroup ? mentionableAgents : agents} />

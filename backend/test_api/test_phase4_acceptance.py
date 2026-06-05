@@ -54,7 +54,17 @@ async def test_phase4_acceptance_single_and_group_flow(test_client, test_agent, 
     unpin = await test_client.delete(f"/api/messages/{user_msg['id']}/pin")
     assert unpin.status_code == 200
 
-    agent2 = AgentConfig(id="phase4-agent-2", name="Phase4 B", provider="deepseek", model="d")
+    agent2 = AgentConfig(
+        id="phase4-agent-2",
+        name="Phase4 B",
+        description="",
+        system_prompt="",
+        agent_type="cli_wrapper",
+        cli_tool="custom",
+        executable=test_agent.executable,
+        init_args=test_agent.init_args,
+        env_vars=test_agent.env_vars,
+    )
     db_session.add(agent2)
     await db_session.commit()
     group = await test_client.post("/api/sessions", json={

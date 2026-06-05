@@ -1,37 +1,24 @@
-"""ChatService 实现 —— SSE 流式聊天 + Orchestrator V2 Pipeline + EventBus。
-
-thin coordinator: 组装参数 → 委托 Pipeline → 委托 Executor → 格式化 SSE → 持久化。
-
-Step 2 增强:
-  - orchestrator.task_started / task_completed SSE 事件
-  - orchestrator.chain_step SSE 事件
-  - 全失败兜底: 所有 Agent 均失败时返回全局错误
-"""
+"""ChatService 实现 —— 用户消息入口与 single/group 分发。"""
 
 import json
 import uuid
-from datetime import datetime, timezone
 from typing import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import Session as DBSession, Message as DBMessage, AgentConfig
-from ..agents.registry import agent_registry
+from ..models import Session as DBSession, Message as DBMessage
 from ..domain.orchestrator_v2 import OrchestratorV2
-from ..domain.context_manager import ContextManager, PromptAssemblyInput
+from ..domain.context_manager import ContextManager
 from ..services.agent_executor import AgentExecutor
 from ..services.group_chat_stream import GroupChatStream
-from ..api.ws_manager import manager as ws_manager
 from .message_service_sqlalchemy import (
     SqlAlchemyMessageService,
     build_reply_reference_metadata,
 )
+from .single_cli_chat_stream import SingleCliChatStream
 
 class ChatServiceImpl:
-    """聊天服务 —— thin coordinator。
-
-    组装参数 → 委托 OrchestratorV2 Pipeline → 委托 AgentExecutor → 格式化 SSE。
-    """
+    """聊天服务：持久化用户输入，然后委托单聊或群聊流。"""
 
     def __init__(self, db: AsyncSession, event_bus=None):
         self.db = db
@@ -43,6 +30,7 @@ class ChatServiceImpl:
         )
         self._executor = AgentExecutor(event_bus=event_bus)
         self._group_stream = GroupChatStream(db, self._pipeline, self._executor)
+        self._single_stream = SingleCliChatStream(db, self._context_manager, event_bus)
         self._messages = SqlAlchemyMessageService(db, self._context_manager)
 
     async def send_message_stream(
@@ -90,71 +78,8 @@ class ChatServiceImpl:
                 yield ev
             return
 
-        # 单聊: 直接调用
-        async for ev in self._single_chat(session_id, history, pinned_ids, session):
+        async for ev in self._single_stream.send(session_id, history, pinned_ids, session):
             yield ev
-
-    # ---- 单聊 ----
-
-    async def _single_chat(self, session_id, history, pinned_ids, session):
-        agent_config = None
-        if session.agent_config_id:
-            agent_config = await self.db.get(AgentConfig, session.agent_config_id)
-        if not agent_config:
-            yield self._err("会话未关联 Agent")
-            return
-
-        adapter = agent_registry.get_adapter(agent_config.provider)
-        if not adapter or not agent_registry.is_available(agent_config.provider):
-            yield self._err(f"供应商 {agent_config.provider} 不可用")
-            return
-
-        assembled = self._context_manager.assemble(PromptAssemblyInput(
-            session_id=session_id,
-            system_prompt=agent_config.system_prompt or "",
-            messages=history,
-            pinned_message_ids=pinned_ids,
-            max_tokens=adapter.capability.max_context_tokens,
-        ))
-        adapter_messages, system_prompt = _split_system_prompt(
-            assembled.assembled_messages,
-            agent_config.system_prompt or "",
-        )
-
-        assistant_msg_id = str(uuid.uuid4())
-        full = ""
-
-        try:
-            async for token in adapter.chat_stream(
-                messages=adapter_messages,
-                system_prompt=system_prompt,
-                model=agent_config.model or None,
-            ):
-                full += token
-                yield self._sse({"token": token, "done": False})
-                await ws_manager.broadcast(session_id, {
-                    "type": "token", "token": token, "messageId": assistant_msg_id,
-                })
-        except Exception as e:
-            yield self._err(f"{type(e).__name__}: {e}")
-            return
-
-        self.db.add(DBMessage(
-            id=assistant_msg_id, session_id=session_id, role="assistant",
-            content=full, content_type="text", agent_name=agent_config.name,
-            source_type="agent", source_id=agent_config.id,
-            source_name=agent_config.name,
-        ))
-        session.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
-        await self.db.commit()
-
-        await ws_manager.broadcast(session_id, {
-            "type": "message.completed", "messageId": assistant_msg_id,
-        })
-        yield self._sse({
-            "token": "", "done": True,
-            "messageId": assistant_msg_id, "agentName": agent_config.name,
-        })
 
     # ---- 群聊 ----
 
@@ -173,10 +98,4 @@ class ChatServiceImpl:
 
     @staticmethod
     def _err(msg: str) -> str:
-        return f"data: {json.dumps({'token': '', 'done': True, 'error': msg}, ensure_ascii=False)}\n\n"
-
-
-def _split_system_prompt(messages: list[dict], fallback: str) -> tuple[list[dict], str]:
-    if messages and messages[0].get("role") == "system":
-        return messages[1:], str(messages[0].get("content") or fallback)
-    return messages, fallback
+        return f"data: {json.dumps({'type': 'error', 'token': '', 'done': True, 'error': msg}, ensure_ascii=False)}\n\n"

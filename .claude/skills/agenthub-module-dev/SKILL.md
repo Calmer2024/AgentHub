@@ -40,7 +40,7 @@ description: AgentHub 项目标准模块开发流程。当用户要求开发新�
 2. 后端：先写 Pydantic schema → 再写 Service → 最后写 API 路由
 3. 前端：先写类型定义 → 再写 Store → 最后写组件
 4. 前端每个新组件必须覆盖 UX_TEST_SPEC.md 要求的 6 种状态（空/加载/正常/完成/错误/边界）
-5. 遵守 CLAUDE.md 中的所有代码规则（单文件 ≤ 300 行、禁止 any、async 等）
+5. 遵守 CLAUDE.md 中的所有代码规则（避免臃肿文件、禁止 any、async 等）
 
 ### Step 4: 写单元测试
 1. 按照 `docs/TEST_PROTOCOL.md` 规范编写测试

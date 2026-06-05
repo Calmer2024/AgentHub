@@ -63,7 +63,7 @@ IM 式聊天平台，用户可与 AI Agent（Claude Code、Codex、OpenCode 等�
 ### 通用
 
 - 所有代码注释用中文。
-- 源文件不超过 300 行（协议/设计文档除外）。超出则拆分。
+- 避免单个源文件臃肿：行数是代码气味提示，不是硬性上限。只有当文件承担多个职责、难以测试或难以局部理解时才拆分；职责清晰的长文件不为追数字而硬拆。
 - 每个模块完成后立即写单元测试。
 - 小步提交：每个可运行函数 = 一次 commit。
 - **自动化优先**：任何功能设计在前端上的体现是让任务尽量自动化处理，不要让用户做太多配置。复杂决策（链式触发、角色分配、Agent 选择）由后端自动完成。
@@ -87,7 +87,7 @@ IM 式聊天平台，用户可与 AI Agent（Claude Code、Codex、OpenCode 等�
 - Pydantic v2 做请求/响应校验。空消息 → 400；不存在的 session → 404。
 - 全异步：所有路由 handler 和 Service 方法用 `async def`。
 - 环境变量通过 `python-dotenv` 管理，绝不硬编码 API Key。
-- 所有 Agent 适配器遵循 ADR-0005 的 `BaseAgentAdapter` 契约。
+- 用户可见 Agent 适配器只遵循 CLI 事件契约：真实进程执行、stdout/stderr 解析、交互提示、标准事件输出。DeepSeek 只通过后端 SystemLLM 使用，不属于用户 Agent 适配器。
 - 测试要依赖真实数据库文件。每个测试自己创建所需 fixtures。
 
 ### TypeScript（前端）

@@ -13,9 +13,10 @@ AgentHub 采用 IM 聊天作为核心交互范式，用户通过新建对话、�
 ## 快速启动
 
 ```bash
-# 1. 配置 API Keys
+# 1. 准备本机 CLI 与内部系统模型配置
 cp backend/.env.example backend/.env
-# 编辑 .env，填入至少一个 API Key（DEEPSEEK_API_KEY 推荐）
+# 在系统终端完成 claude / codex / opencode 的安装和登录
+# 项目内部能力需要 DEEPSEEK_API_KEY，由开发者在 .env 中配置，不向用户暴露
 
 # 2. 启动后端
 cd backend
@@ -40,7 +41,7 @@ AgentHub/
 │       ├── api/                # REST + WebSocket 路由
 │       ├── services/           # 业务逻辑层 (ChatService, MessageService, SessionService)
 │       ├── domain/             # 纯逻辑层 (Orchestrator, ContextManager)
-│       ├── agents/             # AI 适配器 (DeepSeek, Gemini, GLM, MiniMax, Claude, OpenAI)
+│       ├── agents/             # CLI adapters + DeepSeek system model adapter
 │       ├── event_bus/          # 内存 Pub/Sub 事件总线
 │       ├── infrastructure/     # 跨领域工具 (StreamMerger)
 │       ├── models/             # SQLAlchemy ORM 模型
@@ -87,7 +88,7 @@ AgentHub/
 | Artifact 版本链 + 会话只展示最新链头 | ✅ |
 | 任意版本 Diff + split/unified 双模式 | ✅ |
 | 代码选区编辑 + Diff 预览 + 确认创建新版本/拒绝不落库 | ✅ |
-| OpenAI/DeepSeek tool calling + 非工具 Agent 上下文降级 | ✅ |
+| DeepSeek system model tool calling + 上下文降级 | ✅ |
 | ArtifactService 接入 EventBus (`artifact.created` / `artifact.version_created`) | ✅ |
 
 Phase 5 的边界也已经在文档中明确：它完成的是“对已有 Artifact 的工作台能力”，不代表 Agent 输出入口、聊天卡片和右侧 Drawer 已完整打通。Phase 6A 已补齐 Project-first workspace runtime；后续由 Phase 6B-6F/7 补齐真实 CLI 执行、Artifact Bridge 和 Drawer/审批闭环。

@@ -168,8 +168,8 @@ DAG 扩展已增加 `"role": "planner"` 和 `"phase": 0` 字段。
   "sourceName": "Orchestrator 中枢",
   "contentType": "orchestrator_summary",
   "metadata": {
-    "orchestrator_provider": "deepseek",
-    "orchestrator_model": "deepseek-v4-flash"
+    "system_model_provider": "deepseek",
+    "system_model": "deepseek-v4-flash"
   }
 }
 ```
@@ -191,7 +191,7 @@ DAG 扩展已增加 `"role": "planner"` 和 `"phase": 0` 字段。
 }
 ```
 
-中枢总结是一条独立 assistant 消息，持久化时 `sourceType="orchestrator"`、`contentType="orchestrator_summary"`。只在 `execution_mode` 为 `dag` 或 `chain`，且至少 2 个 Agent 成功产出时自动生成；普通并列群聊回复不会发送 `summary_*` 事件。中枢总结使用独立 `orchestratorProvider/orchestratorModel` 配置生成，不借用成员 Agent 的模型。前端必须用“系统整理”样式渲染，不得伪装成任一 Agent 发言。
+中枢总结是一条独立 assistant 消息，持久化时 `sourceType="orchestrator"`、`contentType="orchestrator_summary"`。只在 `execution_mode` 为 `dag` 或 `chain`，且至少 2 个 Agent 成功产出时自动生成；普通并列群聊回复不会发送 `summary_*` 事件。中枢总结使用后端内部 SystemLLM 生成，不借用成员 CLI Agent。前端必须用“系统整理”样式渲染，不得伪装成任一 Agent 发言。
 
 ### 3.10 orchestrator.task_completed
 

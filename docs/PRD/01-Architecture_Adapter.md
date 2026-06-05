@@ -32,7 +32,7 @@ AgentHub 后端（FastAPI）不再负责思考“怎么写代码”，它只负�
 *   **启动参数 (Init Args)**：为了让 CLI 更适合被代码包裹，必须在数据库的 `agents` 表中维护每个工具的最优启动参数。
     *   例如 Claude Code：`["--compact", "--theme=light"]`，尽量减少无用的 UI 渲染符号。
 *   **上下文环境隔离 (Environment Variables)**：
-    为防止串联污染，每次启动 CLI 进程时，必须重新构造 `env` 字典，清理掉宿主机的敏感环境变量，仅注入该用户的 API Keys（如 `ANTHROPIC_API_KEY`）。
+    为防止串联污染，每次启动 CLI 进程时，必须重新构造 `env` 字典。用户可见 Agent 配置不接收厂商 API Key；Claude Code / Codex / OpenCode 的认证来自用户本机 CLI 登录态。DeepSeek API Key 仅作为后端内部系统模型配置读取，不进入 Agent env。
 
 ### 3.2 标准输入输出的重定向与清洗 (I/O Redirection & ANSI Stripping)
 CLI 工具吐出的文字绝对不是纯净的纯文本，而是充满了用于在终端里画表格、画颜色的 ANSI 转义控制符（ANSI Escape Codes）。
@@ -84,7 +84,7 @@ CLI 工具的输出不是均质的纯文本——它包含文本回复、进度�
 | 输出类型 | CLI 中的形态 | 前端渲染形态 |
 |---------|-------------|------------|
 | 纯文本/对话 | Markdown 文本流 | 聊天消息气泡（打字机流式） |
-| 进度指示器 | spinner 动画、`\r` 覆盖更新的进度行 | UI 状态条（如 `🔧 Claude Code 正在分析代码...`），不进入消息历史 |
+| 进度指示器 | spinner 动画、`\r` 覆盖更新的进度行 | Agent 消息气泡下方的执行轨迹面板，运行时展开、完成后自动折叠，并随消息 metadata 持久化 |
 | 代码 Diff | fenced code block (`diff`/`patch`) 或 CLI 原生 diff 输出 | Artifact Card（code_diff 类型），进入产物版本链 |
 | 网页/组件 | fenced code block (`html`/`tsx`/`jsx`) | Artifact Card（web_preview 类型），Drawer 中 iframe 预览 |
 | 文件变更摘要 | CLI 输出的 created/modified/deleted list | Artifact Card（file_tree 类型） |
@@ -98,11 +98,13 @@ CLI 工具的输出不是均质的纯文本——它包含文本回复、进度�
 |---------|-----------|---------|---------|
 | `ClaudeCodeAdapter` | `claude` (Anthropic CLI) | Markdown + ANSI color + `(y/n)` 交互 + 文件 diff | 识别 Claude Code 的工具调用日志格式、权限确认模式 |
 | `CodexAdapter` | `codex` (OpenAI CLI) | 代码块 + 进度指示 + 文件操作确认 | 识别 Codex 的执行计划和工具输出格式 |
+
+Codex 默认启动参数应贴近用户本机终端行为：读取用户 Codex 配置和认证态，仅追加非交互执行所需的 `exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox --color never --json -`。AgentHub 不通过 Agent 配置暴露厂商 API Key，DeepSeek API Key 只属于后端内部系统模型配置。
 | `OpenCodeAdapter` | `opencode` (开源) | 终端 spinners + 工具调用日志 + patch 输出 | 识别 OpenCode 的 agent loop 和审查反馈模式 |
 
-所有 Adapter 实现统一的 `BaseAgentAdapter` 接口（定义于 ADR-0005），产出标准化事件（`agent.output` / `artifact.detected` / `interactive_prompt`）。新增 CLI 工具只需写一个新 Adapter。
+所有 Adapter 通过统一 CLI 事件契约产出标准化事件（`agent.output` / `artifact.detected` / `interactive_prompt`）。新增 CLI 工具只需写一个新 Adapter。
 
-CLI 工具由用户在操作系统层面安装（如 `npm install -g @anthropic-ai/claude-code`），AgentHub 只管理配置：在 AgentPanel 中配置 `executable` 路径、`init_args` 启动参数、环境变量（API Keys 等）。
+CLI 工具由用户在操作系统层面安装（如 `npm install -g @anthropic-ai/claude-code`），AgentHub 只管理配置：在 AgentPanel 中配置 `executable` 路径、`init_args` 启动参数和非敏感环境变量覆盖。
 
 ## 4. 容错与生命周期管理 (Lifecycle & Fault Tolerance)
 
@@ -123,7 +125,7 @@ CLI 工具由用户在操作系统层面安装（如 `npm install -g @anthropic-
 
 CLI 适配器的实现在 Phase 6（Workspace Runtime + CLI 适配器 + 产物入口桥接）中完成：
 
-*   **Phase 6.1**：实现 CLIProcessManager — PTY/subprocess 孵化、stdout 实时推流。先用伪造的打字机脚本验证流式管道畅通。
+*   **Phase 6.1**：实现 CLIProcessManager — PTY/subprocess 孵化、stdout 实时推流。先用测试 CLI fixture 验证流式管道畅通，再接真实 CLI。
 *   **Phase 6.2**：实现 StreamSanitizer — ANSI 转义码清洗器，确保前端收到的是干净的 Markdown。压测各种 CLI 工具的典型输出格式。
 *   **Phase 6.3**：实现 PromptInterceptor — 对接真实的 `claude` 命令，攻克 `(y/n)` 交互式拦截的难点。
-*   **Phase 6.4**：实现 CliAgentAdapter — 完整的 BaseAgentAdapter 实现，集成进程管理、流清洗、交互拦截，输出标准事件。
+*   **Phase 6.4**：实现 CliAgentAdapter — 集成进程管理、流清洗、交互拦截，输出标准 CLI 事件。

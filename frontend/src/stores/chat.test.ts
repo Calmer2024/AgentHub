@@ -1,18 +1,13 @@
 import { describe, it, expect } from "vitest";
 import { useChatStore } from "./chatStore";
 import { useSessionStore } from "./sessionStore";
-import type { AgentConfig, Provider } from "../types";
+import type { AgentConfig, Artifact } from "../types";
 
 const mockAgent: AgentConfig = {
   id: "a1", name: "测试 Agent", description: "", systemPrompt: "",
-  provider: "deepseek", model: "deepseek-v4-flash",
-  temperature: 0.7, isActive: true, createdAt: "", updatedAt: "",
-};
-
-const mockProvider: Provider = {
-  name: "deepseek", displayName: "DeepSeek V3", provider: "deepseek",
-  isAvailable: true, models: ["deepseek-v4-flash"], defaultModel: "deepseek-v4-flash",
-  capability: { supportsStreaming: true, supportsFileInput: false, supportsToolCall: false, maxContextTokens: 128000, tags: [] },
+  agentType: "cli_wrapper", cliTool: "claude_code", executable: "claude",
+  initArgs: ["-p"], envVars: {}, status: "ready",
+  isActive: true, createdAt: "", updatedAt: "",
 };
 
 describe("Chat Store (split)", () => {
@@ -31,6 +26,78 @@ describe("Chat Store (split)", () => {
     });
     useChatStore.getState().appendStreamingToken(" there");
     expect(useChatStore.getState().messages[0].content).toBe("Hi there");
+  });
+
+  it("chatStore 可把流式 token 固定写入指定消息，避免写到最后一个气泡", () => {
+    useChatStore.setState({
+      messages: [
+        { id: "target", sessionId: "s", role: "assistant", content: "A", agentName: null, createdAt: "" },
+        { id: "latest", sessionId: "s", role: "assistant", content: "B", agentName: null, createdAt: "" },
+      ],
+      isStreaming: true,
+    });
+
+    useChatStore.getState().appendStreamingTokenToMessage("target", "+");
+
+    expect(useChatStore.getState().messages.map((m) => m.content)).toEqual(["A+", "B"]);
+  });
+
+  it("chatStore 忽略非当前会话的异步消息覆盖", () => {
+    useChatStore.setState({
+      currentSessionId: "s-current",
+      messages: [
+        { id: "current", sessionId: "s-current", role: "assistant", content: "当前", agentName: null, createdAt: "" },
+      ],
+    });
+
+    useChatStore.getState().setMessagesForSession("s-old", [
+      { id: "old", sessionId: "s-old", role: "assistant", content: "旧会话", agentName: null, createdAt: "" },
+    ]);
+
+    expect(useChatStore.getState().messages.map((m) => m.id)).toEqual(["current"]);
+
+    useChatStore.getState().setMessagesForSession("s-current", [
+      { id: "next", sessionId: "s-current", role: "assistant", content: "新", agentName: null, createdAt: "" },
+    ]);
+
+    expect(useChatStore.getState().messages.map((m) => m.id)).toEqual(["next"]);
+  });
+
+  it("chatStore 忽略非当前会话的异步产物覆盖", () => {
+    const artifact = (id: string, sessionId: string): Artifact => ({
+      id,
+      sessionId,
+      messageId: "m",
+      type: "code_diff",
+      title: id,
+      content: "",
+      status: "ready",
+      version: 1,
+      createdAt: "",
+    });
+    useChatStore.setState({
+      currentSessionId: "s-current",
+      artifacts: [artifact("current", "s-current")],
+    });
+
+    useChatStore.getState().setArtifactsForSession("s-old", [artifact("old", "s-old")]);
+
+    expect(useChatStore.getState().artifacts.map((item) => item.id)).toEqual(["current"]);
+  });
+
+  it("chatStore 只允许当前 run 结束 streaming", () => {
+    useChatStore.getState().startStreamRun("run-new");
+    useChatStore.getState().finishStreamRun("run-old");
+
+    expect(useChatStore.getState().isStreaming).toBe(true);
+    expect(useChatStore.getState().activeRunId).toBe("run-new");
+    expect(useChatStore.getState().latestRunId).toBe("run-new");
+
+    useChatStore.getState().finishStreamRun("run-new");
+
+    expect(useChatStore.getState().isStreaming).toBe(false);
+    expect(useChatStore.getState().activeRunId).toBeNull();
+    expect(useChatStore.getState().latestRunId).toBe("run-new");
   });
 
   it("chatStore 保存 DAG 协作快照", () => {
@@ -60,11 +127,6 @@ describe("Chat Store (split)", () => {
   it("sessionStore setAgents 设置 agent 列表", () => {
     useSessionStore.getState().setAgents([mockAgent]);
     expect(useSessionStore.getState().agents).toEqual([mockAgent]);
-  });
-
-  it("sessionStore setProviders 设置 provider 列表", () => {
-    useSessionStore.getState().setProviders([mockProvider]);
-    expect(useSessionStore.getState().providers).toEqual([mockProvider]);
   });
 
   it("sessionStore 初始 sidebarTab 为 sessions", () => {

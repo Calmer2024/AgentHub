@@ -6,12 +6,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db
 from ..services.project_service import (
     ProjectConflictError,
+    ProjectDeleteSafetyError,
     ProjectNotFoundError,
     ProjectService,
     ProjectValidationError,
     register_folder_grant,
 )
-from ..services.schemas import ProjectCreate, ProjectRead
+from ..services.preview_service import PreviewError
+from ..services.schemas import ProjectCreate, ProjectRead, ProjectUpdate
 from ..services.workspace_provider import (
     WorkspaceFileTooLargeError,
     WorkspaceNotFoundError,
@@ -56,6 +58,9 @@ class DiffRead(BaseModel):
 
 class PreviewRequest(BaseModel):
     type: str = "static"
+    file_path: str | None = Field(default=None, alias="filePath")
+
+    model_config = {"populate_by_name": True}
 
 
 class PreviewRead(BaseModel):
@@ -112,11 +117,41 @@ async def get_project(project_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.delete("/{project_id}")
+async def delete_project(
+    project_id: str,
+    deleteFiles: bool = False,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        return await _svc(db).delete_project(project_id, delete_files=deleteFiles)
+    except ProjectNotFoundError:
+        raise HTTPException(status_code=404, detail="project not found")
+    except ProjectDeleteSafetyError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/{project_id}/archive")
 async def archive_project(project_id: str, db: AsyncSession = Depends(get_db)):
     try:
         return await _svc(db).archive_project(project_id)
     except ProjectNotFoundError:
         raise HTTPException(status_code=404, detail="project not found")
+
+
+@router.patch("/{project_id}", response_model=ProjectRead)
+async def update_project(
+    project_id: str,
+    data: ProjectUpdate,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        if data.name is None:
+            return await _svc(db).get_project(project_id)
+        return await _svc(db).rename_project(project_id, data.name)
+    except ProjectNotFoundError:
+        raise HTTPException(status_code=404, detail="project not found")
+    except ProjectValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @router.get("/{project_id}/tree", response_model=TreeRead)
@@ -129,6 +164,8 @@ async def get_tree(
         return {"tree": await _svc(db).get_tree(project_id, subpath)}
     except ProjectNotFoundError:
         raise HTTPException(status_code=404, detail="project not found")
+    except PreviewError:
+        raise HTTPException(status_code=404, detail="workspace not found")
     except WorkspaceSecurityError:
         raise HTTPException(status_code=403, detail="无权访问此路径")
     except WorkspaceNotFoundError:
@@ -180,11 +217,13 @@ async def create_preview(
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        return await _svc(db).create_preview(project_id, data.type)
+        return await _svc(db).create_preview(project_id, data.type, data.file_path)
     except ProjectNotFoundError:
         raise HTTPException(status_code=404, detail="project not found")
+    except WorkspaceSecurityError:
+        raise HTTPException(status_code=403, detail="无权访问此路径")
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="未找到可预览的文件（需要 index.html）")
+        raise HTTPException(status_code=404, detail="未找到可预览的文件")
     except ProjectValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 

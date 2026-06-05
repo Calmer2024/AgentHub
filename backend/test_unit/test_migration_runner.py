@@ -143,3 +143,66 @@ class TestMigrationRunner:
         ))
         trigger_sql = result.scalar() or ""
         assert "AFTER UPDATE OF content" in trigger_sql
+
+    async def test_migrations_upgrade_codex_default_args(self, conn):
+        from migrations.migration_runner import run
+
+        await conn.execute(text(
+            "INSERT INTO agent_configs "
+            "(id, name, description, system_prompt, provider, model, is_active) "
+            "VALUES ('codex-old', 'Codex', '', '', '', '', 1)"
+        ))
+        await run(conn)
+        old_args = (
+            '["exec", "--skip-git-repo-check", "--sandbox", "workspace-write", '
+            '"--dangerously-bypass-approvals-and-sandbox", "--color", "never", "--json", "-"]'
+        )
+        await conn.execute(text(
+            "UPDATE agent_configs SET cli_tool='codex', init_args=:args "
+            "WHERE id='codex-old'"
+        ), {"args": old_args})
+        await conn.execute(text(
+            "DELETE FROM _migrations_history "
+            "WHERE filename IN ('012_codex_ignore_user_config.sql', '014_codex_use_host_config_defaults.sql')"
+        ))
+        await conn.commit()
+
+        await run(conn)
+
+        result = await conn.execute(text(
+            "SELECT init_args FROM agent_configs WHERE id='codex-old'"
+        ))
+        updated = result.scalar_one()
+        assert "--ignore-user-config" not in updated
+        assert "--sandbox" not in updated
+        assert "--dangerously-bypass-approvals-and-sandbox" in updated
+
+    async def test_migrations_upgrade_opencode_default_args(self, conn):
+        from migrations.migration_runner import run
+
+        await conn.execute(text(
+            "INSERT INTO agent_configs "
+            "(id, name, description, system_prompt, provider, model, is_active) "
+            "VALUES ('opencode-old', 'OpenCode', '', '', '', '', 1)"
+        ))
+        await run(conn)
+        await conn.execute(text(
+            "UPDATE agent_configs SET cli_tool='opencode', init_args=:args "
+            "WHERE id='opencode-old'"
+        ), {"args": '["--no-color", "--plain"]'})
+        await conn.execute(text(
+            "DELETE FROM _migrations_history "
+            "WHERE filename = '015_opencode_run_json_defaults.sql'"
+        ))
+        await conn.commit()
+
+        await run(conn)
+
+        result = await conn.execute(text(
+            "SELECT init_args FROM agent_configs WHERE id='opencode-old'"
+        ))
+        updated = result.scalar_one()
+        assert updated == (
+            '["run", "--pure", "--agent", "build", "--format", "json", '
+            '"--dangerously-skip-permissions"]'
+        )

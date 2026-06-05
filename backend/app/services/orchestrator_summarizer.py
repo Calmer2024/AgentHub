@@ -1,11 +1,10 @@
 """Orchestrator 中枢总结生成器。"""
 
+import inspect
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
 
-from ..agents.registry import agent_registry
-from ..config import settings
 from ..domain.execution_planner import AgentCall
+from .system_llm import SystemLLMUnavailableError, system_llm
 
 ORCHESTRATOR_SOURCE_ID = "orchestrator"
 ORCHESTRATOR_SOURCE_NAME = "Orchestrator 中枢"
@@ -20,19 +19,11 @@ SUMMARY_SYSTEM_PROMPT = """你是 AgentHub 的 Orchestrator 中枢。
 4. 不要声称你亲自完成了某个 Agent 的工作。"""
 
 
-@dataclass(frozen=True)
-class OrchestratorModelConfig:
-    provider: str
-    model: str
-
-
 class OrchestratorSummarizer:
     """把多个 Agent 输出整合成一个系统整理消息。"""
 
-    def current_model_config(self) -> OrchestratorModelConfig:
-        provider = getattr(settings, "orchestrator_provider", "deepseek") or "deepseek"
-        model = getattr(settings, "orchestrator_model", "") or self._default_model(provider)
-        return OrchestratorModelConfig(provider=provider, model=model)
+    def current_model_config(self) -> dict:
+        return {"system_model_provider": "deepseek", "system_model": system_llm.model}
 
     async def stream_summary(
         self,
@@ -52,39 +43,22 @@ class OrchestratorSummarizer:
         self, user_goal: str, plan_summary: str,
         agent_texts: dict[str, str], calls_by_key: dict[str, AgentCall],
     ) -> AsyncIterator[str]:
-        config = self.current_model_config()
-        adapter = agent_registry.get_adapter(config.provider)
-        if adapter:
+        try:
             emitted = False
-            try:
-                async for token in adapter.chat_stream(
-                    messages=self._messages(user_goal, plan_summary, agent_texts, calls_by_key),
-                    system_prompt=SUMMARY_SYSTEM_PROMPT,
-                    model=config.model or None,
-                ):
-                    emitted = True
-                    yield token
-                if emitted:
-                    return
-            except Exception:
-                pass
+            stream = system_llm.chat_stream(
+                messages=self._messages(user_goal, plan_summary, agent_texts, calls_by_key),
+                system_prompt=SUMMARY_SYSTEM_PROMPT,
+            )
+            if inspect.isawaitable(stream):
+                stream = await stream
+            async for token in stream:
+                emitted = True
+                yield token
+            if emitted:
+                return
+        except (SystemLLMUnavailableError, Exception):
+            pass
         yield self._fallback_summary(agent_texts, calls_by_key)
-
-    @staticmethod
-    def _default_model(provider: str) -> str:
-        field_name = {
-            "openai": "openai_model",
-            "claude": "claude_model",
-            "deepseek": "deepseek_model",
-            "gemini": "gemini_model",
-            "minimax": "minimax_model",
-            "glm": "glm_model",
-        }.get(provider)
-        if field_name:
-            value = getattr(settings, field_name, "")
-            if value:
-                return value
-        return agent_registry.get_default_model(provider)
 
     @staticmethod
     def _messages(

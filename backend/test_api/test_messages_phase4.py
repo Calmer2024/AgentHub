@@ -2,10 +2,13 @@
 
 import json
 import uuid
+from pathlib import Path
 
 import pytest
 
-from app.models import Message
+from sqlalchemy import select
+
+from app.models import Message, Project, Session as DBSession
 
 
 @pytest.mark.asyncio
@@ -90,10 +93,8 @@ class TestPhase4MessageActions:
         assert updated["metadata"]["versions"][0]["content"] == assistant["content"]
 
     async def test_single_chat_uses_pinned_context(
-        self, test_client, db_session, test_session, monkeypatch,
+        self, test_client, db_session, test_session,
     ):
-        from app.agents.registry import agent_registry
-
         pinned = Message(
             id=str(uuid.uuid4()),
             session_id=test_session,
@@ -106,17 +107,6 @@ class TestPhase4MessageActions:
         db_session.add(pinned)
         await db_session.commit()
 
-        seen_messages: list[list[dict]] = []
-        adapter = next(iter(agent_registry._adapters.values()))
-        original_chat_stream = adapter.chat_stream
-
-        async def spy_chat_stream(messages, system_prompt, model=None, tools=None):
-            seen_messages.append(messages)
-            async for token in original_chat_stream(messages, system_prompt, model=model, tools=tools):
-                yield token
-
-        monkeypatch.setattr(adapter, "chat_stream", spy_chat_stream)
-
         resp = await test_client.post(
             f"/api/sessions/{test_session}/chat",
             json={"content": "现在回答"},
@@ -125,17 +115,14 @@ class TestPhase4MessageActions:
         async for _line in resp.aiter_lines():
             pass
 
-        assert seen_messages
-        prompt_text = "\n".join(str(m.get("content", "")) for m in seen_messages[0])
+        prompt_text = await _read_cli_stdin(db_session, test_session)
         assert "[Pinned message]" in prompt_text
         assert "必须保留的 Pin 背景" in prompt_text
 
     async def test_reply_context_is_visible_to_agent(
-        self, test_client, db_session, test_session, monkeypatch,
+        self, test_client, db_session, test_session,
     ):
         """引用不是只存 parentMessageId，Agent 输入中必须能看到被引用内容。"""
-        from app.agents.registry import agent_registry
-
         parent = Message(
             id=str(uuid.uuid4()),
             session_id=test_session,
@@ -148,17 +135,6 @@ class TestPhase4MessageActions:
         db_session.add(parent)
         await db_session.commit()
 
-        seen_messages: list[list[dict]] = []
-        adapter = next(iter(agent_registry._adapters.values()))
-        original_chat_stream = adapter.chat_stream
-
-        async def spy_chat_stream(messages, system_prompt, model=None, tools=None):
-            seen_messages.append(messages)
-            async for token in original_chat_stream(messages, system_prompt, model=model, tools=tools):
-                yield token
-
-        monkeypatch.setattr(adapter, "chat_stream", spy_chat_stream)
-
         resp = await test_client.post(
             f"/api/sessions/{test_session}/chat",
             json={"content": "基于我引用的这条继续展开", "parentMessageId": parent.id},
@@ -167,8 +143,7 @@ class TestPhase4MessageActions:
         async for _line in resp.aiter_lines():
             pass
 
-        assert seen_messages
-        prompt_text = "\n".join(str(m.get("content", "")) for m in seen_messages[0])
+        prompt_text = await _read_cli_stdin(db_session, test_session)
         assert "用户引用了以下历史消息" in prompt_text
         assert "被引用的关键结论：使用事件溯源" in prompt_text
 
@@ -211,3 +186,15 @@ class TestPhase4MessageSearch:
 
         assert resp.status_code == 200
         assert resp.json() == []
+
+
+async def _read_cli_stdin(db_session, session_id: str) -> str:
+    result = await db_session.execute(
+        select(Project.workspace_path)
+        .join(DBSession, DBSession.project_id == Project.id)
+        .where(DBSession.id == session_id)
+    )
+    workspace_path = result.scalar_one()
+    path = Path(workspace_path) / ".agenthub-cli-stdin.txt"
+    assert path.exists()
+    return path.read_text(encoding="utf-8")

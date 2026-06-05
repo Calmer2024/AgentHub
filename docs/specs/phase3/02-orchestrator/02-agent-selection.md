@@ -72,7 +72,7 @@ TECH_TAG_PATTERNS = {
 
 ### 2.1 核心原则
 
-**Agent ≠ Provider。** Agent 是用户创建的自定义实体（名称、描述、system_prompt 均可自定义），底层调用 4 家厂商模型（DeepSeek/Gemini/GLM/MiniMax）。两个都用 DeepSeek 的 Agent 可因能力标签不同而获不同评分。
+**Agent ≠ Provider。** 当前 Agent 是用户接入的本机 CLI 工具实例（Claude Code / Codex / OpenCode / custom）。AgentSelector 只根据名称、备注和可选 system_prompt 元数据做任务匹配；执行能力来自 CLI 配置和本机登录态。DeepSeek 只作为后端内部系统模型，不参与用户 Agent 选择。
 
 ### 2.2 数据模型
 
@@ -111,7 +111,7 @@ class ScoredAgent:
 search_text = f"{agent.name} {agent.description} {agent.system_prompt}"
 ```
 
-Agent 创建的三个字段都在匹配范围内。用户给 Agent 起名"前端专家"、写描述"擅长 React 前端开发"、写 system_prompt "你是一个资深 React 开发者..." — 这些全会被搜索。
+Agent 创建的三个字段都在匹配范围内。用户可以用名称或备注区分多个本机 CLI 配置；这些元数据只影响 Orchestrator 路由，不代表 AgentHub 创建了新的 HTTP 模型助手。
 
 ### 2.5 评分示例
 

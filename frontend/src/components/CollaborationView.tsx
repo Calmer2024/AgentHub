@@ -8,6 +8,19 @@
 */
 
 import { useState } from "react";
+import {
+  ArrowRight,
+  Bot,
+  ChevronDown,
+  ChevronRight,
+  DraftingCompass,
+  Lightbulb,
+  Microscope,
+  Puzzle,
+  Search,
+  Zap,
+  type LucideIcon,
+} from "lucide-react";
 import type { CollabTask, ChainStep } from "../types";
 
 interface Props {
@@ -28,13 +41,13 @@ const ROLE_LABELS: Record<string, string> = {
   critic: "批判者",
 };
 
-const ROLE_ICONS: Record<string, string> = {
-  planner: "📐",
-  executor: "⚡",
-  reviewer: "🔍",
-  researcher: "🔬",
-  synthesizer: "🧩",
-  critic: "💡",
+const ROLE_ICONS: Record<string, LucideIcon> = {
+  planner: DraftingCompass,
+  executor: Zap,
+  reviewer: Search,
+  researcher: Microscope,
+  synthesizer: Puzzle,
+  critic: Lightbulb,
 };
 
 const STATUS_CONFIG = {
@@ -73,7 +86,7 @@ export function CollaborationView({
         className="w-full flex items-center justify-between px-4 py-3 bg-indigo-50 hover:bg-indigo-100 transition-colors text-left"
       >
         <div className="flex items-center gap-2">
-          <span className="text-sm">{collapsed ? "▶" : "▼"}</span>
+          {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
           <span className="text-xs font-semibold text-indigo-700">
             {isChain ? "链式协作" : "协作任务"} · {intentLabel} · {tasks.length} 个 Agent
           </span>
@@ -107,7 +120,7 @@ export function CollaborationView({
             <p className="text-xs text-gray-400">
               链式执行顺序: {chainSteps.map((s, i) => (
                 <span key={i}>
-                  {i > 0 && <span className="mx-1">→</span>}
+                  {i > 0 && <ArrowRight size={12} className="mx-1 inline-block text-gray-300" />}
                   <span className="font-medium text-gray-500">@{s.agent}</span>
                   <span className="text-gray-400">({ROLE_LABELS[s.role] ?? s.role})</span>
                 </span>
@@ -118,7 +131,7 @@ export function CollaborationView({
           {tasks.map((t, i) => {
             const status = isChain ? getTaskStatus(i) : t.status;
             const config = STATUS_CONFIG[status];
-            const roleIcon = ROLE_ICONS[t.role] ?? "🤖";
+            const RoleIcon = ROLE_ICONS[t.role] ?? Bot;
             return (
               <div key={i} className="flex items-start gap-3 p-2 rounded-lg bg-gray-50">
                 {/* 状态圆点 */}
@@ -127,14 +140,12 @@ export function CollaborationView({
                 {/* Agent 信息 */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5 mb-0.5">
-                    <span className="text-xs">{roleIcon}</span>
+                    <RoleIcon size={13} className="shrink-0 text-gray-500" />
                     <span className="text-xs font-semibold text-gray-800">@{t.agent}</span>
                     <span className="text-xs px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-600 font-medium">
                       {ROLE_LABELS[t.role] ?? t.role}
                     </span>
-                    <span className={`text-xs ${config.text}`}>
-                      — {config.label}
-                    </span>
+                    <span className={`text-xs ${config.text}`}>{config.label}</span>
                   </div>
                   <p className="text-xs text-gray-500">{t.name}</p>
                   {t.summary && (

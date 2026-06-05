@@ -238,7 +238,7 @@ SSE: agent.process.completed
 
 ### 7.2 集成测试
 
-- Mock CLI 输出完整 HTML → 验证 artifact.detected → artifact.created 全链路
+- 测试 CLI fixture 输出完整 HTML → 验证 artifact.detected → artifact.created 全链路
 - Mock workspace.diff_ready 事件 → 验证 file_tree Artifact 创建
 - Mock 低置信度检测 → 验证候选事件不落库
 

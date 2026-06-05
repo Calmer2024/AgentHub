@@ -4,10 +4,10 @@ import uuid
 import pytest
 
 from app.domain.execution_planner import AgentCall, DAGPhase
-from app.event_bus import EventType
 from app.models import AgentConfig
 from app.services.agent_executor import AgentExecutor
 from app.services.shared_context import SharedContext
+from app.services.token_event import TokenEvent
 
 
 def make_agent(name: str) -> AgentConfig:
@@ -15,37 +15,42 @@ def make_agent(name: str) -> AgentConfig:
         id=str(uuid.uuid4()),
         name=name,
         description="",
-        provider="deepseek",
-        model="test-model",
         system_prompt="测试系统提示",
+        agent_type="cli_wrapper",
+        cli_tool="custom",
+        executable="python",
+        init_args="[]",
+        env_vars="{}",
     )
 
 
-class CaptureAdapter:
+class CaptureCliRunner:
     def __init__(self):
         self.calls: list[list[dict]] = []
 
-    async def chat_stream(self, messages, system_prompt, model=None, tools=None):
-        self.calls.append([dict(m) for m in messages])
-        for token in ["OUT"]:
-            yield token
-
-
-class CaptureBus:
-    def __init__(self):
-        self.events: list[tuple[EventType, dict]] = []
-
-    async def publish(self, event_type: EventType, payload: dict):
-        self.events.append((event_type, payload))
+    async def execute(self, call, *, session_id: str, workspace_path: str):
+        self.calls.append([dict(m) for m in call.input_messages])
+        yield TokenEvent(
+            agent_id=call.agent.id,
+            agent_name=call.agent.name,
+            token="OUT",
+            metadata={
+                "task": call.task,
+                "role": call.role,
+                "phase": call.phase,
+                "depends_on": list(call.depends_on),
+            },
+        )
+        yield TokenEvent(
+            agent_id=call.agent.id,
+            agent_name=call.agent.name,
+            done=True,
+            metadata={"task": call.task, "role": call.role, "phase": call.phase},
+        )
 
 
 @pytest.mark.asyncio
-async def test_execute_dag_emits_phase_change_and_injects_context(monkeypatch):
-    adapter = CaptureAdapter()
-    from app.agents.registry import agent_registry
-
-    monkeypatch.setattr(agent_registry, "get_adapter", lambda provider: adapter)
-
+async def test_execute_dag_emits_phase_change_and_injects_context():
     planner = make_agent("架构师")
     frontend = make_agent("前端")
     reviewer = make_agent("审查员")
@@ -65,8 +70,14 @@ async def test_execute_dag_emits_phase_change_and_injects_context(monkeypatch):
 
     events = []
     executor = AgentExecutor()
+    executor._cli_runner = CaptureCliRunner()
     async for ev in executor.execute(
-        calls, "dag", dag_phases=phases, shared_context=SharedContext(base),
+        calls,
+        "dag",
+        dag_phases=phases,
+        shared_context=SharedContext(base),
+        session_id="s1",
+        workspace_path=".",
     ):
         events.append(ev)
 
@@ -80,19 +91,11 @@ async def test_execute_dag_emits_phase_change_and_injects_context(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_agent_call_completed_emitted_on_adapter_missing(monkeypatch):
-    """失败路径也必须发布 AGENT_CALL_COMPLETED 生命周期事件。"""
-    from app.agents.registry import agent_registry
-
-    monkeypatch.setattr(agent_registry, "get_adapter", lambda provider: None)
-    bus = CaptureBus()
+async def test_single_without_workspace_returns_cli_workspace_error():
     call = AgentCall(make_agent("缺失适配器"), task="primary", role="executor")
-    executor = AgentExecutor(event_bus=bus)
+    executor = AgentExecutor()
 
     events = [ev async for ev in executor.execute([call], "single")]
 
-    assert events[-1].error == "adapter not found"
-    completed = [e for e in bus.events if e[0] == EventType.AGENT_CALL_COMPLETED]
-    assert len(completed) == 1
-    assert completed[0][1]["status"] == "error"
-    assert completed[0][1]["error"] == "adapter not found"
+    assert events[-1].error == "CLI Agent requires a project workspace"
+    assert "只支持 CLI Agent" in events[-1].token

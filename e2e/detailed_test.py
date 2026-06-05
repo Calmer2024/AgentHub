@@ -107,7 +107,7 @@ with sync_playwright() as p:
         agents = json.loads(resp.read())
         log(f"API /api/agents: {len(agents)} agents")
         for a in agents[:3]:
-            log(f"  - {a.get('name', '?')} ({a.get('provider', '?')})")
+            log(f"  - {a.get('name', '?')} ({a.get('cliTool', '?')}/{a.get('executable', '?')})")
     except Exception as e:
         log(f"API error: {e}")
 
@@ -119,16 +119,6 @@ with sync_playwright() as p:
             log(f"  - {s.get('title', '?')} mode={s.get('mode', '?')}")
     except Exception as e:
         log(f"API sessions error: {e}")
-
-    try:
-        resp = urllib.request.urlopen("http://127.0.0.1:8000/api/providers")
-        providers = json.loads(resp.read())
-        log(f"API /api/providers: {len(providers)} providers")
-        for p in providers[:3]:
-            cap = p.get('capability', {})
-            log(f"  - {p.get('displayName', '?')} toolCall={cap.get('supportsToolCall', '?')}")
-    except Exception as e:
-        log(f"API providers error: {e}")
 
     # === JS CONSOLE ERRORS ===
     log(f"\n=== CONSOLE ERRORS: {len(console_errs)} ===")

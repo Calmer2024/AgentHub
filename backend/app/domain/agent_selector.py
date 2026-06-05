@@ -2,10 +2,10 @@
 
 Domain 层纯逻辑，零框架依赖。
 
-核心原则: Agent ≠ Provider。
-  - Agent 是用户创建的实体（名称、描述、system_prompt 自定义）
+核心原则: Agent 是 CLI 好友。
+  - Agent 是用户接入的本机 CLI 工具实例（名称、描述、system_prompt 自定义）
   - 评分依据: Agent.description + Agent.system_prompt 与需求标签的匹配度
-  - 多个 Agent 可能使用同一家 Provider，但能力标签不同
+  - 执行能力来自 CLI 配置，调度评分只看 Agent 元数据
 """
 
 from dataclasses import dataclass, field

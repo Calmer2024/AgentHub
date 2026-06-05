@@ -41,7 +41,7 @@
 | SSE 协议 (phase_change) | ✅ 已交付 | DAG Phase 切换事件 |
 | 上下文共享 (SharedContext) | ✅ 已交付 | 对话流共享 + 定向注入 |
 | 中枢总结 (OrchestratorSummarizer) | ✅ 已交付 | DAG/chain 等多 Agent 结构化协作完成后生成系统整理消息 |
-| Orchestrator 模型配置 | ✅ 已交付 | `orchestratorProvider/orchestratorModel` 独立于成员 Agent |
+| Orchestrator 中枢总结 | ✅ 已交付 | 使用后端内部 SystemLLM，独立于成员 CLI Agent |
 | 消息来源建模 | ✅ 已交付 | sourceType/contentType/metadata 支持 Agent 与 Orchestrator 区分 |
 | CollaborationPanel (DAG 图) | ✅ 已交付 | Phase 节点 + 依赖箭头 + 状态 |
 | Agent 气泡 (角色标签) | ✅ 已交付 | 角色标签、Phase 标记、协作竖线 |

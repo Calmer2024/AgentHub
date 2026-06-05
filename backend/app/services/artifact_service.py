@@ -8,10 +8,10 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..agents.registry import agent_registry
 from ..domain.artifact_editor import ArtifactEditor, DiffResult
 from ..event_bus.event_types import EventType
-from ..models import AgentConfig, Artifact, Message, Session
+from ..models import Artifact, Message, Session
+from .system_llm import SystemLLMUnavailableError, system_llm
 
 
 class ArtifactNotFoundError(ValueError):
@@ -165,58 +165,51 @@ class ArtifactService:
         if normalized_selection not in artifact.content:
             raise ArtifactEditError("selection not found in artifact content")
 
-        agent = await self._agent_for_artifact(artifact)
-        adapter = agent_registry.get_adapter(agent.provider) if agent else None
-        can_use_tool = bool(
-            adapter
-            and agent
-            and agent_registry.is_available(agent.provider)
-            and adapter.capability.supports_tool_call
-        )
+        can_use_tool = system_llm.is_configured() and system_llm.capability.supports_tool_call
 
         if can_use_tool:
-            response = await adapter.chat(
-                messages=[{
-                    "role": "user",
-                    "content": (
-                        f"修改产物 {artifact.id}。\n"
-                        f"选中内容:\n{normalized_selection}\n"
-                        f"修改意图:\n{normalized_instruction}"
+            try:
+                response = await system_llm.chat(
+                    messages=[{
+                        "role": "user",
+                        "content": (
+                            f"修改产物 {artifact.id}。\n"
+                            f"选中内容:\n{normalized_selection}\n"
+                            f"修改意图:\n{normalized_instruction}"
+                        ),
+                    }],
+                    system_prompt=(
+                        "你是代码编辑器。请使用 edit_artifact tool 返回 edit_type、selection "
+                        "和 replacement，不要直接改数据库。"
                     ),
-                }],
-                system_prompt=(
-                    "你是代码编辑器。请使用 edit_artifact tool 返回 edit_type、selection "
-                    "和 replacement，不要直接改数据库。"
-                ),
-                model=agent.model or None,
-                tools=[EDIT_ARTIFACT_TOOL],
-            )
-            tool_call = self.editor.parse_tool_call(response.tool_calls)
-            if tool_call:
-                try:
-                    proposed = self.editor.apply_tool_payload(artifact.content, normalized_selection, tool_call)
-                except ValueError as exc:
-                    raise ArtifactEditError(str(exc))
-                return EditPreview(
-                    artifact=None,
-                    diff=self.editor.build_diff(
-                        artifact.content,
-                        proposed,
-                        artifact.version or 1,
-                        (artifact.version or 1) + 1,
-                    ),
-                    proposed_content=proposed,
-                    strategy="tool_call",
-                    tool_call=tool_call,
+                    tools=[EDIT_ARTIFACT_TOOL],
                 )
+                tool_call = self.editor.parse_tool_call(response.tool_calls)
+                if tool_call:
+                    try:
+                        proposed = self.editor.apply_tool_payload(artifact.content, normalized_selection, tool_call)
+                    except ValueError as exc:
+                        raise ArtifactEditError(str(exc))
+                    return EditPreview(
+                        artifact=None,
+                        diff=self.editor.build_diff(
+                            artifact.content,
+                            proposed,
+                            artifact.version or 1,
+                            (artifact.version or 1) + 1,
+                        ),
+                        proposed_content=proposed,
+                        strategy="system_tool_call",
+                        tool_call=tool_call,
+                    )
+            except (SystemLLMUnavailableError, Exception):
+                pass
 
         proposed = await self._fallback_context_injection(
             artifact,
             normalized_selection,
             normalized_instruction,
             edit_type,
-            agent,
-            adapter,
         )
         return EditPreview(
             artifact=None,
@@ -293,50 +286,31 @@ class ArtifactService:
         )
         return result.scalars().first()
 
-    async def _agent_for_artifact(self, artifact: Artifact) -> AgentConfig | None:
-        message = await self.db.get(Message, artifact.message_id)
-        if message and message.source_id:
-            agent = await self.db.get(AgentConfig, message.source_id)
-            if agent:
-                return agent
-        session = await self.db.get(Session, artifact.session_id)
-        if session and session.agent_config_id:
-            agent = await self.db.get(AgentConfig, session.agent_config_id)
-            if agent:
-                return agent
-        if message and message.agent_name:
-            result = await self.db.execute(
-                select(AgentConfig).where(AgentConfig.name == message.agent_name).limit(1)
-            )
-            return result.scalars().first()
-        return None
-
     async def _fallback_context_injection(
         self,
         artifact: Artifact,
         selection: str,
         instruction: str,
         edit_type: str,
-        agent: AgentConfig | None,
-        adapter: Any,
     ) -> str:
-        if adapter and agent and agent_registry.is_available(agent.provider):
-            response = await adapter.chat(
-                messages=[{
-                    "role": "user",
-                    "content": (
-                        "请对代码执行修改，只返回修改后的选中片段，不要解释。\n"
-                        f"修改类型: {edit_type}\n"
-                        f"修改意图: {instruction}\n"
-                        f"选中内容:\n{selection}"
-                    ),
-                }],
-                system_prompt="你是代码编辑器。输出应该可以直接替换用户选中的原文。",
-                model=agent.model or None,
-            )
-            replacement = self.editor.extract_replacement(response.content)
-        else:
-            replacement = self.editor.deterministic_rewrite(selection, instruction, edit_type)
+        replacement = self.editor.deterministic_rewrite(selection, instruction, edit_type)
+        if system_llm.is_configured():
+            try:
+                response = await system_llm.chat(
+                    messages=[{
+                        "role": "user",
+                        "content": (
+                            "请对代码执行修改，只返回修改后的选中片段，不要解释。\n"
+                            f"修改类型: {edit_type}\n"
+                            f"修改意图: {instruction}\n"
+                            f"选中内容:\n{selection}"
+                        ),
+                    }],
+                    system_prompt="你是代码编辑器。输出应该可以直接替换用户选中的原文。",
+                )
+                replacement = self.editor.extract_replacement(response.content)
+            except (SystemLLMUnavailableError, Exception):
+                pass
         try:
             return self.editor.apply_edit_operation(artifact.content, selection, replacement, edit_type)
         except ValueError as exc:

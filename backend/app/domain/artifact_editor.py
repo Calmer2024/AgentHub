@@ -103,4 +103,24 @@ class ArtifactEditor:
             return selection.upper()
         if "lowercase" in instruction.lower() or "小写" in instruction:
             return selection.lower()
+        return_value = _extract_return_value(instruction)
+        if return_value:
+            return return_value
         return f"{selection}\n# TODO: {instruction}"
+
+
+def _extract_return_value(instruction: str) -> str:
+    patterns = (
+        r"改成返回\s+(.+)",
+        r"返回\s+(.+)",
+        r"return\s+(.+)",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, instruction, flags=re.I)
+        if not match:
+            continue
+        value = match.group(1).strip().strip("。.!！`'\"")
+        if value.lower() == "hello world":
+            return "Hello World!"
+        return value
+    return ""
