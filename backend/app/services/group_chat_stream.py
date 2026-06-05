@@ -8,19 +8,20 @@ from typing import AsyncGenerator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import Session as DBSession, AgentConfig, SessionMember
+from ..models import Session as DBSession, AgentConfig, Message as DBMessage, SessionMember
+from ..agents.cli_trace import trace_text
 from ..domain.orchestrator_v2 import OrchestratorV2, PipelineRequest
 from ..domain.execution_planner import AgentCall, ChainConfig
 from ..domain.orchestrator_plan import (
     build_plan_prompt,
     extract_json_object,
     normalize_plan,
-    plan_to_collab_payload,
     validate_plan,
     visualize_mermaid,
 )
 from .agent_executor import AgentExecutor
 from .cli_agent_service import CliAgentService
+from .execution_trace import ExecutionTraceBuilder, merge_trace_metadata
 from .project_service import ProjectService, ProjectNotFoundError
 from .shared_context import SharedContext
 from .group_chat_finalizer import GroupChatFinalizer
@@ -53,7 +54,7 @@ class GroupChatStream:
             yield self._err("当前会话未绑定项目，无法启动 CLI Agent")
             return
 
-        orchestrator_agent = self._mentioned_orchestrator(member_agents, mentions)
+        orchestrator_agent = self._mentioned_orchestrator(member_agents, mentions, content)
         if orchestrator_agent:
             async for item in self._run_plan_only(
                 session_id=session_id,
@@ -159,18 +160,32 @@ class GroupChatStream:
         ]
         prompt = build_plan_prompt(content, candidate_agents)
         raw_output = ""
+        parse_output = ""
+        visible = ""
         process_id = ""
+        exit_code = None
         message_id = str(uuid.uuid4())
+        call_key = self._call_key(orchestrator_agent.id, "draft plan", 0)
+        trace = ExecutionTraceBuilder(
+            agent_name=orchestrator_agent.name,
+            cli_tool=orchestrator_agent.cli_tool or "custom",
+            workspace_path=workspace_path,
+        )
+        metadata: dict = {
+            "agentType": orchestrator_agent.agent_type or "cli_wrapper",
+            "cliTool": orchestrator_agent.cli_tool or "custom",
+            "workspacePath": workspace_path,
+        }
 
         yield self._sse({
-            "type": "orchestrator.route",
-            "agents": [{"id": orchestrator_agent.id, "name": orchestrator_agent.name}],
-        })
-        yield self._sse({
-            "type": "orchestrator.plan_started",
+            "type": "agent.start",
             "agentId": orchestrator_agent.id,
             "agentName": orchestrator_agent.name,
             "messageId": message_id,
+            "role": "planner",
+            "phase": 0,
+            "task": "draft plan",
+            "callKey": call_key,
         })
 
         async for event in CliAgentService().stream(
@@ -181,68 +196,240 @@ class GroupChatStream:
             system_prompt=orchestrator_agent.system_prompt or "",
         ):
             process_id = event.process_id or process_id
-            if event.type == "agent.output" and event.chunk_type in {"text", "artifact_signal"}:
-                raw_output += event.chunk
+            if event.type == "agent.process.started":
+                metadata["processId"] = process_id
+                trace.set_process(process_id)
+                item = trace.add(
+                    kind="process",
+                    text=trace_text(event.trace or {}, f"正在启动 {orchestrator_agent.name}"),
+                    process_id=process_id,
+                    trace=event.trace,
+                )
+                if item:
+                    yield self._plan_trace_delta(orchestrator_agent, message_id, process_id, call_key, item)
                 yield self._sse({
-                    "type": "orchestrator.plan_delta",
-                    "token": event.chunk,
+                    "type": "agent.process.started",
+                    "agentId": orchestrator_agent.id,
+                    "agentName": orchestrator_agent.name,
                     "messageId": message_id,
                     "processId": process_id,
+                    "callKey": call_key,
+                    "role": "planner",
+                    "phase": 0,
+                    "task": "draft plan",
+                    "token": "",
                     "done": False,
                 })
+                continue
+
+            if event.type == "agent.output":
+                if event.chunk_type in {"text", "artifact_signal"}:
+                    raw_output += event.chunk
+                    parse_output += event.chunk
+                    visible += event.chunk
+                trace_item = None
+                if event.chunk_type != "text":
+                    trace_item = trace.add(
+                        kind="artifact" if event.chunk_type == "artifact_signal"
+                        else "error" if event.chunk_type == "error" else "progress",
+                        text=event.chunk,
+                        source="cli",
+                        chunk_type=event.chunk_type,
+                        process_id=process_id,
+                        trace=event.trace,
+                    )
+                if trace_item:
+                    yield self._plan_trace_delta(orchestrator_agent, message_id, process_id, call_key, trace_item)
+                yield self._sse({
+                    "type": "agent.output",
+                    "agentId": orchestrator_agent.id,
+                    "agentName": orchestrator_agent.name,
+                    "token": event.chunk if event.chunk_type == "text" else "",
+                    "messageId": message_id,
+                    "role": "planner",
+                    "phase": 0,
+                    "task": "draft plan",
+                    "callKey": call_key,
+                    "processId": process_id,
+                    "chunk": event.chunk,
+                    "chunkType": event.chunk_type,
+                    "done": False,
+                })
+                continue
+            elif event.type == "interactive_prompt":
+                item = trace.add(
+                    kind="prompt",
+                    text=event.chunk,
+                    source="cli",
+                    chunk_type="interactive_prompt",
+                    process_id=process_id,
+                    trace=event.trace,
+                )
+                if item:
+                    yield self._plan_trace_delta(orchestrator_agent, message_id, process_id, call_key, item)
+                yield self._sse({
+                    "type": "interactive_prompt",
+                    "agentId": orchestrator_agent.id,
+                    "agentName": orchestrator_agent.name,
+                    "messageId": message_id,
+                    "processId": process_id,
+                    "callKey": call_key,
+                    "content": event.chunk,
+                    "promptType": event.prompt_type,
+                    "token": "",
+                    "done": False,
+                })
+                continue
+            elif event.type == "agent.process.completed":
+                exit_code = event.exit_code
+                metadata["exitCode"] = exit_code
+                status = "completed" if exit_code in (0, None) else "error"
+                item = trace.add(
+                    kind="process",
+                    text=trace_text(event.trace or {}, f"{orchestrator_agent.name} 已结束"),
+                    process_id=process_id,
+                    trace=event.trace,
+                )
+                trace.complete(status=status, exit_code=exit_code)
+                if item:
+                    yield self._plan_trace_delta(orchestrator_agent, message_id, process_id, call_key, item)
+                yield self._sse({
+                    "type": "agent.process.completed",
+                    "agentId": orchestrator_agent.id,
+                    "agentName": orchestrator_agent.name,
+                    "messageId": message_id,
+                    "processId": process_id,
+                    "callKey": call_key,
+                    "role": "planner",
+                    "phase": 0,
+                    "task": "draft plan",
+                    "exitCode": exit_code,
+                    "token": "",
+                    "done": False,
+                })
+                continue
             elif event.type == "error":
-                yield self._err(event.error or "调度器执行失败")
+                error = event.error or "调度器执行失败"
+                trace.add(kind="error", text=error, process_id=process_id, trace=event.trace)
+                trace.complete(status="error", exit_code=exit_code)
+                metadata["error"] = error
+                await self._persist_orchestrator_message(
+                    session_id=session_id,
+                    message_id=message_id,
+                    agent=orchestrator_agent,
+                    content=visible or raw_output or f"调度器执行失败：{error}",
+                    metadata=merge_trace_metadata(metadata, trace),
+                )
+                yield self._err(error)
                 return
 
         try:
-            parsed = extract_json_object(raw_output)
+            parsed = extract_json_object(parse_output)
             plan = normalize_plan(parsed)
             validation = validate_plan(
                 plan,
                 {str(agent["id"]) for agent in candidate_agents},
             )
         except ValueError as exc:
+            await self._persist_orchestrator_message(
+                session_id=session_id,
+                message_id=message_id,
+                agent=orchestrator_agent,
+                content=visible or raw_output,
+                metadata=merge_trace_metadata({
+                    **metadata,
+                    "orchestratorPlanError": str(exc),
+                }, trace),
+            )
             yield self._sse({
-                "type": "orchestrator.plan_completed",
-                "ok": False,
-                "rawOutput": raw_output,
-                "error": str(exc),
                 "token": "",
                 "done": True,
                 "messageId": message_id,
+                "error": str(exc),
             })
             return
 
-        tasks, dag = plan_to_collab_payload(plan)
+        await self._persist_orchestrator_message(
+            session_id=session_id,
+            message_id=message_id,
+            agent=orchestrator_agent,
+            content=visible,
+            metadata=merge_trace_metadata({
+                **metadata,
+                "orchestratorPlan": {
+                    "ok": validation["ok"],
+                    "normalizedPlan": plan,
+                    "validation": validation,
+                    "visualization": {"mermaid": visualize_mermaid(plan)},
+                }
+            }, trace),
+        )
         yield self._sse({
-            "type": "orchestrator.task_started",
-            "intent": "orchestrator_plan",
-            "plan_summary": f"调度器已生成 draft plan：{len(tasks)} 个任务，等待确认。",
-            "tasks": tasks,
-            "dag": dag,
-        })
-        yield self._sse({
-            "type": "orchestrator.plan_completed",
-            "ok": validation["ok"],
-            "rawOutput": raw_output,
-            "normalizedPlan": plan,
-            "validation": validation,
-            "visualization": {"mermaid": visualize_mermaid(plan)},
             "token": "",
             "done": True,
             "messageId": message_id,
+        })
+
+    async def _persist_orchestrator_message(
+        self,
+        *,
+        session_id: str,
+        message_id: str,
+        agent: AgentConfig,
+        content: str,
+        metadata: dict,
+    ) -> None:
+        self.db.add(DBMessage(
+            id=message_id,
+            session_id=session_id,
+            role="assistant",
+            content=content,
+            content_type="text",
+            agent_name=agent.name,
+            source_type="agent",
+            source_id=agent.id,
+            source_name=agent.name,
+            metadata_json=json.dumps(metadata, ensure_ascii=False),
+        ))
+        await self.db.commit()
+
+    def _plan_trace_delta(
+        self,
+        agent: AgentConfig,
+        message_id: str,
+        process_id: str,
+        call_key: str,
+        item: dict,
+    ) -> str:
+        return self._sse({
+            "type": "agent.trace.delta",
+            "agentId": agent.id,
+            "agentName": agent.name,
+            "messageId": message_id,
+            "processId": process_id,
+            "callKey": call_key,
+            "role": "planner",
+            "phase": 0,
+            "task": "draft plan",
+            "item": item,
+            "token": "",
+            "done": False,
         })
 
     @staticmethod
     def _mentioned_orchestrator(
         agents: list[AgentConfig],
         mentions: list[str] | None,
+        content: str = "",
     ) -> AgentConfig | None:
         mention_ids = set(mentions or [])
-        if not mention_ids:
-            return None
         for agent in agents:
             if agent.id in mention_ids and (agent.primary_skill or "") == "orchestrator_planner":
+                return agent
+        for agent in agents:
+            if (agent.primary_skill or "") != "orchestrator_planner":
+                continue
+            if f"@{agent.name}" in content or "@Orchestrator" in content:
                 return agent
         return None
 

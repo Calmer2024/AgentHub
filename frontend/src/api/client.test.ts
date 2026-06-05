@@ -65,32 +65,55 @@ describe("createChatStream", () => {
     expect(onTaskStarted.mock.calls[0][3]).toBe("已安排: 先由@架构师规划。");
   });
 
-  it("解析 Orchestrator draft plan 完成事件", async () => {
+  it("把 Orchestrator plan-only 当普通 Agent 输出解析", async () => {
     const onDone = vi.fn();
-    const onPlan = vi.fn();
+    const onAgentStart = vi.fn();
+    const onAgentToken = vi.fn();
     vi.spyOn(globalThis, "fetch").mockResolvedValue(sseResponse([
       JSON.stringify({
-        type: "orchestrator.plan_completed",
-        ok: true,
+        type: "agent.start",
+        agentId: "agent-orchestrator",
+        agentName: "Orchestrator 调度器",
         messageId: "plan-1",
-        normalizedPlan: { plan_id: "p1", tasks: [] },
-        validation: { ok: true, errors: [], warnings: ["缺少分配"] },
-        visualization: { mermaid: "graph TD" },
+        callKey: "agent-orchestrator:0:draft plan",
+      }),
+      JSON.stringify({
+        type: "agent.output",
+        agentId: "agent-orchestrator",
+        agentName: "Orchestrator 调度器",
+        messageId: "plan-1",
+        callKey: "agent-orchestrator:0:draft plan",
+        token: "{\"plan_id\":\"p1\"}",
+        chunkType: "text",
+      }),
+      JSON.stringify({
+        token: "",
+        done: true,
+        messageId: "plan-1",
       }),
     ]));
 
     createChatStream("s1", "hello", [], {
       onToken: vi.fn(),
       onDone,
-      onOrchestratorPlanCompleted: onPlan,
+      onAgentStart,
+      onAgentToken,
     });
 
-    await vi.waitFor(() => expect(onPlan).toHaveBeenCalled());
-    expect(onPlan.mock.calls[0][0]).toMatchObject({
-      ok: true,
-      validation: { ok: true, errors: [], warnings: ["缺少分配"] },
-      visualization: { mermaid: "graph TD" },
-    });
+    await vi.waitFor(() => expect(onAgentToken).toHaveBeenCalled());
+    expect(onAgentStart).toHaveBeenCalledWith(expect.objectContaining({
+      agentName: "Orchestrator 调度器",
+      messageId: "plan-1",
+    }));
+    expect(onAgentToken).toHaveBeenCalledWith(
+      "agent-orchestrator",
+      "Orchestrator 调度器",
+      "{\"plan_id\":\"p1\"}",
+      "plan-1",
+      undefined,
+      undefined,
+      undefined,
+    );
     expect(onDone).toHaveBeenCalledWith("plan-1", undefined);
   });
 

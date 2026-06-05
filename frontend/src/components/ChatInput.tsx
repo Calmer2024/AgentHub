@@ -87,11 +87,14 @@ export function ChatInput({ onSubmit, disabled, mentionableAgents }: Props) {
 
   const extractMentions = (text: string): string[] => {
     const mentions: string[] = [];
-    const regex = /@(\S+)/g;
-    let match;
-    while ((match = regex.exec(text)) !== null) {
-      const agent = mentionableAgents.find((a) => a.name === match![1]);
-      if (agent) mentions.push(agent.id);
+    const seen = new Set<string>();
+    const sortedAgents = [...mentionableAgents].sort((a, b) => b.name.length - a.name.length);
+    for (const agent of sortedAgents) {
+      const marker = `@${agent.name}`;
+      if (text.includes(marker) && !seen.has(agent.id)) {
+        mentions.push(agent.id);
+        seen.add(agent.id);
+      }
     }
     return mentions;
   };

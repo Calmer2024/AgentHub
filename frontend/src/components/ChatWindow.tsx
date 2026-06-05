@@ -71,6 +71,7 @@ export function ChatWindow({
   }, []);
 
   const isGroup = mode === "group";
+  const isPlanOnly = orchestratorIntent === "orchestrator_plan" || Boolean(draftPlan);
   const messageById = useMemo(() => new Map(messages.map((m) => [m.id, m])), [messages]);
   const agentByName = useMemo(() => {
     const map = new Map<string, AgentConfig>();
@@ -159,7 +160,7 @@ export function ChatWindow({
       )}
 
       {/* Orchestrator route banner */}
-      {routeAgents && routeAgents.length > 0 && (
+      {!isPlanOnly && routeAgents && routeAgents.length > 0 && (
         <div className="mx-6 mt-3 px-4 py-3 bg-blue-50 border border-blue-200 rounded-xl">
           <p className="text-xs text-blue-600 font-medium mb-1">
             Orchestrator 已路由
@@ -184,11 +185,11 @@ export function ChatWindow({
       )}
 
       {/* CollaborationPanel — inline in natural flow, below route banner */}
-      {collabTasks.length > 0 && (
+      {(collabTasks.length > 0 || draftPlan) && (
         <CollaborationPanel
           intent={orchestratorIntent}
-          tasks={collabTasks}
-          phases={dagPhases}
+          tasks={isPlanOnly ? [] : collabTasks}
+          phases={isPlanOnly ? [] : dagPhases}
           isCompleted={collabCompleted}
           completedSummary={collabSummary}
           draftPlan={draftPlan}

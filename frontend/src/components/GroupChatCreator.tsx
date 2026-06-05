@@ -7,6 +7,8 @@ import { useMemo, useState } from "react";
 import { Check, Users, X } from "lucide-react";
 import type { AgentConfig } from "../types";
 
+const MAX_GROUP_AGENTS = 12;
+
 interface Props {
   agents: AgentConfig[];
   onConfirm: (title: string, selectedIds: string[]) => void;
@@ -28,7 +30,7 @@ export function GroupChatCreator({ agents, onConfirm, onCancel }: Props) {
   };
 
   const selectedList = [...selected];
-  const canCreate = selectedList.length >= 2 && selectedList.length <= 6;
+  const canCreate = selectedList.length >= 2 && selectedList.length <= MAX_GROUP_AGENTS;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
@@ -38,7 +40,7 @@ export function GroupChatCreator({ agents, onConfirm, onCancel }: Props) {
           <h2 className="text-lg font-semibold text-gray-900">新建群聊</h2>
         </div>
         <p className="text-xs text-gray-400 mb-3">
-          默认带上调度器；在群聊中 @调度器 生成计划，普通消息仍按群聊协作处理
+          默认带上调度器；在群聊中 @调度器 生成计划，普通消息仍按群聊协作处理。最多选择 {MAX_GROUP_AGENTS} 个 Agent。
         </p>
 
         <input value={title} onChange={(e) => setTitle(e.target.value)}
@@ -78,7 +80,7 @@ export function GroupChatCreator({ agents, onConfirm, onCancel }: Props) {
             disabled={!canCreate}
             className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-blue-600 py-2.5 text-sm text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50">
             <Check size={15} />
-            创建 ({selected.size})
+            {selected.size > MAX_GROUP_AGENTS ? `最多 ${MAX_GROUP_AGENTS} 个` : `创建 (${selected.size})`}
           </button>
         </div>
       </div>

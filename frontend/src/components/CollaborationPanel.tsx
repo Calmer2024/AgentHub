@@ -56,9 +56,13 @@ export function CollaborationPanel({
   intent, tasks, phases, isCompleted, completedSummary, draftPlan,
 }: Props) {
   const [collapsed, setCollapsed] = useState(false);
+  const isDraftPlan = intent === "orchestrator_plan" || Boolean(draftPlan);
   const visiblePhases = phases.length > 0 ? phases : buildFallbackPhases(tasks);
   const doneCount = tasks.filter((t) => t.status === "completed" || t.status === "error").length;
   const title = intent ? INTENT_LABELS[intent] ?? intent : "协作任务";
+  const planTaskCount = draftPlan?.normalizedPlan && Array.isArray(draftPlan.normalizedPlan.tasks)
+    ? draftPlan.normalizedPlan.tasks.length
+    : tasks.length;
 
   useEffect(() => {
     if (!isCompleted) return;
@@ -76,10 +80,16 @@ export function CollaborationPanel({
         <div className="min-w-0">
           <div className="flex items-center gap-2 truncate text-sm font-semibold text-slate-900">
             <Workflow size={15} className="shrink-0 text-slate-500" />
-            <span className="truncate">Orchestrator · {title} · {tasks.length} 任务</span>
+            <span className="truncate">
+              {isDraftPlan
+                ? `Orchestrator · Draft Plan · ${planTaskCount} 任务`
+                : `Orchestrator · ${title} · ${tasks.length} 任务`}
+            </span>
           </div>
           <div className="text-xs text-slate-500 mt-0.5">
-            {isCompleted ? completedSummary ?? `${doneCount}/${tasks.length} 完成` : `${doneCount}/${tasks.length} 完成`}
+            {isDraftPlan
+              ? completedSummary ?? "调度计划已生成，等待确认执行。"
+              : isCompleted ? completedSummary ?? `${doneCount}/${tasks.length} 完成` : `${doneCount}/${tasks.length} 完成`}
           </div>
         </div>
         <span className="rounded-md border border-slate-200 p-1 text-slate-500" aria-hidden="true">
@@ -114,6 +124,7 @@ export function CollaborationPanel({
               )}
             </div>
           )}
+          {!isDraftPlan && (
           <div className="flex items-stretch gap-3 min-w-max">
             {visiblePhases.map((phase, index) => (
               <div key={phase.phase} className="flex items-center gap-3">
@@ -146,6 +157,7 @@ export function CollaborationPanel({
               </div>
             ))}
           </div>
+          )}
         </div>
       )}
     </section>

@@ -276,16 +276,6 @@ export function useSendMessage() {
           )),
         });
       },
-      onOrchestratorPlanCompleted: (plan) => {
-        if (!isCurrentRun()) return;
-        const snap = getCollab(collabKey);
-        saveCollab(collabKey, {
-          ...(snap ?? emptyCollab()),
-          draftPlan: plan,
-          collabCompleted: true,
-          collabSummary: plan.ok ? "调度计划已生成，等待确认执行。" : plan.error ?? "调度计划解析失败",
-        });
-      },
       onAgentStart: (event: AgentStartEvent) => {
         if (!isCurrentRun()) return;
         const key = event.callKey ?? taskKey(event.agentId, event.phase, event.task);
