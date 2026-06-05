@@ -7,6 +7,8 @@ const mockAgent: AgentConfig = {
   id: "a1", name: "测试 Agent", description: "", systemPrompt: "",
   agentType: "cli_wrapper", cliTool: "claude_code", executable: "claude",
   initArgs: ["-p"], envVars: {}, status: "ready",
+  primarySkill: "general_coding", auxiliarySkills: ["workspace_editing"],
+  contextPolicy: "workspace_coding",
   isActive: true, createdAt: "", updatedAt: "",
 };
 
@@ -115,6 +117,7 @@ describe("Chat Store (split)", () => {
       planSummary: "已安排: 先由@架构师规划。",
       collabCompleted: false,
       collabSummary: null,
+      draftPlan: null,
     });
     expect(useChatStore.getState().getCollab("s-dag").dagPhases[0].phase).toBe(0);
     expect(useChatStore.getState().getCollab("s-dag").planSummary).toContain("架构师");

@@ -11,14 +11,15 @@ import {
   ServerCog,
   Settings2,
   ShieldCheck,
+  Sparkles,
   SlidersHorizontal,
   Terminal,
   X,
   type LucideIcon,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
-import type { AgentConfig, AgentConfigCreate } from "../types";
-import { checkAgentExecutable, fetchCodexLocalConfig, updateCodexLocalConfig } from "../api/client";
+import type { AgentConfig, AgentConfigCreate, SkillDefinition } from "../types";
+import { checkAgentExecutable, fetchCodexLocalConfig, fetchSkills, updateCodexLocalConfig } from "../api/client";
 import {
   CLI_PRESETS,
   isBlockedAgentEnvKey,
@@ -38,6 +39,10 @@ export function AgentCliForm({
   const preset = CLI_PRESETS[cliTool];
   const [name, setName] = useState(initial?.name ?? preset.name);
   const [note, setNote] = useState(initial?.description ?? preset.description);
+  const [skills, setSkills] = useState<SkillDefinition[]>([]);
+  const [primarySkill, setPrimarySkill] = useState(initial?.primarySkill ?? "general_coding");
+  const [auxiliarySkills, setAuxiliarySkills] = useState<string[]>(initial?.auxiliarySkills ?? ["workspace_editing"]);
+  const [contextPolicy, setContextPolicy] = useState(initial?.contextPolicy ?? "workspace_coding");
   const [executable, setExecutable] = useState(initial?.executable ?? preset.executable);
   const [argsText, setArgsText] = useState((initial?.initArgs ?? preset.initArgs).join(" "));
   const initialEnv: Record<string, string> = initial?.envVars ?? preset.envVars;
@@ -56,6 +61,14 @@ export function AgentCliForm({
   const [checking, setChecking] = useState(false);
   const [checkResult, setCheckResult] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchSkills()
+      .then((items) => { if (!cancelled) setSkills(items); })
+      .catch(() => { if (!cancelled) setSkills([]); });
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     if (cliTool !== "codex") return;
@@ -86,6 +99,9 @@ export function AgentCliForm({
     setCliTool(next);
     setName(nextPreset.name);
     setExecutable(nextPreset.executable);
+    setPrimarySkill("general_coding");
+    setAuxiliarySkills(["workspace_editing"]);
+    setContextPolicy("workspace_coding");
     setArgsText(nextPreset.initArgs.join(" "));
     setEnvText(formatEnv(nextPreset.envVars));
     setCodexConnection("proxy");
@@ -156,6 +172,9 @@ export function AgentCliForm({
         executable: executable.trim(),
         initArgs: parseArgs(argsText),
         envVars: parseEnv(envText, cliTool),
+        primarySkill,
+        auxiliarySkills: auxiliarySkills.filter((skillId) => skillId !== primarySkill),
+        contextPolicy,
       });
     } catch (error) {
       setFormError(error instanceof Error ? error.message : "保存失败");
@@ -177,9 +196,9 @@ export function AgentCliForm({
             </div>
             <div className="min-w-0">
               <h2 className="truncate text-base font-semibold text-white">
-                {initial ? "Agent 设置" : "添加 CLI Agent"}
+                {initial ? "Agent Profile 设置" : "添加 Agent Profile"}
               </h2>
-              <p className="truncate text-xs text-[#8f8f98]">本机 CLI 好友连接与运行参数</p>
+              <p className="truncate text-xs text-[#8f8f98]">Engine + Skills + 运行参数</p>
             </div>
           </div>
           <button
@@ -195,7 +214,21 @@ export function AgentCliForm({
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
           <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
-            <ConfigSection icon={Settings2} title="基础信息" description="选择 CLI 类型与用户可见名称">
+            <ConfigSection icon={Settings2} title="基础信息" description="设置用户可见的 Agent 身份">
+              <FieldLabel label="显示名称">
+                <input value={name} onChange={(event) => setName(event.target.value)} required className={inputClass} />
+              </FieldLabel>
+              <FieldLabel label="备注">
+                <input
+                  value={note}
+                  onChange={(event) => setNote(event.target.value)}
+                  placeholder="例如：偏前端、偏审查、偏架构"
+                  className={inputClass}
+                />
+              </FieldLabel>
+            </ConfigSection>
+
+            <ConfigSection icon={Sparkles} title="能力配置" description="Agent = Engine + Skills">
               <FieldLabel label="CLI 类型">
                 <select value={cliTool} onChange={(event) => selectTool(event.target.value as CliTool)} className={inputClass}>
                   <option value="claude_code">Claude Code</option>
@@ -204,16 +237,41 @@ export function AgentCliForm({
                   <option value="custom">自定义</option>
                 </select>
               </FieldLabel>
-              <FieldLabel label="显示名称">
-                <input value={name} onChange={(event) => setName(event.target.value)} required className={inputClass} />
+              <FieldLabel label="主 Skill">
+                <select value={primarySkill} onChange={(event) => setPrimarySkill(event.target.value)} className={inputClass}>
+                  {skillOptions(skills).map((skill) => (
+                    <option key={skill.id} value={skill.id}>{skill.name}</option>
+                  ))}
+                </select>
               </FieldLabel>
-              <FieldLabel label="备注">
-                <input
-                  value={note}
-                  onChange={(event) => setNote(event.target.value)}
-                  placeholder="仅用于区分本机 CLI 配置"
-                  className={inputClass}
-                />
+              <FieldLabel label="辅助 Skills">
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {skillOptions(skills).filter((skill) => skill.id !== primarySkill).map((skill) => (
+                    <label key={skill.id} className="flex min-w-0 items-center gap-2 rounded-lg border border-white/10 bg-[#25262a] px-3 py-2 text-xs text-[#d8d8df]">
+                      <input
+                        type="checkbox"
+                        checked={auxiliarySkills.includes(skill.id)}
+                        onChange={() => setAuxiliarySkills((current) => toggleSkill(current, skill.id))}
+                        className="h-4 w-4 shrink-0 accent-[#3a6ff7]"
+                      />
+                      <span className="min-w-0 flex-1 truncate" title={skill.path ? `${skill.description}\n${skill.path}` : skill.description}>
+                        {skill.name}
+                      </span>
+                      {skill.source === "filesystem" && (
+                        <span className="shrink-0 rounded bg-emerald-400/10 px-1.5 py-0.5 text-[10px] text-emerald-200">
+                          本机
+                        </span>
+                      )}
+                    </label>
+                  ))}
+                </div>
+              </FieldLabel>
+              <FieldLabel label="上下文策略">
+                <select value={contextPolicy} onChange={(event) => setContextPolicy(event.target.value)} className={inputClass}>
+                  <option value="workspace_coding">Workspace Coding</option>
+                  <option value="planning_only">Planning Only</option>
+                  <option value="review_only">Review Only</option>
+                </select>
               </FieldLabel>
             </ConfigSection>
 
@@ -377,6 +435,21 @@ export function AgentCliForm({
 }
 
 const parseArgs = (value: string) => value.split(/\s+/).map((item) => item.trim()).filter(Boolean);
+
+const FALLBACK_SKILLS: SkillDefinition[] = [
+  { id: "general_coding", name: "通用工程师", description: "处理常规代码实现、修复和项目内工程任务。", tags: [] },
+  { id: "workspace_editing", name: "Workspace 编辑", description: "负责在项目工作区中读写文件。", tags: [] },
+  { id: "orchestrator_planner", name: "调度器规划", description: "只负责需求拆解、DAG 计划和 Agent 分配建议。", tags: [] },
+];
+
+function skillOptions(skills: SkillDefinition[]) {
+  return skills.length > 0 ? skills : FALLBACK_SKILLS;
+}
+
+function toggleSkill(current: string[], skillId: string) {
+  if (current.includes(skillId)) return current.filter((id) => id !== skillId);
+  return [...current, skillId];
+}
 
 function parseEnv(value: string, cliTool: CliTool): Record<string, string> {
   const env: Record<string, string> = {};

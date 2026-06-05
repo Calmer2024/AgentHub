@@ -21,6 +21,10 @@ export function AgentCliRow({
             <p className="truncate text-sm font-medium text-white">{agent.name}</p>
           </div>
           <p className="mt-1 truncate text-xs text-[#8f8f98]">
+            Engine: {engineLabel(agent.cliTool)} · Skill: {agent.primarySkill || "general_coding"}
+            {agent.auxiliarySkills.length > 0 ? ` + ${agent.auxiliarySkills.length}` : ""}
+          </p>
+          <p className="mt-1 truncate text-xs text-[#74747d]">
             {agent.executable || "未配置 executable"} {agent.initArgs.join(" ")}
           </p>
           {agent.description && (
@@ -51,4 +55,11 @@ export function AgentCliRow({
       </div>
     </div>
   );
+}
+
+function engineLabel(value: string) {
+  if (value === "claude_code") return "Claude Code";
+  if (value === "codex") return "Codex";
+  if (value === "opencode") return "OpenCode";
+  return "Custom";
 }

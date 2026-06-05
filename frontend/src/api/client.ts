@@ -7,6 +7,7 @@ import type {
   PreviewResult,
   ExecutionTraceItem,
   CodexLocalConfig, CodexLocalConfigUpdate,
+  SkillDefinition, DraftOrchestratorPlan,
 } from "../types";
 import { parseDagPhases, parseTasks } from "./orchestratorEvents";
 
@@ -15,6 +16,12 @@ const API_BASE = "/api";
 export async function fetchAgents(): Promise<AgentConfig[]> {
   const res = await fetch(`${API_BASE}/agents`);
   if (!res.ok) throw new Error("Failed to fetch agents");
+  return res.json();
+}
+
+export async function fetchSkills(): Promise<SkillDefinition[]> {
+  const res = await fetch(`${API_BASE}/skills`);
+  if (!res.ok) throw new Error("Failed to fetch skills");
   return res.json();
 }
 
@@ -249,6 +256,7 @@ export interface StreamCallbacks {
   onChainStep?: (step: ChainStep) => void;
   onPhaseChange?: (event: PhaseChangeEvent) => void;
   onTaskCompleted?: (summary: string) => void;
+  onOrchestratorPlanCompleted?: (plan: DraftOrchestratorPlan) => void;
   onAgentStart?: (event: AgentStartEvent) => void;
   onOrchestratorSummaryStart?: (event: OrchestratorSummaryStartEvent) => void;
   onOrchestratorSummaryToken?: (messageId: string, token: string) => void;
@@ -291,7 +299,7 @@ export function createChatStream(
     onToken, onDone, onRoute, onTaskStarted, onChainStep, onPhaseChange,
     onTaskCompleted, onAgentStart, onOrchestratorSummaryStart,
     onOrchestratorSummaryToken, onAgentToken, onProgress, onInteractivePrompt,
-    onTraceDelta, onTraceCompleted,
+    onTraceDelta, onTraceCompleted, onOrchestratorPlanCompleted,
   } = callbacks;
   const url = `${API_BASE}/sessions/${sessionId}/chat`;
   const abortCtrl = new AbortController();
@@ -337,6 +345,15 @@ export function createChatStream(
             if (data.type === "orchestrator.route" && onRoute) {
               onRoute(data.agents);
               continue;
+            }
+
+            if (data.type === "orchestrator.plan_completed") {
+              if (onOrchestratorPlanCompleted) {
+                onOrchestratorPlanCompleted(parseDraftPlan(data));
+              }
+              completed = true;
+              onDone(data.messageId, data.ok === false && data.error ? data.error : undefined);
+              return;
             }
 
             // orchestrator.task_started (new)
@@ -574,6 +591,27 @@ export function createChatStream(
   })();
 
   return () => abortCtrl.abort();
+}
+
+function parseDraftPlan(data: Record<string, unknown>): DraftOrchestratorPlan {
+  const validation = data.validation as Record<string, unknown> | undefined;
+  const visualization = data.visualization as Record<string, unknown> | undefined;
+  return {
+    ok: data.ok !== false,
+    rawOutput: typeof data.rawOutput === "string" ? data.rawOutput : undefined,
+    normalizedPlan: typeof data.normalizedPlan === "object" && data.normalizedPlan !== null
+      ? data.normalizedPlan as Record<string, unknown>
+      : undefined,
+    validation: validation ? {
+      ok: validation.ok !== false,
+      errors: Array.isArray(validation.errors) ? validation.errors.map(String) : [],
+      warnings: Array.isArray(validation.warnings) ? validation.warnings.map(String) : [],
+    } : undefined,
+    visualization: visualization && typeof visualization.mermaid === "string"
+      ? { mermaid: visualization.mermaid }
+      : undefined,
+    error: typeof data.error === "string" ? data.error : undefined,
+  };
 }
 
 export async function replyToMessage(messageId: string, content: string): Promise<Message> {

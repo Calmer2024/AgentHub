@@ -116,6 +116,9 @@ export interface AgentConfig {
   executable: string | null;
   initArgs: string[];
   envVars: Record<string, string>;
+  primarySkill: string;
+  auxiliarySkills: string[];
+  contextPolicy: string;
   status: "ready" | "not_found" | "running" | "error";
   version?: string | null;
   executablePath?: string | null;
@@ -133,6 +136,9 @@ export interface AgentConfigCreate {
   executable?: string | null;
   initArgs?: string[];
   envVars?: Record<string, string>;
+  primarySkill?: string;
+  auxiliarySkills?: string[];
+  contextPolicy?: string;
 }
 
 export interface AgentConfigUpdate {
@@ -144,6 +150,18 @@ export interface AgentConfigUpdate {
   executable?: string | null;
   initArgs?: string[];
   envVars?: Record<string, string>;
+  primarySkill?: string;
+  auxiliarySkills?: string[];
+  contextPolicy?: string;
+}
+
+export interface SkillDefinition {
+  id: string;
+  name: string;
+  description: string;
+  tags: string[];
+  source?: "builtin" | "filesystem" | string;
+  path?: string | null;
 }
 
 export interface CodexLocalConfig {
@@ -261,6 +279,21 @@ export interface ChainStep {
   role: string;
   total: number;
   status: "running" | "completed" | "interrupted";
+}
+
+export interface DraftOrchestratorPlan {
+  ok: boolean;
+  rawOutput?: string;
+  normalizedPlan?: Record<string, unknown>;
+  validation?: {
+    ok: boolean;
+    errors: string[];
+    warnings: string[];
+  };
+  visualization?: {
+    mermaid: string;
+  };
+  error?: string;
 }
 
 export interface PhaseChangeEvent {
