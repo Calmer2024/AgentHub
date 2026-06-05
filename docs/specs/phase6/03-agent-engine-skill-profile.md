@@ -1,6 +1,6 @@
 # 03 Agent Engine + Skill Profile
 
-**状态**: 计划中
+**状态**: 实施中
 **关联 ADR**: [ADR-0010](../../adr/0010-agent-engine-skill-model.md)
 **关联 PRD**: [PRD-01](../../PRD/01-Architecture_Adapter.md), [PRD-02](../../PRD/02-Orchestrator_Engine.md), [PRD-04](../../PRD/04-Data_API_Contracts.md)
 **依赖**: Phase 6 CLI Adapter 基线、Agent 设置面板、Project workspace runtime
@@ -38,13 +38,13 @@ Agent Profile = Engine + Skills + Context Policy
 - 用户看到的是“前端专家 / 架构专家 / 调度器”，不是裸的“Claude Code / Codex”。
 - 用户可以理解一个 Agent 由哪个 Engine 驱动、绑定了哪些 Skill。
 - 调度器后续能基于 Skill 做可解释分配。
-- 第一版不引入复杂 Skill 管理系统，先跑通模型。
+- 第一版不引入复杂 Skill 管理系统，先从本机 Skill Pool 只读加载，跑通模型。
 
 ### 2.2 技术目标
 
 - 在现有 `agent_configs` 上增量增加 Skill Profile 字段。
 - 保持现有 CLI Adapter 不推翻，`cli_tool/executable/init_args/env_vars` 继续作为 Engine runtime config。
-- 增加轻量 Skill Registry。
+- 增加轻量 Skill Registry，内置基础 Skill，并扫描本机 `SKILL.md`。
 - 单聊和群聊执行前按稳定顺序组装 Skill prompt。
 - AgentSelector 支持 Skill 显式匹配。
 
@@ -55,7 +55,7 @@ Agent Profile = Engine + Skills + Context Policy
 | 概念 | 第一版定义 |
 |------|------------|
 | Engine | `claude_code` / `codex` / `opencode` / `custom` |
-| Skill | 可复用能力定义，包含 id/name/tags/prompt |
+| Skill | 可复用能力定义，包含 id/name/tags/prompt；第一版来自内置列表 + 本机 Skill Pool |
 | Primary Skill | Agent 的主职责，最多一个 |
 | Auxiliary Skills | Agent 的辅助能力，可多个 |
 | Context Policy | 上下文注入策略，第一版使用枚举/默认值 |
@@ -112,9 +112,55 @@ ALTER TABLE agent_configs ADD COLUMN context_policy VARCHAR DEFAULT 'workspace_c
 
 ## 5. Skill Registry
 
-### 5.1 第一版内置 Skill
+### 5.1 第一版 Skill Pool
 
-第一版先内置以下 Skill：
+第一版 Skill Pool 由两部分组成：
+
+```text
+内置基础 Skill
+  + 用户本机 Skill 目录
+```
+
+默认本机目录：
+
+```text
+%USERPROFILE%\.agents\skills
+```
+
+在当前开发机上就是：
+
+```text
+C:\Users\czh\.agents\skills
+```
+
+可通过环境变量覆盖或追加：
+
+```text
+AGENTHUB_SKILL_ROOTS=C:\Users\czh\.agents\skills;D:\my-extra-skills
+```
+
+每个 Skill 目录约定包含：
+
+```text
+skill-id/
+  SKILL.md
+```
+
+`SKILL.md` 可带 YAML 风格 front matter：
+
+```markdown
+---
+name: frontend-design
+description: Create distinctive frontend interfaces.
+tags: frontend, ui, design
+---
+
+这里是注入给 Agent 的完整 Skill prompt。
+```
+
+如果本机 Skill ID 和内置 Skill ID 重名，本机 Skill 覆盖内置 Skill。这样用户可以用自己的 Skill Pool 替换默认行为。
+
+内置基础 Skill：
 
 | Skill ID | Name | Tags | Purpose |
 |----------|------|------|---------|
@@ -146,6 +192,8 @@ class SkillDefinition:
 - Skill 市场
 - Skill 自动检索
 - Skill 权限
+
+注意：第一版已经支持读取用户本机目录中的 `SKILL.md`，但不提供 Web UI 编辑、创建、删除 Skill。
 
 ---
 
@@ -203,7 +251,9 @@ GET /api/skills
     "id": "frontend_engineer",
     "name": "前端工程师",
     "description": "负责前端界面、交互、组件和样式实现",
-    "tags": ["frontend", "react", "ui", "css"]
+    "tags": ["frontend", "react", "ui", "css"],
+    "source": "builtin",
+    "path": null
   }
 ]
 ```
@@ -330,9 +380,9 @@ Status: ready
 - `GET /api/agents` 返回 `primarySkill / auxiliarySkills / contextPolicy`。
 - `POST /api/agents` 可保存 Skill Profile 字段。
 - `PATCH /api/agents/{id}` 可更新 Skill Profile 字段。
-- `GET /api/skills` 返回内置 Skill 列表。
+- `GET /api/skills` 返回内置 Skill + 本机 Skill Pool 列表，并标明 `source/path`。
 - 未配置 skill 的旧 Agent 自动 fallback 到 `general_coding`。
-- Prompt assembly 包含 primary skill 和 auxiliary skill prompt。
+- Prompt assembly 包含 primary skill 和 auxiliary skill prompt；本机 `SKILL.md` 的正文可被注入。
 - AgentSelector 能按 Skill 命中排序。
 
 ### 前端
