@@ -1,89 +1,89 @@
-# CLI Adapter Architecture And Implementation
+# CLI Adapter 架构与技术实现原理
 
-**Date**: 2026-06-05
-**Status**: implementation baseline
-**Primary code paths**: `backend/app/agents/`, `backend/app/services/*cli*`, `frontend/src/components/*Agent*`, `frontend/src/components/ExecutionTracePanel.tsx`
+**日期**: 2026-06-05
+**状态**: 实现基线
+**主要代码路径**: `backend/app/agents/`、`backend/app/services/*cli*`、`frontend/src/components/*Agent*`、`frontend/src/components/ExecutionTracePanel.tsx`
 
-## 1. Design Position
+## 1. 设计定位
 
-AgentHub now treats Agent as a local CLI friend. The product-facing agents are Claude Code, Codex, and OpenCode. Legacy API-style pseudo agents, provider configuration panels, default role assistants, and user-facing model/temperature configuration are deprecated.
+AgentHub 现在将用户可见的 Agent 定义为本机 CLI 好友。产品内置的好友是 Claude Code、Codex、OpenCode。旧版本中的 API 伪 Agent、厂商配置、默认角色助手、用户可见模型/temperature 配置都已退出主流程。
 
-DeepSeek remains allowed as an internal system LLM for product functions such as automatic conversation title generation and group-chat finalization. It is not exposed as a user-selectable Agent friend.
+DeepSeek 仍可作为产品内部系统模型，用于自动生成会话标题、群聊最终总结等后端能力。它不是用户可选择、可聊天的 Agent 好友。
 
-The core rule is:
+核心链路是：
 
 ```text
 Project -> Session -> CLI Agent process
 ```
 
-Each Session belongs to a Project. Each CLI process is spawned with `cwd = Project.workspace_path`, so file writes land in the user's selected local workspace rather than in an abstract chat sandbox.
+每个 Session 必须归属于一个 Project。CLI 进程启动时使用 `cwd = Project.workspace_path`，因此 Agent 创建和修改的文件会真实落在用户选择的本机项目目录里。
 
-## 2. Runtime Flow
+## 2. 运行流程
 
 ```text
 POST /api/sessions/{sessionId}/chat
   -> ChatServiceImpl
-  -> SingleCliChatStream or GroupChatStream
+  -> SingleCliChatStream 或 GroupChatStream
   -> CliAgentService
-  -> per-CLI adapter
+  -> 对应 CLI Adapter
   -> CliProcessManager
-  -> real subprocess in project workspace
+  -> 在 Project workspace 中启动真实 subprocess
   -> stdout/stderr pump
   -> StreamSanitizer
   -> PromptInterceptor
   -> CliOutputParser
   -> ParsedOutput + trace metadata
-  -> SSE to frontend
+  -> SSE 推送到前端
   -> MessageBubble + ExecutionTracePanel
-  -> message metadata persistence
+  -> 写入 message metadata 持久化
 ```
 
-The adapter layer does not create business artifacts directly. It emits text, progress, error, interactive prompt, and artifact-signal style events. Artifact creation remains the responsibility of the artifact bridge and artifact services.
+Adapter 层不直接创建业务 Artifact。它负责输出文本、过程、错误、交互确认和产物信号。Artifact 的落库与卡片创建仍由 Artifact Bridge 和 ArtifactService 负责。
 
-## 3. Backend Components
+## 3. 后端组件
 
-| Component | Responsibility |
-|-----------|----------------|
-| `backend/app/services/agent_seed.py` | Seeds the three built-in CLI Agents and archives non-CLI legacy agents. |
-| `backend/app/services/cli_agent_registry.py` | Validates CLI Agent config, checks executable availability, serializes/deserializes CLI args/env, and shields sensitive env values from normal API responses. |
-| `backend/app/services/cli_agent_service.py` | Renders chat context into a CLI prompt and delegates execution to the selected adapter. |
-| `backend/app/services/single_cli_chat_stream.py` | Bridges single-chat message persistence, SSE streaming, and execution trace metadata. |
-| `backend/app/services/cli_agent_executor.py` | Lets group/orchestrator execution call CLI Agents using the same adapter surface. |
-| `backend/app/agents/cli_runtime.py` | Owns real subprocess creation, cwd validation, stdin writing, stdout/stderr reading, process registry, timeouts, replies, and termination. |
-| `backend/app/agents/cli_adapters.py` | Implements the base adapter plus Claude Code, Codex, and OpenCode specializations. |
-| `backend/app/agents/cli_output_parser.py` | Keeps per-run parser state, handles JSONL streams, raw fallback lines, HTML-error suppression, and noisy stderr filtering. |
-| `backend/app/agents/cli_stream.py` | Cleans ANSI/TUI control text and detects interactive confirmation prompts. |
-| `backend/app/agents/cli_trace.py` | Converts CLI-specific events into structured trace items for frontend rendering. |
-| `backend/app/services/execution_trace.py` | Builds bounded, persisted execution trace metadata under `message.metadata.executionTrace`. |
-| `backend/app/agents/codex_config.py` | Detects local Codex config from `CODEX_HOME` or `~/.codex`, including official OpenAI and third-party proxy providers. |
-| `backend/app/services/codex_local_config_service.py` | Repairs and writes host Codex config through AgentHub UI: `config.toml` plus `.env`, without storing proxy keys in Agent rows. |
+| 组件 | 职责 |
+|------|------|
+| `backend/app/services/agent_seed.py` | 启动时种子化三个内置 CLI Agent，并归档非 CLI 的历史 Agent。 |
+| `backend/app/services/cli_agent_registry.py` | 校验 CLI Agent 配置，检查 executable，序列化/反序列化 args/env，并避免普通 API 响应泄漏敏感环境变量。 |
+| `backend/app/services/cli_agent_service.py` | 将聊天上下文渲染为 CLI prompt，并交给对应 adapter 执行。 |
+| `backend/app/services/single_cli_chat_stream.py` | 负责单聊消息持久化、SSE 流式输出与执行轨迹 metadata。 |
+| `backend/app/services/cli_agent_executor.py` | 让群聊和 Orchestrator 复用同一套 CLI Agent 执行能力。 |
+| `backend/app/agents/cli_runtime.py` | 管理真实进程创建、cwd 校验、stdin 写入、stdout/stderr 读取、进程注册表、超时、交互回复和终止。 |
+| `backend/app/agents/cli_adapters.py` | 实现基础 adapter，以及 Claude Code、Codex、OpenCode 的专属适配逻辑。 |
+| `backend/app/agents/cli_output_parser.py` | 保存单次执行的 parser 状态，处理 JSONL、raw fallback、HTML 错误压缩和 stderr 噪声过滤。 |
+| `backend/app/agents/cli_stream.py` | 清理 ANSI/TUI 控制字符，并识别交互式确认提示。 |
+| `backend/app/agents/cli_trace.py` | 将 CLI 特有事件转为结构化执行轨迹，供前端精致渲染。 |
+| `backend/app/services/execution_trace.py` | 构建并裁剪 `message.metadata.executionTrace`，防止单条消息 metadata 膨胀。 |
+| `backend/app/agents/codex_config.py` | 从 `CODEX_HOME` 或 `~/.codex` 检测本机 Codex 官方/中转配置。 |
+| `backend/app/services/codex_local_config_service.py` | 通过 AgentHub UI 修复和写入本机 Codex `config.toml` 与 `.env`，避免让用户手动改文件。 |
 
-## 4. Frontend Components
+## 4. 前端组件
 
-| Component | Responsibility |
-|-----------|----------------|
-| `AgentAvatar.tsx` | Provides consistent visual identity for Claude Code, Codex, OpenCode, and custom CLI Agents. |
-| `AgentCliForm.tsx` | Modal-style CLI Agent configuration, executable check, and Codex official/proxy setup. |
-| `AgentCliRow.tsx` | Friend-list row with status, actions, and settings entry. |
-| `ExecutionTracePanel.tsx` | Renders structured process/tool/thought/error trace below the reply bubble; it can collapse and scroll independently. |
-| `MessageBubble.tsx` | Renders markdown reply bubbles, agent avatar, execution trace, message actions, and quote/reply context. |
-| `ChatWindow.tsx` | Handles Telegram-like chat surface, user-message anchoring, and agent working state. |
-| `useSendMessage.ts` | Consumes SSE events, streams text into bubbles, persists trace metadata, and avoids forcing the viewport to the bottom during long runs. |
+| 组件 | 职责 |
+|------|------|
+| `AgentAvatar.tsx` | 为 Claude Code、Codex、OpenCode 和自定义 CLI Agent 提供一致头像。 |
+| `AgentCliForm.tsx` | CLI Agent 设置弹窗，包含 executable 检测、默认参数、Codex 官方/中转配置。 |
+| `AgentCliRow.tsx` | 好友列表行，展示状态、操作入口和设置入口。 |
+| `ExecutionTracePanel.tsx` | 在回复气泡下方渲染过程、工具、命令、错误和产物信号；支持折叠和独立滚动。 |
+| `MessageBubble.tsx` | 渲染 Markdown 回复气泡、Agent 头像、执行轨迹、消息操作和引用上下文。 |
+| `ChatWindow.tsx` | 负责接近 Telegram 的聊天界面、用户新消息定位和 Agent 工作状态。 |
+| `useSendMessage.ts` | 消费 SSE 事件，将文本流式写入气泡，持久化执行轨迹，并避免长任务期间强制滚到底部。 |
 
-## 5. Data Model
+## 5. 数据模型
 
-`agent_configs` is now CLI-first:
+`agent_configs` 已改为 CLI-first：
 
-| Field | Meaning |
-|-------|---------|
-| `agent_type` | Expected to be `cli_wrapper` for user-facing Agents. |
-| `cli_tool` | `claude_code`, `codex`, `opencode`, or `custom`. |
-| `executable` | Command name or executable path, for example `claude`, `codex`, `opencode`. |
-| `init_args` | JSON array of startup arguments. |
-| `env_vars` | JSON object for advanced runtime overrides. Sensitive Codex API keys are managed in local Codex files, not exposed as ordinary Agent config. |
-| `is_active` | Soft-delete/archive flag. |
+| 字段 | 含义 |
+|------|------|
+| `agent_type` | 用户可见 Agent 应为 `cli_wrapper`。 |
+| `cli_tool` | `claude_code`、`codex`、`opencode` 或 `custom`。 |
+| `executable` | 命令名或可执行文件路径，例如 `claude`、`codex`、`opencode`。 |
+| `init_args` | JSON 数组形式的启动参数。 |
+| `env_vars` | JSON 对象形式的高级运行时覆盖。Codex API Key 不作为普通 Agent 配置暴露。 |
+| `is_active` | 软删除/归档标记。 |
 
-Message execution traces are persisted in message metadata:
+执行轨迹会持久化到消息 metadata：
 
 ```json
 {
@@ -107,85 +107,85 @@ Message execution traces are persisted in message metadata:
 }
 ```
 
-Trace item count and text size are bounded to prevent a single CLI run from bloating the message row.
+轨迹条目数量和文本长度都有上限，避免单次 CLI 执行撑爆消息记录。
 
-## 6. Per-CLI Adapters
+## 6. 各 CLI 适配策略
 
 ### Claude Code
 
-Default invocation:
+默认命令：
 
 ```text
 claude -p --verbose --output-format stream-json --include-partial-messages --dangerously-skip-permissions
 ```
 
-Claude Code emits JSON events with assistant content, thinking blocks, tool calls, tool results, and final result events. The adapter maps assistant text to reply streaming and maps tool/thinking events to execution trace items.
+Claude Code 会输出包含 assistant 内容、thinking、tool use、tool result 和 result 的 JSON 事件。Adapter 将 assistant 文本映射为回复流，将工具和思考过程映射为执行轨迹。
 
 ### Codex
 
-Default invocation:
+默认命令：
 
 ```text
 codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox --color never --json -
 ```
 
-Codex requires extra handling because a user's local Codex can use either official OpenAI endpoints or a third-party OpenAI-compatible gateway. AgentHub detects `~/.codex/config.toml`, `~/.codex/auth.json`, `~/.codex/.env`, `CODEX_HOME`, and process environment variables.
+Codex 需要额外处理，因为用户本机 Codex 可能使用官方 OpenAI，也可能使用第三方 OpenAI-compatible 中转。AgentHub 会检测 `~/.codex/config.toml`、`~/.codex/auth.json`、`~/.codex/.env`、`CODEX_HOME` 和当前进程环境变量。
 
-When AgentHub detects official/proxy settings, it launches Codex with `--ignore-user-config` plus explicit `-c` runtime settings. This keeps useful host auth/config information while avoiding polluted profiles that can cause HTML pages, stale provider settings, or wrong model providers to leak into chat output.
+当 AgentHub 检测到官方或中转配置时，会在运行 Codex 时注入 `--ignore-user-config` 和显式 `-c` 配置。这样既能复用本机可用的连接信息，又能避免旧 profile、错误 provider、HTML 首页或模型列表噪声污染聊天输出。
 
-For proxy mode, AgentHub requires a proxy API key. ChatGPT login tokens cannot authenticate against third-party gateways. The UI writes stable proxy secrets to `CODEX_HOME/.env` and points the selected provider at `env_key = "CODEX_API_KEY"`.
+中转模式必须有中转 API Key。ChatGPT 登录 token 不能用于第三方中转站。AgentHub UI 会把稳定密钥写入 `CODEX_HOME/.env`，并让对应 provider 使用 `env_key = "CODEX_API_KEY"`。
 
 ### OpenCode
 
-Default invocation:
+默认命令：
 
 ```text
 opencode run --pure --agent build --format json --dangerously-skip-permissions
 ```
 
-OpenCode is normalized away from older unsupported argument patterns. The adapter passes the user prompt as a run argument when needed and parses JSON parts for text, tool usage, and step transitions.
+OpenCode 会规整掉旧的不兼容参数模式。Adapter 会在需要时把用户 prompt 作为 run 参数传入，并解析 JSON part 中的文本、工具调用和 step 事件。
 
-## 7. Process Lifecycle
+## 7. 进程生命周期
 
-`CliProcessManager` owns lifecycle boundaries:
+`CliProcessManager` 负责生命周期边界：
 
-- validates that the workspace exists and is a directory
-- resolves Windows `.cmd`, `.bat`, and `.ps1` launch paths correctly
-- builds a clean CLI environment and sets `NO_COLOR=1` and `TERM=dumb`
-- writes prompt input when stdin is piped
-- pumps stdout and stderr concurrently
-- emits process started/completed/timeout events
-- tracks active process snapshots by session
-- supports `POST /api/sessions/{id}/interactive_reply` for `y`/`n` prompts
-- kills silent processes after the configured timeout
+- 校验 workspace 存在且是目录；
+- 兼容 Windows `.cmd`、`.bat`、`.ps1` 启动方式；
+- 构造干净 CLI 环境，并设置 `NO_COLOR=1`、`TERM=dumb`；
+- 在 pipe stdin 模式下写入 prompt；
+- 并发读取 stdout 和 stderr；
+- 发送 process started/completed/timeout 事件；
+- 按 session 维护 active process snapshot；
+- 支持 `POST /api/sessions/{id}/interactive_reply` 写回 `y`/`n`；
+- 对静默超时进程执行终止。
 
-This service intentionally handles only process I/O and lifecycle. CLI-specific meaning stays in adapters and parser modules.
+这个服务只处理进程 I/O 和生命周期。每个 CLI 输出的语义解释留在 adapter 与 parser 中。
 
-## 8. Output And Trace Strategy
+## 8. 输出与执行轨迹策略
 
-Raw CLI output is not shown directly as one large blob. It is split into:
+CLI 原始输出不会直接作为一大坨文本展示给用户，而是拆成四层：
 
-- reply text, rendered as markdown in the agent bubble
-- process/tool/thought/error trace, rendered below the bubble
-- interactive prompts, rendered as confirmation cards
-- artifact signals, forwarded for downstream artifact handling
+- 回复文本：进入 Agent 气泡，按 Markdown 渲染；
+- 过程轨迹：进入气泡下方的执行流程块；
+- 交互提示：进入确认卡片；
+- 产物信号：交给后续 Artifact Bridge 处理。
 
-The trace panel is meant to be more readable than terminal logs. It keeps the concrete command, tool name, target path, stderr signal, and provider-specific detail when the CLI exposes those fields.
+执行流程块的目标是比终端日志更好读。只要 CLI 暴露了命令、工具名、目标路径、stderr 信号或 provider 细节，就尽量在结构化轨迹中呈现。
 
-## 9. Configuration And Secret Handling
+## 9. 配置与密钥处理
 
-AgentHub deliberately separates user-visible Agent identity from provider secrets:
+AgentHub 刻意区分“用户可见 Agent 身份”和“提供商密钥”：
 
-- Claude Code and OpenCode mostly inherit host CLI auth.
-- Codex official mode can use OpenAI API key or local ChatGPT auth when compatible.
-- Codex proxy mode must use a proxy API key because third-party gateways cannot use ChatGPT tokens.
-- Codex API keys are written to `CODEX_HOME/.env`, usually `~/.codex/.env`.
-- The current provider in `config.toml` is updated to use `env_key`, not inline secrets.
-- Frontend API responses show whether a key is set, but not the key value.
+- Claude Code 和 OpenCode 主要继承用户本机 CLI 登录态；
+- Codex 官方模式可使用 OpenAI API Key，也可在兼容时使用本机 ChatGPT auth；
+- Codex 中转模式必须使用中转 API Key；
+- Codex API Key 写入 `CODEX_HOME/.env`，通常是 `~/.codex/.env`；
+- 当前 provider 在 `config.toml` 中使用 `env_key`，不写内联密钥；
+- 前端 API 响应只展示“是否已配置 key”，不返回密钥明文。
 
-## 10. Current Remaining Risks
+## 10. 当前剩余风险
 
-- Artifact Bridge still needs final end-to-end hardening so workspace diffs, code blocks, and artifact cards stay consistent.
-- Per-CLI trace parsing should keep gaining fixtures from real Claude Code, Codex, and OpenCode sessions, especially command/file-operation detail.
-- Long-running process cancellation should become a first-class UI action, not only a backend runtime capability.
-- Real smoke tests depend on the user's local CLI installations and auth state, so CI can only cover parser/runtime fixtures unless dedicated runners are prepared.
+- Artifact Bridge 仍需继续加固，让 workspace diff、代码块和 Artifact Card 稳定一致；
+- 三个 CLI 的执行轨迹解析仍需要持续补充真实 stdout/stderr fixture，特别是命令和文件操作细节；
+- 长任务取消应成为一等 UI 操作，而不只是后端运行时能力；
+- 真实 smoke 依赖用户本机 CLI 安装和认证状态，CI 暂时只能覆盖 parser/runtime fixture，除非准备专用 runner。
