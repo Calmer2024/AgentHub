@@ -121,15 +121,44 @@ class TestListAgents:
         agents = res.json()
         names = {agent["name"] for agent in agents}
         assert {"Claude Code", "Codex", "OpenCode"}.issubset(names)
+        assert {
+            "Orchestrator 调度器",
+            "产品经理",
+            "需求分析师",
+            "架构师",
+            "后端专家",
+            "前端专家",
+            "测试专家",
+            "文档专家",
+        }.issubset(names)
         claude = next(agent for agent in agents if agent["name"] == "Claude Code")
         assert "--verbose" in claude["initArgs"]
         assert claude["envVars"] == {}
         assert claude["primarySkill"] == "general_coding"
         assert "workspace_editing" in claude["auxiliarySkills"]
+        orchestrator = next(agent for agent in agents if agent["name"] == "Orchestrator 调度器")
+        assert orchestrator["primarySkill"] == "orchestrator_planner"
+        frontend = next(agent for agent in agents if agent["name"] == "前端专家")
+        assert frontend["primarySkill"] == "frontend_engineer"
+        assert "ux_designer" in frontend["auxiliarySkills"]
         codex = next(agent for agent in agents if agent["name"] == "Codex")
         assert "--ignore-user-config" not in codex["initArgs"]
         assert "--dangerously-bypass-approvals-and-sandbox" in codex["initArgs"]
         assert codex["envVars"] == {}
+
+    async def test_seed_default_agents_endpoint_is_idempotent(self, test_client):
+        first = await test_client.post("/api/agents/seed-defaults")
+        assert first.status_code == 200
+        second = await test_client.post("/api/agents/seed-defaults")
+        assert second.status_code == 200
+
+        agents = second.json()
+        names = [agent["name"] for agent in agents]
+        assert names.count("Orchestrator 调度器") == 1
+        assert names.count("产品经理") == 1
+        orchestrator = next(agent for agent in agents if agent["name"] == "Orchestrator 调度器")
+        assert orchestrator["primarySkill"] == "orchestrator_planner"
+        assert orchestrator["contextPolicy"] == "planning_only"
 
     async def test_list_after_create(self, test_client):
         res_before = await test_client.get("/api/agents")
@@ -181,7 +210,19 @@ class TestSkillsApi:
         res = await test_client.get("/api/skills")
         assert res.status_code == 200
         skill_ids = {skill["id"] for skill in res.json()}
-        assert {"general_coding", "frontend_engineer", "orchestrator_planner"}.issubset(skill_ids)
+        assert {
+            "general_coding",
+            "frontend_engineer",
+            "orchestrator_planner",
+            "product_manager",
+            "requirements_analyst",
+            "architect",
+            "api_designer",
+            "database_designer",
+            "test_engineer",
+            "technical_writer",
+            "ux_designer",
+        }.issubset(skill_ids)
         general = next(skill for skill in res.json() if skill["id"] == "general_coding")
         assert general["source"] == "builtin"
 

@@ -159,7 +159,7 @@ function App() {
 
       {sidebarTab === "debug" ? (
         <div className="flex-1 min-h-0">
-          <OrchestratorDebugPanel agents={agents} />
+          <OrchestratorDebugPanel agents={agents} onAgentsChanged={loadData} />
         </div>
       ) : currentSessionId ? (
         <ChatWindow

@@ -14,6 +14,7 @@ from ..services.cli_agent_registry import (
     decode_json_dict,
     decode_json_list,
 )
+from ..services.agent_seed import seed_default_cli_agents
 from ..services.codex_local_config_service import (
     CodexLocalConfigError,
     CodexLocalConfigService,
@@ -143,6 +144,13 @@ def _registry(db: AsyncSession) -> CliAgentRegistry:
 
 @router.get("", response_model=List[AgentConfigRead])
 async def list_agents(db: AsyncSession = Depends(get_db)):
+    agents = await _registry(db).list_active()
+    return [AgentConfigRead.from_model(agent) for agent in agents]
+
+
+@router.post("/seed-defaults", response_model=List[AgentConfigRead])
+async def seed_default_agents(db: AsyncSession = Depends(get_db)):
+    await seed_default_cli_agents(db)
     agents = await _registry(db).list_active()
     return [AgentConfigRead.from_model(agent) for agent in agents]
 

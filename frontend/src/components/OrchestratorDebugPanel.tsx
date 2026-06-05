@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { buildOrchestratorInput, parseOrchestratorOutput } from "../api/client";
+import { buildOrchestratorInput, parseOrchestratorOutput, seedDefaultAgents } from "../api/client";
 import type {
   AgentConfig,
   BuildOrchestratorInputResult,
@@ -10,24 +10,62 @@ import type {
 
 interface Props {
   agents: AgentConfig[];
+  onAgentsChanged?: () => Promise<void> | void;
 }
 
 const SAMPLE = "我们要给公司开发一个基础的员工报销单管理系统，员工可以增删改查自己的报销单，财务可以进行批量审批和查看。";
+const DEFAULT_AGENT_NAMES = [
+  "Orchestrator 调度器",
+  "产品经理",
+  "需求分析师",
+  "架构师",
+  "后端专家",
+  "前端专家",
+  "测试专家",
+  "文档专家",
+];
 
-export function OrchestratorDebugPanel({ agents }: Props) {
+export function OrchestratorDebugPanel({ agents, onAgentsChanged }: Props) {
   const [content, setContent] = useState(SAMPLE);
   const [useMockAgents, setUseMockAgents] = useState(true);
   const [selectedAgentIds, setSelectedAgentIds] = useState<string[]>([]);
   const [bridgeInput, setBridgeInput] = useState<BuildOrchestratorInputResult | null>(null);
   const [rawOutput, setRawOutput] = useState("");
   const [parsed, setParsed] = useState<ParseOrchestratorOutputResult | null>(null);
-  const [loading, setLoading] = useState<"build" | "parse" | null>(null);
+  const [loading, setLoading] = useState<"build" | "parse" | "seed" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [seedMessage, setSeedMessage] = useState<string | null>(null);
 
   const selectedNames = useMemo(() => {
     const byId = new Map(agents.map((a) => [a.id, a.name]));
     return selectedAgentIds.map((id) => byId.get(id) ?? id);
   }, [agents, selectedAgentIds]);
+
+  const defaultAgentStatus = useMemo(() => {
+    const names = new Set(agents.map((agent) => agent.name));
+    const existing = DEFAULT_AGENT_NAMES.filter((name) => names.has(name));
+    return {
+      existing,
+      missing: DEFAULT_AGENT_NAMES.filter((name) => !names.has(name)),
+    };
+  }, [agents]);
+
+  const seedDefaults = async () => {
+    setLoading("seed");
+    setError(null);
+    setSeedMessage(null);
+    try {
+      const seeded = await seedDefaultAgents();
+      await onAgentsChanged?.();
+      const names = new Set(seeded.map((agent) => agent.name));
+      const count = DEFAULT_AGENT_NAMES.filter((name) => names.has(name)).length;
+      setSeedMessage(`已补齐/更新默认 Agent 小队：${count}/${DEFAULT_AGENT_NAMES.length}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "创建默认 Agent 失败");
+    } finally {
+      setLoading(null);
+    }
+  };
 
   const generateInput = async () => {
     setLoading("build");
@@ -99,6 +137,36 @@ export function OrchestratorDebugPanel({ agents }: Props) {
 
       <div className="grid gap-5 px-6 py-5 xl:grid-cols-[420px_minmax(0,1fr)]">
         <div className="space-y-4">
+          <section className="space-y-3 border border-[#d8d8cc] bg-white p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-[#30362f]">默认 Agent 小队</h3>
+                <p className="mt-1 text-xs leading-5 text-[#697166]">
+                  一键创建/更新 Orchestrator、产品、需求、架构、前后端、测试和文档 Agent。
+                </p>
+              </div>
+              <span className="shrink-0 bg-[#eef0e8] px-2 py-1 text-[11px] font-semibold text-[#4f594f]">
+                {defaultAgentStatus.existing.length}/{DEFAULT_AGENT_NAMES.length}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={seedDefaults}
+              disabled={loading !== null}
+              className="w-full border border-[#1f2421] bg-white px-4 py-2 text-sm font-semibold text-[#1f2421] transition hover:bg-[#eef0e8] disabled:cursor-not-allowed disabled:border-[#c9cbbf] disabled:text-[#9ca397]"
+            >
+              {loading === "seed" ? "创建中..." : "补齐/更新默认 Agent"}
+            </button>
+            {defaultAgentStatus.missing.length > 0 ? (
+              <p className="text-[11px] leading-5 text-amber-700">
+                缺少：{defaultAgentStatus.missing.join("、")}
+              </p>
+            ) : (
+              <p className="text-[11px] leading-5 text-green-700">默认小队已存在，可直接拉群测试调度。</p>
+            )}
+            {seedMessage && <p className="text-[11px] leading-5 text-[#49624a]">{seedMessage}</p>}
+          </section>
+
           <section className="space-y-2 border border-[#d8d8cc] bg-white p-4">
             <div className="flex items-center justify-between">
               <label className="text-xs font-semibold text-[#30362f]">用户需求</label>
