@@ -6,6 +6,10 @@ import {
   fetchArtifactDiff,
   fetchArtifactVersions,
   fetchArtifacts,
+  readProjectFile,
+  restoreArtifactVersion,
+  saveArtifactContent,
+  writeProjectFile,
 } from "./client";
 
 function sseResponse(events: string[]): Response {
@@ -222,6 +226,66 @@ describe("artifact APIs", () => {
       editType: "replace",
       apply: true,
       proposedContent: "new",
+    });
+  });
+
+  it("保存产物内容为新版本", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      id: "a2",
+      version: 2,
+      content: "new",
+    }), { status: 200 }));
+
+    const result = await saveArtifactContent("a1", "new", "demo.html");
+
+    expect(result.version).toBe(2);
+    const [url, init] = vi.mocked(globalThis.fetch).mock.calls[0];
+    expect(url).toBe("/api/artifacts/a1/save");
+    expect(JSON.parse(String((init as RequestInit).body))).toMatchObject({
+      content: "new",
+      title: "demo.html",
+      writeWorkspace: true,
+    });
+  });
+
+  it("恢复产物历史版本", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      id: "a3",
+      version: 3,
+      content: "old",
+    }), { status: 200 }));
+
+    await restoreArtifactVersion("a2", 1);
+
+    const [url, init] = vi.mocked(globalThis.fetch).mock.calls[0];
+    expect(url).toBe("/api/artifacts/a2/restore");
+    expect(JSON.parse(String((init as RequestInit).body))).toMatchObject({
+      version: 1,
+      writeWorkspace: true,
+    });
+  });
+
+  it("读写项目文件", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        path: "src/app.ts",
+        content: "old",
+        size: 3,
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        path: "src/app.ts",
+        content: "new",
+        size: 3,
+      }), { status: 200 }));
+
+    await readProjectFile("p1", "src/app.ts");
+    await writeProjectFile("p1", "src/app.ts", "new");
+
+    expect(String(vi.mocked(globalThis.fetch).mock.calls[0][0])).toBe("/api/projects/p1/files?path=src%2Fapp.ts");
+    const writeInit = vi.mocked(globalThis.fetch).mock.calls[1][1] as RequestInit;
+    expect(JSON.parse(String(writeInit.body))).toMatchObject({
+      path: "src/app.ts",
+      content: "new",
     });
   });
 });

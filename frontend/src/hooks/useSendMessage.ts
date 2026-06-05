@@ -2,7 +2,7 @@ import { useCallback } from "react";
 import { useChatStore, type CollabSnapshot } from "../stores/chatStore";
 import { useSessionStore } from "../stores/sessionStore";
 import { createChatStream, fetchArtifacts, fetchMessages, summarizeSession } from "../api/client";
-import type { Message, CollabTask, DAGPhase, PhaseChangeEvent, AgentStartEvent } from "../types";
+import type { Message, CollabTask, DAGPhase, PhaseChangeEvent, AgentStartEvent, Artifact } from "../types";
 
 function emptyCollab(): CollabSnapshot {
   return {
@@ -55,9 +55,11 @@ export function useSendMessage() {
     finalizeExecutionTrace,
     setMessagesForSession,
     setArtifactsForSession,
+    upsertArtifact,
     setStreamingError,
     setActiveProgress,
     addInteractivePrompt,
+    updateMessage,
     clearRuntimeNotices,
     startStreamRun,
     finishStreamRun,
@@ -142,6 +144,23 @@ export function useSendMessage() {
     const parentMessageId = replyTarget?.id ?? null;
     setReplyTarget(null);
 
+    const localMessageForServer = (serverMessageId: string) => {
+      if (currentMode === "group") {
+        return messagePlaceholders.get(serverMessageId) ?? serverMessageId;
+      }
+      return ensureSingleAssistantId(serverMessageId);
+    };
+
+    const patchArtifactBridge = (serverMessageId: string, bridge: Record<string, unknown>) => {
+      const targetId = localMessageForServer(serverMessageId);
+      updateMessage(targetId, {
+        metadata: {
+          ...(useChatStore.getState().messages.find((msg) => msg.id === targetId)?.metadata ?? {}),
+          artifactBridge: bridge,
+        },
+      });
+    };
+
     createChatStream(currentSessionId, content, mentions, {
       onToken: (token) => {
         if (!isCurrentRun()) return;
@@ -161,18 +180,17 @@ export function useSendMessage() {
             ? "连接中断，请检查网络后重试" : `请求失败：${error}`);
           return;
         }
-        if (messageId) {
-          fetchMessages(currentSessionId).then((messages) => {
+        if (messageId) ensureSingleAssistantId(messageId);
+        fetchMessages(currentSessionId).then((messages) => {
+          if (useChatStore.getState().latestRunId !== runId) return;
+          setMessagesForSession(currentSessionId, messages);
+        });
+        fetchArtifacts(currentSessionId)
+          .then((artifacts) => {
             if (useChatStore.getState().latestRunId !== runId) return;
-            setMessagesForSession(currentSessionId, messages);
-          });
-          fetchArtifacts(currentSessionId)
-            .then((artifacts) => {
-              if (useChatStore.getState().latestRunId !== runId) return;
-              setArtifactsForSession(currentSessionId, artifacts);
-            })
-            .catch(() => {});
-        }
+            setArtifactsForSession(currentSessionId, artifacts);
+          })
+          .catch(() => {});
         if (shouldSummarizeTitle) {
           summarizeSession(currentSessionId)
             .then(updateSession)
@@ -210,6 +228,31 @@ export function useSendMessage() {
         }
         const targetId = ensureSingleAssistantId(messageId);
         if (targetId) finalizeExecutionTrace(targetId, status, exitCode);
+      },
+      onArtifactScanStarted: (messageId) => {
+        if (!isCurrentRun()) return;
+        patchArtifactBridge(messageId, { status: "scanning" });
+      },
+      onArtifactCreated: (artifact: Artifact) => {
+        if (!isCurrentRun()) return;
+        const messageId = localMessageForServer(artifact.messageId);
+        upsertArtifact(currentMode === "group" ? { ...artifact, messageId } : artifact);
+      },
+      onArtifactScanCompleted: (messageId, summary) => {
+        if (!isCurrentRun()) return;
+        patchArtifactBridge(messageId, {
+          status: "completed",
+          ...summary,
+          completedAt: new Date().toISOString(),
+        });
+      },
+      onArtifactDetectionFailed: (messageId, reason) => {
+        if (!isCurrentRun()) return;
+        patchArtifactBridge(messageId, {
+          status: "failed",
+          reason: reason ?? "artifact detection failed",
+          completedAt: new Date().toISOString(),
+        });
       },
       onTaskStarted: (tasks, intent, nextPhases, planSummary) => {
         if (!isCurrentRun()) return;
@@ -325,9 +368,9 @@ export function useSendMessage() {
 
   }, [
     currentSessionId, agents, sessions, updateSession, appendMessage, appendStreamingToken,
-    appendAgentStreamingToken, bindMessageId, appendExecutionTraceItem,
+    appendAgentStreamingToken, bindMessageId, appendExecutionTraceItem, upsertArtifact,
     finalizeExecutionTrace, setArtifactsForSession, setMessagesForSession, setStreamingError,
-    setActiveProgress, addInteractivePrompt, clearRuntimeNotices,
+    setActiveProgress, addInteractivePrompt, updateMessage, clearRuntimeNotices,
     appendStreamingTokenToMessage, startStreamRun, finishStreamRun,
     getCollab, saveCollab, replyTarget, setReplyTarget,
   ]);

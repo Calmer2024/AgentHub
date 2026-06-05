@@ -1,8 +1,11 @@
 """Read and repair the host Codex CLI connection config.
 
 The API key belongs to the user's local Codex installation, not to an
-AgentHub Agent row. This service writes it to CODEX_HOME/.env and points the
-selected Codex provider at that env key.
+AgentHub Agent row. AgentHub stores stable proxy credentials in CODEX_HOME/.env
+and points the selected Codex provider at a command-backed auth helper. That
+keeps native Codex sessions working without requiring a global OS environment
+variable, and avoids relying on auth.json entries that Codex may later rotate
+into ChatGPT tokens.
 """
 
 from __future__ import annotations
@@ -20,6 +23,9 @@ from ..agents.codex_config import resolve_codex_connection_settings
 
 PROXY_ENV_KEY = "CODEX_API_KEY"
 OFFICIAL_ENV_KEY = "OPENAI_API_KEY"
+AUTH_HELPER_DIR = "agenthub"
+AUTH_HELPER_PS1 = "codex-auth-helper.ps1"
+AUTH_HELPER_SH = "codex-auth-helper.sh"
 
 
 class CodexLocalConfigError(ValueError):
@@ -149,13 +155,14 @@ class CodexLocalConfigService:
                 "name": provider_name,
                 "base_url": base_url,
                 "wire_api": "responses",
-                "env_key": env_key,
             }
+            auth_fields = _auth_helper_fields(home, env_key)
         else:
             provider_id = _safe_provider_id(provider_id or "openai")
             provider_name = provider_name.strip() or "OpenAI"
             base_url = _normalize_base_url(base_url or "https://api.openai.com/v1", append_v1=True)
             env_key = OFFICIAL_ENV_KEY
+            auth_fields = None
             provider_fields = {
                 "name": provider_name,
                 "base_url": base_url,
@@ -179,6 +186,7 @@ class CodexLocalConfigService:
                 **({"model": model.strip()} if model.strip() else {}),
             },
             provider_fields=provider_fields,
+            auth_fields=auth_fields,
         )
         config_path.write_text(raw, encoding="utf-8")
         return self.status()
@@ -186,7 +194,10 @@ class CodexLocalConfigService:
     def _repair_proxy_key_if_possible(self, settings) -> bool:
         if settings.connection != "proxy" or not settings.api_key:
             return False
-        if settings.api_key_source not in {"auth_json", "provider_inline"}:
+        if _provider_has_auth_command(self.codex_home, settings.provider_id):
+            return False
+        env_key = _env_key_for_current_config(self.codex_home, settings.provider_id)
+        if settings.api_key_source not in {"auth_json", "provider_inline", f"dotenv:{PROXY_ENV_KEY}"} and not env_key:
             return False
         home = self.codex_home
         _set_dotenv_value(home / ".env", PROXY_ENV_KEY, settings.api_key)
@@ -205,8 +216,8 @@ class CodexLocalConfigService:
                 "name": settings.provider_name or "AgentHub Codex Proxy",
                 "base_url": _normalize_base_url(settings.base_url, append_v1=True),
                 "wire_api": settings.wire_api or "responses",
-                "env_key": PROXY_ENV_KEY,
             },
+            auth_fields=_auth_helper_fields(home, PROXY_ENV_KEY),
         )
         config_path.write_text(raw, encoding="utf-8")
         return True
@@ -216,7 +227,7 @@ def _is_ready(connection: str, auth_mode: str, api_key_set: bool) -> bool:
     if connection == "official":
         return api_key_set or auth_mode == "openai_auth"
     if connection == "proxy":
-        return api_key_set and auth_mode in {"env_key", "inline_key"}
+        return api_key_set and auth_mode in {"env_key", "inline_key", "command"}
     return False
 
 
@@ -229,7 +240,7 @@ def _status_message(
     has_chatgpt_auth: bool,
 ) -> str:
     if repair_applied:
-        return "已将旧 Codex API Key 迁移到本机 Codex .env，并改为稳定的中转凭据配置。"
+        return "已将 Codex 中转 API Key 迁移到本机 Codex .env，并改为命令式凭据读取配置。"
     if connection == "proxy" and not api_key_set:
         if has_chatgpt_auth:
             return "检测到 Codex 使用中转 URL，但当前只有 Codex 登录 token；请在 AgentHub 中填写中转 API Key。"
@@ -260,6 +271,24 @@ def _env_key_for_current_config(home: Path, provider_id: str) -> str:
     return env_match.group(1) if env_match else ""
 
 
+def _provider_has_auth_command(home: Path, provider_id: str) -> bool:
+    config = _read_text(home / "config.toml")
+    if not provider_id:
+        return False
+    pattern = re.compile(
+        rf"^\s*\[model_providers\.{re.escape(provider_id)}\.auth]\s*$",
+        re.MULTILINE,
+    )
+    match = pattern.search(config)
+    if not match:
+        return False
+    section = config[match.end():]
+    next_section = re.search(r"^\s*\[", section, re.MULTILINE)
+    if next_section:
+        section = section[:next_section.start()]
+    return bool(re.search(r'^\s*command\s*=', section, re.MULTILINE))
+
+
 def _read_text(path: Path) -> str:
     try:
         return path.read_text(encoding="utf-8")
@@ -273,10 +302,12 @@ def _update_config_toml(
     provider_id: str,
     top_level: dict[str, str],
     provider_fields: dict[str, object],
+    auth_fields: dict[str, object] | None = None,
 ) -> str:
     lines = raw.splitlines()
     lines = _set_top_level_values(lines, top_level)
     lines = _set_provider_section(lines, provider_id, provider_fields)
+    lines = _set_auth_section(lines, provider_id, auth_fields)
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -346,6 +377,41 @@ def _set_provider_section(
     return [*lines[:start + 1], *next_section, *lines[end:]]
 
 
+def _set_auth_section(
+    lines: list[str],
+    provider_id: str,
+    fields: dict[str, object] | None,
+) -> list[str]:
+    header = f"[model_providers.{provider_id}.auth]"
+    start = next((index for index, line in enumerate(lines) if line.strip() == header), -1)
+    if fields is None:
+        if start < 0:
+            return lines
+        end = next(
+            (
+                index for index in range(start + 1, len(lines))
+                if lines[index].strip().startswith("[")
+            ),
+            len(lines),
+        )
+        return [*lines[:start], *lines[end:]]
+
+    rendered = [header, *(f"{key} = {_toml_value(value)}" for key, value in fields.items())]
+    if start < 0:
+        if lines and lines[-1].strip():
+            lines.append("")
+        return [*lines, *rendered]
+
+    end = next(
+        (
+            index for index in range(start + 1, len(lines))
+            if lines[index].strip().startswith("[")
+        ),
+        len(lines),
+    )
+    return [*lines[:start], *rendered, *lines[end:]]
+
+
 def _toml_key(line: str) -> str:
     match = re.match(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=", line)
     return match.group(1) if match else ""
@@ -359,6 +425,10 @@ def _provider_id_from_config(raw: str) -> str:
 def _toml_value(value: object) -> str:
     if isinstance(value, bool):
         return "true" if value else "false"
+    if isinstance(value, int | float):
+        return str(value)
+    if isinstance(value, list):
+        return json.dumps([str(item) for item in value], ensure_ascii=False)
     return json.dumps(str(value), ensure_ascii=False)
 
 
@@ -377,6 +447,100 @@ def _normalize_base_url(value: str, *, append_v1: bool) -> str:
         return clean
     path = f"{parsed.path.rstrip('/')}/v1"
     return urlunsplit((parsed.scheme, parsed.netloc, path, parsed.query, parsed.fragment))
+
+
+def _auth_helper_fields(home: Path, env_key: str) -> dict[str, object]:
+    helper = _ensure_auth_helper(home)
+    if os.name == "nt":
+        return {
+            "command": "powershell.exe",
+            "args": [
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(helper),
+                env_key,
+            ],
+            "timeout_ms": 5000,
+            "refresh_interval_ms": 300000,
+        }
+    return {
+        "command": "sh",
+        "args": [str(helper), env_key],
+        "timeout_ms": 5000,
+        "refresh_interval_ms": 300000,
+    }
+
+
+def _ensure_auth_helper(home: Path) -> Path:
+    helper_dir = home / AUTH_HELPER_DIR
+    helper_dir.mkdir(parents=True, exist_ok=True)
+    if os.name == "nt":
+        path = helper_dir / AUTH_HELPER_PS1
+        content = _powershell_auth_helper()
+    else:
+        path = helper_dir / AUTH_HELPER_SH
+        content = _sh_auth_helper()
+    path.write_text(content, encoding="utf-8")
+    if os.name != "nt":
+        path.chmod(0o700)
+    return path
+
+
+def _powershell_auth_helper() -> str:
+    return """param([string]$Name = "CODEX_API_KEY")
+$ErrorActionPreference = "Stop"
+$envPath = Join-Path (Split-Path -Parent $PSScriptRoot) ".env"
+if (-not (Test-Path -LiteralPath $envPath)) { exit 1 }
+foreach ($line in Get-Content -LiteralPath $envPath) {
+    $clean = $line.Trim()
+    if (-not $clean -or $clean.StartsWith("#")) { continue }
+    if ($clean.StartsWith("export ")) {
+        $clean = $clean.Substring(7).Trim()
+    }
+    $index = $clean.IndexOf("=")
+    if ($index -lt 1) { continue }
+    $key = $clean.Substring(0, $index).Trim()
+    if ($key -ne $Name) { continue }
+    $value = $clean.Substring($index + 1).Trim()
+    if ($value.Length -ge 2) {
+        $first = $value[0]
+        $last = $value[$value.Length - 1]
+        if (($first -eq '"' -and $last -eq '"') -or ($first -eq "'" -and $last -eq "'")) {
+            $value = $value.Substring(1, $value.Length - 2)
+        }
+    }
+    [Console]::Out.Write($value)
+    exit 0
+}
+exit 1
+"""
+
+
+def _sh_auth_helper() -> str:
+    return """#!/bin/sh
+name="${1:-CODEX_API_KEY}"
+env_path="$(dirname "$(dirname "$0")")/.env"
+[ -f "$env_path" ] || exit 1
+while IFS= read -r line; do
+  clean="$(printf '%s' "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+  [ -n "$clean" ] || continue
+  case "$clean" in \\#*) continue ;; esac
+  case "$clean" in export\\ *) clean="$(printf '%s' "$clean" | sed 's/^export[[:space:]]*//')" ;; esac
+  key="${clean%%=*}"
+  [ "$key" = "$name" ] || continue
+  value="${clean#*=}"
+  value="$(printf '%s' "$value" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+  case "$value" in
+    \\"*\\") value="${value#\\"}"; value="${value%\\"}" ;;
+    \\'*\\') value="${value#\\'}"; value="${value%\\'}" ;;
+  esac
+  printf '%s' "$value"
+  exit 0
+done < "$env_path"
+exit 1
+"""
 
 
 def _set_dotenv_value(path: Path, key: str, value: str) -> None:

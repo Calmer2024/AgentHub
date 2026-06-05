@@ -19,5 +19,7 @@ class EventType(str, Enum):
     BUILD_STARTED = "build.started"
     BUILD_LOG = "build.log"
     BUILD_COMPLETED = "build.completed"
+    ARTIFACT_DETECTED = "artifact.detected"
     ARTIFACT_CREATED = "artifact.created"
     ARTIFACT_UPDATED = "artifact.updated"
+    ARTIFACT_DETECTION_FAILED = "artifact.detection_failed"

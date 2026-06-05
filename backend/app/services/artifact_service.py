@@ -3,6 +3,7 @@
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select
@@ -10,8 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..domain.artifact_editor import ArtifactEditor, DiffResult
 from ..event_bus.event_types import EventType
-from ..models import Artifact, Message, Session
+from ..models import Artifact, Message, Project, Session
 from .system_llm import SystemLLMUnavailableError, system_llm
+from .workspace_provider import LocalWorkspaceProvider, WorkspaceSecurityError
 
 
 class ArtifactNotFoundError(ValueError):
@@ -24,6 +26,10 @@ class ArtifactVersionNotFoundError(ValueError):
 
 class ArtifactEditError(ValueError):
     """Raised when an edit request cannot be applied."""
+
+
+class ArtifactWorkspaceWriteError(ValueError):
+    """Raised when an artifact file cannot be written back to workspace."""
 
 
 EDIT_ARTIFACT_TOOL = {
@@ -58,6 +64,24 @@ class EditPreview:
     tool_call: dict[str, Any] | None = None
 
 
+@dataclass
+class ArtifactDetection:
+    session_id: str
+    message_id: str
+    artifact_type: str
+    title: str
+    content: str
+    source: str
+    confidence: float
+    content_hash: str
+    project_id: str | None = None
+    file_path: str | None = None
+    preview_id: str | None = None
+    task_id: str | None = None
+    status: str = "ready"
+    reason: str = ""
+
+
 class ArtifactService:
     """Version chain, diff, and natural-language edit operations."""
 
@@ -65,6 +89,7 @@ class ArtifactService:
         self.db = db
         self.event_bus = event_bus
         self.editor = editor or ArtifactEditor()
+        self.workspace = LocalWorkspaceProvider()
 
     async def create_version(
         self,
@@ -99,10 +124,95 @@ class ArtifactService:
             "artifactId": version.id,
             "sessionId": version.session_id,
             "messageId": version.message_id,
+            "projectId": version.project_id,
+            "artifactType": version.type,
+            "title": version.title,
             "version": version.version,
             "parentArtifactId": version.parent_artifact_id,
+            "filePath": version.file_path,
+            "source": version.source,
         })
         return version
+
+    async def save_content(
+        self,
+        artifact_id: str,
+        content: str,
+        *,
+        title: str | None = None,
+        write_workspace: bool = True,
+    ) -> Artifact:
+        current = await self._get_artifact(artifact_id)
+        if write_workspace:
+            await self._write_workspace_file(current, content)
+        return await self.create_version(
+            artifact_id,
+            content,
+            title=title,
+            status="ready",
+        )
+
+    async def restore_version(
+        self,
+        artifact_id: str,
+        version: int,
+        *,
+        write_workspace: bool = True,
+    ) -> Artifact:
+        versions = await self.get_versions(artifact_id)
+        target = next((item for item in versions if (item.version or 1) == version), None)
+        if not target:
+            raise ArtifactVersionNotFoundError("artifact version not found")
+        current = await self._get_artifact(artifact_id)
+        if target.id == current.id:
+            return current
+        if write_workspace:
+            await self._write_workspace_file(current, target.content)
+        return await self.create_version(
+            current.id,
+            target.content,
+            title=current.title,
+            status="ready",
+        )
+
+    async def create_from_detection(self, detection: ArtifactDetection) -> tuple[Artifact, bool]:
+        """Create a v1 artifact from a bridge detection, returning existing rows idempotently."""
+        existing = await self._find_detection_duplicate(detection)
+        if existing:
+            return existing, False
+
+        artifact = Artifact(
+            id=str(uuid.uuid4()),
+            session_id=detection.session_id,
+            message_id=detection.message_id,
+            project_id=detection.project_id,
+            type=detection.artifact_type,
+            title=detection.title,
+            content=detection.content,
+            status=detection.status,
+            version=1,
+            file_path=detection.file_path,
+            preview_id=detection.preview_id,
+            source=detection.source,
+            confidence=f"{detection.confidence:.2f}",
+            task_id=detection.task_id or detection.content_hash,
+        )
+        self.db.add(artifact)
+        await self.db.commit()
+        await self.db.refresh(artifact)
+        await self._publish(EventType.ARTIFACT_CREATED, {
+            "artifactId": artifact.id,
+            "sessionId": artifact.session_id,
+            "messageId": artifact.message_id,
+            "projectId": artifact.project_id,
+            "artifactType": artifact.type,
+            "type": artifact.type,
+            "title": artifact.title,
+            "version": artifact.version,
+            "filePath": artifact.file_path,
+            "source": artifact.source,
+        })
+        return artifact, True
 
     async def list_current_artifacts(self, session_id: str) -> list[Artifact]:
         result = await self.db.execute(
@@ -285,6 +395,60 @@ class ArtifactService:
             .limit(1)
         )
         return result.scalars().first()
+
+    async def _find_detection_duplicate(self, detection: ArtifactDetection) -> Artifact | None:
+        filters = [
+            Artifact.message_id == detection.message_id,
+            Artifact.type == detection.artifact_type,
+            Artifact.source == detection.source,
+            Artifact.task_id == detection.content_hash,
+        ]
+        if detection.file_path:
+            filters.append(Artifact.file_path == detection.file_path)
+        else:
+            filters.append(Artifact.file_path.is_(None))
+        result = await self.db.execute(
+            select(Artifact)
+            .where(*filters)
+            .order_by(Artifact.created_at.asc())
+            .limit(1)
+        )
+        existing = result.scalars().first()
+        if existing or detection.source != "manual_rescan":
+            return existing
+
+        fallback_filters = [
+            Artifact.message_id == detection.message_id,
+            Artifact.type == detection.artifact_type,
+            Artifact.task_id == detection.content_hash,
+        ]
+        if detection.file_path:
+            fallback_filters.append(Artifact.file_path == detection.file_path)
+        else:
+            fallback_filters.append(Artifact.file_path.is_(None))
+        result = await self.db.execute(
+            select(Artifact)
+            .where(*fallback_filters)
+            .order_by(Artifact.created_at.asc())
+            .limit(1)
+        )
+        return result.scalars().first()
+
+    async def _write_workspace_file(self, artifact: Artifact, content: str) -> None:
+        if not artifact.project_id or not artifact.file_path:
+            return
+        project = await self.db.get(Project, artifact.project_id)
+        if not project:
+            raise ArtifactWorkspaceWriteError("artifact project not found")
+        try:
+            target = self.workspace.safe_resolve(project.workspace_path, artifact.file_path)
+        except WorkspaceSecurityError as exc:
+            raise ArtifactWorkspaceWriteError("artifact file path is outside workspace") from exc
+        root = Path(project.workspace_path).expanduser().resolve()
+        if target == root or target.exists() and target.is_dir():
+            raise ArtifactWorkspaceWriteError("artifact file path is not a file")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
 
     async def _fallback_context_injection(
         self,

@@ -7,6 +7,17 @@ export interface ReplyReference {
   createdAt?: string;
 }
 
+export interface CodeReference {
+  artifactId?: string | null;
+  projectId?: string | null;
+  filePath?: string | null;
+  title?: string | null;
+  language?: string | null;
+  startLine?: number | null;
+  endLine?: number | null;
+  content: string;
+}
+
 export interface ExecutionTraceItem {
   id: string;
   kind: "process" | "progress" | "tool" | "command" | "file" | "artifact" | "prompt" | "error" | "info";
@@ -182,7 +193,7 @@ export interface Artifact {
   sessionId: string;
   messageId: string;
   projectId?: string | null;
-  type: "code_diff" | "web_preview" | "document";
+  type: "code_diff" | "web_preview" | "document" | "file_tree";
   title: string;
   content: string;
   status: "rendering" | "ready" | "error";
@@ -228,6 +239,32 @@ export interface ArtifactEditResult {
   artifact: Artifact | null;
   proposedContent: string;
   strategy: string;
+}
+
+export interface WorkspaceFile {
+  path: string;
+  content: string;
+  size: number;
+}
+
+export interface ArtifactCandidate {
+  artifactType: Artifact["type"];
+  title: string;
+  source: string;
+  confidence: number;
+  reason: string;
+  contentPreview: string;
+}
+
+export interface ArtifactScanResult {
+  created: Artifact[];
+  candidates: ArtifactCandidate[];
+  skipped: Array<{
+    reason: string;
+    artifactId?: string | null;
+    title?: string | null;
+    detail?: string | null;
+  }>;
 }
 
 // === Orchestrator / Collaboration types ===

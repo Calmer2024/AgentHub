@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..domain.execution_planner import AgentCall
 from ..models import Message as DBMessage
+from .artifact_output_bridge import ArtifactOutputBridge, artifact_to_event_payload
 from .orchestrator_summarizer import (
     OrchestratorSummarizer,
     ORCHESTRATOR_SOURCE_ID,
@@ -20,9 +21,10 @@ from .orchestrator_summarizer import (
 class GroupChatFinalizer:
     """处理 Agent 全部结束后的最终阶段。"""
 
-    def __init__(self, db: AsyncSession, pipeline):
+    def __init__(self, db: AsyncSession, pipeline, event_bus=None):
         self.db = db
         self._pipeline = pipeline
+        self.event_bus = event_bus
         self._summarizer = OrchestratorSummarizer()
 
     async def finish(
@@ -41,12 +43,14 @@ class GroupChatFinalizer:
             ):
                 yield item
         else:
-            self._add_agent_messages(
+            created_ids = self._add_agent_messages(
                 session_id, agent_names, agent_calls, msg_ids, agent_texts,
                 agent_errors, agent_traces,
             )
             session.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
             await self.db.commit()
+            async for item in self._scan_agent_messages(session, created_ids):
+                yield item
 
         completed_count = len(agent_texts)
         yield self._sse({
@@ -77,25 +81,30 @@ class GroupChatFinalizer:
             yield self._summary_delta(summary_id, token)
         yield self._summary_completed(summary_id)
 
-        self._add_agent_messages(
+        created_ids = self._add_agent_messages(
             session_id, agent_names, agent_calls, msg_ids, agent_texts,
             agent_errors, agent_traces,
         )
         self._add_summary_message(session_id, summary_id, summary, result, agent_texts)
         session.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
         await self.db.commit()
+        async for item in self._scan_agent_messages(session, created_ids):
+            yield item
 
     def _add_agent_messages(
         self, session_id, agent_names, agent_calls, msg_ids, agent_texts,
         agent_errors=None, agent_traces=None,
-    ):
+    ) -> list[str]:
         agent_errors = agent_errors or {}
         agent_traces = agent_traces or {}
+        created_ids: list[str] = []
         for key, text in agent_texts.items():
             call = agent_calls.get(key)
             trace_items = list(agent_traces.get(key) or [])
+            message_id = msg_ids.get(key, str(uuid.uuid4()))
+            created_ids.append(message_id)
             self.db.add(DBMessage(
-                id=msg_ids.get(key, str(uuid.uuid4())),
+                id=message_id,
                 session_id=session_id,
                 role="assistant",
                 content=text,
@@ -121,6 +130,73 @@ class GroupChatFinalizer:
                     } if trace_items else None,
                 }, ensure_ascii=False),
             ))
+        return created_ids
+
+    async def _scan_agent_messages(self, session, message_ids: list[str]):
+        if not getattr(session, "project_id", None):
+            return
+        bridge = ArtifactOutputBridge(self.db, event_bus=self.event_bus)
+        for message_id in message_ids:
+            message = await self.db.get(DBMessage, message_id)
+            if not message:
+                continue
+            yield self._sse({
+                "type": "artifact.scan.started",
+                "sessionId": session.id,
+                "messageId": message_id,
+                "projectId": session.project_id,
+                "agentId": message.source_id,
+                "agentName": message.source_name,
+                "token": "",
+                "done": False,
+            })
+            try:
+                result = await bridge.scan_completed_message(
+                    session=session,
+                    message=message,
+                    visible_content=message.content,
+                    execution_trace=_message_trace(message),
+                    snapshot_id=None,
+                )
+                for artifact in result.created:
+                    payload = artifact_to_event_payload(artifact)
+                    yield self._sse({
+                        "type": "artifact.created",
+                        "artifact": payload,
+                        "artifactId": payload["id"],
+                        "sessionId": payload["sessionId"],
+                        "messageId": payload["messageId"],
+                        "projectId": payload["projectId"],
+                        "artifactType": payload["type"],
+                        "title": payload["title"],
+                        "version": payload["version"],
+                        "filePath": payload["filePath"],
+                        "source": payload["source"],
+                        "token": "",
+                        "done": False,
+                    })
+                yield self._sse({
+                    "type": "artifact.scan.completed",
+                    "sessionId": session.id,
+                    "messageId": message_id,
+                    "projectId": session.project_id,
+                    "createdCount": len(result.created),
+                    "candidateCount": len(result.candidates),
+                    "skippedCount": len(result.skipped),
+                    "token": "",
+                    "done": False,
+                })
+            except Exception as exc:
+                yield self._sse({
+                    "type": "artifact.detection_failed",
+                    "sessionId": session.id,
+                    "messageId": message_id,
+                    "projectId": session.project_id,
+                    "reason": f"{type(exc).__name__}: {exc}",
+                    "recoverable": True,
+                    "token": "",
+                    "done": False,
+                })
 
     def _add_summary_message(self, session_id, summary_id, summary, result, agent_texts):
         model_config = self._summarizer.current_model_config()
@@ -221,3 +297,17 @@ def _last_exit_code(items: list[dict]) -> int | None:
         if isinstance(value, int):
             return value
     return None
+
+
+def _message_trace(message: DBMessage) -> dict | None:
+    raw = getattr(message, "metadata_json", None)
+    if not raw:
+        return None
+    try:
+        metadata = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(metadata, dict):
+        return None
+    trace = metadata.get("executionTrace")
+    return trace if isinstance(trace, dict) else None

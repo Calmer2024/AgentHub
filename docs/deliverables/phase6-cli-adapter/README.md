@@ -13,6 +13,7 @@
 | [architecture-and-implementation.md](architecture-and-implementation.md) | 说明 CLI Adapter 当前架构、运行流程、事件模型、各 CLI 解析策略、Codex 官方/中转配置处理，以及仍需关注的技术风险。 |
 | [usage-guide.md](usage-guide.md) | 面向用户和开发者，说明如何在 AgentHub 中配置和使用 Claude Code、Codex、OpenCode。 |
 | [../../dev-logs/phase6-cli-adapter-dev-log.md](../../dev-logs/phase6-cli-adapter-dev-log.md) | 阶段开发日志：已完成事项、验证情况、关键决策与下一步。 |
+| [../phase6-artifact-bridge/README.md](../phase6-artifact-bridge/README.md) | 6F Artifact Bridge 验收快照：消息级产物卡片、文件编辑器、代码引用与版本管理。 |
 
 ## 权威来源
 

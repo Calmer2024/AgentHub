@@ -58,7 +58,7 @@ Codex 有额外的连接配置区域。
 - AgentHub 会尽量将 URL 规范化为 OpenAI-compatible `/v1` API 端点；
 - 填写中转 API Key；
 - AgentHub 会把 key 写入本机 Codex `.env`，通常是 `~/.codex/.env`，变量名为 `CODEX_API_KEY`；
-- AgentHub 会更新 `~/.codex/config.toml`，让 provider 使用 `env_key = "CODEX_API_KEY"`。
+- AgentHub 会更新 `~/.codex/config.toml`，让 provider 使用 command-backed auth helper 从 `.env` 按需读取 key；本机新开的 Codex 会话不需要全局 `CODEX_API_KEY` 环境变量。
 
 注意：中转模式不能使用本机 ChatGPT token。如果中转站返回 `401 Unauthorized`，请重新打开 Codex 设置并更新中转 API Key。
 
@@ -172,8 +172,11 @@ npx vitest run
 ```powershell
 cd backend
 .\venv\Scripts\python.exe test_real_api_claude_smoke.py
+.\venv\Scripts\python.exe test_real_api_claude_artifact_bridge.py
 .\venv\Scripts\python.exe test_real_api_codex_smoke.py
 .\venv\Scripts\python.exe test_real_cli_smoke.py
 ```
 
 不要把 mock CLI 测试当作该模块的最终验收。mock 测试适合回归，但验收必须接真实本机 CLI。
+
+`test_real_api_claude_artifact_bridge.py` 会通过 AgentHub 真实服务路径调用 Claude Code，在临时 workspace 写入 `index.html`、`package.json`、`src/App.tsx`，并断言最终 `done` 前已经创建 `web_preview`、`file_tree`、`code_diff` Artifact。

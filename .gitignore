@@ -36,6 +36,8 @@ backend/.test-workspaces/
 backend/backend/
 backend/.agenthub-backend-*.log
 frontend/.agenthub-frontend-*.log
+backend/.uvicorn-dev.*.log
+frontend/.vite-dev.*.log
 
 # Environment
 .env

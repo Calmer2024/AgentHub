@@ -180,6 +180,21 @@ class ProjectService:
         content, size = self.provider.read_text_file(project.workspace_path, path)
         return {"path": path.replace("\\", "/"), "content": content, "size": size}
 
+    async def write_file(self, project_id: str, path: str, content: str) -> dict:
+        project = await self._get_project(project_id)
+        target = self.provider.safe_resolve(project.workspace_path, path)
+        workspace_root = Path(project.workspace_path).expanduser().resolve()
+        if target == workspace_root or (target.exists() and target.is_dir()):
+            raise ProjectValidationError("path must be a file")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+        rel = target.relative_to(workspace_root).as_posix()
+        await self._publish(EventType.WORKSPACE_FILE_CHANGED, {
+            "projectId": project.id,
+            "changes": [{"path": rel, "change": "modified"}],
+        })
+        return {"path": rel, "content": content, "size": target.stat().st_size}
+
     async def create_snapshot(self, project_id: str, label: str) -> dict:
         project = await self._get_project(project_id)
         clean_label = label.strip()

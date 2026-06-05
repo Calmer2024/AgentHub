@@ -2,10 +2,11 @@
 
 import json
 import uuid
+from pathlib import Path
 
 import pytest
 
-from app.models import AgentConfig, Artifact, Message
+from app.models import AgentConfig, Artifact, Message, Project
 from app.system_models import SystemModelResponse
 
 
@@ -101,6 +102,67 @@ class TestPhase5ArtifactVersioning:
         data = resp.json()
         assert [a["id"] for a in data] == [created.id]
         assert data[0]["parentArtifactId"] == artifact.id
+
+    async def test_save_artifact_content_creates_version_and_writes_workspace(
+        self, test_client, db_session, test_session, tmp_path,
+    ):
+        artifact = await _seed_artifact(db_session, test_session)
+        project = Project(
+            id=str(uuid.uuid4()),
+            name="artifact workspace",
+            workspace_path=str(tmp_path),
+            status="ready",
+        )
+        artifact.project_id = project.id
+        artifact.file_path = "src/hello.py"
+        (tmp_path / "src").mkdir()
+        (tmp_path / "src" / "hello.py").write_text(artifact.content, encoding="utf-8")
+        db_session.add(project)
+        await db_session.commit()
+
+        resp = await test_client.post(
+            f"/api/artifacts/{artifact.id}/save",
+            json={"content": "def hello():\n    return 'saved'\n"},
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["version"] == 2
+        assert data["parentArtifactId"] == artifact.id
+        assert (tmp_path / "src" / "hello.py").read_text(encoding="utf-8") == data["content"]
+
+    async def test_restore_artifact_version_copies_content_to_new_head(
+        self, test_client, db_session, test_session, tmp_path,
+    ):
+        from app.services.artifact_service import ArtifactService
+
+        artifact = await _seed_artifact(db_session, test_session)
+        project = Project(
+            id=str(uuid.uuid4()),
+            name="artifact restore",
+            workspace_path=str(tmp_path),
+            status="ready",
+        )
+        artifact.project_id = project.id
+        artifact.file_path = "hello.py"
+        (tmp_path / "hello.py").write_text(artifact.content, encoding="utf-8")
+        db_session.add(project)
+        await db_session.commit()
+        created = await ArtifactService(db_session).create_version(
+            artifact.id,
+            "def hello():\n    return 'v2'\n",
+        )
+
+        resp = await test_client.post(
+            f"/api/artifacts/{created.id}/restore",
+            json={"version": 1},
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["version"] == 3
+        assert data["content"] == artifact.content
+        assert Path(tmp_path / "hello.py").read_text(encoding="utf-8") == artifact.content
 
 
 @pytest.mark.asyncio

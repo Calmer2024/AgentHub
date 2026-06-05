@@ -3,15 +3,17 @@ import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { Info, Loader2, Pin } from "lucide-react";
-import type { AgentConfig, Message, ReplyReference } from "../types";
+import type { AgentConfig, Artifact, Message, ReplyReference } from "../types";
 import { MessageActions } from "./MessageActions";
 import { ReplyPreview } from "./ReplyPreview";
 import { ExecutionTracePanel } from "./ExecutionTracePanel";
 import { AgentAvatar } from "./AgentAvatar";
+import { MessageArtifactStrip } from "./MessageArtifactStrip";
 
 interface Props {
   message: Message;
   isStreaming: boolean;
+  artifacts?: Artifact[];
   agent?: AgentConfig | null;
   parentMessage?: Message | null;
   highlighted?: boolean;
@@ -20,6 +22,7 @@ interface Props {
   onTogglePin: (message: Message) => void;
   onCopy: (content: string) => void;
   onJumpToMessage: (messageId: string) => void;
+  onArtifactsChanged?: () => void;
 }
 
 const ROLE_LABELS: Record<string, string> = {
@@ -87,8 +90,8 @@ function StreamingStatus() {
 }
 
 export function MessageBubble({
-  message, isStreaming, agent, parentMessage, highlighted = false,
-  onReply, onRegenerate, onTogglePin, onCopy, onJumpToMessage,
+  message, isStreaming, artifacts = [], agent, parentMessage, highlighted = false,
+  onReply, onRegenerate, onTogglePin, onCopy, onJumpToMessage, onArtifactsChanged,
 }: Props) {
   const isUser = message.role === "user";
   const isEmpty = message.content === "";
@@ -240,6 +243,13 @@ export function MessageBubble({
         {showStreamingStatus && <StreamingStatus />}
         {!isUser && (
           <ExecutionTracePanel trace={message.metadata?.executionTrace} />
+        )}
+        {!isUser && (
+          <MessageArtifactStrip
+            message={message}
+            artifacts={artifacts}
+            onChanged={onArtifactsChanged}
+          />
         )}
         </div>
       </div>

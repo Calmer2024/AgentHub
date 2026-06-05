@@ -18,7 +18,7 @@
 - 优化前端聊天 UI：Telegram 风格气泡、Agent 头像、Markdown 阅读体验、滚动行为、引用/搜索/操作、执行流程块独立滚动。
 - 用 CLI Agent 设置弹窗替换旧模型设置面板。
 - 通过 AgentHub UI 支持 Codex 官方 OpenAI 与第三方中转配置。
-- 新增本机 Codex 配置修复：API Key 写入 `CODEX_HOME/.env`；`config.toml` provider 使用 `env_key`；中转模式不再依赖易变的 ChatGPT token。
+- 新增本机 Codex 配置修复：API Key 写入 `CODEX_HOME/.env`；`config.toml` provider 使用 command-backed auth helper 从 `.env` 按需读取；中转模式不再依赖易变的 ChatGPT token，也不要求用户配置全局 `CODEX_API_KEY`。
 - 对 Codex HTML 错误页、模型列表碎片和已知 stderr 噪声做过滤和提示。
 - 接通 OpenCode 真实 CLI 路径，修复早期 prompt/参数导致“进程已结束但气泡仍等待回复”的问题。
 - 增加项目重命名/删除能力，并调整项目/会话创建入口位置。
@@ -53,14 +53,15 @@ cd frontend && npx vitest run
 - “单文件不超过 300 行”不再作为硬规则。文件应按真实职责边界拆分，而不是为了行数强行拆分。
 - Codex 中转模式必须使用中转 API Key。ChatGPT 登录 token 不能作为第三方 gateway 凭证。
 - AgentHub 应帮助用户修复本机 Codex 配置，而不是要求用户手动编辑 `~/.codex`。
+- 2026-06-05 追加修复：旧 `env_key = "CODEX_API_KEY"` 会让本机 Codex 新会话要求进程环境变量，和 AgentHub 写 `.env` 的托管方式冲突。已改为 command-backed auth helper，并已迁移当前本机 `C:\Users\28109\.codex\config.toml`。
 
 ## 4. 剩余工作
 
-- 继续强化 Artifact Bridge：workspace diff、代码块、置信度阈值和 Artifact Card 创建需要形成可靠闭环。
+- Artifact Bridge 核心闭环已在 6F 验收通过；后续从 `docs/deliverables/phase6-artifact-bridge/` 接续。
 - 持续从真实 Claude Code、Codex、OpenCode 输出中补充 parser fixture，尤其是命令、文件路径和工具参数细节。
 - 为长时间运行的 CLI 进程补充前端显式取消/终止入口。
 - 建立可重复的真实 CLI smoke 清单，记录 CLI 版本、认证模式、workspace 文件断言和失败日志。
-- 在 CLI-only 清理后继续降低架构摩擦，重点关注群聊、artifact 创建和旧 orchestrator 术语残留。
+- Phase 7 继续处理 Artifact Drawer、审批卡片、环境体检和旧 orchestrator 术语残留。
 
 ## 5. 交接入口
 

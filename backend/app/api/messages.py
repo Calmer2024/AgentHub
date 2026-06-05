@@ -9,6 +9,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
 from ..models import Message as DBMessage
+from ..services.artifact_output_bridge import (
+    ArtifactOutputBridge,
+    MessageNotFoundForScanError,
+    SessionWithoutProjectError,
+)
 from ..services.message_service_sqlalchemy import (
     InvalidMessageOperationError,
     MessageNotFoundError,
@@ -16,6 +21,7 @@ from ..services.message_service_sqlalchemy import (
     message_to_read,
 )
 from ..services.schemas import MessageCreate, MessageRead
+from .artifacts import ArtifactRead
 
 router = APIRouter(prefix="/messages", tags=["messages"])
 
@@ -28,6 +34,36 @@ class PinResponse(BaseModel):
     is_pinned: bool = Field(alias="isPinned")
 
     model_config = {"populate_by_name": True}
+
+
+class ArtifactScanRequest(BaseModel):
+    force: bool = False
+
+
+class ArtifactCandidateRead(BaseModel):
+    artifact_type: str = Field(alias="artifactType")
+    title: str
+    source: str
+    confidence: float
+    reason: str
+    content_preview: str = Field(alias="contentPreview")
+
+    model_config = {"populate_by_name": True}
+
+
+class ArtifactSkipRead(BaseModel):
+    reason: str
+    artifact_id: str | None = Field(default=None, alias="artifactId")
+    title: str | None = None
+    detail: str | None = None
+
+    model_config = {"populate_by_name": True}
+
+
+class ArtifactScanRead(BaseModel):
+    created: list[ArtifactRead]
+    candidates: list[ArtifactCandidateRead]
+    skipped: list[ArtifactSkipRead]
 
 
 @router.post("/{message_id}/reply", response_model=MessageRead, status_code=201)
@@ -96,6 +132,40 @@ async def search_messages(
 ):
     svc = SqlAlchemyMessageService(db)
     return await svc.search_messages(session_id=session_id, query=q, limit=limit)
+
+
+@router.post("/{message_id}/artifacts/scan", response_model=ArtifactScanRead)
+async def scan_message_artifacts(
+    message_id: str,
+    data: ArtifactScanRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+):
+    from ..main import _event_bus
+
+    try:
+        result = await ArtifactOutputBridge(db, event_bus=_event_bus).scan_message(
+            message_id,
+            force=bool(data.force) if data else False,
+        )
+    except MessageNotFoundForScanError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except SessionWithoutProjectError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return ArtifactScanRead(
+        created=[ArtifactRead.from_orm_with_iso(artifact) for artifact in result.created],
+        candidates=[
+            ArtifactCandidateRead(
+                artifactType=item.artifact_type,
+                title=item.title,
+                source=item.source,
+                confidence=round(item.confidence, 2),
+                reason=item.reason,
+                contentPreview=item.content[:500],
+            )
+            for item in result.candidates
+        ],
+        skipped=[ArtifactSkipRead(**item) for item in result.skipped],
+    )
 
 
 @router.get("/{message_id}", response_model=MessageRead)

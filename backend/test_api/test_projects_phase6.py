@@ -121,9 +121,27 @@ class TestProjectRuntimeApi:
             f"/api/projects/{project['id']}/files",
             params={"path": "../../secret"},
         )
+        write_resp = await test_client.put(
+            f"/api/projects/{project['id']}/files",
+            json={"path": "../../secret", "content": "nope"},
+        )
 
         assert tree.status_code == 200
         assert file_resp.status_code == 403
+        assert write_resp.status_code == 403
+
+    async def test_write_file_updates_workspace_file(self, test_client):
+        project = (await test_client.post("/api/projects", json={"name": "write-file"})).json()
+        workspace = Path(project["workspacePath"])
+
+        resp = await test_client.put(
+            f"/api/projects/{project['id']}/files",
+            json={"path": "src/app.ts", "content": "export const ok = true;\n"},
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["path"] == "src/app.ts"
+        assert (workspace / "src" / "app.ts").read_text(encoding="utf-8") == "export const ok = true;\n"
 
     async def test_snapshot_diff_detects_file_changes(self, test_client):
         project = (await test_client.post("/api/projects", json={"name": "diffable"})).json()

@@ -23,12 +23,12 @@ class GroupChatStream:
     """群聊流式处理器：Pipeline → Executor → SSE → 持久化。"""
 
     def __init__(
-        self, db: AsyncSession, pipeline: OrchestratorV2, executor: AgentExecutor,
+        self, db: AsyncSession, pipeline: OrchestratorV2, executor: AgentExecutor, event_bus=None,
     ):
         self.db = db
         self._pipeline = pipeline
         self._executor = executor
-        self._finalizer = GroupChatFinalizer(db, pipeline)
+        self._finalizer = GroupChatFinalizer(db, pipeline, event_bus=event_bus)
 
     async def send(
         self, session_id: str, content: str, mentions: list[str] | None,

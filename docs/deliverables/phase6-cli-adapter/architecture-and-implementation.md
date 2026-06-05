@@ -49,6 +49,8 @@ Adapter 层不直接创建业务 Artifact。它负责输出文本、过程、错
 | `backend/app/services/cli_agent_service.py` | 将聊天上下文渲染为 CLI prompt，并交给对应 adapter 执行。 |
 | `backend/app/services/single_cli_chat_stream.py` | 负责单聊消息持久化、SSE 流式输出与执行轨迹 metadata。 |
 | `backend/app/services/cli_agent_executor.py` | 让群聊和 Orchestrator 复用同一套 CLI Agent 执行能力。 |
+| `backend/app/services/artifact_output_bridge.py` | CLI 消息完成后扫描回复、执行轨迹和 workspace diff，生成 Artifact 候选并交给 ArtifactService。 |
+| `backend/app/services/artifact_service.py` | 负责 Artifact 版本链、Diff、编辑和从 bridge detection 幂等创建 v1 Artifact。 |
 | `backend/app/agents/cli_runtime.py` | 管理真实进程创建、cwd 校验、stdin 写入、stdout/stderr 读取、进程注册表、超时、交互回复和终止。 |
 | `backend/app/agents/cli_adapters.py` | 实现基础 adapter，以及 Claude Code、Codex、OpenCode 的专属适配逻辑。 |
 | `backend/app/agents/cli_output_parser.py` | 保存单次执行的 parser 状态，处理 JSONL、raw fallback、HTML 错误压缩和 stderr 噪声过滤。 |
@@ -66,9 +68,12 @@ Adapter 层不直接创建业务 Artifact。它负责输出文本、过程、错
 | `AgentCliForm.tsx` | CLI Agent 设置弹窗，包含 executable 检测、默认参数、Codex 官方/中转配置。 |
 | `AgentCliRow.tsx` | 好友列表行，展示状态、操作入口和设置入口。 |
 | `ExecutionTracePanel.tsx` | 在回复气泡下方渲染过程、工具、命令、错误和产物信号；支持折叠和独立滚动。 |
-| `MessageBubble.tsx` | 渲染 Markdown 回复气泡、Agent 头像、执行轨迹、消息操作和引用上下文。 |
+| `MessageBubble.tsx` | 渲染 Markdown 回复气泡、Agent 头像、执行轨迹、消息操作、引用上下文和消息级 ArtifactStrip。 |
+| `MessageArtifactStrip.tsx` | 按 messageId 展示扫描中、失败、低置信候选，并在消息下方渲染 ArtifactCard 卡片流。 |
+| `ArtifactCard.tsx` | 消息级产物卡片，支持 web/code/document/file_tree 预览、hover diff 和完整弹窗。 |
+| `DiffViewer.tsx` | VS Code/GitHub 风格统一 diff 表格，取消左右/上下模式切换。 |
 | `ChatWindow.tsx` | 负责接近 Telegram 的聊天界面、用户新消息定位和 Agent 工作状态。 |
-| `useSendMessage.ts` | 消费 SSE 事件，将文本流式写入气泡，持久化执行轨迹，并避免长任务期间强制滚到底部。 |
+| `useSendMessage.ts` | 消费 SSE 事件，将文本流式写入气泡，持久化执行轨迹，upsert Artifact，并避免长任务期间强制滚到底部。 |
 
 ## 5. 数据模型
 
@@ -133,7 +138,7 @@ Codex 需要额外处理，因为用户本机 Codex 可能使用官方 OpenAI，
 
 当 AgentHub 检测到官方或中转配置时，会在运行 Codex 时注入 `--ignore-user-config` 和显式 `-c` 配置。这样既能复用本机可用的连接信息，又能避免旧 profile、错误 provider、HTML 首页或模型列表噪声污染聊天输出。
 
-中转模式必须有中转 API Key。ChatGPT 登录 token 不能用于第三方中转站。AgentHub UI 会把稳定密钥写入 `CODEX_HOME/.env`，并让对应 provider 使用 `env_key = "CODEX_API_KEY"`。
+中转模式必须有中转 API Key。ChatGPT 登录 token 不能用于第三方中转站。AgentHub UI 会把稳定密钥写入 `CODEX_HOME/.env`，并让对应 provider 使用 command-backed auth helper 从 `.env` 按需读取密钥。这样本机 Codex 新会话不依赖 Windows 全局环境变量，也不会被 `auth.json` 后续变成 token 的行为影响。
 
 ### OpenCode
 
@@ -168,7 +173,7 @@ CLI 原始输出不会直接作为一大坨文本展示给用户，而是拆成�
 - 回复文本：进入 Agent 气泡，按 Markdown 渲染；
 - 过程轨迹：进入气泡下方的执行流程块；
 - 交互提示：进入确认卡片；
-- 产物信号：交给后续 Artifact Bridge 处理。
+- 产物信号：进入 Artifact Bridge，与 workspace diff 和消息代码块一起创建 Artifact。
 
 执行流程块的目标是比终端日志更好读。只要 CLI 暴露了命令、工具名、目标路径、stderr 信号或 provider 细节，就尽量在结构化轨迹中呈现。
 
@@ -180,12 +185,24 @@ AgentHub 刻意区分“用户可见 Agent 身份”和“提供商密钥”：
 - Codex 官方模式可使用 OpenAI API Key，也可在兼容时使用本机 ChatGPT auth；
 - Codex 中转模式必须使用中转 API Key；
 - Codex API Key 写入 `CODEX_HOME/.env`，通常是 `~/.codex/.env`；
-- 当前 provider 在 `config.toml` 中使用 `env_key`，不写内联密钥；
+- 当前 provider 在 `config.toml` 中使用 command-backed auth helper，不写内联密钥，也不要求全局 `CODEX_API_KEY`；
 - 前端 API 响应只展示“是否已配置 key”，不返回密钥明文。
 
-## 10. 当前剩余风险
+## 10. Artifact Bridge 当前状态
 
-- Artifact Bridge 仍需继续加固，让 workspace diff、代码块和 Artifact Card 稳定一致；
+6F 核心闭环已落地：
+
+- 单聊 CLI 完成后，在最终 `done` 前扫描 workspace snapshot diff、消息代码块和执行轨迹；
+- `web_preview`、`file_tree`、`code_diff`、`document` 四类 Artifact 统一进入 ArtifactService 创建；
+- 低置信候选写入 message metadata，不污染用户的产物列表；
+- `POST /api/messages/{messageId}/artifacts/scan` 支持手动重扫，且对同一 message/file/hash 幂等；
+- 前端通过 `artifact.scan.*` 和 `artifact.created` 更新消息下方的 MessageArtifactStrip/ArtifactCard；
+- 独立产物工作台已移除，文件变更行 hover 展示具体 diff，点击卡片弹窗展示完整 diff；
+- 真实 Claude Code 服务验收脚本 `backend/test_real_api_claude_artifact_bridge.py` 已通过。
+
+## 11. 当前剩余风险
+
 - 三个 CLI 的执行轨迹解析仍需要持续补充真实 stdout/stderr fixture，特别是命令和文件操作细节；
 - 长任务取消应成为一等 UI 操作，而不只是后端运行时能力；
+- 群聊并行 workspace diff 的“每个文件由哪个 Agent 写入”不能完全从共享文件系统推断，当前只自动扫描每个 Agent 子消息的文本/代码块，避免把共享 diff 误挂到总结消息；
 - 真实 smoke 依赖用户本机 CLI 安装和认证状态，CI 暂时只能覆盖 parser/runtime fixture，除非准备专用 runner。

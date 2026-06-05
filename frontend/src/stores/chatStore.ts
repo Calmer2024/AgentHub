@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type {
-  Message, RouteAgent, CollabTask, ChainStep, DAGPhase, Artifact,
+  Message, RouteAgent, CollabTask, ChainStep, DAGPhase, Artifact, CodeReference,
   InteractivePrompt, ExecutionTraceItem,
 } from "../types";
 
@@ -38,6 +38,7 @@ interface ChatState {
   latestRunId: string | null;
   streamingError: string | null;
   replyTarget: Message | null;
+  codeReference: CodeReference | null;
   activeProgress: string | null;
   interactivePrompts: InteractivePrompt[];
 
@@ -68,6 +69,7 @@ interface ChatState {
   updateMessage: (id: string, patch: Partial<Message>) => void;
   replaceMessageContent: (id: string, content: string) => void;
   setReplyTarget: (message: Message | null) => void;
+  setCodeReference: (reference: CodeReference | null) => void;
   setActiveProgress: (progress: string | null) => void;
   addInteractivePrompt: (prompt: InteractivePrompt) => void;
   removeInteractivePrompt: (processId: string) => void;
@@ -87,6 +89,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   latestRunId: null,
   streamingError: null,
   replyTarget: null,
+  codeReference: null,
   activeProgress: null,
   interactivePrompts: [],
   collabSnapshots: {},
@@ -193,6 +196,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       messages: s.messages.map((m) => (m.id === id ? { ...m, content } : m)),
     })),
   setReplyTarget: (message) => set({ replyTarget: message }),
+  setCodeReference: (reference) => set({ codeReference: reference }),
   setActiveProgress: (progress) => set({ activeProgress: progress }),
   addInteractivePrompt: (prompt) =>
     set((s) => ({

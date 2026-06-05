@@ -35,7 +35,7 @@ docs/
 → 看 [CONTEXT.md](../CONTEXT.md) 的 Phase 表格；当前 Phase 6 进度看 [specs/phase6/README.md](specs/phase6/README.md) 与 [dev-logs/phase6-dev-log.md](dev-logs/phase6-dev-log.md)。历史 Phase 3 审计见 [audit/phase3-audit-report.md](audit/phase3-audit-report.md)。
 
 ### 我要了解 Phase 6 当前进度
-→ 进入 [specs/phase6/](specs/phase6/) 目录。先读 README.md 获取总览；[00-workspace-runtime.md](specs/phase6/00-workspace-runtime.md) 已验收，CLI Adapter 当前交付快照见 [deliverables/phase6-cli-adapter/](deliverables/phase6-cli-adapter/)，后续重点看 Artifact Bridge 和真实 CLI 输出解析补强。
+→ 进入 [specs/phase6/](specs/phase6/) 目录。先读 README.md 获取总览；[00-workspace-runtime.md](specs/phase6/00-workspace-runtime.md) 已验收，CLI Adapter 交付快照见 [deliverables/phase6-cli-adapter/](deliverables/phase6-cli-adapter/)，Artifact Bridge 验收快照见 [deliverables/phase6-artifact-bridge/](deliverables/phase6-artifact-bridge/)。
 
 ### 我想理解为什么要这样设计
 → 进入 [adr/](adr/) 目录，按编号顺序阅读架构决策记录。
@@ -91,7 +91,7 @@ docs/
 | [phase3/](specs/phase3/) | Orchestrator + Infrastructure | ✅ | EventBus + Pipeline + DAG + CollaborationPanel |
 | [phase4/](specs/phase4/) | 消息交互闭环 | ✅ | Reply/Regenerate/Pin + FTS5 搜索 |
 | [phase5/](specs/phase5/) | 产物工作台能力 | ✅ | 对已有 Artifact 做版本链 + Diff + 在线编辑；上游入口由 Phase 6/7 补齐 |
-| [phase6/](specs/phase6/) | Workspace Runtime + CLI 适配器 + 产物入口桥接 | 🚧 | 6A 本机 Project/workspace runtime 已验收；6B-6E CLI Adapter 实现基线已落地；6F 继续做 `artifact.detected` 与 Artifact Card 闭环 |
+| [phase6/](specs/phase6/) | Workspace Runtime + CLI 适配器 + 产物入口桥接 | ✅ | 6A Workspace Runtime、6B-6E CLI Adapter 与 6F Artifact Bridge 核心闭环均已验收；Phase 7 继续 Drawer/审批/环境体检 |
 
 ### deliverables/ — 阶段性交付快照
 
@@ -100,6 +100,7 @@ docs/
 | 目录 | 内容 |
 |------|------|
 | [phase6-cli-adapter/](deliverables/phase6-cli-adapter/) | CLI Adapter 架构与实现原理、用户/开发者使用指南、阶段开发日志 |
+| [phase6-artifact-bridge/](deliverables/phase6-artifact-bridge/) | Artifact Bridge 验收快照：消息级产物卡片、文件编辑器、代码引用、版本管理与真实服务验收 |
 | [phase7/](specs/phase7/) | UX 体验闭环 + MVP 演示闭环 | 📋 | 三栏布局 + 产物抽屉 + 审批卡片 + 环境体检 |
 | [planning/](specs/planning/) | 历史规划 | 📦 | 旧的 Phase 3 模块化计划 (已被 ADR-0008 取代) |
 
@@ -118,7 +119,7 @@ docs/
 | [phase3-dev-log.md](dev-logs/phase3-dev-log.md) | Phase 3: 6 天时间线、6 个关键 Bug、4 次 Grill Session、测试覆盖演变 |
 | [phase4-dev-log.md](dev-logs/phase4-dev-log.md) | Phase 4: 消息交互闭环、FTS5 修复、真实 UI 验收 |
 | [phase5-dev-log.md](dev-logs/phase5-dev-log.md) | Phase 5: 产物版本链、Diff、在线编辑、架构优化、真实 HTTP 验收 |
-| [phase6-dev-log.md](dev-logs/phase6-dev-log.md) | Phase 6A: Project-first workspace runtime；Phase 6B-6E: 真实本机 CLI Agent、Codex 配置托管、执行轨迹 UI |
+| [phase6-dev-log.md](dev-logs/phase6-dev-log.md) | Phase 6A: Project-first workspace runtime；Phase 6B-6E: 真实本机 CLI Agent；6F: Artifact Bridge、消息级产物卡片、文件编辑器与版本管理 |
 | [phase6-cli-adapter-dev-log.md](dev-logs/phase6-cli-adapter-dev-log.md) | Phase 6 CLI Adapter 专项交接日志：真实 CLI 验证、Codex 中转修复、执行轨迹 UI 与剩余工作 |
 
 ### audit/ — 审计报告

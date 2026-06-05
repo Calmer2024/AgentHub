@@ -3,8 +3,9 @@ import type {
   RouteAgent, CollabTask, ChainStep, ChainConfigInput,
   DAGPhase, PhaseChangeEvent, AgentStartEvent, OrchestratorSummaryStartEvent,
   Artifact, ArtifactDiff, ArtifactEditRequest, ArtifactEditResult, ArtifactVersion,
+  ArtifactScanResult,
   Project, ProjectCreateInput, ProjectUpdateInput, ProjectDeleteResult, FolderPickResult,
-  PreviewResult,
+  PreviewResult, WorkspaceFile,
   ExecutionTraceItem,
   CodexLocalConfig, CodexLocalConfigUpdate,
 } from "../types";
@@ -153,6 +154,27 @@ export async function createProjectPreview(
   return res.json();
 }
 
+export async function readProjectFile(projectId: string, path: string): Promise<WorkspaceFile> {
+  const params = new URLSearchParams({ path });
+  const res = await fetch(`${API_BASE}/projects/${projectId}/files?${params.toString()}`);
+  if (!res.ok) throw new Error("Failed to read project file");
+  return res.json();
+}
+
+export async function writeProjectFile(
+  projectId: string,
+  path: string,
+  content: string,
+): Promise<WorkspaceFile> {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/files`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path, content }),
+  });
+  if (!res.ok) throw new Error("Failed to write project file");
+  return res.json();
+}
+
 export async function deleteProject(
   projectId: string,
   deleteFiles = false,
@@ -277,6 +299,13 @@ export interface StreamCallbacks {
     meta: { agentName?: string; cliTool?: string; processId?: string },
   ) => void;
   onTraceCompleted?: (messageId: string, status: "completed" | "error", exitCode?: number | null) => void;
+  onArtifactScanStarted?: (messageId: string) => void;
+  onArtifactCreated?: (artifact: Artifact) => void;
+  onArtifactScanCompleted?: (
+    messageId: string,
+    summary: { createdCount: number; candidateCount: number; skippedCount: number },
+  ) => void;
+  onArtifactDetectionFailed?: (messageId: string, reason?: string) => void;
 }
 
 export function createChatStream(
@@ -291,7 +320,8 @@ export function createChatStream(
     onToken, onDone, onRoute, onTaskStarted, onChainStep, onPhaseChange,
     onTaskCompleted, onAgentStart, onOrchestratorSummaryStart,
     onOrchestratorSummaryToken, onAgentToken, onProgress, onInteractivePrompt,
-    onTraceDelta, onTraceCompleted,
+    onTraceDelta, onTraceCompleted, onArtifactScanStarted, onArtifactCreated,
+    onArtifactScanCompleted, onArtifactDetectionFailed,
   } = callbacks;
   const url = `${API_BASE}/sessions/${sessionId}/chat`;
   const abortCtrl = new AbortController();
@@ -545,6 +575,35 @@ export function createChatStream(
               continue;
             }
 
+            if (data.type === "artifact.scan.started") {
+              if (data.messageId && onArtifactScanStarted) onArtifactScanStarted(data.messageId);
+              continue;
+            }
+
+            if (data.type === "artifact.created") {
+              const artifact = normalizeArtifactEvent(data);
+              if (artifact && onArtifactCreated) onArtifactCreated(artifact);
+              continue;
+            }
+
+            if (data.type === "artifact.scan.completed") {
+              if (data.messageId && onArtifactScanCompleted) {
+                onArtifactScanCompleted(data.messageId, {
+                  createdCount: Number(data.createdCount ?? 0),
+                  candidateCount: Number(data.candidateCount ?? 0),
+                  skippedCount: Number(data.skippedCount ?? 0),
+                });
+              }
+              continue;
+            }
+
+            if (data.type === "artifact.detection_failed") {
+              if (data.messageId && onArtifactDetectionFailed) {
+                onArtifactDetectionFailed(data.messageId, typeof data.reason === "string" ? data.reason : undefined);
+              }
+              continue;
+            }
+
             // token streaming
             if (data.agentId && data.token && data.callKey && onAgentToken) {
               onAgentToken(
@@ -660,6 +719,37 @@ export function regenerateMessageStream(
   return () => abortCtrl.abort();
 }
 
+function normalizeArtifactEvent(data: Record<string, unknown>): Artifact | null {
+  const raw = data.artifact && typeof data.artifact === "object"
+    ? data.artifact as Record<string, unknown>
+    : data;
+  const id = raw.id ?? raw.artifactId;
+  if (typeof id !== "string") return null;
+  const type = raw.type ?? raw.artifactType;
+  if (type !== "code_diff" && type !== "web_preview" && type !== "document" && type !== "file_tree") {
+    return null;
+  }
+  const sessionId = typeof raw.sessionId === "string" ? raw.sessionId : "";
+  const messageId = typeof raw.messageId === "string" ? raw.messageId : "";
+  if (!sessionId || !messageId) return null;
+  return {
+    id,
+    sessionId,
+    messageId,
+    projectId: typeof raw.projectId === "string" ? raw.projectId : null,
+    type,
+    title: typeof raw.title === "string" ? raw.title : "产物",
+    content: typeof raw.content === "string" ? raw.content : "",
+    status: raw.status === "rendering" || raw.status === "error" ? raw.status : "ready",
+    version: typeof raw.version === "number" ? raw.version : 1,
+    parentArtifactId: typeof raw.parentArtifactId === "string" ? raw.parentArtifactId : null,
+    filePath: typeof raw.filePath === "string" ? raw.filePath : null,
+    previewId: typeof raw.previewId === "string" ? raw.previewId : null,
+    source: typeof raw.source === "string" ? raw.source : null,
+    createdAt: typeof raw.createdAt === "string" ? raw.createdAt : new Date().toISOString(),
+  };
+}
+
 export async function fetchArtifacts(sessionId: string): Promise<Artifact[]> {
   const res = await fetch(`${API_BASE}/sessions/${sessionId}/artifacts`);
   if (!res.ok) throw new Error("Failed to fetch artifacts");
@@ -696,5 +786,47 @@ export async function editArtifact(
     body: JSON.stringify(data),
   });
   if (!res.ok) throw new Error("Failed to edit artifact");
+  return res.json();
+}
+
+export async function saveArtifactContent(
+  artifactId: string,
+  content: string,
+  title?: string | null,
+): Promise<Artifact> {
+  const body: Record<string, unknown> = { content, writeWorkspace: true };
+  if (title) body.title = title;
+  const res = await fetch(`${API_BASE}/artifacts/${artifactId}/save`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error("Failed to save artifact");
+  return res.json();
+}
+
+export async function restoreArtifactVersion(
+  artifactId: string,
+  version: number,
+): Promise<Artifact> {
+  const res = await fetch(`${API_BASE}/artifacts/${artifactId}/restore`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ version, writeWorkspace: true }),
+  });
+  if (!res.ok) throw new Error("Failed to restore artifact version");
+  return res.json();
+}
+
+export async function scanMessageArtifacts(
+  messageId: string,
+  force = true,
+): Promise<ArtifactScanResult> {
+  const res = await fetch(`${API_BASE}/messages/${messageId}/artifacts/scan`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ force }),
+  });
+  if (!res.ok) throw new Error("Failed to scan message artifacts");
   return res.json();
 }

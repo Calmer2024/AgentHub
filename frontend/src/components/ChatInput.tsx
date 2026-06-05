@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, type FormEvent, type KeyboardEvent } from "react";
-import { SendHorizontal } from "lucide-react";
+import { Code2, FileCode2, SendHorizontal, X } from "lucide-react";
 import type { AgentConfig } from "../types";
 import { useChatStore } from "../stores/chatStore";
 import { ReplyPreview } from "./ReplyPreview";
@@ -19,7 +19,7 @@ export function ChatInput({ onSubmit, disabled, mentionableAgents }: Props) {
   const [mentionPos, setMentionPos] = useState(0);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const { replyTarget, setReplyTarget } = useChatStore();
+  const { replyTarget, setReplyTarget, codeReference, setCodeReference } = useChatStore();
 
   useEffect(() => {
     if (showMentions && listRef.current) {
@@ -27,6 +27,12 @@ export function ChatInput({ onSubmit, disabled, mentionableAgents }: Props) {
       active?.scrollIntoView({ block: "nearest" });
     }
   }, [mentionIndex, showMentions]);
+
+  useEffect(() => {
+    const focusInput = () => inputRef.current?.focus();
+    window.addEventListener("agenthub:focus-chat-input", focusInput);
+    return () => window.removeEventListener("agenthub:focus-chat-input", focusInput);
+  }, []);
 
   const filteredAgents = mentionableAgents.filter((a) =>
     a.name.toLowerCase().includes(mentionFilter.toLowerCase())
@@ -80,8 +86,9 @@ export function ChatInput({ onSubmit, disabled, mentionableAgents }: Props) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       if (!content.trim() || disabled) return;
-      onSubmit(content.trim(), extractMentions(content));
+      onSubmit(buildSubmittedContent(content.trim()), extractMentions(content));
       setContent("");
+      setCodeReference(null);
     }
   };
 
@@ -100,8 +107,26 @@ export function ChatInput({ onSubmit, disabled, mentionableAgents }: Props) {
     e.preventDefault();
     if (!content.trim() || disabled) return;
     const mentions = extractMentions(content);
-    onSubmit(content.trim(), mentions);
+    onSubmit(buildSubmittedContent(content.trim()), mentions);
     setContent("");
+    setCodeReference(null);
+  };
+
+  const buildSubmittedContent = (text: string) => {
+    if (!codeReference) return text;
+    const range = codeReference.startLine && codeReference.endLine
+      ? `:${codeReference.startLine}-${codeReference.endLine}`
+      : "";
+    const label = codeReference.filePath ?? codeReference.title ?? "artifact";
+    const language = codeReference.language || "text";
+    return [
+      `[Code reference: ${label}${range}]`,
+      `\`\`\`${language}`,
+      codeReference.content,
+      "```",
+      "",
+      text,
+    ].join("\n");
   };
 
   return (
@@ -133,6 +158,34 @@ export function ChatInput({ onSubmit, disabled, mentionableAgents }: Props) {
       {replyTarget && (
         <div className="mb-3">
           <ReplyPreview message={replyTarget} onClear={() => setReplyTarget(null)} />
+        </div>
+      )}
+      {codeReference && (
+        <div className="mx-auto mb-3 max-w-4xl rounded-2xl border border-sky-300/20 bg-sky-300/[0.08] px-3 py-2 text-sm text-[#d8d8df]">
+          <div className="flex items-center gap-2">
+            <FileCode2 size={15} className="shrink-0 text-sky-200" aria-hidden="true" />
+            <div className="min-w-0 flex-1">
+              <div className="truncate font-medium text-sky-100">
+                {codeReference.filePath ?? codeReference.title ?? "代码片段"}
+              </div>
+              <div className="mt-0.5 flex items-center gap-1.5 text-xs text-[#9aa5b1]">
+                <Code2 size={12} aria-hidden="true" />
+                <span>{codeReference.content.length} 字符</span>
+                {codeReference.startLine && codeReference.endLine && (
+                  <span>行 {codeReference.startLine}-{codeReference.endLine}</span>
+                )}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setCodeReference(null)}
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-slate-400 hover:bg-white/10 hover:text-white"
+              aria-label="取消代码引用"
+              title="取消代码引用"
+            >
+              <X size={14} />
+            </button>
+          </div>
         </div>
       )}
       <div className="mx-auto flex max-w-4xl items-end gap-2 rounded-[24px] border border-white/10 bg-[#0f141a] p-2 shadow-[0_18px_48px_rgba(0,0,0,0.28)] transition focus-within:border-sky-400/45 focus-within:ring-2 focus-within:ring-sky-400/15">

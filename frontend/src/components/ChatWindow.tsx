@@ -1,15 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Boxes, Search, X } from "lucide-react";
+import { Files, Search, X } from "lucide-react";
 import type { Message, AgentConfig, CollabTask, ChainStep, DAGPhase, Artifact } from "../types";
 import { MessageBubble } from "./MessageBubble";
 import { ChatInput } from "./ChatInput";
 import { CollaborationPanel } from "./CollaborationPanel";
 import { SearchPanel } from "./SearchPanel";
-import { ArtifactCard } from "./ArtifactCard";
 import { replyToInteractivePrompt } from "../api/client";
 import { useChatStore } from "../stores/chatStore";
 import { InteractivePromptCard } from "./InteractivePromptCard";
 import { AgentAvatar } from "./AgentAvatar";
+import { SessionArtifactManager } from "./SessionArtifactManager";
 
 interface Props {
   messages: Message[];
@@ -56,6 +56,7 @@ export function ChatWindow({
   const autoScrollSessionRef = useRef<string | null>(null);
   const autoScrollUserSignatureRef = useRef<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [artifactManagerOpen, setArtifactManagerOpen] = useState(false);
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
   const { interactivePrompts, removeInteractivePrompt, setStreamingError } = useChatStore();
   useEffect(() => {
@@ -127,8 +128,32 @@ export function ChatWindow({
               {isStreaming ? "正在输入" : isGroup ? "多人 Agent 协作" : currentAgent?.cliTool ?? "CLI Agent"}
             </p>
           </div>
+          {isStreaming && (
+            <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1 text-xs text-[#d8d8df]">
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#ececf1] opacity-50" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-[#ececf1]" />
+              </span>
+              Agent 正在回答
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setArtifactManagerOpen(true)}
+            disabled={artifacts.length === 0}
+            className="relative inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 text-[#d8d8df] transition hover:bg-white/[0.07] active:translate-y-px disabled:cursor-not-allowed disabled:opacity-45"
+            aria-label={`会话文件，${artifacts.length} 个产物`}
+            title={artifacts.length > 0 ? "会话文件" : "暂无会话文件"}
+          >
+            <Files size={15} />
+            {artifacts.length > 0 && (
+              <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-[#17212b] bg-[#2f7cf6] px-1 text-[10px] font-semibold text-white">
+                {artifacts.length > 9 ? "9+" : artifacts.length}
+              </span>
+            )}
+          </button>
           <button
             type="button"
             onClick={() => setSearchOpen(true)}
@@ -138,15 +163,6 @@ export function ChatWindow({
           >
             <Search size={15} />
           </button>
-          {isStreaming && (
-            <span className="inline-flex items-center gap-2 text-sm text-[#d8d8df]">
-              <span className="relative flex h-2.5 w-2.5">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#ececf1] opacity-50" />
-                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[#ececf1]" />
-              </span>
-              正在回复
-            </span>
-          )}
         </div>
       </div>
 
@@ -213,9 +229,7 @@ export function ChatWindow({
         {/* Messages area (scrollable) */}
         <div
           ref={scrollRef}
-          className={`relative min-h-0 overflow-y-auto bg-[radial-gradient(circle_at_top_left,rgba(47,124,246,0.12),transparent_32%),linear-gradient(180deg,#0f141a_0%,#111820_100%)] p-4 md:p-6 ${
-            artifacts.length > 0 ? "flex-1" : "w-full"
-          }`}
+          className="relative min-h-0 w-full overflow-y-auto bg-[radial-gradient(circle_at_top_left,rgba(47,124,246,0.12),transparent_32%),linear-gradient(180deg,#0f141a_0%,#111820_100%)] p-4 md:p-6"
         >
           {messages.length === 0 && collabTasks.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-center text-[#ececf1]">
@@ -231,6 +245,7 @@ export function ChatWindow({
                   <MessageBubble
                     message={msg}
                     isStreaming={isStreaming}
+                    artifacts={artifacts}
                     agent={msg.agentName ? agentByName.get(msg.agentName) ?? null : null}
                     parentMessage={msg.parentMessageId ? messageById.get(msg.parentMessageId) ?? null : null}
                     highlighted={highlightedMessageId === msg.id}
@@ -239,6 +254,7 @@ export function ChatWindow({
                     onTogglePin={onTogglePin}
                     onCopy={(content) => navigator.clipboard?.writeText(content)}
                     onJumpToMessage={jumpToMessage}
+                    onArtifactsChanged={onArtifactsChanged}
                   />
                   {prompts.length > 0 && (
                     <div className="mb-4 ml-3 max-w-[min(82%,860px)] space-y-2">
@@ -263,51 +279,7 @@ export function ChatWindow({
             })
           )}
         </div>
-
-        {artifacts.length > 0 && (
-          <aside className="hidden w-[420px] shrink-0 border-l border-white/[0.08] bg-[#202123] md:flex md:flex-col">
-            <div className="border-b border-white/[0.08] px-4 py-3">
-              <div className="text-sm font-semibold text-white">产物工作台</div>
-              <div className="mt-0.5 text-xs text-[#8f8f98]">{artifacts.length} 个当前产物</div>
-            </div>
-            <div className="min-h-0 flex-1 overflow-y-auto p-3">
-              {artifacts.map((artifact) => (
-                <ArtifactCard
-                  key={artifact.id}
-                  artifact={artifact}
-                  onChanged={onArtifactsChanged}
-                />
-              ))}
-            </div>
-          </aside>
-        )}
-
-        {artifacts.length > 0 && (
-          <div className="fixed bottom-24 right-4 z-20 md:hidden">
-            <button
-              type="button"
-              onClick={() => document.getElementById("mobile-artifacts")?.scrollIntoView({ behavior: "smooth" })}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-[#ececf1] text-[#171717] shadow-lg"
-              aria-label="产物"
-              title="产物"
-            >
-              <Boxes size={18} />
-            </button>
-          </div>
-        )}
       </div>
-
-      {artifacts.length > 0 && (
-        <div id="mobile-artifacts" className="max-h-[36dvh] overflow-y-auto border-t border-white/[0.08] bg-[#202123] p-3 md:hidden">
-          {artifacts.map((artifact) => (
-            <ArtifactCard
-              key={artifact.id}
-              artifact={artifact}
-              onChanged={onArtifactsChanged}
-            />
-          ))}
-        </div>
-      )}
 
       {interactivePrompts.some((prompt) => !messages.some((msg) => msg.id === prompt.messageId)) && (
         <div className="mx-6 mt-3 space-y-2">
@@ -333,6 +305,12 @@ export function ChatWindow({
         open={searchOpen}
         onClose={() => setSearchOpen(false)}
         onJump={(_, messageId) => jumpToMessage(messageId)}
+      />
+      <SessionArtifactManager
+        open={artifactManagerOpen}
+        artifacts={artifacts}
+        onClose={() => setArtifactManagerOpen(false)}
+        onChanged={onArtifactsChanged}
       />
 
       {/* Chat input */}

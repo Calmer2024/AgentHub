@@ -29,7 +29,7 @@ class ChatServiceImpl:
             event_bus=event_bus,
         )
         self._executor = AgentExecutor(event_bus=event_bus)
-        self._group_stream = GroupChatStream(db, self._pipeline, self._executor)
+        self._group_stream = GroupChatStream(db, self._pipeline, self._executor, event_bus=event_bus)
         self._single_stream = SingleCliChatStream(db, self._context_manager, event_bus)
         self._messages = SqlAlchemyMessageService(db, self._context_manager)
 

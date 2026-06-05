@@ -75,7 +75,7 @@ AgentHub/
 
 ## 已经做完了什么？
 
-项目按 Phase 1-7 推进，目前 Phase 1-5 已完成，Phase 6A（Workspace Runtime）已通过人工验收；Phase 6B-6F（CLI Adapter + Artifact Bridge）和 Phase 7 继续推进。
+项目按 Phase 1-7 推进，目前 Phase 1-6 核心闭环已完成并通过验收；Phase 7 继续推进 Drawer 深度预览、审批卡片、环境体检和 MVP 演示闭环。
 
 ### Phase 1：单聊全链路 ✅
 
@@ -132,20 +132,18 @@ Phase 3 聚焦多 Agent 协作基础设施与 Orchestrator 深化。
 
 真实 HTTP 验收已通过：临时启动后端，创建真实会话/消息/产物，完成编辑预览、确认创建 v2、版本链追溯、Diff 校验和会话产物链头刷新。
 
-需要注意：Phase 5 完成的是“已有 Artifact 的工作台能力”，不是完整产物链路。Phase 6A 已补齐 Project-first workspace runtime：Project 绑定本机目录，Session 继承 `Project.workspace_path`，支持文件树、Diff、静态预览和路径安全校验。Agent 真实 CLI 执行、文件变更自动生成 Artifact Card、右侧 Drawer 预览、审批卡片绑定产物，会在 Phase 6B-6F/7 继续补齐。
+需要注意：Phase 5 完成的是“已有 Artifact 的工作台能力”，不是完整产物链路。Phase 6 已补齐 Project-first workspace runtime、真实 CLI Agent 执行和 Artifact Bridge：Project 绑定本机目录，Session 继承 `Project.workspace_path`，Agent 文件变更会自动生成消息下方 Artifact Card，并可继续进入文件编辑器、代码引用和版本管理。右侧 Drawer 深度预览、审批卡片绑定产物和环境体检留给 Phase 7。
 
 ---
 
-## 接下来要做什么？（Phase 6B-7）
+## 接下来要做什么？（Phase 7）
 
-### Phase 6：Workspace Runtime + CLI Agent 适配器 + 产物入口桥接
+### Phase 6：Workspace Runtime + CLI Agent 适配器 + 产物入口桥接 ✅
 
-- ✅ 6A 已完成：Project 实体、创建项目菜单（新建空白文件夹 / 选择现有文件夹）、系统目录选择器授权、workspace 文件树/Diff/静态预览、Session→workspace 查询
-- 下一步让项目型会话有真实执行目录：CLI Agent 启动时必须以当前 session 继承的 `Project.workspace_path` 作为 `cwd`
-- 通过 PTY/subprocess 管理 Claude Code、opencode 等真实 CLI 工具
-- stdout 流式推送、ANSI 清洗、交互式确认拦截
-- 把 CLI Agent 输出中的 HTML、代码块、patch、workspace 文件变更摘要转换为标准 `artifact.detected` 事件
-- 由 ArtifactService 创建 Artifact，并让聊天流出现可预览的 Artifact Card
+- Project 实体、创建项目菜单、系统目录选择器授权、workspace 文件树/Diff/静态预览、Session→workspace 查询已完成。
+- Claude Code、Codex、OpenCode 真实 CLI Agent 以 `Project.workspace_path` 为 cwd 执行，并通过 SSE 展示文本和执行轨迹。
+- CLI 输出、消息代码块和 workspace diff 已由 ArtifactOutputBridge 转为真实 Artifact，并在对应消息下方以 ArtifactCard 展示。
+- 文件编辑器、代码片段引用、Artifact 版本管理和会话文件入口已通过本轮验收。
 
 ### Phase 7：UX 体验闭环 + MVP 演示闭环
 
@@ -297,7 +295,7 @@ python e2e/full_ui_audit.py
 | **端到端 PRD** | `docs/PRD/05-End_to_End_Product_Flow.md` | 启动文档需求追踪与 MVP 产品闭环 |
 | **Phase 4 Spec** | `docs/specs/phase4/README.md` | 消息交互闭环的权威规格与验收记录 |
 | **Phase 5 Spec** | `docs/specs/phase5/README.md` | 产物工作台能力完成记录与未打通边界 |
-| **Phase 6 Spec** | `docs/specs/phase6/README.md` | Workspace Runtime 已验收记录，以及 CLI/Artifact Bridge 后续规格 |
+| **Phase 6 Spec** | `docs/specs/phase6/README.md` | Workspace Runtime、CLI Adapter、Artifact Bridge 核心闭环验收记录 |
 | **Docs Index** | `docs/README.md` | 查看所有文档入口 |
 
 ### 按需查阅

@@ -1,14 +1,12 @@
 import {
-  BrainCircuit,
-  Braces,
   Code2,
   Cpu,
   Sparkles,
-  TerminalSquare,
   UserRound,
   Users,
   type LucideIcon,
 } from "lucide-react";
+import { siClaudecode } from "simple-icons";
 import type { AgentConfig } from "../types";
 
 type AvatarSize = "sm" | "md" | "lg";
@@ -34,19 +32,25 @@ const ICON_SIZE: Record<AvatarSize, number> = {
   lg: 21,
 };
 
-const TOOL_LOOK: Record<string, { icon: LucideIcon; className: string }> = {
+const BRAND_LOGOS: Record<string, { label: string; className: string; src: string }> = {
   claude_code: {
-    icon: BrainCircuit,
+    label: "Claude Code",
     className: "border-amber-300/25 bg-amber-400/15 text-amber-100",
+    src: simpleIconDataUri(siClaudecode.path, "#D97757", "#191714"),
   },
   codex: {
-    icon: TerminalSquare,
+    label: "OpenAI Codex",
     className: "border-sky-300/25 bg-sky-400/15 text-sky-100",
+    src: svgDataUri(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="18" fill="#0b1220"/><path fill="none" stroke="#38bdf8" stroke-linecap="round" stroke-linejoin="round" stroke-width="4" d="m24 20-9 12 9 12M40 20l9 12-9 12"/><path fill="none" stroke="#f8fafc" stroke-linecap="round" stroke-width="4" d="m36 16-8 32"/></svg>`),
   },
   opencode: {
-    icon: Braces,
+    label: "OpenCode",
     className: "border-emerald-300/25 bg-emerald-400/15 text-emerald-100",
+    src: svgDataUri(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="18" fill="#071b14"/><circle cx="32" cy="32" r="18" fill="none" stroke="#34d399" stroke-width="4"/><path fill="none" stroke="#d1fae5" stroke-linecap="round" stroke-linejoin="round" stroke-width="4" d="M27 23 18 32l9 9M37 23l9 9-9 9"/></svg>`),
   },
+};
+
+const TOOL_LOOK: Record<string, { icon: LucideIcon; className: string }> = {
   custom: {
     icon: Cpu,
     className: "border-fuchsia-300/25 bg-fuchsia-400/15 text-fuchsia-100",
@@ -62,6 +66,7 @@ export function AgentAvatar({
   className = "",
 }: Props) {
   const displayName = agent?.name ?? name ?? "";
+  const brand = resolveBrand(agent?.cliTool, displayName, kind);
   const look = resolveLook(agent?.cliTool, displayName, kind);
   const Icon = look.icon;
   const showActive = active ?? agent?.status === "ready";
@@ -73,7 +78,11 @@ export function AgentAvatar({
         title={displayName || look.label}
         aria-label={displayName || look.label}
       >
-        <Icon size={ICON_SIZE[size]} strokeWidth={1.8} aria-hidden="true" />
+        {brand ? (
+          <img src={brand.src} alt="" className="h-[72%] w-[72%] rounded-[35%] object-cover" />
+        ) : (
+          <Icon size={ICON_SIZE[size]} strokeWidth={1.8} aria-hidden="true" />
+        )}
       </span>
       {kind === "agent" && (
         <span
@@ -85,6 +94,34 @@ export function AgentAvatar({
       )}
     </span>
   );
+}
+
+function svgDataUri(svg: string) {
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
+function simpleIconDataUri(path: string, fill: string, background: string) {
+  return svgDataUri(
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">` +
+    `<rect width="64" height="64" rx="18" fill="${background}"/>` +
+    `<svg x="14" y="14" width="36" height="36" viewBox="0 0 24 24">` +
+    `<path fill="${fill}" d="${path}"/>` +
+    `</svg></svg>`,
+  );
+}
+
+function resolveBrand(
+  cliTool: string | undefined,
+  name: string,
+  kind: Props["kind"],
+) {
+  if (kind !== "agent") return null;
+  const normalizedName = name.toLowerCase();
+  if (cliTool && BRAND_LOGOS[cliTool]) return BRAND_LOGOS[cliTool];
+  if (normalizedName.includes("claude")) return BRAND_LOGOS.claude_code;
+  if (normalizedName.includes("codex")) return BRAND_LOGOS.codex;
+  if (normalizedName.includes("open")) return BRAND_LOGOS.opencode;
+  return null;
 }
 
 function resolveLook(
@@ -115,17 +152,20 @@ function resolveLook(
   }
 
   const normalizedName = name.toLowerCase();
-  if (cliTool && TOOL_LOOK[cliTool]) {
-    return { ...TOOL_LOOK[cliTool], label: name || cliTool };
+  if (cliTool && BRAND_LOGOS[cliTool]) {
+    return { icon: Code2, className: BRAND_LOGOS[cliTool].className, label: BRAND_LOGOS[cliTool].label };
   }
   if (normalizedName.includes("claude")) {
-    return { ...TOOL_LOOK.claude_code, label: name || "Claude Code" };
+    return { icon: Code2, className: BRAND_LOGOS.claude_code.className, label: name || BRAND_LOGOS.claude_code.label };
   }
   if (normalizedName.includes("codex")) {
-    return { ...TOOL_LOOK.codex, label: name || "Codex" };
+    return { icon: Code2, className: BRAND_LOGOS.codex.className, label: name || BRAND_LOGOS.codex.label };
   }
   if (normalizedName.includes("open")) {
-    return { ...TOOL_LOOK.opencode, label: name || "OpenCode" };
+    return { icon: Code2, className: BRAND_LOGOS.opencode.className, label: name || BRAND_LOGOS.opencode.label };
+  }
+  if (cliTool && TOOL_LOOK[cliTool]) {
+    return { ...TOOL_LOOK[cliTool], label: name || cliTool };
   }
   return {
     icon: Code2,

@@ -33,7 +33,10 @@ def test_configure_proxy_writes_codex_home_config_and_env(tmp_path, monkeypatch)
     assert 'model = "gpt-5.5"' in config
     assert "[model_providers.congmingai]" in config
     assert 'base_url = "https://proxy.example.com/v1"' in config
-    assert 'env_key = "CODEX_API_KEY"' in config
+    assert 'env_key = "CODEX_API_KEY"' not in config
+    assert "[model_providers.congmingai.auth]" in config
+    assert "codex-auth-helper" in config
+    assert "CODEX_API_KEY" in config
     assert "CODEX_API_KEY=proxy-key" in env
 
     args, runtime_env = CodexAdapter()._apply_connection_settings(["exec", "--json", "-"], {})
@@ -105,8 +108,14 @@ def test_status_repairs_proxy_key_from_legacy_auth_json(tmp_path, monkeypatch):
     assert (codex_home / ".env").read_text(encoding="utf-8") == "CODEX_API_KEY=legacy-proxy-key\n"
 
     config = (codex_home / "config.toml").read_text(encoding="utf-8")
-    assert 'env_key = "CODEX_API_KEY"' in config
+    assert 'env_key = "CODEX_API_KEY"' not in config
+    assert "[model_providers.OpenAI.auth]" in config
+    assert "codex-auth-helper" in config
     assert "requires_openai_auth" not in config
+
+    second = CodexLocalConfigService().status()
+    assert second.ready is True
+    assert second.repair_applied is False
 
 
 def test_status_reports_proxy_token_without_api_key_needs_product_input(tmp_path, monkeypatch):

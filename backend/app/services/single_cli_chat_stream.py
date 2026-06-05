@@ -15,8 +15,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..domain.context_manager import ContextManager, PromptAssemblyInput
 from ..models import AgentConfig, Message as DBMessage, Session as DBSession
 from ..agents.cli_trace import trace_text
+from .artifact_output_bridge import ArtifactOutputBridge, artifact_to_event_payload
 from .cli_agent_service import CliAgentService
 from .execution_trace import ExecutionTraceBuilder, merge_trace_metadata
+from .file_change_detector import FileChangeDetector
 from .session_service import SessionService
 from .streaming_text import iter_stream_pieces
 
@@ -31,8 +33,10 @@ class SingleCliChatStream:
         event_bus=None,
     ):
         self.db = db
+        self.event_bus = event_bus
         self._context_manager = context_manager
         self._cli_agents = CliAgentService(event_bus=event_bus)
+        self._file_changes = FileChangeDetector()
 
     async def send(
         self,
@@ -75,6 +79,13 @@ class SingleCliChatStream:
             workspace_path=workspace_path,
         )
         persisted = False
+        snapshot_id = None
+
+        try:
+            snapshot = self._file_changes.create_snapshot(workspace_path, f"chat:{session_id}:{assistant_msg_id}")
+            snapshot_id = snapshot.snapshot_id
+        except Exception:
+            metadata["snapshotError"] = "执行前 workspace 快照创建失败"
 
         try:
             async for event in self._cli_agents.stream(
@@ -236,6 +247,20 @@ class SingleCliChatStream:
         await self._persist_message(
             session, session_id, assistant_msg_id, agent_config, visible, metadata,
         )
+
+        async for bridge_event in self._scan_artifacts(
+            session=session,
+            session_id=session_id,
+            message_id=assistant_msg_id,
+            agent=agent_config,
+            process_id=process_id,
+            workspace_path=workspace_path,
+            visible=visible,
+            raw_output=raw_output,
+            metadata=metadata,
+            snapshot_id=snapshot_id,
+        ):
+            yield bridge_event
 
         await _broadcast_ws(session_id, {
             "type": "message.completed",
@@ -399,6 +424,88 @@ class SingleCliChatStream:
         ))
         session.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
         await self.db.commit()
+
+    async def _scan_artifacts(
+        self,
+        *,
+        session: DBSession,
+        session_id: str,
+        message_id: str,
+        agent: AgentConfig,
+        process_id: str,
+        workspace_path: str,
+        visible: str,
+        raw_output: str,
+        metadata: dict,
+        snapshot_id: str | None,
+    ) -> AsyncGenerator[str, None]:
+        if not session.project_id:
+            return
+        message = await self.db.get(DBMessage, message_id)
+        if not message:
+            return
+        yield self._sse({
+            "type": "artifact.scan.started",
+            "sessionId": session_id,
+            "messageId": message_id,
+            "projectId": session.project_id,
+            "agentId": agent.id,
+            "agentName": agent.name,
+            "processId": process_id,
+            "token": "",
+            "done": False,
+        })
+        try:
+            bridge = ArtifactOutputBridge(self.db, event_bus=self.event_bus)
+            result = await bridge.scan_completed_message(
+                session=session,
+                message=message,
+                workspace_path=workspace_path,
+                visible_content=visible,
+                raw_output_preview=raw_output[-4000:] if raw_output else "",
+                execution_trace=metadata.get("executionTrace")
+                if isinstance(metadata.get("executionTrace"), dict) else None,
+                snapshot_id=snapshot_id,
+            )
+            for artifact in result.created:
+                payload = artifact_to_event_payload(artifact)
+                yield self._sse({
+                    "type": "artifact.created",
+                    "artifact": payload,
+                    "artifactId": payload["id"],
+                    "sessionId": payload["sessionId"],
+                    "messageId": payload["messageId"],
+                    "projectId": payload["projectId"],
+                    "artifactType": payload["type"],
+                    "title": payload["title"],
+                    "version": payload["version"],
+                    "filePath": payload["filePath"],
+                    "source": payload["source"],
+                    "token": "",
+                    "done": False,
+                })
+            yield self._sse({
+                "type": "artifact.scan.completed",
+                "sessionId": session_id,
+                "messageId": message_id,
+                "projectId": session.project_id,
+                "createdCount": len(result.created),
+                "candidateCount": len(result.candidates),
+                "skippedCount": len(result.skipped),
+                "token": "",
+                "done": False,
+            })
+        except Exception as exc:
+            yield self._sse({
+                "type": "artifact.detection_failed",
+                "sessionId": session_id,
+                "messageId": message_id,
+                "projectId": session.project_id,
+                "reason": f"{type(exc).__name__}: {exc}",
+                "recoverable": True,
+                "token": "",
+                "done": False,
+            })
 
     @staticmethod
     def _exit_error(exit_code: int | None, raw_output: str) -> str:
