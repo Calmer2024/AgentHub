@@ -99,6 +99,7 @@ export interface Message {
     executionTrace?: ExecutionTrace;
     orchestratorPlan?: OrchestratorPlanMetadata;
     orchestratorPlanError?: string;
+    orchestratorExecution?: OrchestratorExecution;
   }) | null;
   agentRole?: string | null;
   phase?: number | null;

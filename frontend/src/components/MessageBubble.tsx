@@ -9,6 +9,7 @@ import { ReplyPreview } from "./ReplyPreview";
 import { ExecutionTracePanel } from "./ExecutionTracePanel";
 import { AgentAvatar } from "./AgentAvatar";
 import { OrchestratorPlanPanel } from "./OrchestratorPlanPanel";
+import { OrchestratorExecutionPanel } from "./OrchestratorExecutionPanel";
 
 interface Props {
   message: Message;
@@ -96,6 +97,7 @@ export function MessageBubble({
   const traceStatus = message.metadata?.executionTrace?.status;
   const orchestratorPlan = message.metadata?.orchestratorPlan;
   const orchestratorPlanError = message.metadata?.orchestratorPlanError;
+  const orchestratorExecution = message.metadata?.orchestratorExecution;
   const isLocalPending = message.id.startsWith("local-");
   const showTyping = !isUser && isEmpty && (
     traceStatus === "running" || (!traceStatus && isStreaming && isLocalPending)
@@ -148,7 +150,7 @@ export function MessageBubble({
         size="md"
         className="mb-0.5"
       />
-      <div className={`${isSummary || orchestratorPlan ? "max-w-[min(92%,1080px)]" : "max-w-[min(78%,860px)]"} relative transition-transform duration-150 group-hover:-translate-y-0.5 ${bubbleClass} ${roundClass}`}>
+      <div className={`${isSummary || orchestratorPlan || orchestratorExecution ? "max-w-[min(92%,1080px)]" : "max-w-[min(78%,860px)]"} relative transition-transform duration-150 group-hover:-translate-y-0.5 ${bubbleClass} ${roundClass}`}>
         <MessageActions
           message={message}
           onReply={onReply}
@@ -251,6 +253,9 @@ export function MessageBubble({
               {message.content}
             </ReactMarkdown>
           </div>
+        )}
+        {!isUser && orchestratorExecution && (
+          <OrchestratorExecutionPanel initialExecution={orchestratorExecution} />
         )}
         {hasPreviousVersion && previousVersion && (
           <details className="mt-3 rounded-md bg-white/[0.06] px-3 py-2 text-xs text-zinc-300">
