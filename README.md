@@ -57,7 +57,7 @@ AgentHub/
 │   ├── specs/                  # 功能规格 + Orchestrator 设计文档
 │   └── testing/                # 测试规范
 ├── e2e/                        # Playwright E2E 测试
-└── .claude/skills/             # AI 工作流 Skill
+└── .agents/skills/             # AI 工作流 Skill（.claude/skills 保留镜像）
 ```
 
 ## 开发阶段
@@ -70,7 +70,7 @@ AgentHub/
 | Phase 4 | 消息交互闭环（Reply/Regenerate/Pin/Search） | ✅ 已完成 |
 | Phase 5 | 产物工作台能力（版本链 + Diff + 在线编辑） | ✅ 已完成 |
 | Phase 6 | Workspace Runtime + CLI Agent 适配器 + 产物入口桥接 | ✅ 核心闭环验收通过 |
-| Phase 7 | 任务可控性 + 审批 + 环境体检 + 演示闭环 | 🚧 7A-7C 验收通过，7D 待加固 |
+| Phase 7 | 任务可控性 + 审批 + 环境体检 + IM 体验 + 演示闭环 | 🚧 7A-7C 验收通过，7D IM 基线与 UI 加固已实现，真实 cc 脚本待补 |
 
 ### Phase 4 能力
 
@@ -91,7 +91,7 @@ AgentHub/
 | DeepSeek system model tool calling + 上下文降级 | ✅ |
 | ArtifactService 接入 EventBus (`artifact.created` / `artifact.version_created`) | ✅ |
 
-Phase 5 的边界也已经在文档中明确：它完成的是“对已有 Artifact 的工作台能力”。Phase 6 已补齐 Project-first workspace runtime、真实 CLI 执行和 Artifact Bridge：CLI 产物会以消息下方卡片出现，并可继续编辑、引用和版本管理。Phase 7 已完成运行取消/恢复、审批卡片、环境体检的实现基线，后续继续做真实演示和 UX 加固。
+Phase 5 的边界也已经在文档中明确：它完成的是“对已有 Artifact 的工作台能力”。Phase 6 已补齐 Project-first workspace runtime、真实 CLI 执行和 Artifact Bridge：CLI 产物会以消息下方卡片出现，并可继续编辑、引用和版本管理。Phase 7 已完成运行取消/恢复、审批卡片、环境体检、IM 会话基线和 v1.0 UI 加固，后续继续补真实演示脚本和完整回归矩阵。
 
 ### Phase 6 能力
 
@@ -106,6 +106,19 @@ Phase 5 的边界也已经在文档中明确：它完成的是“对已有 Artif
 | Claude Code / Codex / OpenCode 真实 CLI Agent 路径 | ✅ |
 | CLI 输出与 workspace diff 自动创建 Artifact | ✅ |
 | 消息下方 ArtifactCard、文件编辑器、代码片段引用、版本管理 | ✅ |
+
+### Phase 7 能力
+
+| 能力 | 状态 |
+|------|------|
+| run/task/process 运行状态、取消真实 CLI 进程、取消后输入框解锁 | ✅ |
+| Approval Card 确认/驳回与 Artifact/代码引用回流 | ✅ |
+| `/api/system/health` 环境体检与发送前阻断 | ✅ |
+| 会话搜索、置顶、归档箱、未读数、免打扰、最近活跃排序 | ✅ |
+| 消息右键菜单、转发、多选、完整时间戳 | ✅ |
+| 明亮主题纯白辅色、圆角卡片布局、输入框外层透明 | ✅ |
+| 执行过程全屏查看 | ✅ |
+| 真实 Claude Code 完整 E2E 演示脚本 | 🚧 |
 
 ## 测试
 
@@ -168,6 +181,7 @@ cd frontend && npx vitest run src/components/ChatWindow.test.tsx src/stores/chat
 | Phase 6 Workspace + CLI + 产物入口桥接 | [docs/specs/phase6/README.md](docs/specs/phase6/README.md) |
 | Phase 7 MVP 演示闭环 | [docs/specs/phase7/README.md](docs/specs/phase7/README.md) |
 | Phase 7 运行控制/审批/体检交付 | [docs/deliverables/phase7-runtime-control/README.md](docs/deliverables/phase7-runtime-control/README.md) |
+| Phase 7 IM 与 UI 加固交付 | [docs/deliverables/phase7-im-hardening/README.md](docs/deliverables/phase7-im-hardening/README.md) |
 | Orchestrator 设计 | [docs/specs/phase3/02-orchestrator/](docs/specs/phase3/02-orchestrator/) |
 | 测试协议 | [docs/TEST_PROTOCOL.md](docs/TEST_PROTOCOL.md) |
 | Git 规范 | [docs/GIT_PROTOCOL.md](docs/GIT_PROTOCOL.md) |

@@ -40,7 +40,7 @@
 - **Pin 消息**：用户固定的关键历史消息。Phase 4 起由 ContextManager 在单聊与群聊中以 `[Pinned message]` 长期上下文块优先注入——仅显示 Pin 标记不算完成。
 - **中枢总结**：Orchestrator 在 DAG/chain 等多 Agent 结构化协作完成后生成的系统整理消息。由系统模型（DeepSeek）生成，独立于用户 CLI Agent。
 - **CollaborationPanel**：前端 DAG 可视化面板，展示协作流程的各 Phase 及其实时状态。
-- **产物 (Artifact)**：Agent 生成的富媒体内容，类型包括 `code_diff`、`web_preview`、`document`、`file_tree`。Phase 5 已完成已有 Artifact 的版本历史、Diff 和在线编辑；Phase 6 已补齐 Agent 输出入口、消息级 Artifact Card、文件编辑器、代码引用和版本管理；Phase 7A-7C 已补齐运行可控性、审批回流和环境体检。
+- **产物 (Artifact)**：Agent 生成的富媒体内容，类型包括 `code_diff`、`web_preview`、`document`、`file_tree`。Phase 5 已完成已有 Artifact 的版本历史、Diff 和在线编辑；Phase 6 已补齐 Agent 输出入口、消息级 Artifact Card、文件编辑器、代码引用和版本管理；Phase 7A-7C 已补齐运行可控性、审批回流和环境体检，Phase 7D 已补齐 IM 会话基线与 v1.0 UI 加固。
 - **Artifact Card**：聊天流中的产物卡片，由标准 `artifact.created` 事件驱动，绑定 `artifact_id / message_id / task_id / version`，不是前端临时扫描 Markdown 得到的装饰。
 - **消息级 Artifact 体验**：P1 当前产物体验基线。Artifact 与代码变更跟随具体 assistant 消息，通过 `MessageArtifactStrip` 与 `ArtifactCard` 展示；预览、编辑、版本管理使用页面级弹窗，不恢复独立产物工作台或右侧 Drawer。详见 [ADR-0010](docs/adr/0010-message-level-artifact-experience.md)。
 - **北极星链路**：AgentHub MVP 必须打通的端到端链路：创建 Project + 绑定 workspace → 在 Project 下创建私聊/群聊 → 用户输入 → Orchestrator/Agent 执行 → Agent 读写 workspace → Artifact 创建 → 聊天流消息级 Artifact Card → 预览/编辑/版本化 → 审批继续调度 → 中枢总结。权威定义见 [PRD-05](docs/PRD/05-End_to_End_Product_Flow.md)，P1 Artifact 体验修订见 [ADR-0010](docs/adr/0010-message-level-artifact-experience.md)。
@@ -83,7 +83,7 @@
 | **Phase 4** | 消息交互闭环 | ✅ | Reply / Regenerate / Pin、FTS5 全文搜索、Reply/Pin prompt 注入 |
 | **Phase 5** | 产物工作台能力 | ✅ | 版本链 + Diff + 在线编辑（Tool Calling）；上游产物生成入口由 Phase 6/7 补齐 |
 | **Phase 6** | Workspace Runtime + CLI 适配器 + 产物入口桥接 | ✅ | 6A Workspace Runtime、6B-6E CLI Adapter 与 6F Artifact Bridge 核心闭环均已验收 |
-| **Phase 7** | 任务可控性 + 审批 + 环境体检 + 演示闭环 | 🚧 | 7A-7C 运行取消/恢复、审批卡片、环境体检已验收；7D 继续真实 cc 演示与 UX 加固 |
+| **Phase 7** | 任务可控性 + 审批 + 环境体检 + IM 体验 + 演示闭环 | 🚧 | v1.0 本机 MVP 基线已覆盖运行控制、审批、体检、IM 会话基线和 UI 加固；真实 cc 完整自动化演示脚本待沉淀 |
 
 Phase 4-7 采用**功能板块制**：每板块独立完整交付。板块间按用户可感知价值排序。详见 [ADR-0008](docs/adr/0008-revised-development-strategy.md)。
 
@@ -128,7 +128,7 @@ Phase 4-7 采用**功能板块制**：每板块独立完整交付。板块间按
 | [00-Master_Hub](docs/PRD/00-Master_Hub.md) | **PRD 总览**：北极星指标、产品愿景、成功衡量、非目标边界、P1/P2 交付阶段 |
 | [01-Architecture_Adapter](docs/PRD/01-Architecture_Adapter.md) | CLI 适配器设计：PTY/subprocess、ANSI 清洗、Per-CLI 适配策略、分层渲染 |
 | [02-Orchestrator_Engine](docs/PRD/02-Orchestrator_Engine.md) | 调度引擎：DAG 拆解、状态机、Human-in-the-loop |
-| [03-User_Experience](docs/PRD/03-User_Experience.md) | 交互设计：三栏布局、资产卡片、产物抽屉、审批卡片 |
+| [03-User_Experience](docs/PRD/03-User_Experience.md) | 交互设计：三栏布局、资产卡片、页面级 Artifact 预览/编辑、审批卡片 |
 | [04-Data_API_Contracts](docs/PRD/04-Data_API_Contracts.md) | 数据模型：projects / agents / sessions / messages / tasks，REST/SSE API |
 | [05-End_to_End_Product_Flow](docs/PRD/05-End_to_End_Product_Flow.md) | 端到端产品闭环：需求追踪矩阵、Workspace + Artifact 链路、Phase 责任矩阵 |
 | [06-MVP_Local_Workspace_Delivery](docs/PRD/06-MVP_Local_Workspace_Delivery.md) | MVP 本机 workspace：Project 绑定目录、Agent cwd、文件变更、预览、导出 |
@@ -158,7 +158,7 @@ Phase 4-7 采用**功能板块制**：每板块独立完整交付。板块间按
 | Phase 4 | [specs/phase4/](docs/specs/phase4/) | [README](docs/specs/phase4/README.md) + 消息操作 + 搜索 |
 | Phase 5 | [specs/phase5/](docs/specs/phase5/) | [README](docs/specs/phase5/README.md) + [版本/Diff](docs/specs/phase5/01-artifact-versioning.md) + [在线编辑](docs/specs/phase5/02-artifact-editing.md) |
 | Phase 6 | [specs/phase6/](docs/specs/phase6/) | [README](docs/specs/phase6/README.md) + [Workspace Runtime](docs/specs/phase6/00-workspace-runtime.md) + [CLI 适配器](docs/specs/phase6/01-cli-adapter.md) + [产物桥接](docs/specs/phase6/02-artifact-output-bridge.md) |
-| Phase 7 | [specs/phase7/](docs/specs/phase7/) | [README](docs/specs/phase7/README.md) + [交付快照](docs/deliverables/phase7-runtime-control/README.md) + 运行可控性 + 审批 + 环境体检 + 演示加固 |
+| Phase 7 | [specs/phase7/](docs/specs/phase7/) | [README](docs/specs/phase7/README.md) + [运行控制交付快照](docs/deliverables/phase7-runtime-control/README.md) + [IM 加固交付快照](docs/deliverables/phase7-im-hardening/README.md) + 运行可控性 + 审批 + 环境体检 + IM 体验 + 演示加固 |
 | 模板 | [SPEC_TEMPLATE.md](docs/specs/SPEC_TEMPLATE.md) | 新建模块 Spec 的标准模板 |
 | 历史 | [specs/planning/](docs/specs/planning/) | 旧规划文档（参考） |
 
@@ -177,16 +177,16 @@ Phase 4-7 采用**功能板块制**：每板块独立完整交付。板块间按
 | [Phase 4 Dev Log](docs/dev-logs/phase4-dev-log.md) | Phase 4 实现摘要、FTS5 修复、真实 UI 验收记录 |
 | [Phase 5 Dev Log](docs/dev-logs/phase5-dev-log.md) | Phase 5 产物版本链、Diff、在线编辑、架构收拢与真实 HTTP 验收 |
 | [Phase 6 Dev Log](docs/dev-logs/phase6-dev-log.md) | Phase 6A Project-first workspace runtime、系统目录选择器、人工验收记录 |
-| [Phase 7 Dev Log](docs/dev-logs/phase7-dev-log.md) | Phase 7A-7C 运行控制、审批、环境体检、取消回退修复与验收记录 |
+| [Phase 7 Dev Log](docs/dev-logs/phase7-dev-log.md) | Phase 7A-7C 运行控制、审批、环境体检、取消回退修复；7D IM 基线、明亮主题和 v1.0 UI 加固记录 |
 
 ### Skills — AI 能力复用
 
 | Skill | 文件 | 用途 |
 |-------|------|------|
-| agenthub-module-dev | `.claude/skills/agenthub-module-dev/SKILL.md` | 标准模块开发流程 |
-| agenthub-code-review | `.claude/skills/agenthub-code-review/SKILL.md` | 标准代码审查 |
-| agenthub-phase-wrapup | `.claude/skills/agenthub-phase-wrapup/SKILL.md` | Phase 收尾流程 |
-| agenthub-qa-audit | `.claude/skills/agenthub-qa-audit/SKILL.md` | 企业级质量审计 |
+| agenthub-module-dev | `.agents/skills/agenthub-module-dev/SKILL.md`（`.claude/skills/` 保留镜像） | 标准模块开发流程 |
+| agenthub-code-review | `.agents/skills/agenthub-code-review/SKILL.md`（`.claude/skills/` 保留镜像） | 标准代码审查 |
+| agenthub-phase-wrapup | `.agents/skills/agenthub-phase-wrapup/SKILL.md`（`.claude/skills/` 保留镜像） | Phase 收尾流程 |
+| agenthub-qa-audit | `.agents/skills/agenthub-qa-audit/SKILL.md`（`.claude/skills/` 保留镜像） | 企业级质量审计 |
 
 ---
 

@@ -32,10 +32,10 @@ docs/
 **产品交付阶段**：P1 先做桌面版（Web UI + 本地无头服务器 → 本机文件系统 + 本机 CLI Agent），P2 再做 SaaS 云版（云端沙箱 + 一键部署）。详见 PRD-00 第 9 节。
 
 ### 我想了解项目现在的状态
-→ 看 [CONTEXT.md](../CONTEXT.md) 的 Phase 表格；Phase 6 进度看 [specs/phase6/README.md](specs/phase6/README.md) 与 [dev-logs/phase6-dev-log.md](dev-logs/phase6-dev-log.md)，Phase 7A-7C 看 [deliverables/phase7-runtime-control/](deliverables/phase7-runtime-control/)。历史 Phase 3 审计见 [audit/phase3-audit-report.md](audit/phase3-audit-report.md)。
+→ 看 [CONTEXT.md](../CONTEXT.md) 的 Phase 表格；Phase 6 进度看 [specs/phase6/README.md](specs/phase6/README.md) 与 [dev-logs/phase6-dev-log.md](dev-logs/phase6-dev-log.md)，Phase 7A-7C 看 [deliverables/phase7-runtime-control/](deliverables/phase7-runtime-control/)，Phase 7D IM 加固看 [deliverables/phase7-im-hardening/](deliverables/phase7-im-hardening/)。历史 Phase 3 审计见 [audit/phase3-audit-report.md](audit/phase3-audit-report.md)。
 
-### 我要了解 Phase 6 当前进度
-→ 进入 [specs/phase6/](specs/phase6/) 目录。先读 README.md 获取总览；[00-workspace-runtime.md](specs/phase6/00-workspace-runtime.md) 已验收，CLI Adapter 交付快照见 [deliverables/phase6-cli-adapter/](deliverables/phase6-cli-adapter/)，Artifact Bridge 验收快照见 [deliverables/phase6-artifact-bridge/](deliverables/phase6-artifact-bridge/)。
+### 我要了解当前 v1.0 发布边界
+→ 先读 [deliverables/v1.0-release/](deliverables/v1.0-release/)，再读 [specs/phase7/README.md](specs/phase7/README.md)。7A-7C 运行控制/审批/体检交付快照见 [deliverables/phase7-runtime-control/](deliverables/phase7-runtime-control/)；7D 会话 IM 基线、右键菜单、明亮主题和执行过程全屏见 [deliverables/phase7-im-hardening/](deliverables/phase7-im-hardening/)。
 
 ### 我想理解为什么要这样设计
 → 进入 [adr/](adr/) 目录，按编号顺序阅读架构决策记录。
@@ -56,7 +56,7 @@ docs/
 | [00-Master_Hub.md](PRD/00-Master_Hub.md) | 产品愿景、北极星指标、成功衡量、非目标边界 | 所有人 |
 | [01-Architecture_Adapter.md](PRD/01-Architecture_Adapter.md) | CLI Agent 封装：PTY 进程管理、ANSI 清洗、交互拦截 | 架构师、后端 |
 | [02-Orchestrator_Engine.md](PRD/02-Orchestrator_Engine.md) | 调度引擎：DAG 拆解、状态机、Human-in-the-loop | 后端、AI 工程师 |
-| [03-User_Experience.md](PRD/03-User_Experience.md) | 界面原型：三栏布局、资产卡片、产物抽屉、审批卡片 | 设计师、前端 |
+| [03-User_Experience.md](PRD/03-User_Experience.md) | 界面原型：三栏布局、资产卡片、页面级 Artifact 预览/编辑、审批卡片 | 设计师、前端 |
 | [04-Data_API_Contracts.md](PRD/04-Data_API_Contracts.md) | 数据模型 (projects/agents/sessions/messages/tasks/artifacts)、REST/SSE API | 全栈开发 |
 | [05-End_to_End_Product_Flow.md](PRD/05-End_to_End_Product_Flow.md) | 启动文档需求追踪、含 workspace 的北极星演示闭环、Artifact 生成与回流、P2 Roadmap | 产品、架构、全栈、答辩准备 |
 | [06-MVP_Local_Workspace_Delivery.md](PRD/06-MVP_Local_Workspace_Delivery.md) | MVP 本机 workspace：创建/绑定目录、Agent cwd、文件变更、预览、导出、可选部署 | 产品、架构、全栈、答辩准备 |
@@ -93,7 +93,7 @@ docs/
 | [phase4/](specs/phase4/) | 消息交互闭环 | ✅ | Reply/Regenerate/Pin + FTS5 搜索 |
 | [phase5/](specs/phase5/) | 产物工作台能力 | ✅ | 对已有 Artifact 做版本链 + Diff + 在线编辑；上游入口由 Phase 6/7 补齐 |
 | [phase6/](specs/phase6/) | Workspace Runtime + CLI 适配器 + 产物入口桥接 | ✅ | 6A Workspace Runtime、6B-6E CLI Adapter 与 6F Artifact Bridge 核心闭环均已验收；Phase 7 继续运行可控性/审批/环境体检 |
-| [phase7/](specs/phase7/) | 任务可控性 + 审批 + 环境体检 + 演示闭环 | 🚧 | 7A-7C run/task 取消与恢复、审批卡片、环境体检已验收；7D 继续真实 cc 演示与 UX 加固 |
+| [phase7/](specs/phase7/) | 任务可控性 + 审批 + 环境体检 + IM 体验 + 演示闭环 | 🚧 | 7A-7C run/task 取消与恢复、审批卡片、环境体检已验收；7D IM 会话基线、右键菜单、转发/多选、执行过程全屏和明亮主题加固已实现；真实 cc 演示脚本待补 |
 
 ### deliverables/ — 阶段性交付快照
 
@@ -104,6 +104,8 @@ docs/
 | [phase6-cli-adapter/](deliverables/phase6-cli-adapter/) | CLI Adapter 架构与实现原理、用户/开发者使用指南、阶段开发日志 |
 | [phase6-artifact-bridge/](deliverables/phase6-artifact-bridge/) | Artifact Bridge 验收快照：消息级产物卡片、文件编辑器、代码引用、版本管理与真实服务验收 |
 | [phase7-runtime-control/](deliverables/phase7-runtime-control/) | Phase 7A-7C 验收快照：运行控制、审批卡片、环境体检与取消回退修复 |
+| [phase7-im-hardening/](deliverables/phase7-im-hardening/) | Phase 7D 验收快照：会话置顶/归档/未读/免打扰/转发/多选、消息右键菜单、明亮主题与执行过程全屏 |
+| [v1.0-release/](deliverables/v1.0-release/) | v1.0.0 发布摘要：本机 MVP 基线、Phase 7D 本轮总结、验证记录与后续风险 |
 | [planning/](specs/planning/) | 历史规划 | 📦 | 旧的 Phase 3 模块化计划 (已被 ADR-0008 取代) |
 
 每个 Phase 目录下都有独立的 `README.md`，包含验收标准清单和子模块索引。
@@ -123,7 +125,7 @@ docs/
 | [phase5-dev-log.md](dev-logs/phase5-dev-log.md) | Phase 5: 产物版本链、Diff、在线编辑、架构优化、真实 HTTP 验收 |
 | [phase6-dev-log.md](dev-logs/phase6-dev-log.md) | Phase 6A: Project-first workspace runtime；Phase 6B-6E: 真实本机 CLI Agent；6F: Artifact Bridge、消息级产物卡片、文件编辑器与版本管理 |
 | [phase6-cli-adapter-dev-log.md](dev-logs/phase6-cli-adapter-dev-log.md) | Phase 6 CLI Adapter 专项交接日志：真实 CLI 验证、Codex 中转修复、执行轨迹 UI 与剩余工作 |
-| [phase7-dev-log.md](dev-logs/phase7-dev-log.md) | Phase 7A-7C: run/task/process 运行控制、审批 checkpoint、环境体检和取消回退验收修复 |
+| [phase7-dev-log.md](dev-logs/phase7-dev-log.md) | Phase 7A-7D: run/task/process 运行控制、审批 checkpoint、环境体检、IM 基线、明亮主题和 v1.0 UI 加固 |
 
 ### audit/ — 审计报告
 

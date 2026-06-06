@@ -21,14 +21,13 @@
 
 | 启动文档要求 | MVP 定位 | 权威 PRD | Spec / Phase |
 |---|---:|---|---|
-| IM 会话列表：新建、最近活跃、搜索 | P0 | PRD-03, PRD-04 | Phase 1, Phase 4, Phase 7 |
-| 会话置顶、归档 | P1 | PRD-03 | Phase 7 后续增强 |
+| IM 会话列表：新建、最近活跃、搜索、置顶、归档箱、未读数、免打扰 | P0/P1 | PRD-03, PRD-04 | Phase 1, Phase 4, Phase 7D |
 | 单聊模式 | P0 | PRD-03, PRD-04 | Phase 1 |
 | 群聊模式、@ Agent、Orchestrator 自动分派 | P0 | PRD-02, PRD-03, PRD-04 | Phase 2, Phase 3 |
 | 上下文连续、历史消息、Pin 长期上下文 | P0 | PRD-02, PRD-04 | Phase 1, Phase 4 |
 | 消息类型：文本、代码块、网页预览、Diff 卡片 | P0 | PRD-03, PRD-04 | Phase 1, Phase 2, Phase 5, Phase 7 |
 | 图片、文件附件 | P2 | 本文 §8 | 暂不进入 MVP |
-| 消息操作：回复、引用、重新生成、复制、展开预览 | P0/P1 | PRD-03, PRD-04 | Phase 4, Phase 7 |
+| 消息操作：回复、引用、重新生成、复制、转发、多选、展开预览 | P0/P1 | PRD-03, PRD-04 | Phase 4, Phase 7D |
 | 一键应用 Diff、版本历史、局部修改 | P0 | PRD-03, PRD-04 | Phase 5 |
 | 本机 Project/workspace 创建绑定、Agent cwd、文件变更入 Artifact | P0 | PRD-06 | Phase 6A 已完成 workspace runtime；Phase 6B-6F/Phase 7 补齐执行与 UI |
 | 主 Agent 协调器：拆解、并行、失败降级、冲突处理 | P0/P1 | PRD-02 | Phase 3, Phase 7 |
@@ -61,7 +60,7 @@ MVP 的最终演示必须跑通以下完整链路：
   -> Adapter 分层解析 + File Change / Output Bridge 检测文件变更、HTML、Diff、构建产物
   -> ArtifactService 统一创建产物版本
   -> 聊天流出现 Artifact Card
-  -> 用户打开右侧 Artifact Drawer 预览网页或 Diff
+  -> 用户打开页面级 Artifact 预览/编辑弹窗查看网页或 Diff
   -> 用户引用产物或选中代码片段发起修改
   -> Agent 基于同一个 workspace 生成编辑 Diff 或直接修改文件
   -> 用户确认后创建新版本
@@ -75,7 +74,7 @@ MVP 本机版的运行位置是：
 ```text
 本机浏览器
   -> 本机后端
-  -> 本机 Agent CLI / API Agent
+  -> 本机 CLI Agent
   -> 本机 workspace_path
   -> 本机预览 / 构建 / 导出 / 可选上传部署
 ```
@@ -133,7 +132,7 @@ Agent Adapter 不直接写数据库。它只输出标准事件：
 
 ### 4.3 产物回流到聊天
 
-用户在右侧抽屉中看到产物后，有两种回流方式：
+用户在页面级 Artifact 预览/编辑弹窗中看到产物后，有两种回流方式：
 
 | 用户动作 | 系统行为 |
 |---|---|
@@ -151,8 +150,8 @@ Agent Adapter 不直接写数据库。它只输出标准事件：
 | Phase 3 | Orchestrator 与协作基础设施 | 自动选 Agent、任务拆解、DAG/chain 协作、协作面板 | Artifact 完整工作台、真实 CLI |
 | Phase 4 | 消息交互闭环 | Reply、Regenerate、Pin、全文搜索，并让引用/Pin 进入 Agent 上下文 | Artifact 预览抽屉、部署 |
 | Phase 5 | Artifact 工作台能力 | 对已有 Artifact 做版本链、Diff、局部编辑、确认/拒绝 | 不代表 Agent 输出入口已经完整打通 |
-| Phase 6 | Workspace Runtime + CLI Agent 适配器 | 6A 已引入 Project 实体 + 绑定 workspace，并通过系统目录选择器支持已有目录；6B-6E 实现 Claude Code / Codex / OpenCode 三个 CLI 的专属适配器（PTY 管理 + 分层渲染 + 交互拦截）；6F 让 CLI 输出和文件变更进入标准事件 → Artifact Card | 6A 不代表 CLI/Artifact Bridge 已完成；Phase 6 不负责最终 UI 打磨（Drawer/审批卡片→Phase 7）；不做 SaaS sandbox（→P2） |
-| Phase 7 | 用户体验与演示闭环 | 三栏布局、Artifact Drawer、审批卡片、环境体检、端到端演示 | 不新增部署、多端等 P2 能力 |
+| Phase 6 | Workspace Runtime + CLI Agent 适配器 | 6A 已引入 Project 实体 + 绑定 workspace，并通过系统目录选择器支持已有目录；6B-6E 实现 Claude Code / Codex / OpenCode 三个 CLI 的专属适配器（PTY 管理 + 分层渲染 + 交互拦截）；6F 让 CLI 输出和文件变更进入标准事件 → Artifact Card | 6A 不代表 CLI/Artifact Bridge 已完成；Phase 6 不负责最终 UI 打磨（审批卡片、运行控制、环境体检、IM 基线→Phase 7）；不做 SaaS sandbox（→P2） |
+| Phase 7 | 用户体验与演示闭环 | 运行控制、审批卡片、环境体检、IM 会话基线、消息级 Artifact 页面级预览/编辑、端到端演示 | 不新增部署、多端等 P2 能力；真实 cc 自动化脚本仍需单独验收 |
 
 ---
 
@@ -166,7 +165,7 @@ MVP 完成不是“所有模块都写完”，而是必须通过以下验收：
 - 单聊与群聊均可从用户消息进入 Agent 执行链路。
 - Orchestrator 对复杂任务能展示拆解、状态变化和中枢总结。
 - 至少一个 Agent 输出能自动生成 Artifact Card。
-- Artifact Card 能打开右侧 Drawer，展示代码 Diff 或网页预览。
+- Artifact Card 能打开页面级预览/编辑弹窗，展示代码 Diff 或网页预览。
 - 用户能基于该 Artifact 发起局部修改，并确认创建新版本。
 - 用户能在本机预览 workspace 产物，并导出源码或构建产物。
 - 需要人工审批的任务能暂停、展示 Approval Card、确认后继续。
@@ -182,7 +181,7 @@ MVP 完成不是“所有模块都写完”，而是必须通过以下验收：
 1. 每个需求都能从启动文档或后续明确决策追溯到 PRD。
 2. 每个 PRD 需求都必须有 Spec 阶段归属，哪怕归属为 P2 / Non-MVP。
 3. 每个 Phase README 必须包含“全局定位、已解锁任务、上下游契约、未覆盖边界”。
-4. 每个 Artifact 相关 Spec 必须说明产物入口、存储、聊天卡片、抽屉预览、编辑回流的关系。
+4. 每个 Artifact 相关 Spec 必须说明产物入口、存储、聊天卡片、页面级预览、编辑回流的关系。
 
 ---
 

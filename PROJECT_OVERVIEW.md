@@ -68,14 +68,14 @@ AgentHub/
 │
 ├── docs/                       ← 文档（后面细说）
 ├── e2e/                        ← 端到端测试
-└── .claude/skills/             ← AI 工作流 Skill
+└── .agents/skills/             ← AI 工作流 Skill（.claude/skills 保留镜像）
 ```
 
 ---
 
 ## 已经做完了什么？
 
-项目按 Phase 1-7 推进，目前 Phase 1-6 核心闭环已完成并通过验收；Phase 7A-7C 的运行任务可控性、审批卡片和环境体检也已通过本轮验收，Phase 7D 继续推进 MVP 演示和 UX 加固。
+项目按 Phase 1-7 推进，目前 Phase 1-6 核心闭环已完成并通过验收；Phase 7A-7C 的运行任务可控性、审批卡片和环境体检也已通过验收；Phase 7D 的 IM 会话基线、明亮主题和 v1.0 UI 加固已实现，继续补真实 Claude Code E2E 演示脚本与完整回归矩阵。
 
 ### Phase 1：单聊全链路 ✅
 
@@ -136,7 +136,7 @@ Phase 3 聚焦多 Agent 协作基础设施与 Orchestrator 深化。
 
 ---
 
-## 接下来要做什么？（Phase 7D）
+## 接下来要做什么？（v1.0 收尾）
 
 ### Phase 6：Workspace Runtime + CLI Agent 适配器 + 产物入口桥接 ✅
 
@@ -145,12 +145,13 @@ Phase 3 聚焦多 Agent 协作基础设施与 Orchestrator 深化。
 - CLI 输出、消息代码块和 workspace diff 已由 ArtifactOutputBridge 转为真实 Artifact，并在对应消息下方以 ArtifactCard 展示。
 - 文件编辑器、代码片段引用、Artifact 版本管理和会话文件入口已通过本轮验收。
 
-### Phase 7：任务可控性 + 审批 + 环境体检 + 演示闭环 🚧
+### Phase 7：任务可控性 + 审批 + 环境体检 + IM 体验 + 演示闭环 🚧
 
 - ✅ 运行任务可控性：run/task/process 状态持久化、取消真实 CLI 进程、停止后明确提示并解锁输入框。
 - ✅ Human-in-the-loop 审批卡片：确认继续、驳回并携带 Artifact/代码引用回到 ChatInput。
 - ✅ 统一环境体检：CLI、Node/Python、workspace、DeepSeek 系统模型、活跃进程状态，发送前可阻断不可执行环境。
-- 🚧 Phase 7D：跑通 workspace 绑定 → 输入任务 → Agent 输出消息级 Artifact → 编辑/引用/版本管理 → 审批继续 → 中枢总结的真实 cc 演示脚本，并补截图审计。
+- ✅ IM 基线与 UI 加固：会话搜索、置顶、归档箱、未读数、免打扰、转发、多选、消息右键菜单、明亮主题纯白辅色、执行过程全屏。
+- 🚧 v1.0 收尾：跑通 workspace 绑定 → 输入任务 → Agent 输出消息级 Artifact → 编辑/引用/版本管理 → 审批继续 → 中枢总结的真实 cc 演示脚本，并补截图审计。
 
 ---
 
@@ -197,6 +198,8 @@ API 路由层 (FastAPI)
 | `approval_checkpoints` | Phase 7 人工审批断点 |
 | `messages_fts` | FTS5 全文搜索虚拟表 |
 
+`sessions` 当前还承担 IM 状态：`is_pinned`、`archived_at`、`unread_count`、`last_read_at`、`is_muted`。
+
 ---
 
 ## 有哪些 API？
@@ -206,8 +209,11 @@ API 路由层 (FastAPI)
 ```
 # 会话
 POST   /api/sessions              创建会话
-GET    /api/sessions              会话列表
+GET    /api/sessions              会话列表（默认隐藏归档，支持 includeArchived）
 GET    /api/sessions/{id}         会话详情
+PATCH  /api/sessions/{id}         重命名、置顶、归档/取消归档、免打扰
+POST   /api/sessions/{id}/read    标记会话已读
+POST   /api/sessions/forward      转发消息到其它会话
 DELETE /api/sessions/{id}         删除会话
 
 # 聊天
@@ -301,7 +307,8 @@ python e2e/full_ui_audit.py
 | **Phase 4 Spec** | `docs/specs/phase4/README.md` | 消息交互闭环的权威规格与验收记录 |
 | **Phase 5 Spec** | `docs/specs/phase5/README.md` | 产物工作台能力完成记录与未打通边界 |
 | **Phase 6 Spec** | `docs/specs/phase6/README.md` | Workspace Runtime、CLI Adapter、Artifact Bridge 核心闭环验收记录 |
-| **Phase 7 交付快照** | `docs/deliverables/phase7-runtime-control/README.md` | 运行控制、审批卡片、环境体检实现与验收记录 |
+| **Phase 7 运行控制交付快照** | `docs/deliverables/phase7-runtime-control/README.md` | 运行控制、审批卡片、环境体检实现与验收记录 |
+| **Phase 7 IM 加固交付快照** | `docs/deliverables/phase7-im-hardening/README.md` | 会话 IM 基线、右键菜单、明亮主题、执行过程全屏与 v1.0 UI 加固 |
 | **Docs Index** | `docs/README.md` | 查看所有文档入口 |
 
 ### 按需查阅

@@ -1,6 +1,6 @@
 # AgentHub Specs — 功能规格文档索引
 
-**最后更新**: 2026-06-06
+**最后更新**: 2026-06-07
 **关联**: [ADR-0008](../adr/0008-revised-development-strategy.md) (开发策略)
 
 ---
@@ -17,11 +17,11 @@ specs/
 ├── phase4/                      ← Phase 4: 消息交互闭环 ✅
 ├── phase5/                      ← Phase 5: 产物工作台能力 ✅
 ├── phase6/                      ← Phase 6: Workspace Runtime + CLI 适配器 + 产物入口桥接 ✅
-├── phase7/                      ← Phase 7: 任务可控性 + 审批 + 环境体检 + 演示闭环 📋
+├── phase7/                      ← Phase 7: 任务可控性 + 审批 + 环境体检 + IM 体验 + 演示闭环 🚧
 └── planning/                    ← 历史规划文档（参考）
 ```
 
-**状态标记**: ✅ = 已完成 | 🔜 = 当前开发 | 📋 = 计划中
+**状态标记**: ✅ = 已完成 | 🔜 = 当前开发 | 🚧 = 收尾中 | 📋 = 计划中
 
 ---
 
@@ -35,7 +35,7 @@ specs/
 | [Phase 4](phase4/) | 消息交互闭环 | ✅ | Reply/Regenerate/Pin、全文搜索 FTS5 |
 | [Phase 5](phase5/) | 产物工作台能力 | ✅ | 对已有 Artifact 提供版本链 + Diff、在线编辑；不宣称上游产物生成入口已完整打通 |
 | [Phase 6](phase6/) | Workspace Runtime + CLI 适配器 + 产物入口桥接 | ✅ | 本机 workspace 创建/绑定、真实 CLI Agent、执行轨迹、消息级 Artifact Card、文件编辑器、代码引用、版本管理 |
-| [Phase 7](phase7/) | 任务可控性 + 审批 + 环境体检 + 演示闭环 | 📋 | run/task 取消与恢复、审批卡片、环境体检、真实 cc 演示与 UX 加固 |
+| [Phase 7](phase7/) | 任务可控性 + 审批 + 环境体检 + IM 体验 + 演示闭环 | 🚧 | v1.0 本机 MVP 基线已覆盖运行控制、审批、体检、IM 会话基线和 UI 加固；真实 cc 完整自动化演示脚本待补 |
 
 ---
 

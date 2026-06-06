@@ -10,7 +10,7 @@
 
 ## 1. 结论
 
-当前 PRD **没有完全覆盖**启动文档。它已经覆盖了 AgentHub 的高级方向：CLI Adapter、Orchestrator、三栏工作区、Artifact Drawer、数据契约；但缺少启动文档中 IM 产品基本面的完整需求映射，也缺少一条明确的“用户输入 -> Agent 执行 -> 产物生成 -> 预览/编辑 -> 版本化 -> 部署/交付”的端到端链路。
+当前 PRD 在 2026-06-03 审计时 **没有完全覆盖**启动文档。后续已通过 PRD-05、ADR-0010、Phase 6/7 Specs 补齐主要链路：CLI Adapter、Orchestrator、Project-first workspace、消息级 Artifact Card、页面级预览/编辑/版本管理、审批、环境体检和 IM 会话基线。剩余缺口主要是 P2 部署/多端/附件，以及真实 Claude Code 完整自动化 E2E 脚本。
 
 当前 Specs **没有完全覆盖** PRD。Phase 1-5 已经实现了许多重要能力，但阶段文档过于按模块拆分，缺少每个 Phase 在全局产品链路中的定位。典型问题是 Phase 5 完成了 Artifact 工作台能力（版本、Diff、在线编辑），但文档没有提前定义“Artifact 从哪里来、如何由 Agent 输出链路创建、如何被聊天流引用、如何进入右侧抽屉”的上游入口和下游体验。
 
@@ -25,7 +25,7 @@
 
 | 启动文档要求 | PRD 覆盖情况 | Spec 覆盖情况 | 结论 |
 |---|---|---|---|
-| IM 聊天式交互：会话列表、新建、置顶、归档、搜索、最近活跃排序 | 部分覆盖。PRD-03 有三栏布局，但未完整定义会话列表操作 | Phase 1 有新建/列表；Phase 4 有搜索；置顶/归档/排序未形成完整验收 | 需补入 PRD 与后续 UX 验收 |
+| IM 聊天式交互：会话列表、新建、置顶、归档、搜索、最近活跃排序 | 已补齐。PRD-03/PRD-05 已记录会话列表操作 | Phase 1 有新建/列表；Phase 4 有搜索；Phase 7D 已实现置顶/归档箱/未读/免打扰/排序/转发/多选 | MVP 基线已覆盖，P2 再补多端推送 |
 | 单聊模式 | 覆盖 | Phase 1 覆盖 | 已覆盖 |
 | 群聊模式：@ 多 Agent、Orchestrator 自动分派、多个 Agent 依次回复 | 覆盖 | Phase 2/3 覆盖 | 已覆盖 |
 | 上下文连续：历史消息、长期 pin | PRD 有上下文管理方向，但未细化 IM 语义 | Phase 1 历史、Phase 4 pin/reply 覆盖 | 基本覆盖 |
@@ -58,7 +58,7 @@
 | 产物生成入口 | 文档没有定义“Agent 输出什么事件时创建 Artifact” | 定义 `artifact.detected` / `artifact.created` 事件、消息卡片写入规则、会话产物列表刷新规则 |
 | Agent 输出到 Artifact | CLI Agent 输出与 ArtifactService 的边界不清 | Orchestrator/Adapter 只发事件；ArtifactService 统一解析、落库、版本化 |
 | Artifact 到聊天流 | Phase 5 有工作台能力，但未定义卡片何时出现 | 定义 `content_type='artifact_card'` 消息，绑定 `message_id`、`task_id`、`artifact_id` |
-| Artifact 到右侧抽屉 | Phase 7 只写抽屉 UI，缺数据加载与状态同步 | 定义 Drawer 从卡片、会话产物库、审批卡片三个入口打开 |
+| Artifact 到页面级预览/编辑 | 旧 Phase 7 写抽屉 UI，已被 ADR-0010 替换 | 已定义消息级 Artifact Card、会话文件入口、审批卡片进入页面级弹窗 |
 | 编辑指令回到 Agent | Phase 5 支持 edit API，但缺“在聊天中描述修改”的入口 | 定义引用当前 Artifact 后发送自然语言，自动转换为 edit intent |
 | 审批继续调度 | PRD 有审批，Phase 7 有卡片，但与 Artifact 审阅未绑定 | 定义 `requires_human_approval` 任务必须产出可审阅 Artifact 或摘要 |
 | 部署交付 | PRD/spec 未覆盖启动文档 P2 | 建立 P2 Deployment Phase：部署指令、状态卡片、preview URL/source bundle |

@@ -169,4 +169,4 @@ Orchestrator 不只负责“谁来回复”，还必须负责让复杂任务的�
 
 ### 7.4 编辑回流
 
-用户在 Artifact Drawer 中发起局部修改后，Orchestrator 应把新版本视为该任务的最新产出。下游任务使用最新版 Artifact，而不是使用最初生成版本。
+用户在页面级 Artifact 预览/编辑弹窗中发起局部修改后，Orchestrator 应把新版本视为该任务的最新产出。下游任务使用最新版 Artifact，而不是使用最初生成版本。

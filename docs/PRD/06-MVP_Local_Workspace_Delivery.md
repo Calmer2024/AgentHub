@@ -43,7 +43,7 @@ MVP 版不是云 IDE，也不是 SaaS 沙盒。它是一个网页外壳包着的
 - 在 workspace 中生成网页或项目代码。
 - 用 Agent CLI 按任务修改 workspace 文件。
 - 把文件变更、HTML、Diff、构建产物转换成 Artifact。
-- 在聊天流展示 Artifact Card，在右侧 Drawer 预览。
+- 在聊天流展示消息级 Artifact Card，并通过页面级弹窗预览/编辑。
 - 支持基于 Artifact 或 workspace 文件继续修改。
 - 支持本机预览、源码导出、构建产物导出。
 - 支持通过 DeployAdapter 把构建结果上传到第三方静态托管平台。
@@ -54,7 +54,7 @@ MVP 版不是云 IDE，也不是 SaaS 沙盒。它是一个网页外壳包着的
 - 不要求 workspace 从一开始放到云端。
 - 不提供多租户云端隔离。
 - 不默认使用 Docker 沙盒运行每个项目。
-- 不把右侧 Drawer 做成完整 VS Code。
+- 不把页面级 Artifact 弹窗做成完整 VS Code。
 
 ---
 
@@ -203,7 +203,7 @@ MVP 支持两种预览：
 
 | 类型 | 适用场景 | 实现 |
 |---|---|---|
-| 单 HTML 预览 | Landing page、小组件 | Drawer iframe `srcDoc` |
+| 单 HTML 预览 | Landing page、小组件 | 页面级预览 iframe `srcDoc` |
 | workspace 项目预览 | Vite/React/多文件静态站 | 后端启动 dev server 或 build 后托管 `dist/` |
 
 推荐链路：
@@ -214,7 +214,7 @@ MVP 支持两种预览：
   -> 后端确认 workspace 最新状态
   -> 如果需要则执行 npm install / npm run build
   -> 暴露本机 preview URL
-  -> Drawer iframe 加载 previewUrl
+  -> 页面级预览 iframe 加载 previewUrl
 ```
 
 本机 preview URL 默认只对本机可用：
@@ -227,7 +227,7 @@ http://127.0.0.1:8000/api/projects/{project_id}/preview/{preview_id}/index.html
 
 用户可以通过两种方式修改：
 
-1. 在 Drawer 中选中 Artifact 内容，输入局部修改要求。
+1. 在页面级 Artifact 弹窗中选中内容，输入局部修改要求。
 2. 在聊天中引用某个 Artifact 或文件，说出修改目标。
 
 系统流程：
@@ -237,7 +237,7 @@ http://127.0.0.1:8000/api/projects/{project_id}/preview/{preview_id}/index.html
   -> ContextManager 注入 artifact/workspace 摘要
   -> Agent 在 workspace 中修改文件
   -> 后端生成 Diff
-  -> Drawer 展示变更
+  -> 页面级 Artifact 弹窗展示变更
   -> 用户确认
   -> 创建 Artifact v2 / snapshot / git commit
   -> 重新预览
@@ -307,7 +307,7 @@ workspace
   -> Orchestrator 派发任务
   -> Agent 生成文件
   -> 聊天流出现执行状态和 Artifact Card
-  -> Drawer 展示网页预览
+  -> 页面级预览弹窗展示网页预览
 ```
 
 ### 5.3 修改网页
@@ -317,7 +317,7 @@ workspace
   -> 在聊天中说：把预约按钮改成红色
   -> 系统引用当前 Artifact + workspace 摘要
   -> Agent 修改文件
-  -> Drawer 展示 Diff 和新预览
+  -> 页面级 Artifact 弹窗展示 Diff 和新预览
   -> 用户确认
   -> Artifact 升级到 v2
 ```
@@ -417,7 +417,7 @@ MVP 本机 workspace 版完成时，必须能演示：
 2. 用户用自然语言生成网页。
 3. Agent 在本机 workspace 中创建文件。
 4. 聊天流出现 Artifact Card。
-5. Drawer 能预览网页或展示 Diff。
+5. 页面级 Artifact 弹窗能预览网页或展示 Diff。
 6. 用户能继续要求修改，系统生成新版本。
 7. 用户能本机预览、导出源码或导出构建产物。
 8. 如果启用部署配置，用户能从本机 build 上传并获得公网 URL。

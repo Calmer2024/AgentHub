@@ -86,7 +86,7 @@ CLI 工具的输出不是均质的纯文本——它包含文本回复、进度�
 | 纯文本/对话 | Markdown 文本流 | 聊天消息气泡（打字机流式） |
 | 进度指示器 | spinner 动画、`\r` 覆盖更新的进度行 | Agent 消息气泡下方的执行轨迹面板，运行时展开、完成后自动折叠，并随消息 metadata 持久化 |
 | 代码 Diff | fenced code block (`diff`/`patch`) 或 CLI 原生 diff 输出 | Artifact Card（code_diff 类型），进入产物版本链 |
-| 网页/组件 | fenced code block (`html`/`tsx`/`jsx`) | Artifact Card（web_preview 类型），Drawer 中 iframe 预览 |
+| 网页/组件 | fenced code block (`html`/`tsx`/`jsx`) | Artifact Card（web_preview 类型），页面级 iframe 预览 |
 | 文件变更摘要 | CLI 输出的 created/modified/deleted list | Artifact Card（file_tree 类型） |
 | 交互式提示 | `(y/n)` 或 `[Y/n]` 阻塞等待 | 确认卡片（同意/拒绝按钮），用户点击后回复注入 stdin |
 

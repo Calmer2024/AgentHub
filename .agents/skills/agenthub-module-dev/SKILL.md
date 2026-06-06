@@ -44,7 +44,7 @@ description: AgentHub 项目标准模块开发流程。当用户要求开发新�
 
 ### Step 4: 写单元测试
 1. 按照 `docs/TEST_PROTOCOL.md` 规范编写测试
-2. 后端：pytest + httpx AsyncClient + 内存数据库，覆盖正常流程 + Spec 3.2 每个异常场景
+2. 后端：pytest + httpx AsyncClient + 真实迁移后的文件数据库，覆盖正常流程 + Spec 3.2 每个异常场景
 3. 前端：Vitest + testing-library/react，覆盖组件渲染 + Store 逻辑
 4. 测试用例直接对应 Spec 第 3 节的每个场景
 5. Mock 所有外部依赖（Agent API、数据库），测试必须可独立运行
@@ -88,3 +88,9 @@ description: AgentHub 项目标准模块开发流程。当用户要求开发新�
 - 不要超出 Spec 第 6 节的 Non-Goals 范围
 - 不要让 AI 等待中显示空白 UI——所有加载态必须有指示器
 - **不要在未获得用户人工验收认可前执行任何 Git 提交操作**
+
+## Phase 7D 审计 (2026-06-07)
+
+- 引用仍有效：`docs/specs/`、`docs/TEST_PROTOCOL.md`、`docs/testing/UX_TEST_SPEC.md`、`docs/GIT_PROTOCOL.md`、`AGENTS.md` 均存在。
+- 测试说明已从“内存数据库”修正为项目当前协议要求的真实迁移文件数据库。
+- 新增提醒：IM 能力（置顶、归档、未读、免打扰、转发、多选）必须走真实 API/持久化状态；Reply/Pin 仍必须影响 Agent 上下文。
