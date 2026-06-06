@@ -8,6 +8,7 @@ import pytest
 from sqlalchemy import select
 
 from app.models import AgentConfig, Message, Project, Session
+from app.services.orchestrator_execution import execution_registry
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
@@ -292,6 +293,37 @@ async def test_execute_plan_rejects_invalid_dag(test_client, db_session):
     assert res.status_code == 400
     detail = res.json()["detail"]
     assert any("不存在的任务" in error for error in detail["errors"])
+
+
+@pytest.mark.asyncio
+async def test_get_execution_falls_back_to_persisted_message_snapshot(test_client, db_session):
+    session_id = await _seed_session_with_agents(db_session)
+    execution = execution_registry.create_execution(
+        session_id=session_id,
+        plan=_valid_plan(),
+        active_agent_ids={"agent_frontend_exec", "agent_backend_exec"},
+    )
+    execution_id = execution["executionId"]
+    db_session.add(Message(
+        id=f"msg_approval_{uuid.uuid4().hex[:8]}",
+        session_id=session_id,
+        role="assistant",
+        content="已确认计划，创建执行。",
+        content_type="text",
+        agent_name="Orchestrator 调度器",
+        source_type="agent",
+        source_name="Orchestrator 调度器",
+        metadata_json=json.dumps({"orchestratorExecution": execution}, ensure_ascii=False),
+    ))
+    await db_session.commit()
+    execution_registry._executions.pop(execution_id, None)
+
+    res = await test_client.get(f"/api/orchestrator/executions/{execution_id}")
+
+    assert res.status_code == 200
+    data = res.json()
+    assert data["executionId"] == execution_id
+    assert data["status"] == execution["status"]
 
 
 @pytest.mark.asyncio

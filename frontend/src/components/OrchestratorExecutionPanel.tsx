@@ -10,13 +10,15 @@ interface Props {
 export function OrchestratorExecutionPanel({ initialExecution }: Props) {
   const [execution, setExecution] = useState(initialExecution);
   const [showEvents, setShowEvents] = useState(false);
-  const isLive = execution.status === "pending" || execution.status === "running";
+  const [pollingLost, setPollingLost] = useState(false);
+  const isLive = !pollingLost && (execution.status === "pending" || execution.status === "running");
   const completed = execution.tasks.filter((task) => task.status === "completed").length;
   const progress = execution.tasks.length ? Math.round((completed / execution.tasks.length) * 100) : 0;
   const phases = useMemo(() => groupTasksByPhase(execution.tasks), [execution.tasks]);
 
   useEffect(() => {
     setExecution(initialExecution);
+    setPollingLost(false);
   }, [initialExecution.executionId, initialExecution.updatedAt, initialExecution.status]);
 
   useEffect(() => {
@@ -26,8 +28,11 @@ export function OrchestratorExecutionPanel({ initialExecution }: Props) {
       try {
         const next = await fetchOrchestratorExecution(execution.executionId);
         if (!cancelled) setExecution(next);
-      } catch {
-        // Keep the last known execution snapshot; chat should not flicker on transient polling failures.
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "";
+        if (!cancelled && (message.includes("404") || message.includes("Execution 不存在"))) {
+          setPollingLost(true);
+        }
       }
     }, 700);
     return () => {
@@ -47,7 +52,7 @@ export function OrchestratorExecutionPanel({ initialExecution }: Props) {
             </div>
             <p className="mt-1 font-mono text-[11px] text-slate-500">{execution.executionId}</p>
           </div>
-          <StatusBadge status={execution.status} live={isLive} />
+          <StatusBadge status={execution.status} live={isLive} stale={pollingLost} />
         </div>
         <div className="mt-3">
           <div className="flex items-center justify-between text-[11px] text-slate-500">
@@ -137,7 +142,7 @@ function TaskRow({ task }: { task: OrchestratorExecutionTask }) {
   );
 }
 
-function StatusBadge({ status, live }: { status: string; live: boolean }) {
+function StatusBadge({ status, live, stale }: { status: string; live: boolean; stale: boolean }) {
   const cls = status === "completed"
     ? "border-emerald-200 bg-emerald-50 text-emerald-700"
     : status === "failed" || status === "error"
@@ -148,6 +153,7 @@ function StatusBadge({ status, live }: { status: string; live: boolean }) {
       {status === "completed" ? <CheckCircle2 size={12} /> : status === "failed" || status === "error" ? <XCircle size={12} /> : <Activity size={12} className={live ? "animate-pulse" : ""} />}
       {statusLabel(status)}
       {live && <span className="font-normal opacity-70">自动刷新</span>}
+      {stale && <span className="font-normal opacity-70">历史快照</span>}
     </span>
   );
 }

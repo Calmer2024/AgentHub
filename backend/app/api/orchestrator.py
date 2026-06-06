@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -6,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
-from ..models import AgentConfig, Session
+from ..models import AgentConfig, Message as DBMessage, Session
 from ..services.orchestrator_execution import PlanExecutionError, execution_registry
 
 router = APIRouter(prefix="/orchestrator", tags=["orchestrator"])
@@ -50,8 +51,13 @@ async def execute_orchestrator_plan(
 
 
 @router.get("/executions/{execution_id}")
-async def get_orchestrator_execution(execution_id: str):
+async def get_orchestrator_execution(
+    execution_id: str,
+    db: AsyncSession = Depends(get_db),
+):
     execution = execution_registry.get_execution(execution_id)
+    if execution is None:
+        execution = await _persisted_execution_snapshot(db, execution_id)
     if execution is None:
         raise HTTPException(status_code=404, detail="Execution 不存在")
     return execution
@@ -60,3 +66,21 @@ async def get_orchestrator_execution(execution_id: str):
 async def _active_agent_ids(db: AsyncSession) -> set[str]:
     result = await db.execute(select(AgentConfig.id).where(AgentConfig.is_active == True))
     return {str(agent_id) for agent_id in result.scalars().all()}
+
+
+async def _persisted_execution_snapshot(db: AsyncSession, execution_id: str) -> dict[str, Any] | None:
+    result = await db.execute(
+        select(DBMessage)
+        .where(DBMessage.metadata_json.like(f"%{execution_id}%"))
+        .order_by(DBMessage.created_at.desc(), DBMessage.id.desc())
+        .limit(20)
+    )
+    for message in result.scalars().all():
+        try:
+            metadata = json.loads(message.metadata_json or "{}")
+        except json.JSONDecodeError:
+            continue
+        execution = metadata.get("orchestratorExecution")
+        if isinstance(execution, dict) and execution.get("executionId") == execution_id:
+            return execution
+    return None

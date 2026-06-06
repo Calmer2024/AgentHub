@@ -30,6 +30,22 @@ def test_parse_normalize_validate_and_project_plan():
     assert "T1 --> T2" in visualize_mermaid(plan)
 
 
+def test_extract_json_object_repairs_fenced_approve_action_with_cn_quotes():
+    raw = '''```json
+{
+  "action": "approve_plan",
+  "target_plan_id": "plan_home_assets_002",
+  "reason": "用户明确回复"可以，执行"，表示对 draft plan plan_home_assets_002 无修改意见，批准开始执行"
+}
+```'''
+
+    data = extract_json_object(raw)
+
+    assert data["action"] == "approve_plan"
+    assert data["target_plan_id"] == "plan_home_assets_002"
+    assert "可以，执行" in data["reason"]
+
+
 def test_validate_plan_rejects_missing_dependency_and_cycle():
     plan = normalize_plan({
         "tasks": [

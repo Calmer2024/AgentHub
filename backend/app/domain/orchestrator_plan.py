@@ -119,10 +119,40 @@ def extract_json_object(raw: str) -> dict[str, Any]:
         try:
             data, _ = decoder.raw_decode(candidate.strip())
         except json.JSONDecodeError:
-            continue
+            data = _repair_approve_action_json(candidate)
         if isinstance(data, dict):
             return data
     raise ValueError("调度器输出中未找到合法 JSON 对象")
+
+
+def _repair_approve_action_json(text: str) -> dict[str, Any] | None:
+    """Repair the narrow common case where only approve reason has raw quotes."""
+    if '"action"' not in text or "approve_plan" not in text:
+        return None
+    action = _extract_json_string_field(text, "action")
+    target_plan_id = _extract_json_string_field(text, "target_plan_id")
+    reason = _extract_json_string_field(text, "reason", last=True)
+    if action != "approve_plan" or not target_plan_id:
+        return None
+    return {
+        "action": action,
+        "target_plan_id": target_plan_id,
+        "reason": reason or "",
+    }
+
+
+def _extract_json_string_field(text: str, field: str, *, last: bool = False) -> str | None:
+    match = re.search(rf'"{re.escape(field)}"\s*:\s*"', text)
+    if not match:
+        return None
+    start = match.end()
+    if last:
+        end = text.rfind('"')
+        return text[start:end] if end >= start else None
+    match_end = re.search(r'"\s*(?:,|\})', text[start:], flags=re.S)
+    if not match_end:
+        return None
+    return text[start:start + match_end.start()]
 
 
 def normalize_plan(raw_plan: dict[str, Any]) -> dict[str, Any]:
