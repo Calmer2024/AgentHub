@@ -16,6 +16,7 @@ from ..domain.orchestrator_plan import (
     validate_plan,
     visualize_mermaid,
 )
+from ..domain.agent_selector import AgentSelector
 from ..models import AgentConfig, Message as DBMessage, SessionMember
 from .cli_agent_service import CliAgentService
 from .execution_trace import ExecutionTraceBuilder, merge_trace_metadata
@@ -25,6 +26,7 @@ from .orchestrator_execution import PlanExecutionError, execution_registry
 class OrchestratorPlanChat:
     def __init__(self, db: AsyncSession):
         self.db = db
+        self._agent_selector = AgentSelector()
 
     async def send(
         self,
@@ -295,11 +297,17 @@ class OrchestratorPlanChat:
         metadata: dict,
         trace: ExecutionTraceBuilder,
     ) -> AsyncGenerator[str, None]:
+        member_agents = await self._member_agents(session_id)
+        executable_agents = [
+            member for member in member_agents
+            if member.id != agent.id and (member.primary_skill or "") != "orchestrator_planner"
+        ]
+        plan, assignment_fixups = self._fill_missing_assignments(plan, executable_agents)
         try:
             execution = execution_registry.create_execution(
                 session_id=session_id,
                 plan=plan,
-                active_agent_ids={member.id for member in await self._member_agents(session_id)},
+                active_agent_ids={member.id for member in member_agents},
             )
         except PlanExecutionError as exc:
             content = "计划暂时无法进入执行：\n" + "\n".join(f"- {error}" for error in exc.errors)
@@ -338,6 +346,11 @@ class OrchestratorPlanChat:
             f"已确认计划 {execution['planId']}，创建执行 {execution['executionId']}。\n"
             f"模拟 Scheduler 已启动，{len(execution['tasks'])} 个任务将按 DAG 异步推进。"
         )
+        if assignment_fixups:
+            content += "\n" + "；".join(
+                f"已自动将 {item['taskId']} 分配给 @{item['agentName']}"
+                for item in assignment_fixups
+            )
         await self._persist_orchestrator_message(
             session_id=session_id,
             message_id=message_id,
@@ -347,6 +360,7 @@ class OrchestratorPlanChat:
                 **metadata,
                 "orchestratorAction": action,
                 "orchestratorExecution": execution,
+                "orchestratorAssignmentFixups": assignment_fixups,
             }, trace),
         )
         yield self._sse({
@@ -382,6 +396,41 @@ class OrchestratorPlanChat:
             )
         )
         return list(rows.scalars().all())
+
+    def _fill_missing_assignments(
+        self,
+        plan: dict,
+        candidates: list[AgentConfig],
+    ) -> tuple[dict, list[dict]]:
+        next_plan = json.loads(json.dumps(plan, ensure_ascii=False))
+        fixups: list[dict] = []
+        tasks = next_plan.get("tasks")
+        if not isinstance(tasks, list) or not candidates:
+            return next_plan, fixups
+
+        for task in tasks:
+            if not isinstance(task, dict) or task.get("assigned_agent_id"):
+                continue
+            scored = self._agent_selector.select(
+                [str(skill) for skill in task.get("required_skills") or []],
+                candidates,
+            )
+            if not scored:
+                continue
+            selected = scored[0].agent
+            task["assigned_agent_id"] = selected.id
+            task["assigned_agent_name"] = selected.name
+            task["assignment_reason"] = (
+                task.get("assignment_reason")
+                or f"执行前按 required_skills 自动匹配给 {selected.name}"
+            )
+            fixups.append({
+                "taskId": str(task.get("task_id") or ""),
+                "agentId": selected.id,
+                "agentName": selected.name,
+                "requiredSkills": [str(skill) for skill in task.get("required_skills") or []],
+            })
+        return next_plan, fixups
 
     async def _latest_orchestrator_plan(self, session_id: str) -> dict | None:
         rows = await self.db.execute(

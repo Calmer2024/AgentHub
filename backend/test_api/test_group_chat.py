@@ -568,6 +568,116 @@ class TestGroupSession:
         metadata = json.loads(task_results[0].metadata_json)
         assert metadata["orchestratorTaskResult"]["taskId"] == "T1"
 
+    async def test_orchestrator_approve_auto_assigns_missing_task_agent(
+        self, test_client, test_agent, db_session, monkeypatch,
+    ):
+        backend_agent = make_test_cli_agent("后端专家")
+        backend_agent.primary_skill = "backend_engineer"
+        frontend_agent = make_test_cli_agent("前端专家")
+        frontend_agent.primary_skill = "frontend_engineer"
+        orchestrator = make_test_cli_agent("Orchestrator 调度器")
+        orchestrator.primary_skill = "orchestrator_planner"
+        orchestrator.context_policy = "planning_only"
+        db_session.add_all([backend_agent, frontend_agent, orchestrator])
+        await db_session.commit()
+
+        prompts: list[str] = []
+        outputs = [
+            {
+                "plan_id": "plan_missing_assignment_001",
+                "tasks": [
+                    {
+                        "task_id": "T1",
+                        "title": "后端开发",
+                        "goal": "完成 API",
+                        "required_skills": ["backend_engineer"],
+                        "assigned_agent_id": backend_agent.id,
+                        "assigned_agent_name": backend_agent.name,
+                        "depends_on": [],
+                    },
+                    {
+                        "task_id": "T2",
+                        "title": "前后端联调",
+                        "goal": "完成接口对接",
+                        "required_skills": ["backend_engineer", "frontend_engineer"],
+                        "assigned_agent_id": None,
+                        "assigned_agent_name": None,
+                        "depends_on": ["T1"],
+                    },
+                ],
+            },
+            {
+                "action": "approve_plan",
+                "target_plan_id": "plan_missing_assignment_001",
+                "reason": "用户确认执行",
+            },
+        ]
+
+        async def fake_stream(self, **kwargs):
+            prompts.append(kwargs["messages"][-1]["content"])
+            if len(prompts) > len(outputs):
+                yield CliEvent(
+                    "agent.output",
+                    "proc-task",
+                    chunk="真实任务输出：自动补分配后执行完成。",
+                    chunk_type="text",
+                )
+                yield CliEvent("agent.process.completed", "proc-task", exit_code=0)
+                return
+            yield CliEvent(
+                "agent.output",
+                "proc-1",
+                chunk=json.dumps(outputs[len(prompts) - 1], ensure_ascii=False),
+                chunk_type="text",
+            )
+            yield CliEvent("agent.process.completed", "proc-1", exit_code=0)
+
+        from app.services.cli_agent_service import CliAgentService
+        monkeypatch.setattr(CliAgentService, "stream", fake_stream)
+
+        res = await test_client.post("/api/sessions", json={
+            "mode": "group",
+            "agentConfigIds": [backend_agent.id, frontend_agent.id, orchestrator.id],
+        })
+        sid = res.json()["id"]
+
+        await test_client.post(
+            f"/api/sessions/{sid}/chat",
+            json={"content": "@Orchestrator 调度器 做员工报销系统", "mentions": [orchestrator.id]},
+        )
+        resp = await test_client.post(
+            f"/api/sessions/{sid}/chat",
+            json={"content": "@Orchestrator 调度器 开始执行", "mentions": [orchestrator.id]},
+        )
+
+        execution_event = None
+        visible = ""
+        async for line in resp.aiter_lines():
+            if not line.startswith("data: "):
+                continue
+            data = json.loads(line[6:])
+            if data.get("type") == "orchestrator.plan_execution_created":
+                execution_event = data
+            if data.get("agentName") == "Orchestrator 调度器":
+                visible += data.get("token", "")
+
+        assert execution_event is not None
+        assert "计划暂时无法进入执行" not in visible
+        assert "已自动将 T2 分配给" in visible
+        t2 = next(task for task in execution_event["tasks"] if task["taskId"] == "T2")
+        assert t2["assignedAgentId"] in {backend_agent.id, frontend_agent.id}
+        assert t2["assignedAgentName"]
+
+        completed = await wait_execution_completed(test_client, execution_event["executionId"])
+        assert completed["status"] == "completed", completed["events"][-1]
+        completed_t2 = next(task for task in completed["tasks"] if task["taskId"] == "T2")
+        assert completed_t2["assignedAgentId"] == t2["assignedAgentId"]
+
+        messages = (await test_client.get(f"/api/sessions/{sid}/messages")).json()
+        approval = next(message for message in messages if message["metadata"] and "orchestratorAction" in message["metadata"])
+        fixups = approval["metadata"]["orchestratorAssignmentFixups"]
+        assert fixups[0]["taskId"] == "T2"
+
     async def test_orchestrator_followup_revision_outputs_new_draft_plan(
         self, test_client, test_agent, db_session, monkeypatch,
     ):
