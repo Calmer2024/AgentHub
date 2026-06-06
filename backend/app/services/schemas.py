@@ -31,6 +31,10 @@ class MessageRead(BaseModel):
     source_name: str | None = Field(default=None, alias="sourceName")
     parent_message_id: str | None = Field(default=None, alias="parentMessageId")
     is_pinned: bool = Field(default=False, alias="isPinned")
+    agent_role: str | None = Field(default=None, alias="agentRole")
+    phase: int | None = None
+    task_name: str | None = Field(default=None, alias="taskName")
+    is_collaborating: bool = Field(default=False, alias="isCollaborating")
     created_at: datetime = Field(alias="createdAt")
     metadata: dict | None = None
     highlight: str | None = None

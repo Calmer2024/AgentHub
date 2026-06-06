@@ -99,18 +99,6 @@ class CliTaskRunner:
         message_id = f"msg_agent_{uuid.uuid4().hex[:12]}"
         task["visibleMessageId"] = message_id
         task["taskWorkspacePath"] = task_workspace_path
-        await _broadcast_ws(execution["sessionId"], {
-            "type": "agent.start",
-            "sessionId": execution["sessionId"],
-            "agentId": agent.id,
-            "agentName": agent.name,
-            "messageId": message_id,
-            "role": "executor",
-            "phase": task.get("phase"),
-            "task": task["title"],
-            "callKey": _call_key(agent.id, task),
-        })
-
         visible = ""
         raw_output = ""
         process_id = ""
@@ -126,6 +114,25 @@ class CliTaskRunner:
             cli_tool=agent.cli_tool or "custom",
             workspace_path=task_workspace_path,
         )
+        await self._persist_visible_message(
+            execution,
+            task,
+            agent,
+            message_id,
+            "",
+            merge_trace_metadata(metadata, trace),
+        )
+        await _broadcast_ws(execution["sessionId"], {
+            "type": "agent.start",
+            "sessionId": execution["sessionId"],
+            "agentId": agent.id,
+            "agentName": agent.name,
+            "messageId": message_id,
+            "role": "executor",
+            "phase": task.get("phase"),
+            "task": task["title"],
+            "callKey": _call_key(agent.id, task),
+        })
         truncated_notice_sent = False
         async for event in CliAgentService().stream(
             agent=agent,
@@ -206,6 +213,11 @@ class CliTaskRunner:
                     if item:
                         await self._broadcast_trace(execution, task, agent, message_id, process_id, item)
                 if event.chunk_type == "text" and visible_chunk:
+                    await self._update_visible_message(
+                        message_id,
+                        content=visible,
+                        metadata=merge_trace_metadata(metadata, trace),
+                    )
                     for token in iter_stream_pieces(visible_chunk):
                         await _broadcast_ws(execution["sessionId"], {
                             "type": "agent.output",
@@ -239,6 +251,11 @@ class CliTaskRunner:
                 trace.complete(status=status, exit_code=exit_code)
                 if item:
                     await self._broadcast_trace(execution, task, agent, message_id, process_id, item)
+                await self._update_visible_message(
+                    message_id,
+                    content=visible,
+                    metadata=merge_trace_metadata(metadata, trace),
+                )
                 await _broadcast_ws(execution["sessionId"], {
                     "type": "agent.process.completed",
                     "sessionId": execution["sessionId"],
@@ -273,14 +290,12 @@ class CliTaskRunner:
                 metadata["error"] = error
                 if item:
                     await self._broadcast_trace(execution, task, agent, message_id, process_id, item)
-                await self._persist_visible_message(
-                    execution,
-                    task,
-                    agent,
+                await self._update_visible_message(
                     message_id,
-                    visible.strip() or f"CLI Agent 执行失败：{error}",
-                    merge_trace_metadata(metadata, trace),
+                    content=visible.strip() or f"CLI Agent 执行失败：{error}",
+                    metadata=merge_trace_metadata(metadata, trace),
                 )
+                await self._broadcast_message_changed(execution["sessionId"], message_id)
                 await _broadcast_ws(execution["sessionId"], {
                     "type": "message.completed",
                     "sessionId": execution["sessionId"],
@@ -297,14 +312,12 @@ class CliTaskRunner:
             )
             trace.complete(status="error", exit_code=exit_code)
             metadata["error"] = error
-            await self._persist_visible_message(
-                execution,
-                task,
-                agent,
+            await self._update_visible_message(
                 message_id,
-                visible.strip() or f"CLI Agent 执行失败：{error}",
-                merge_trace_metadata(metadata, trace),
+                content=visible.strip() or f"CLI Agent 执行失败：{error}",
+                metadata=merge_trace_metadata(metadata, trace),
             )
+            await self._broadcast_message_changed(execution["sessionId"], message_id)
             await _broadcast_ws(execution["sessionId"], {
                 "type": "message.completed",
                 "sessionId": execution["sessionId"],
@@ -313,14 +326,12 @@ class CliTaskRunner:
             raise RuntimeError(error)
 
         content = visible.strip() or raw_output.strip() or f"{task['taskId']} 已完成，但没有可见输出。"
-        await self._persist_visible_message(
-            execution,
-            task,
-            agent,
+        await self._update_visible_message(
             message_id,
-            content,
-            merge_trace_metadata(metadata, trace),
+            content=content,
+            metadata=merge_trace_metadata(metadata, trace),
         )
+        await self._broadcast_message_changed(execution["sessionId"], message_id)
         await _broadcast_ws(execution["sessionId"], {
             "type": "message.completed",
             "sessionId": execution["sessionId"],
@@ -337,6 +348,55 @@ class CliTaskRunner:
         content: str,
         extra_metadata: dict[str, Any] | None = None,
     ) -> None:
+        metadata = self._visible_message_metadata(execution, task, extra_metadata)
+        async with self._session_factory() as db:
+            session = await db.get(DBSession, execution["sessionId"])
+            existing = await db.get(DBMessage, message_id)
+            if existing:
+                existing.content = content
+                existing.metadata_json = json.dumps(metadata, ensure_ascii=False)
+            else:
+                db.add(DBMessage(
+                    id=message_id,
+                    session_id=execution["sessionId"],
+                    role="assistant",
+                    content=content,
+                    content_type="text",
+                    agent_name=agent.name,
+                    source_type="agent",
+                    source_id=agent.id,
+                    source_name=agent.name,
+                    metadata_json=json.dumps(metadata, ensure_ascii=False),
+                ))
+            if session:
+                session.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            await db.commit()
+
+    async def _update_visible_message(
+        self,
+        message_id: str,
+        *,
+        content: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        async with self._session_factory() as db:
+            message = await db.get(DBMessage, message_id)
+            if not message:
+                return
+            if content is not None:
+                message.content = content
+            if metadata is not None:
+                existing = _loads_metadata(message.metadata_json)
+                existing.update(metadata)
+                message.metadata_json = json.dumps(existing, ensure_ascii=False)
+            await db.commit()
+
+    @staticmethod
+    def _visible_message_metadata(
+        execution: dict[str, Any],
+        task: dict[str, Any],
+        extra_metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         metadata = {
             "orchestratorTaskMessage": {
                 "executionId": execution["executionId"],
@@ -346,7 +406,10 @@ class CliTaskRunner:
                 "runnerType": "cli",
                 "upstreamResults": task.get("upstreamResults") or [],
                 "taskWorkspacePath": task.get("taskWorkspacePath"),
-            }
+            },
+            "agentRole": "executor",
+            "phase": task.get("phase"),
+            "taskName": task.get("title"),
         }
         if execution.get("runId"):
             metadata["runId"] = execution["runId"]
@@ -355,23 +418,15 @@ class CliTaskRunner:
             metadata["taskId"] = task["runTaskId"]
         if extra_metadata:
             metadata.update(extra_metadata)
-        async with self._session_factory() as db:
-            session = await db.get(DBSession, execution["sessionId"])
-            db.add(DBMessage(
-                id=message_id,
-                session_id=execution["sessionId"],
-                role="assistant",
-                content=content,
-                content_type="text",
-                agent_name=agent.name,
-                source_type="agent",
-                source_id=agent.id,
-                source_name=agent.name,
-                metadata_json=json.dumps(metadata, ensure_ascii=False),
-            ))
-            if session:
-                session.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
-            await db.commit()
+        return metadata
+
+    @staticmethod
+    async def _broadcast_message_changed(session_id: str, message_id: str) -> None:
+        await _broadcast_ws(session_id, {
+            "type": "message.completed",
+            "sessionId": session_id,
+            "messageId": message_id,
+        })
 
     async def _bind_runtime_process(
         self,
@@ -679,6 +734,7 @@ class OrchestratorExecutionRegistry:
             async with self._session_factory() as db:
                 await RunService(db).cancel_run(execution["runId"], "用户请求停止当前调度执行")
         self._mark_cancelled(execution, terminated_process_count=terminated)
+        await self._mark_cancelled_visible_messages(execution, "用户请求停止当前调度执行")
         await self._persist_execution_snapshot(execution)
         return copy.deepcopy(execution)
 
@@ -707,11 +763,15 @@ class OrchestratorExecutionRegistry:
             try:
                 loop = asyncio.get_running_loop()
             except RuntimeError:
-                asyncio.run(self._persist_execution_snapshot(execution))
+                asyncio.run(self._persist_cancelled_execution(execution, reason))
             else:
-                loop.create_task(self._persist_execution_snapshot(execution))
+                loop.create_task(self._persist_cancelled_execution(execution, reason))
             return copy.deepcopy(execution)
         return None
+
+    async def _persist_cancelled_execution(self, execution: dict[str, Any], reason: str | None = None) -> None:
+        await self._mark_cancelled_visible_messages(execution, reason or "调度执行已停止")
+        await self._persist_execution_snapshot(execution)
 
     def _start_background_scheduler(self, execution_id: str) -> None:
         try:
@@ -736,6 +796,8 @@ class OrchestratorExecutionRegistry:
             if self._is_cancelled(execution):
                 self._mark_cancelled(execution)
                 await self._cancel_runtime_execution(execution)
+                await self._mark_cancelled_visible_messages(execution, "调度执行已停止")
+                await self._persist_execution_snapshot(execution)
                 return
             ready = sorted(
                 task_id
@@ -799,6 +861,8 @@ class OrchestratorExecutionRegistry:
                 if self._is_cancelled(execution):
                     self._mark_cancelled(execution)
                     await self._cancel_runtime_execution(execution)
+                    await self._mark_cancelled_visible_messages(execution, "调度执行已停止")
+                    await self._persist_execution_snapshot(execution)
                     return
                 failed_at = self._now()
                 execution["status"] = "failed"
@@ -852,6 +916,8 @@ class OrchestratorExecutionRegistry:
             if self._is_cancelled(execution):
                 self._mark_cancelled(execution)
                 await self._cancel_runtime_execution(execution)
+                await self._mark_cancelled_visible_messages(execution, "调度执行已停止")
+                await self._persist_execution_snapshot(execution)
                 return
 
             phase += 1
@@ -962,6 +1028,54 @@ class OrchestratorExecutionRegistry:
             metadata["orchestratorExecution"] = copy.deepcopy(execution)
             message.metadata_json = json.dumps(metadata, ensure_ascii=False)
             await db.commit()
+
+    async def _mark_cancelled_visible_messages(
+        self,
+        execution: dict[str, Any],
+        reason: str,
+    ) -> None:
+        now = self._now()
+        async with self._session_factory() as db:
+            changed_ids: list[str] = []
+            for task in execution.get("tasks") or []:
+                message_id = task.get("visibleMessageId")
+                if not message_id:
+                    continue
+                message = await db.get(DBMessage, message_id)
+                if not message:
+                    continue
+                metadata = _loads_metadata(message.metadata_json)
+                trace = metadata.get("executionTrace")
+                if isinstance(trace, dict):
+                    trace["status"] = "cancelled"
+                    trace["completedAt"] = trace.get("completedAt") or now
+                    trace["items"] = [
+                        *(trace.get("items") if isinstance(trace.get("items"), list) else []),
+                        {
+                            "id": f"trace_{uuid.uuid4().hex[:12]}",
+                            "kind": "info",
+                            "text": "调度执行已停止",
+                            "source": "system",
+                            "chunkType": "cancelled",
+                            "level": "warning",
+                            "timestamp": now,
+                        },
+                    ][-300:]
+                    metadata["executionTrace"] = trace
+                metadata["runStatus"] = "cancelled"
+                metadata["cancelReason"] = reason
+                if not message.content:
+                    message.content = "任务已中止，未产生可见输出。"
+                message.metadata_json = json.dumps(metadata, ensure_ascii=False)
+                changed_ids.append(message_id)
+            if changed_ids:
+                await db.commit()
+        for message_id in changed_ids:
+            await _broadcast_ws(execution["sessionId"], {
+                "type": "message.completed",
+                "sessionId": execution["sessionId"],
+                "messageId": message_id,
+            })
 
     @staticmethod
     def _validate_execution_readiness(plan: dict[str, Any], active_agent_ids: set[str]) -> list[str]:
@@ -1158,6 +1272,16 @@ def _summary_text(content: str, limit: int = 1200) -> str:
     if len(clean) <= limit:
         return clean
     return clean[:limit].rstrip() + "\n...(已截断，完整内容见 Agent 消息)"
+
+
+def _loads_metadata(raw: str | None) -> dict[str, Any]:
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
 async def _broadcast_ws(session_id: str, payload: dict[str, Any]) -> None:

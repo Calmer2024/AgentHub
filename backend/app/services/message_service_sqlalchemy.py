@@ -338,6 +338,7 @@ class SqlAlchemyMessageService(MessageService):
 
 
 def message_to_read(message: DBMessage, highlight: str | None = None) -> MessageRead:
+    metadata = _metadata_dict(message)
     return MessageRead(
         id=message.id,
         sessionId=message.session_id,
@@ -350,7 +351,11 @@ def message_to_read(message: DBMessage, highlight: str | None = None) -> Message
         sourceName=getattr(message, "source_name", None) or message.agent_name,
         parentMessageId=getattr(message, "parent_message_id", None),
         isPinned=_is_pinned(message),
-        metadata=_metadata_dict(message) or None,
+        metadata=metadata or None,
+        agentRole=_optional_metadata_str(metadata, "agentRole"),
+        phase=_optional_metadata_int(metadata, "phase"),
+        taskName=_optional_metadata_str(metadata, "taskName"),
+        isCollaborating=_optional_metadata_bool(metadata, "isCollaborating"),
         createdAt=message.created_at,
         highlight=highlight,
     )
@@ -372,6 +377,7 @@ def message_to_prompt_dict(
 
 
 def row_to_read(row) -> MessageRead:
+    metadata = _parse_metadata(row["metadata_json"])
     return MessageRead(
         id=row["id"],
         sessionId=row["session_id"],
@@ -384,7 +390,11 @@ def row_to_read(row) -> MessageRead:
         sourceName=row["source_name"] or row["agent_name"],
         parentMessageId=row["parent_message_id"],
         isPinned=str(row["is_pinned"] or "0") == "1",
-        metadata=_parse_metadata(row["metadata_json"]) or None,
+        metadata=metadata or None,
+        agentRole=_optional_metadata_str(metadata, "agentRole"),
+        phase=_optional_metadata_int(metadata, "phase"),
+        taskName=_optional_metadata_str(metadata, "taskName"),
+        isCollaborating=_optional_metadata_bool(metadata, "isCollaborating"),
         createdAt=row["created_at"],
         highlight=row["highlight"],
     )
@@ -406,6 +416,20 @@ def _parse_metadata(raw: str | None) -> dict:
 
 def _is_pinned(message: DBMessage) -> bool:
     return str(getattr(message, "is_pinned", "0")) == "1"
+
+
+def _optional_metadata_str(metadata: dict, key: str) -> str | None:
+    value = metadata.get(key)
+    return value if isinstance(value, str) else None
+
+
+def _optional_metadata_int(metadata: dict, key: str) -> int | None:
+    value = metadata.get(key)
+    return value if isinstance(value, int) else None
+
+
+def _optional_metadata_bool(metadata: dict, key: str) -> bool:
+    return bool(metadata.get(key))
 
 
 def _source_type(message: DBMessage) -> str:

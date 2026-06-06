@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy import select
 
+from app.agents.cli_events import CliEvent
 from app.models import AgentConfig, Message, Project, Session
 from app.services.orchestrator_execution import OrchestratorExecutionRegistry, execution_registry
 
@@ -345,6 +346,65 @@ async def test_cancel_execution_marks_active_run_cancelled(test_client, db_sessi
     assert data["status"] == "cancelled"
     assert any(event["type"] == "execution_cancel_requested" for event in data["events"])
     assert any(event["type"] == "execution_cancelled" for event in data["events"])
+
+
+@pytest.mark.asyncio
+async def test_running_cli_task_visible_message_survives_refresh(test_client, db_session, monkeypatch):
+    session_id = await _seed_session_with_agents(db_session)
+
+    async def slow_stream(self, **kwargs):
+        yield CliEvent("agent.process.started", "proc-slow")
+        yield CliEvent("agent.output", "proc-slow", chunk="正在执行 T1...", chunk_type="text")
+        await asyncio.sleep(5)
+
+    from app.services.cli_agent_service import CliAgentService
+    monkeypatch.setattr(CliAgentService, "stream", slow_stream)
+
+    res = await test_client.post(
+        "/api/orchestrator/plans/execute",
+        json={"sessionId": session_id, "normalizedPlan": _valid_plan()},
+    )
+    assert res.status_code == 200
+    execution_id = res.json()["executionId"]
+
+    for _ in range(30):
+        latest = (await test_client.get(f"/api/orchestrator/executions/{execution_id}")).json()
+        if latest["tasks"][0]["status"] == "running":
+            break
+        await asyncio.sleep(0.02)
+    latest = (await test_client.get(f"/api/orchestrator/executions/{execution_id}")).json()
+    assert latest["tasks"][0]["status"] == "running"
+    assert latest["tasks"][0]["visibleMessageId"]
+
+    visible = None
+    for _ in range(30):
+        visible_messages = (await test_client.get(f"/api/sessions/{session_id}/messages")).json()
+        visible = next(
+            message for message in visible_messages
+            if message["id"] == latest["tasks"][0]["visibleMessageId"]
+        )
+        if "正在执行 T1" in visible["content"]:
+            break
+        await asyncio.sleep(0.02)
+    assert visible is not None
+    assert visible["agentName"] == "后端专家"
+    assert visible["agentRole"] == "executor"
+    assert visible["taskName"] == "实现后端 API"
+    assert visible["metadata"]["executionTrace"]["status"] == "running"
+    assert "正在执行 T1" in visible["content"]
+
+    cancel = await test_client.post(f"/api/orchestrator/executions/{execution_id}/cancel")
+    assert cancel.status_code == 200
+    cancelled = cancel.json()
+    assert cancelled["status"] == "cancelled"
+
+    visible_messages = (await test_client.get(f"/api/sessions/{session_id}/messages")).json()
+    visible = next(
+        message for message in visible_messages
+        if message["id"] == latest["tasks"][0]["visibleMessageId"]
+    )
+    assert visible["metadata"]["executionTrace"]["status"] == "cancelled"
+    assert visible["metadata"]["runStatus"] == "cancelled"
 
 
 @pytest.mark.asyncio

@@ -626,6 +626,7 @@ export interface OrchestratorExecution {
   executionId: string;
   sessionId: string;
   planId: string;
+  runId?: string | null;
   status: "pending" | "running" | "completed" | "failed" | "error" | "cancelling" | "cancelled" | string;
   createdAt: string;
   updatedAt: string;
