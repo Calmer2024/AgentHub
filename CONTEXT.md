@@ -85,7 +85,7 @@
 | **Phase 3** | Orchestrator + 基础设施 | ✅ | EventBus、Orchestrator v2（Pipeline + DAG + 6 角色）、CollaborationPanel |
 | **Phase 4** | 消息交互闭环 | ✅ | Reply / Regenerate / Pin、FTS5 全文搜索、Reply/Pin prompt 注入 |
 | **Phase 5** | 产物工作台能力 | ✅ | 版本链 + Diff + 在线编辑（Tool Calling）；上游产物生成入口由 Phase 6/7 补齐 |
-| **Phase 6** | Workspace Runtime + CLI 适配器 + 产物入口桥接 | 🚧 | 6A Workspace Runtime 已验收：Project 实体、workspace 绑定、系统目录选择器、文件树/Diff/静态预览、Session→workspace 查询；下一步是 6B-6F CLI 适配器与 Artifact Bridge |
+| **Phase 6** | Workspace Runtime + CLI 适配器 + 产物入口桥接 | 🚧 | 6A Workspace Runtime 已验收；6B-6E CLI Adapter 基线已落地；Orchestrator Plan-first 真实执行已阶段性通过：用户批准 draft plan 后可创建 execution，Scheduler 按 DAG 调度真实 CLI Agent 写入 workspace，并将 Agent 气泡、任务结果、executionTrace 落库。下一步是合并队友功能后打磨语言继承、trace 分层、消息瘦身、文件噪音过滤、取消/中断验收与 Artifact Bridge |
 | **Phase 7** | UX 体验闭环 + MVP 演示闭环 | 📋 | 三栏动态布局、产物抽屉、审批卡片、环境体检，跑通全链路 |
 
 Phase 4-7 采用**功能板块制**：每板块独立完整交付。板块间按用户可感知价值排序。详见 [ADR-0008](docs/adr/0008-revised-development-strategy.md)。
@@ -158,7 +158,7 @@ Phase 4-7 采用**功能板块制**：每板块独立完整交付。板块间按
 |-------|------|---------|
 | Phase 1 | [specs/phase1/](docs/specs/phase1/) | [01-skeleton-spec.md](docs/specs/phase1/01-skeleton-spec.md) |
 | Phase 2 | [specs/phase2/](docs/specs/phase2/) | [01-core-features-spec.md](docs/specs/phase2/01-core-features-spec.md) |
-| Phase 3 | [specs/phase3/](docs/specs/phase3/) | [README](docs/specs/phase3/README.md) + [Orchestrator 9 篇](docs/specs/phase3/02-orchestrator/README.md) |
+| Phase 3 | [specs/phase3/](docs/specs/phase3/) | [README](docs/specs/phase3/README.md) + [Orchestrator 文档集](docs/specs/phase3/02-orchestrator/README.md)，含 [真实 Agent 执行复盘](docs/specs/phase3/02-orchestrator/10-real-agent-execution/README.md) |
 | Phase 4 | [specs/phase4/](docs/specs/phase4/) | [README](docs/specs/phase4/README.md) + 消息操作 + 搜索 |
 | Phase 5 | [specs/phase5/](docs/specs/phase5/) | [README](docs/specs/phase5/README.md) + [版本/Diff](docs/specs/phase5/01-artifact-versioning.md) + [在线编辑](docs/specs/phase5/02-artifact-editing.md) |
 | Phase 6 | [specs/phase6/](docs/specs/phase6/) | [README](docs/specs/phase6/README.md) + [Workspace Runtime](docs/specs/phase6/00-workspace-runtime.md) + [CLI 适配器](docs/specs/phase6/01-cli-adapter.md) + [产物桥接](docs/specs/phase6/02-artifact-output-bridge.md) + [Agent Profile](docs/specs/phase6/03-agent-engine-skill-profile.md) |
@@ -181,6 +181,7 @@ Phase 4-7 采用**功能板块制**：每板块独立完整交付。板块间按
 | [Phase 4 Dev Log](docs/dev-logs/phase4-dev-log.md) | Phase 4 实现摘要、FTS5 修复、真实 UI 验收记录 |
 | [Phase 5 Dev Log](docs/dev-logs/phase5-dev-log.md) | Phase 5 产物版本链、Diff、在线编辑、架构收拢与真实 HTTP 验收 |
 | [Phase 6 Dev Log](docs/dev-logs/phase6-dev-log.md) | Phase 6A Project-first workspace runtime、系统目录选择器、人工验收记录 |
+| [Orchestrator 真实 Agent 执行复盘](docs/specs/phase3/02-orchestrator/10-real-agent-execution/README.md) | 2026-06-06 真实 CLI Agent DAG 执行样本、问题清单、合并后续计划 |
 
 ### Skills — AI 能力复用
 
