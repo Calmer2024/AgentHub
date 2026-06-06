@@ -396,6 +396,59 @@ class TestGroupSession:
         assert saved["sourceType"] == "agent"
         assert saved["metadata"]["orchestratorPlan"]["ok"] is True
 
+    async def test_orchestrator_plan_only_flags_workspace_writes(
+        self, test_client, test_agent, db_session, monkeypatch,
+    ):
+        agent2 = make_test_cli_agent("A2")
+        orchestrator = make_test_cli_agent("Orchestrator 调度器")
+        orchestrator.primary_skill = "orchestrator_planner"
+        orchestrator.context_policy = "planning_only"
+        db_session.add_all([agent2, orchestrator])
+        await db_session.commit()
+
+        async def fake_stream(self, **kwargs):
+            workspace = Path(kwargs["workspace_path"])
+            (workspace / "plan_001.json").write_text("{}", encoding="utf-8")
+            yield CliEvent(
+                "agent.output",
+                "proc-1",
+                chunk=json.dumps({
+                    "tasks": [
+                        {
+                            "task_id": "T1",
+                            "title": "需求澄清",
+                            "goal": "明确业务边界",
+                            "required_skills": ["requirements"],
+                            "assigned_agent_id": test_agent.id,
+                            "assigned_agent_name": test_agent.name,
+                            "depends_on": [],
+                        }
+                    ]
+                }, ensure_ascii=False),
+                chunk_type="text",
+            )
+            yield CliEvent("agent.process.completed", "proc-1", exit_code=0)
+
+        from app.services.cli_agent_service import CliAgentService
+        monkeypatch.setattr(CliAgentService, "stream", fake_stream)
+
+        res = await test_client.post("/api/sessions", json={
+            "mode": "group", "agentConfigIds": [test_agent.id, agent2.id, orchestrator.id],
+        })
+        sid = res.json()["id"]
+
+        await test_client.post(
+            f"/api/sessions/{sid}/chat",
+            json={"content": "@Orchestrator 调度器 做员工报销系统", "mentions": [orchestrator.id]},
+        )
+
+        messages = (await test_client.get(f"/api/sessions/{sid}/messages")).json()
+        saved = next(message for message in messages if message["agentName"] == "Orchestrator 调度器")
+        metadata = saved["metadata"]
+        assert metadata["orchestratorPlan"]["ok"] is False
+        assert any("plan-only 阶段写入" in error for error in metadata["orchestratorPlan"]["validation"]["errors"])
+        assert metadata["orchestratorWorkspaceChanges"][0]["path"] == "plan_001.json"
+
     async def test_text_mention_orchestrator_name_with_space_returns_draft_plan_only(
         self, test_client, test_agent, db_session, monkeypatch,
     ):

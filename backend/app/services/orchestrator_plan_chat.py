@@ -20,13 +20,15 @@ from ..domain.agent_selector import AgentSelector
 from ..models import AgentConfig, Message as DBMessage, SessionMember
 from .cli_agent_service import CliAgentService
 from .execution_trace import ExecutionTraceBuilder, merge_trace_metadata
+from .file_change_detector import FileChangeDetector
 from .orchestrator_execution import PlanExecutionError, execution_registry
 
 
 class OrchestratorPlanChat:
-    def __init__(self, db: AsyncSession):
+    def __init__(self, db: AsyncSession, detector: FileChangeDetector | None = None):
         self.db = db
         self._agent_selector = AgentSelector()
+        self._detector = detector or FileChangeDetector()
 
     async def send(
         self,
@@ -67,6 +69,7 @@ class OrchestratorPlanChat:
             "cliTool": orchestrator_agent.cli_tool or "custom",
             "workspacePath": workspace_path,
         }
+        workspace_snapshot_id = self._create_workspace_snapshot(workspace_path, "orchestrator-plan")
 
         yield self._sse({
             "type": "agent.start",
@@ -218,6 +221,8 @@ class OrchestratorPlanChat:
                 yield self._err(error)
                 return
 
+        workspace_changes = self._workspace_changes_since(workspace_path, workspace_snapshot_id)
+
         try:
             parsed = extract_json_object(parse_output)
             if is_followup and parsed.get("action") == "approve_plan":
@@ -234,6 +239,11 @@ class OrchestratorPlanChat:
                 return
             plan = normalize_plan(parsed)
             validation = validate_plan(plan, {str(agent["id"]) for agent in candidate_agents})
+            if workspace_changes:
+                validation["ok"] = False
+                validation["errors"].append(
+                    "Orchestrator 调度器在 plan-only 阶段写入了工作区文件，请撤销这些变更后重新生成计划"
+                )
         except ValueError as exc:
             await self._persist_orchestrator_message(
                 session_id=session_id,
@@ -260,6 +270,7 @@ class OrchestratorPlanChat:
             content=visible,
             metadata=merge_trace_metadata({
                 **metadata,
+                "orchestratorWorkspaceChanges": workspace_changes,
                 "orchestratorPlan": {
                     "ok": validation["ok"],
                     "normalizedPlan": plan,
@@ -396,6 +407,20 @@ class OrchestratorPlanChat:
             )
         )
         return list(rows.scalars().all())
+
+    def _create_workspace_snapshot(self, workspace_path: str, label: str) -> str | None:
+        try:
+            return self._detector.create_snapshot(workspace_path, label).snapshot_id
+        except Exception:
+            return None
+
+    def _workspace_changes_since(self, workspace_path: str, snapshot_id: str | None) -> list[dict]:
+        if not snapshot_id:
+            return []
+        try:
+            return self._detector.diff_from_snapshot(workspace_path, snapshot_id)
+        except Exception:
+            return []
 
     def _fill_missing_assignments(
         self,
