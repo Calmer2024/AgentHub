@@ -32,7 +32,7 @@ export function ApprovalCard({
 }: Props) {
   const pending = approval.status === "pending_review";
   return (
-    <div className="mt-3 overflow-hidden rounded-lg border border-amber-300/25 bg-amber-300/[0.06] text-[#ececf1]">
+    <div className="mt-3 overflow-hidden rounded-lg border border-amber-300/25 bg-amber-300/[0.08]">
       <div className="flex items-center gap-2 border-b border-amber-300/15 bg-amber-300/[0.08] px-3 py-2 text-xs font-medium text-amber-100">
         {iconFor(approval.status)}
         <span>{approval.title}</span>
@@ -40,26 +40,26 @@ export function ApprovalCard({
       </div>
       <div className="space-y-3 px-3 py-3">
         {approval.summary && (
-          <p className="text-xs leading-relaxed text-[#d8d8df]">{approval.summary}</p>
+          <p className="text-xs leading-relaxed">{approval.summary}</p>
         )}
         {artifact ? (
           <button
             type="button"
             onClick={() => onOpenArtifact?.(artifact)}
-            className="flex w-full items-center gap-2 rounded-md border border-white/10 bg-[#0d1117]/60 px-2.5 py-2 text-left text-xs text-[#d8d8df] transition hover:border-sky-300/35 hover:bg-sky-300/[0.08]"
+            className="agenthub-soft flex w-full items-center gap-2 rounded-md border px-2.5 py-2 text-left text-xs transition hover:border-[color:var(--ah-accent)]"
           >
             <FileSearch size={14} className="shrink-0 text-sky-200" aria-hidden="true" />
             <span className="min-w-0 flex-1">
               <span className="block truncate font-medium text-sky-100">
                 {artifact.title || artifact.filePath || "关联产物"}
               </span>
-              <span className="mt-0.5 block truncate text-[11px] text-[#9aa5b1]">
+              <span className="agenthub-muted mt-0.5 block truncate text-[11px]">
                 {artifact.type} · v{artifact.version}{artifact.filePath ? ` · ${artifact.filePath}` : ""}
               </span>
             </span>
           </button>
         ) : (
-          <div className="inline-flex items-center gap-2 rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-2 text-xs text-[#9aa5b1]">
+          <div className="agenthub-soft inline-flex items-center gap-2 rounded-md border px-2.5 py-2 text-xs agenthub-muted">
             <FileSearch size={14} aria-hidden="true" />
             <span>无关联产物，可基于摘要审批</span>
           </div>
@@ -70,7 +70,7 @@ export function ApprovalCard({
               type="button"
               onClick={() => onReject(approval)}
               disabled={busy}
-              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-white/10 px-2.5 text-xs text-[#d8d8df] transition hover:bg-white/[0.07] disabled:opacity-50"
+              className="agenthub-icon-button inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs disabled:opacity-50"
             >
               <Undo2 size={13} aria-hidden="true" />
               驳回修改
@@ -86,7 +86,7 @@ export function ApprovalCard({
             </button>
           </div>
         ) : approval.reason ? (
-          <div className="rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-2 text-xs text-[#d8d8df]">
+          <div className="agenthub-soft rounded-md border px-2.5 py-2 text-xs">
             {approval.reason}
           </div>
         ) : null}

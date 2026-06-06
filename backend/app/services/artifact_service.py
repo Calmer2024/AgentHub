@@ -176,10 +176,58 @@ class ArtifactService:
         )
 
     async def create_from_detection(self, detection: ArtifactDetection) -> tuple[Artifact, bool]:
-        """Create a v1 artifact from a bridge detection, returning existing rows idempotently."""
+        """Create or version an artifact from bridge detection.
+
+        Workspace-backed artifacts are identified by project/session/type/file_path. A later
+        detection for the same file becomes the next version instead of a duplicate asset card.
+        """
         existing = await self._find_detection_duplicate(detection)
         if existing:
             return existing, False
+
+        head = await self._find_detection_identity_head(detection)
+        if head:
+            if (head.task_id or "") == detection.content_hash:
+                return head, False
+            version = Artifact(
+                id=str(uuid.uuid4()),
+                session_id=detection.session_id,
+                message_id=detection.message_id,
+                project_id=detection.project_id,
+                type=detection.artifact_type,
+                title=detection.title or head.title,
+                content=detection.content,
+                status=detection.status,
+                version=(head.version or 1) + 1,
+                parent_artifact_id=head.id,
+                file_path=detection.file_path,
+                preview_id=detection.preview_id or head.preview_id,
+                source=detection.source,
+                confidence=f"{detection.confidence:.2f}",
+                task_id=detection.task_id or detection.content_hash,
+            )
+            self.db.add(version)
+            await self.db.commit()
+            await self.db.refresh(version)
+            await self._publish(EventType.ARTIFACT_CREATED, {
+                "artifactId": version.id,
+                "id": version.id,
+                "sessionId": version.session_id,
+                "messageId": version.message_id,
+                "projectId": version.project_id,
+                "artifactType": version.type,
+                "type": version.type,
+                "title": version.title,
+                "content": version.content,
+                "status": version.status,
+                "version": version.version,
+                "parentArtifactId": version.parent_artifact_id,
+                "filePath": version.file_path,
+                "previewId": version.preview_id,
+                "source": version.source,
+                "createdAt": version.created_at.isoformat() if version.created_at else "",
+            })
+            return version, True
 
         artifact = Artifact(
             id=str(uuid.uuid4()),
@@ -223,7 +271,13 @@ class ArtifactService:
         artifacts = list(result.scalars().all())
         parent_ids = {a.parent_artifact_id for a in artifacts if a.parent_artifact_id}
         heads = [a for a in artifacts if a.id not in parent_ids]
-        return sorted(heads, key=lambda a: a.created_at or datetime.min, reverse=True)
+        grouped: dict[tuple[str, ...], Artifact] = {}
+        for artifact in heads:
+            key = self._artifact_identity_key(artifact)
+            current = grouped.get(key)
+            if not current or self._is_newer_head(artifact, current):
+                grouped[key] = artifact
+        return sorted(grouped.values(), key=lambda a: a.created_at or datetime.min, reverse=True)
 
     async def get_versions(self, artifact_id: str) -> list[Artifact]:
         start = await self._get_artifact(artifact_id)
@@ -433,6 +487,59 @@ class ArtifactService:
             .limit(1)
         )
         return result.scalars().first()
+
+    async def _find_detection_identity_head(self, detection: ArtifactDetection) -> Artifact | None:
+        if not detection.file_path:
+            return None
+        filters = [
+            Artifact.session_id == detection.session_id,
+            Artifact.type == detection.artifact_type,
+            Artifact.file_path == detection.file_path,
+        ]
+        if detection.project_id:
+            filters.append(Artifact.project_id == detection.project_id)
+        else:
+            filters.append(Artifact.project_id.is_(None))
+
+        result = await self.db.execute(
+            select(Artifact)
+            .where(*filters)
+            .order_by(Artifact.created_at.desc())
+        )
+        candidates = list(result.scalars().all())
+        if not candidates:
+            return None
+        parent_ids = {artifact.parent_artifact_id for artifact in candidates if artifact.parent_artifact_id}
+        heads = [artifact for artifact in candidates if artifact.id not in parent_ids]
+        if not heads:
+            heads = candidates
+        head = sorted(
+            heads,
+            key=lambda artifact: (
+                artifact.version or 1,
+                artifact.created_at or datetime.min,
+            ),
+            reverse=True,
+        )[0]
+        return head
+
+    @staticmethod
+    def _artifact_identity_key(artifact: Artifact) -> tuple[str, ...]:
+        if artifact.file_path:
+            return (
+                "file",
+                artifact.session_id,
+                artifact.project_id or "",
+                artifact.type,
+                artifact.file_path,
+            )
+        return ("id", artifact.id)
+
+    @staticmethod
+    def _is_newer_head(candidate: Artifact, current: Artifact) -> bool:
+        candidate_key = (candidate.version or 1, candidate.created_at or datetime.min)
+        current_key = (current.version or 1, current.created_at or datetime.min)
+        return candidate_key > current_key
 
     async def _write_workspace_file(self, artifact: Artifact, content: str) -> None:
         if not artifact.project_id or not artifact.file_path:

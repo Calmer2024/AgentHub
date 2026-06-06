@@ -193,6 +193,77 @@ class TestArtifactOutputBridgePhase6:
         )).scalars().all()
         assert len(rows) == 1
 
+    async def test_repeated_workspace_file_detection_creates_new_version_head(
+        self, test_client, db_session, test_session,
+    ):
+        session = await db_session.get(Session, test_session)
+        project = await db_session.get(Project, session.project_id)
+        detector = FileChangeDetector()
+
+        first_snapshot = detector.create_snapshot(project.workspace_path, "before-first")
+        Path(project.workspace_path, "index.html").write_text(
+            "<!doctype html><html><body><main>Version 1</main></body></html>",
+            encoding="utf-8",
+        )
+        first_message = Message(
+            id=str(uuid.uuid4()),
+            session_id=test_session,
+            role="assistant",
+            content="已写入 index.html v1",
+            source_type="agent",
+        )
+        db_session.add(first_message)
+        await db_session.commit()
+
+        first = await ArtifactOutputBridge(db_session).scan_completed_message(
+            session=session,
+            message=first_message,
+            workspace_path=project.workspace_path,
+            visible_content=first_message.content,
+            snapshot_id=first_snapshot.snapshot_id,
+        )
+        first_html = next(item for item in first.created if item.type == "web_preview")
+
+        second_snapshot = detector.create_snapshot(project.workspace_path, "before-second")
+        Path(project.workspace_path, "index.html").write_text(
+            "<!doctype html><html><body><main>Version 2</main></body></html>",
+            encoding="utf-8",
+        )
+        second_message = Message(
+            id=str(uuid.uuid4()),
+            session_id=test_session,
+            role="assistant",
+            content="已更新 index.html v2",
+            source_type="agent",
+        )
+        db_session.add(second_message)
+        await db_session.commit()
+
+        second = await ArtifactOutputBridge(db_session).scan_completed_message(
+            session=session,
+            message=second_message,
+            workspace_path=project.workspace_path,
+            visible_content=second_message.content,
+            snapshot_id=second_snapshot.snapshot_id,
+        )
+        second_html = next(item for item in second.created if item.type == "web_preview")
+
+        assert second_html.version == 2
+        assert second_html.parent_artifact_id == first_html.id
+        assert second_html.message_id == second_message.id
+
+        artifacts_resp = await test_client.get(f"/api/sessions/{test_session}/artifacts")
+        artifacts = [
+            item for item in artifacts_resp.json()
+            if item["type"] == "web_preview" and item["filePath"] == "index.html"
+        ]
+        assert len(artifacts) == 1
+        assert artifacts[0]["id"] == second_html.id
+        assert artifacts[0]["version"] == 2
+
+        versions_resp = await test_client.get(f"/api/artifacts/{second_html.id}/versions")
+        assert [item["version"] for item in versions_resp.json()] == [1, 2]
+
     async def test_markdown_candidate_is_saved_to_message_metadata_without_artifact(
         self, db_session, test_session,
     ):

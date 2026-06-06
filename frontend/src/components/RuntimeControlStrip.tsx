@@ -48,7 +48,7 @@ export function RuntimeControlStrip({ run, tasks = [], onCancel, cancelling }: P
     ?? tasks[0];
 
   return (
-    <div className="mt-3 flex min-h-9 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.05] px-2.5 py-1.5 text-xs text-[#d8d8df]">
+    <div className="agenthub-soft mt-3 flex min-h-9 items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs">
       <span className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${
         run.status === "failed" ? "text-rose-200" : run.status === "completed" ? "text-emerald-200" : "text-sky-200"
       }`}>
@@ -56,11 +56,11 @@ export function RuntimeControlStrip({ run, tasks = [], onCancel, cancelling }: P
       </span>
       <span className="font-medium">{statusText(run.status)}</span>
       {primaryTask && (
-        <span className="min-w-0 flex-1 truncate text-[#9aa5b1]">
+        <span className="agenthub-muted min-w-0 flex-1 truncate">
           {primaryTask.role ?? "executor"} · {primaryTask.name}
         </span>
       )}
-      <span className="font-mono text-[11px] text-[#9aa5b1]">
+      <span className="agenthub-muted font-mono text-[11px]">
         {elapsed(run.startedAt, run.completedAt)}
       </span>
       {canCancel && (

@@ -216,19 +216,19 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
   const fullscreenDialog = fullscreen && typeof document !== "undefined"
     ? createPortal(
       <div
-        className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/70 p-3 md:p-6"
+        className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/55 p-3 backdrop-blur-sm md:p-6"
         role="dialog"
         aria-modal="true"
         aria-label={`${artifactLabel(artifact)}：${artifact.title || artifact.filePath || "产物预览"}`}
         onClick={() => setFullscreen(false)}
       >
         <div
-          className="flex max-h-[92dvh] w-full max-w-6xl flex-col overflow-hidden rounded-lg border border-[#30363d] bg-[#0d1117] shadow-2xl"
+          className="agenthub-modal flex max-h-[92dvh] w-full max-w-6xl flex-col overflow-hidden rounded-lg border"
           onClick={(event) => event.stopPropagation()}
         >
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#30363d] bg-[#161b22] px-4 py-3">
+          <div className="agenthub-header flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
             <div className="min-w-0">
-              <div className="flex items-center gap-2 text-[11px] text-[#8b949e]">
+              <div className="agenthub-muted flex items-center gap-2 text-[11px]">
                 {artifactIcon(artifact)}
                 <span>{artifactLabel(artifact)}</span>
                 <span className={`rounded-md border px-1.5 py-0.5 ${statusClass(artifact.status)}`}>
@@ -236,15 +236,15 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
                 </span>
                 <span className="font-mono text-[#7d8590]">v{displayVersion}</span>
               </div>
-              <h3 className="mt-1 truncate text-base font-semibold text-[#f0f6fc]">{artifact.title || "产物预览"}</h3>
-              {artifact.filePath && <p className="mt-0.5 truncate font-mono text-xs text-[#7d8590]">{artifact.filePath}</p>}
+              <h3 className="agenthub-strong mt-1 truncate text-base font-semibold">{artifact.title || "产物预览"}</h3>
+              {artifact.filePath && <p className="agenthub-faint mt-0.5 truncate font-mono text-xs">{artifact.filePath}</p>}
             </div>
             <div className="flex items-center gap-2">
               {previewUrl && artifact.type === "web_preview" && (
                 <button
                   type="button"
                   onClick={openExternalPreview}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#30363d] text-[#8b949e] hover:bg-[#21262d] hover:text-[#f0f6fc]"
+                  className="agenthub-icon-button inline-flex h-8 w-8 items-center justify-center rounded-md"
                   aria-label="在浏览器中打开"
                   title="在浏览器中打开"
                 >
@@ -255,7 +255,7 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
                 <button
                   type="button"
                   onClick={() => setVersionManagerOpen(true)}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#30363d] text-[#8b949e] hover:bg-[#21262d] hover:text-[#f0f6fc]"
+                  className="agenthub-icon-button inline-flex h-8 w-8 items-center justify-center rounded-md"
                   aria-label="打开版本管理"
                   title="版本管理"
                 >
@@ -266,7 +266,7 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
                 <button
                   type="button"
                   onClick={() => setEditorOpen(true)}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#30363d] text-[#8b949e] hover:bg-[#21262d] hover:text-[#f0f6fc]"
+                  className="agenthub-icon-button inline-flex h-8 w-8 items-center justify-center rounded-md"
                   aria-label="编辑文件"
                   title="编辑文件"
                 >
@@ -276,7 +276,7 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
               <button
                 type="button"
                 onClick={() => setFullscreen(false)}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#30363d] text-[#8b949e] hover:bg-[#21262d] hover:text-[#f0f6fc]"
+                className="agenthub-icon-button inline-flex h-8 w-8 items-center justify-center rounded-md"
                 aria-label="关闭产物预览"
                 title="关闭"
               >
@@ -303,8 +303,8 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
             </div>
 
             {showInspector && (
-              <div className="min-h-0 overflow-y-auto border-t border-[#30363d] bg-[#111820] p-3 lg:border-l lg:border-t-0">
-                <div className="mb-3 flex items-center gap-2 text-xs font-medium text-[#c9d1d9]">
+              <div className="agenthub-sidebar min-h-0 overflow-y-auto border-t p-3 lg:border-l lg:border-t-0">
+                <div className="agenthub-strong mb-3 flex items-center gap-2 text-xs font-medium">
                   <GitCompareArrows size={14} aria-hidden="true" />
                   <span>最新版本与上一版本</span>
                 </div>
@@ -320,15 +320,15 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
 
   return (
     <>
-      <article className="group/card relative overflow-visible rounded-lg border border-white/10 bg-[#111820] text-[#c9d1d9] shadow-[0_12px_28px_rgba(0,0,0,0.18)] transition hover:border-[#3a6ff7]/45">
-        <div className="flex items-start justify-between gap-3 border-b border-white/10 px-3 py-2">
+      <article className="agenthub-card group/card relative overflow-visible rounded-lg border transition hover:border-[color:var(--ah-accent)]">
+        <div className="flex items-start justify-between gap-3 border-b px-3 py-2" style={{ borderColor: "var(--ah-border)" }}>
           <button
             type="button"
             onClick={() => setFullscreen(true)}
             aria-label={`打开产物预览：${artifact.title || artifact.filePath || "产物"}`}
             className="min-w-0 flex-1 text-left transition active:translate-y-px"
           >
-            <div className="flex items-center gap-2 text-[11px] text-[#8b949e]">
+            <div className="agenthub-muted flex items-center gap-2 text-[11px]">
               {artifactIcon(artifact)}
               <span>{artifactLabel(artifact)}</span>
               <span className={`rounded-md border px-1.5 py-0.5 ${statusClass(artifact.status)}`}>
@@ -336,11 +336,11 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
               </span>
               <span className="font-mono">v{artifact.version}</span>
             </div>
-            <div className="mt-1 truncate text-sm font-medium text-[#f0f6fc]">
+            <div className="agenthub-strong mt-1 truncate text-sm font-medium">
               {artifact.title || artifact.filePath || "产物"}
             </div>
             {artifact.filePath && (
-              <div className="mt-0.5 truncate font-mono text-[11px] text-[#7d8590]">{artifact.filePath}</div>
+              <div className="agenthub-faint mt-0.5 truncate font-mono text-[11px]">{artifact.filePath}</div>
             )}
           </button>
           <div className="flex shrink-0 items-center gap-1">
@@ -348,7 +348,7 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
               <button
                 type="button"
                 onClick={() => setVersionManagerOpen(true)}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-white/10 text-[#8b949e] transition hover:border-[#3a6ff7]/50 hover:text-[#dbe7ff]"
+                className="agenthub-icon-button inline-flex h-8 w-8 items-center justify-center rounded-md"
                 aria-label="版本管理"
                 title="版本管理"
               >
@@ -359,7 +359,7 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
               <button
                 type="button"
                 onClick={() => setEditorOpen(true)}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-white/10 text-[#8b949e] transition hover:border-[#3a6ff7]/50 hover:text-[#dbe7ff]"
+                className="agenthub-icon-button inline-flex h-8 w-8 items-center justify-center rounded-md"
                 aria-label="编辑文件"
                 title="编辑文件"
               >
@@ -369,7 +369,7 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
             <button
               type="button"
               onClick={() => setFullscreen(true)}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-white/10 text-[#8b949e] transition group-hover/card:border-[#3a6ff7]/50 group-hover/card:text-[#dbe7ff]"
+              className="agenthub-icon-button inline-flex h-8 w-8 items-center justify-center rounded-md"
               aria-label="打开产物预览"
               title="打开预览"
             >

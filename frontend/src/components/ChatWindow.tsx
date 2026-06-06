@@ -28,6 +28,7 @@ interface Props {
   artifacts: Artifact[];
   isStreaming: boolean;
   streamingError: string | null;
+  hydrating?: boolean;
   currentAgent: AgentConfig | null;
   currentSessionId: string;
   agents: AgentConfig[];
@@ -64,6 +65,7 @@ const EMPTY_APPROVALS: ApprovalCheckpoint[] = [];
 
 export function ChatWindow({
   messages, artifacts, isStreaming, streamingError,
+  hydrating = false,
   currentAgent, currentSessionId, agents, mode, routeAgents, orchestratorIntent, planSummary, mentionableAgents,
   collabTasks, dagPhases, collabCompleted, collabSummary,
   onSend, onDismissError, onReply, onRegenerate, onTogglePin, onArtifactsChanged,
@@ -315,9 +317,9 @@ export function ChatWindow({
   }, []);
 
   return (
-    <div className="relative flex-1 h-full min-h-0 flex flex-col overflow-hidden bg-[#0f141a] text-[#ececf1]">
+    <div className="agenthub-chat relative flex-1 h-full min-h-0 flex flex-col overflow-hidden transition-colors duration-300">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-white/[0.08] bg-[#17212b]/95 px-4 py-3 backdrop-blur md:px-6">
+      <div className="agenthub-header flex items-center justify-between border-b px-4 py-3 md:px-6">
         <div className="flex min-w-0 items-center gap-3">
           <AgentAvatar
             agent={!isGroup ? currentAgent : undefined}
@@ -326,10 +328,10 @@ export function ChatWindow({
             size="md"
           />
           <div className="min-w-0">
-            <h1 className="truncate text-base font-semibold text-white">
+            <h1 className="agenthub-strong truncate text-base font-semibold">
               {isGroup ? "群聊" : currentAgent?.name ?? "未选择 Agent"}
             </h1>
-            <p className="mt-0.5 truncate text-xs text-[#9aa5b1]">
+            <p className="agenthub-muted mt-0.5 truncate text-xs">
               {headerStatus}
             </p>
           </div>
@@ -347,13 +349,14 @@ export function ChatWindow({
             type="button"
             onClick={() => setArtifactManagerOpen(true)}
             disabled={artifacts.length === 0}
-            className="relative inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 text-[#d8d8df] transition hover:bg-white/[0.07] active:translate-y-px disabled:cursor-not-allowed disabled:opacity-45"
+            className="agenthub-icon-button relative inline-flex h-9 w-9 items-center justify-center rounded-full disabled:cursor-not-allowed disabled:opacity-45"
             aria-label={`会话文件，${artifacts.length} 个产物`}
             title={artifacts.length > 0 ? "会话文件" : "暂无会话文件"}
           >
             <Files size={15} />
             {artifacts.length > 0 && (
-              <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-[#17212b] bg-[#2f7cf6] px-1 text-[10px] font-semibold text-white">
+              <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border px-1 text-[10px] font-semibold text-white"
+                style={{ borderColor: "var(--ah-header-bg)", background: "var(--ah-accent-strong)" }}>
                 {artifacts.length > 9 ? "9+" : artifacts.length}
               </span>
             )}
@@ -361,7 +364,7 @@ export function ChatWindow({
           <button
             type="button"
             onClick={() => setSearchOpen(true)}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 text-[#d8d8df] transition hover:bg-white/[0.07] active:translate-y-px"
+            className="agenthub-icon-button inline-flex h-9 w-9 items-center justify-center rounded-full"
             aria-label="搜索"
             title="搜索"
           >
@@ -369,6 +372,11 @@ export function ChatWindow({
           </button>
         </div>
       </div>
+      {hydrating && (
+        <div className="h-0.5 overflow-hidden bg-transparent" aria-label="正在同步当前对话">
+          <div className="h-full w-1/2 animate-[agenthub-progress_920ms_ease-in-out_infinite] rounded-full bg-[#8fb7aa]" />
+        </div>
+      )}
 
       {/* Alerts area (non-scrollable, stacks naturally) */}
       {!isGroup && !currentAgent && (
@@ -429,14 +437,16 @@ export function ChatWindow({
         </div>
       )}
 
-      <div className="relative flex-1 min-h-0 flex overflow-hidden bg-[#0f141a]">
+      <div className="relative flex-1 min-h-0 flex overflow-hidden">
         {/* Messages area (scrollable) */}
         <div
           ref={scrollRef}
-          className="relative min-h-0 w-full overflow-y-auto bg-[radial-gradient(circle_at_top_left,rgba(47,124,246,0.12),transparent_32%),linear-gradient(180deg,#0f141a_0%,#111820_100%)] p-4 md:p-6"
+          className="agenthub-message-area relative min-h-0 w-full overflow-y-auto p-4 md:p-6"
         >
-          {messages.length === 0 && collabTasks.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-center text-[#ececf1]">
+          {messages.length === 0 && collabTasks.length === 0 && hydrating ? (
+            <MessageListSkeleton />
+          ) : messages.length === 0 && collabTasks.length === 0 ? (
+            <div className="agenthub-strong flex flex-col items-center justify-center h-full text-center">
               <p className="text-2xl font-medium">
                 {isGroup ? "我们应该先讨论什么？" : "开始对话吧"}
               </p>
@@ -540,6 +550,29 @@ export function ChatWindow({
         busy={isStreaming || hasActiveRun}
         mentionableAgents={isGroup ? mentionableAgents : agents}
       />
+    </div>
+  );
+}
+
+function MessageListSkeleton() {
+  return (
+    <div className="flex h-full flex-col justify-end gap-4 pb-6" aria-label="正在加载消息">
+      {Array.from({ length: 5 }).map((_, index) => {
+        const user = index % 3 === 1;
+        return (
+          <div
+            key={index}
+            className={`flex items-end gap-2.5 ${user ? "flex-row-reverse" : ""}`}
+          >
+            <div className="h-10 w-10 shrink-0 animate-pulse rounded-full bg-white/[0.08]" />
+            <div
+              className={`animate-pulse rounded-[20px] bg-white/[0.07] ${
+                user ? "h-16 w-[min(58%,520px)] rounded-br-md" : "h-24 w-[min(76%,720px)] rounded-bl-md"
+              }`}
+            />
+          </div>
+        );
+      })}
     </div>
   );
 }

@@ -20,17 +20,18 @@ export function ReplyPreview({ message, compact = false, onClear, onJump }: Prop
 
   return (
     <div
-      className={`border-l-2 border-sky-400 bg-white/[0.06] text-[#d8d8df] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] ${
+      className={`agenthub-soft border-l-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] ${
         compact ? "px-3 py-2 text-xs rounded-xl mb-2" : "px-4 py-3 text-sm rounded-2xl"
       }`}
+      style={{ borderLeftColor: "var(--ah-accent)" }}
     >
       <div className="flex items-center gap-2">
-        <Quote size={compact ? 13 : 15} className="shrink-0 text-sky-300" />
+        <Quote size={compact ? 13 : 15} className="agenthub-accent shrink-0" />
         <button
           type="button"
           onClick={() => messageId && onJump?.(messageId)}
           disabled={!message || !onJump}
-          className="font-medium text-sky-200 disabled:text-slate-500 disabled:cursor-default"
+          className="agenthub-accent font-medium disabled:cursor-default disabled:opacity-50"
         >
           {label}
         </button>
@@ -38,7 +39,7 @@ export function ReplyPreview({ message, compact = false, onClear, onJump }: Prop
           <button
             type="button"
             onClick={onClear}
-            className="ml-auto inline-flex h-7 w-7 items-center justify-center rounded-full text-slate-400 hover:bg-white/10 hover:text-white"
+            className="agenthub-icon-button ml-auto inline-flex h-7 w-7 items-center justify-center rounded-full"
             aria-label="取消引用"
             title="取消引用"
           >
@@ -46,7 +47,7 @@ export function ReplyPreview({ message, compact = false, onClear, onJump }: Prop
           </button>
         )}
       </div>
-      <div className="mt-1 max-h-10 overflow-hidden break-words text-[#9aa5b1]">
+      <div className="agenthub-muted mt-1 max-h-10 overflow-hidden break-words">
         {content || "..."}
       </div>
     </div>

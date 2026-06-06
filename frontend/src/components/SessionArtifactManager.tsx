@@ -69,29 +69,29 @@ export function SessionArtifactManager({ open, artifacts, onClose, onChanged }: 
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[1050] flex items-center justify-center bg-black/72 p-3 md:p-6"
+      className="fixed inset-0 z-[1050] flex items-center justify-center bg-black/50 p-3 backdrop-blur-sm md:p-6"
       role="dialog"
       aria-modal="true"
       aria-label="会话文件与产物"
       onClick={onClose}
     >
       <div
-        className="flex h-[90dvh] w-full max-w-6xl flex-col overflow-hidden rounded-lg border border-[#30363d] bg-[#0d1117] shadow-2xl"
+        className="agenthub-modal flex h-[90dvh] w-full max-w-6xl flex-col overflow-hidden rounded-lg border"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#30363d] bg-[#161b22] px-4 py-3">
+        <div className="agenthub-header flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
           <div className="min-w-0">
-            <div className="flex items-center gap-2 text-[11px] text-[#8b949e]">
+            <div className="agenthub-muted flex items-center gap-2 text-[11px]">
               <LayoutPanelTop size={15} aria-hidden="true" />
               <span>会话产物</span>
               <span>{artifacts.length} 个</span>
             </div>
-            <h3 className="mt-1 truncate text-base font-semibold text-[#f0f6fc]">文件、资产与变更</h3>
+            <h3 className="agenthub-strong mt-1 truncate text-base font-semibold">文件、资产与变更</h3>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#30363d] text-[#8b949e] hover:bg-[#21262d] hover:text-[#f0f6fc]"
+            className="agenthub-icon-button inline-flex h-8 w-8 items-center justify-center rounded-md"
             aria-label="关闭会话产物"
             title="关闭"
           >
@@ -100,21 +100,21 @@ export function SessionArtifactManager({ open, artifacts, onClose, onChanged }: 
         </div>
 
         <div className="grid min-h-0 flex-1 overflow-hidden lg:grid-cols-[320px_minmax(0,1fr)]">
-          <aside className="flex min-h-0 flex-col border-b border-[#30363d] bg-[#111820] lg:border-b-0 lg:border-r">
-            <div className="border-b border-[#30363d] p-3">
-              <label className="flex h-9 items-center gap-2 rounded-md border border-[#30363d] bg-[#0d1117] px-2.5 text-sm text-[#c9d1d9] focus-within:border-sky-400/60">
-                <Search size={14} className="text-[#8b949e]" aria-hidden="true" />
+          <aside className="agenthub-sidebar flex min-h-0 flex-col border-b lg:border-b-0 lg:border-r">
+            <div className="border-b p-3" style={{ borderColor: "var(--ah-border)" }}>
+              <label className="agenthub-composer flex h-9 items-center gap-2 rounded-md border px-2.5 text-sm focus-within:border-[color:var(--ah-accent)]">
+                <Search size={14} className="agenthub-muted" aria-hidden="true" />
                 <input
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
                   placeholder="搜索文件或产物"
-                  className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-[#6e7681]"
+                  className="agenthub-textarea min-w-0 flex-1 bg-transparent text-sm outline-none"
                 />
               </label>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto p-3">
               {filtered.length === 0 ? (
-                <div className="rounded-md border border-[#30363d] bg-[#0d1117] px-3 py-6 text-center text-sm text-[#8b949e]">
+                <div className="agenthub-soft rounded-md border px-3 py-6 text-center text-sm agenthub-muted">
                   暂无匹配产物
                 </div>
               ) : (
@@ -128,18 +128,18 @@ export function SessionArtifactManager({ open, artifacts, onClose, onChanged }: 
                         onClick={() => setSelectedId(artifact.id)}
                         className={`flex w-full items-center gap-2 rounded-md border px-3 py-2 text-left transition ${
                           active
-                            ? "border-sky-300/35 bg-sky-300/10 text-sky-100"
-                            : "border-[#30363d] bg-[#0d1117] text-[#c9d1d9] hover:bg-[#161b22]"
+                            ? "agenthub-nav-active border-[color:var(--ah-accent)]"
+                            : "agenthub-nav-idle border-[color:var(--ah-border)]"
                         }`}
                       >
-                        <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-white/10 bg-white/[0.04]">
+                        <span className="agenthub-soft inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border">
                           {typeIcon(artifact.type)}
                         </span>
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-sm font-medium">
                             {artifact.title || artifact.filePath || "产物"}
                           </span>
-                          <span className="mt-0.5 block truncate text-[11px] text-[#7d8590]">
+                          <span className="agenthub-faint mt-0.5 block truncate text-[11px]">
                             {typeLabel(artifact.type)} · v{artifact.version}
                             {artifact.filePath ? ` · ${artifact.filePath}` : ""}
                           </span>
@@ -152,11 +152,11 @@ export function SessionArtifactManager({ open, artifacts, onClose, onChanged }: 
             </div>
           </aside>
 
-          <main className="min-h-0 overflow-y-auto bg-[#0d1117] p-4">
+          <main className="agenthub-chat min-h-0 overflow-y-auto p-4">
             {selected ? (
               <ArtifactCard artifact={selected} onChanged={onChanged} />
             ) : (
-              <div className="flex h-full items-center justify-center rounded-md border border-[#30363d] bg-[#111820] text-sm text-[#8b949e]">
+              <div className="agenthub-soft flex h-full items-center justify-center rounded-md border text-sm agenthub-muted">
                 当前会话还没有产物
               </div>
             )}

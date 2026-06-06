@@ -183,25 +183,25 @@ export function FileEditorModal({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[1100] flex items-center justify-center bg-black/72 p-3 md:p-6"
+      className="fixed inset-0 z-[1100] flex items-center justify-center bg-black/55 p-3 backdrop-blur-sm md:p-6"
       role="dialog"
       aria-modal="true"
       aria-label={`编辑文件：${label}`}
       onClick={onClose}
     >
       <div
-        className="flex h-[92dvh] w-full max-w-6xl flex-col overflow-hidden rounded-lg border border-[#30363d] bg-[#0d1117] shadow-2xl"
+        className="agenthub-modal flex h-[92dvh] w-full max-w-6xl flex-col overflow-hidden rounded-lg border"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#30363d] bg-[#161b22] px-4 py-3">
+        <div className="agenthub-header flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
           <div className="min-w-0">
-            <div className="flex items-center gap-2 text-[11px] text-[#8b949e]">
+            <div className="agenthub-muted flex items-center gap-2 text-[11px]">
               <FileCode2 size={15} aria-hidden="true" />
               <span>文件编辑器</span>
-              <span className="font-mono text-[#7d8590]">{stats.lines} 行</span>
-              <span className="font-mono text-[#7d8590]">{stats.chars} 字符</span>
+              <span className="agenthub-faint font-mono">{stats.lines} 行</span>
+              <span className="agenthub-faint font-mono">{stats.chars} 字符</span>
             </div>
-            <h3 className="mt-1 truncate text-base font-semibold text-[#f0f6fc]">{label}</h3>
+            <h3 className="agenthub-strong mt-1 truncate text-base font-semibold">{label}</h3>
           </div>
           <div className="flex items-center gap-2">
             {saved && (
@@ -214,7 +214,8 @@ export function FileEditorModal({
               type="button"
               onClick={save}
               disabled={saving || loading || !dirty}
-              className="inline-flex h-8 items-center gap-1.5 rounded-md bg-[#2f7cf6] px-3 text-sm font-medium text-white transition hover:bg-[#3d88ff] disabled:cursor-not-allowed disabled:bg-[#30363d] disabled:text-[#8b949e]"
+              className="inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-sm font-medium text-white transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50"
+              style={{ background: "var(--ah-accent-strong)" }}
             >
               {saving ? <Loader2 size={14} className="animate-spin" aria-hidden="true" /> : <Save size={14} aria-hidden="true" />}
               保存
@@ -222,7 +223,7 @@ export function FileEditorModal({
             <button
               type="button"
               onClick={onClose}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#30363d] text-[#8b949e] hover:bg-[#21262d] hover:text-[#f0f6fc]"
+              className="agenthub-icon-button inline-flex h-8 w-8 items-center justify-center rounded-md"
               aria-label="关闭文件编辑器"
               title="关闭"
             >
@@ -237,30 +238,35 @@ export function FileEditorModal({
           </div>
         )}
 
-        <div className="relative min-h-0 flex-1 bg-[#0b1016] p-3">
+        <div className="agenthub-chat relative min-h-0 flex-1 p-3">
           {selection && (
             <button
               type="button"
               onClick={addToChat}
-              className="absolute right-5 top-5 z-10 inline-flex items-center gap-1.5 rounded-md border border-sky-300/25 bg-[#1c2d4a] px-3 py-2 text-xs font-medium text-sky-100 shadow-xl hover:bg-[#23385d]"
+              className="absolute right-5 top-5 z-10 inline-flex items-center gap-1.5 rounded-md border px-3 py-2 text-xs font-medium shadow-xl"
+              style={{
+                borderColor: "var(--ah-accent)",
+                background: "var(--ah-accent-soft)",
+                color: "var(--ah-text-strong)",
+              }}
             >
               <MessageSquarePlus size={14} aria-hidden="true" />
               添加到对话
             </button>
           )}
           {loading && (
-            <div className="absolute inset-3 z-10 flex items-center justify-center rounded-md bg-[#0d1117]/86 text-sm text-[#c9d1d9]">
+            <div className="agenthub-card absolute inset-3 z-10 flex items-center justify-center rounded-md text-sm">
               <Loader2 size={16} className="mr-2 animate-spin" aria-hidden="true" />
               正在读取文件
             </div>
           )}
-          <div className="flex h-full min-h-0 overflow-hidden rounded-md border border-[#30363d] bg-[#0d1117] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] focus-within:border-sky-400/60 focus-within:ring-2 focus-within:ring-sky-400/15">
-            <div className="hidden w-11 shrink-0 border-r border-[#30363d] bg-[#0b1016] pt-3 text-center font-mono text-[10px] text-[#6e7681] md:block">
+          <div className="agenthub-card flex h-full min-h-0 overflow-hidden rounded-md border shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] focus-within:border-[color:var(--ah-accent)] focus-within:ring-2 focus-within:ring-[color:var(--ah-accent-soft)]">
+            <div className="agenthub-sidebar agenthub-faint hidden w-11 shrink-0 border-r pt-3 text-center font-mono text-[10px] md:block">
               IDE
             </div>
             <Suspense
               fallback={(
-                <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center text-sm text-[#8b949e]">
+                <div className="agenthub-muted flex min-h-0 min-w-0 flex-1 items-center justify-center text-sm">
                   <Loader2 size={15} className="mr-2 animate-spin" aria-hidden="true" />
                   正在加载编辑器
                 </div>
@@ -280,7 +286,7 @@ export function FileEditorModal({
           </div>
         </div>
 
-        <div className="flex items-center justify-between gap-3 border-t border-[#30363d] bg-[#111820] px-4 py-2 text-[11px] text-[#8b949e]">
+        <div className="agenthub-header flex items-center justify-between gap-3 border-t px-4 py-2 text-[11px] agenthub-muted">
           <span className="inline-flex items-center gap-1.5">
             <Code2 size={13} aria-hidden="true" />
             {selection ? `已选择 ${selection.text.length} 字符` : "选择代码后可添加到对话"}

@@ -86,9 +86,10 @@ export function AgentAvatar({
       </span>
       {kind === "agent" && (
         <span
-          className={`absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-[#171717] ${
+          className={`absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 ${
             showActive ? "bg-emerald-300" : "bg-zinc-500"
           }`}
+          style={{ borderColor: "var(--ah-sidebar-bg)" }}
           aria-hidden="true"
         />
       )}

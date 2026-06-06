@@ -102,10 +102,10 @@ function MessageBubbleBase({
     : ROLE_STYLES.executor;
 
   const bgClass = isUser
-    ? "bg-[#2f7cf6] text-white shadow-[0_12px_28px_rgba(47,124,246,0.28)]"
-    : "border border-white/10 bg-[#1d2733]/95 text-[#ececf1] shadow-[0_14px_34px_rgba(0,0,0,0.18)]";
+    ? "agenthub-bubble-user"
+    : "agenthub-bubble-agent border";
   const roundClass = isUser ? "rounded-[20px] rounded-br-md" : "rounded-[20px] rounded-bl-md";
-  const summaryClass = "border border-indigo-300/25 bg-indigo-950/25 text-[#ececf1] shadow-sm";
+  const summaryClass = "agenthub-card border";
 
   const hasPreviousVersion = Array.isArray(message.metadata?.versions)
     && message.metadata.versions.length > 0;
@@ -147,13 +147,13 @@ function MessageBubbleBase({
           onCopy={onCopy}
         />
         {!isUser && isSummary && (
-          <div className="sticky top-0 z-10 px-3 py-2 text-xs font-semibold rounded-t-[20px] bg-indigo-100/95 text-indigo-900 border-b border-indigo-200 shadow-sm">
+          <div className="sticky top-0 z-10 px-3 py-2 text-xs font-semibold rounded-t-[20px] border-b agenthub-soft">
             <span>系统整理</span>
-            <span className="ml-2 text-indigo-600">{message.sourceName ?? "Orchestrator 中枢"}</span>
+            <span className="agenthub-muted ml-2">{message.sourceName ?? "Orchestrator 中枢"}</span>
           </div>
         )}
         {!isUser && !isSummary && message.agentName && (
-          <div className={`px-3 py-1.5 text-xs font-medium rounded-t-[20px] ${isCollaborating ? "bg-white/70 text-slate-700" : "border-b border-white/10 bg-white/[0.04] text-zinc-300"}`}>
+          <div className={`px-3 py-1.5 text-xs font-medium rounded-t-[20px] ${isCollaborating ? "agenthub-soft" : "border-b agenthub-soft"}`}>
             <span>@{message.agentName}</span>
             {message.agentRole && (
               <span className={`ml-2 px-1.5 py-0.5 rounded border ${roleStyle}`}>
@@ -161,13 +161,13 @@ function MessageBubbleBase({
               </span>
             )}
             {typeof message.phase === "number" && (
-              <span className="ml-2 text-slate-400">Phase {message.phase}</span>
+              <span className="agenthub-muted ml-2">Phase {message.phase}</span>
             )}
           </div>
         )}
         <div className="px-4 py-3">
         {message.isPinned && (
-          <div className={`mb-2 text-xs font-medium ${isUser ? "text-blue-100" : "text-sky-300"}`}>
+          <div className={`mb-2 text-xs font-medium ${isUser ? "text-white/85" : "agenthub-accent"}`}>
             <Pin size={13} aria-label="已 Pin" />
           </div>
         )}

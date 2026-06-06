@@ -41,7 +41,7 @@ function App() {
 
   const {
     projects, currentProjectId, currentProject, sessions, agents, sidebarTab,
-    creatingProject, sessionMembers, currentAgent, currentMode,
+    creatingProject, sessionsLoading, sessionHydrating, sessionMembers, currentAgent, currentMode,
     setSidebarTab, loadData,
     handleSelectProject, handleArchiveProject,
     handleRenameProject, handleDeleteProject,
@@ -128,7 +128,7 @@ function App() {
   }, [currentSessionId, setArtifactsForSession]);
 
   return (
-    <div className="h-[100dvh] w-screen flex flex-col md:flex-row overflow-hidden bg-[#171717] text-[#ececf1]">
+    <div className="agenthub-shell h-[100dvh] w-screen flex flex-col md:flex-row overflow-hidden">
       <ProjectSidebar
         projects={projects}
         currentProjectId={currentProjectId}
@@ -151,10 +151,11 @@ function App() {
         }}
       />
 
-      <div className="w-full md:w-[300px] h-[32dvh] md:h-full bg-[#171717] border-r border-white/[0.08] flex flex-col shrink-0">
+      <div className="agenthub-sidebar w-full md:w-[300px] h-[32dvh] md:h-full border-r flex flex-col shrink-0 transition-colors duration-300">
         <SessionList
           project={currentProject}
           sessions={sessions} currentSessionId={currentSessionId}
+          loading={sessionsLoading}
           agents={agents} onSelectSession={handleSelectSession}
           onNewSession={handleNewSession}
           onNewGroupSession={() => setShowGroupCreator(true)}
@@ -167,6 +168,7 @@ function App() {
         <ChatWindow
           messages={messages} isStreaming={isStreaming}
           artifacts={artifacts}
+          hydrating={sessionHydrating}
           streamingError={streamingError}
           currentAgent={currentAgent} currentSessionId={currentSessionId}
           agents={agents} mode={currentMode}
@@ -186,8 +188,10 @@ function App() {
           onArtifactsChanged={handleArtifactsChanged}
         />
       ) : (
-        <div className="flex-1 min-h-0 flex items-center justify-center bg-[#171717] text-[#8f8f98] text-lg px-6 text-center">
+        <div className="agenthub-chat flex-1 min-h-0 flex items-center justify-center text-lg px-6 text-center">
+          <span className="agenthub-muted">
           {currentProject ? "在当前项目中新建私聊或群聊" : "创建项目后开始"}
+          </span>
         </div>
       )}
 

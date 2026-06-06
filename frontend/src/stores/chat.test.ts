@@ -140,6 +140,72 @@ describe("Chat Store (split)", () => {
     expect(useChatStore.getState().artifacts.map((item) => item.id)).toEqual(["current"]);
   });
 
+  it("chatStore 对同一文件产物只保留最新版本链头", () => {
+    const artifact = (
+      id: string,
+      version: number,
+      createdAt: string,
+      parentArtifactId: string | null = null,
+    ): Artifact => ({
+      id,
+      sessionId: "s-current",
+      messageId: `m-${id}`,
+      projectId: "p1",
+      type: "web_preview",
+      title: "index.html",
+      content: id,
+      status: "ready",
+      version,
+      parentArtifactId,
+      filePath: "index.html",
+      createdAt,
+    });
+    useChatStore.setState({ currentSessionId: "s-current" });
+
+    useChatStore.getState().setArtifactsForSession("s-current", [
+      artifact("v1", 1, "2026-06-06T09:00:00.000+08:00"),
+      artifact("v2", 2, "2026-06-06T09:01:00.000+08:00", "v1"),
+      artifact("duplicate-v1", 1, "2026-06-06T09:02:00.000+08:00"),
+    ]);
+
+    expect(useChatStore.getState().artifacts.map((item) => item.id)).toEqual(["v2"]);
+  });
+
+  it("chatStore 实时 upsert 同一文件新版本会替换旧产物卡片", () => {
+    const base: Artifact = {
+      id: "a1",
+      sessionId: "s-current",
+      messageId: "m1",
+      projectId: "p1",
+      type: "web_preview",
+      title: "index.html",
+      content: "old",
+      status: "ready",
+      version: 1,
+      filePath: "index.html",
+      createdAt: "2026-06-06T09:00:00.000+08:00",
+    };
+    useChatStore.setState({
+      currentSessionId: "s-current",
+      artifacts: [base],
+      artifactsBySession: { "s-current": [base] },
+    });
+
+    useChatStore.getState().upsertArtifact({
+      ...base,
+      id: "a2",
+      messageId: "m2",
+      content: "new",
+      version: 2,
+      parentArtifactId: "a1",
+      createdAt: "2026-06-06T09:01:00.000+08:00",
+    });
+
+    expect(useChatStore.getState().artifacts).toHaveLength(1);
+    expect(useChatStore.getState().artifacts[0].id).toBe("a2");
+    expect(useChatStore.getState().artifacts[0].version).toBe(2);
+  });
+
   it("chatStore 只允许当前 run 结束 streaming", () => {
     useChatStore.setState({ currentSessionId: "s-run" });
     useChatStore.getState().startStreamRun("s-run", "run-new");

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   Archive,
   Bot,
+  Moon,
   Folder,
   FolderOpen,
   MessageCircle,
@@ -9,11 +10,13 @@ import {
   Pencil,
   Plus,
   Settings,
+  Sun,
   Trash2,
   type LucideIcon,
 } from "lucide-react";
 import type { AgentConfig, Project } from "../types";
 import { AgentAvatar } from "./AgentAvatar";
+import { useThemeStore, type ThemeMode } from "../stores/themeStore";
 
 interface Props {
   projects: Project[];
@@ -63,6 +66,8 @@ export function ProjectSidebar({
   const agentMenuRef = useRef<HTMLDivElement>(null);
   const projectMenuRef = useRef<HTMLDivElement>(null);
   const activeAgents = agents.filter((agent) => agent.isActive).slice(0, 6);
+  const theme = useThemeStore((state) => state.theme);
+  const setTheme = useThemeStore((state) => state.setTheme);
 
   useEffect(() => {
     if (!menuOpen && !agentMenuOpen && !projectMenuOpen) return;
@@ -111,8 +116,9 @@ export function ProjectSidebar({
   };
 
   return (
-    <aside className="w-full md:w-[260px] h-[34dvh] md:h-full bg-[#202123] text-[#ececf1] flex flex-col shrink-0 border-r border-white/[0.08]">
-      <div className="px-3 py-3 space-y-1">
+    <aside className="agenthub-rail w-full md:w-[260px] h-[34dvh] md:h-full flex flex-col shrink-0 border-r transition-colors duration-300">
+      <div className="px-3 py-3 space-y-3">
+        <ThemeToggle theme={theme} onChange={setTheme} />
         <NavButton
           icon={MessageCircle}
           label="对话"
@@ -122,8 +128,8 @@ export function ProjectSidebar({
         <NavButton icon={Bot} label="添加 Agent" onClick={onCreateAgent} />
       </div>
 
-      <div className="border-t border-white/[0.08] px-3 py-3">
-        <div className="mb-2 flex items-center justify-between text-sm text-[#8f8f98]">
+      <div className="border-t px-3 py-3" style={{ borderColor: "var(--ah-border)" }}>
+        <div className="agenthub-muted mb-2 flex items-center justify-between text-sm">
           <span className="inline-flex items-center gap-2">
             <Bot size={15} />
             好友
@@ -137,10 +143,10 @@ export function ProjectSidebar({
         </div>
         <div className="space-y-1">
           {activeAgents.length === 0 ? (
-            <div className="px-2 py-2 text-xs text-[#74747d]">暂无可用 Agent</div>
+            <div className="agenthub-faint px-2 py-2 text-xs">暂无可用 Agent</div>
           ) : activeAgents.map((agent) => (
             <div key={agent.id} className="relative" ref={agentMenuOpen === agent.id ? agentMenuRef : undefined}>
-              <div className="w-full rounded-2xl px-2 py-2 text-left text-[#d8d8df] transition hover:bg-white/[0.07]">
+              <div className="agenthub-nav-idle w-full rounded-2xl px-2 py-2 text-left transition">
                 <div className="flex items-center gap-3">
                   <AgentAvatar agent={agent} size="sm" />
                   <button
@@ -153,14 +159,14 @@ export function ProjectSidebar({
                     title={currentProjectId ? "发起对话" : "请先选择项目"}
                   >
                     <span className="block truncate text-sm font-medium">{agent.name}</span>
-                    <span className="mt-0.5 block truncate text-xs text-[#74747d]">
+                    <span className="agenthub-faint mt-0.5 block truncate text-xs">
                       {agent.version || (agent.status === "ready" ? "就绪" : "未找到 executable")}
                     </span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setAgentMenuOpen((value) => (value === agent.id ? null : agent.id))}
-                    className="inline-flex h-7 w-7 items-center justify-center rounded-full text-[#8f8f98] hover:bg-white/10 hover:text-white"
+                    className="agenthub-icon-button inline-flex h-7 w-7 items-center justify-center rounded-full"
                     title="Agent 操作"
                     aria-label="Agent 操作"
                   >
@@ -169,7 +175,7 @@ export function ProjectSidebar({
                 </div>
               </div>
               {agentMenuOpen === agent.id && (
-                <div className="absolute right-1 top-10 z-30 w-38 rounded-2xl border border-white/10 bg-[#2b2b2f] p-1 shadow-2xl">
+                <div className="agenthub-menu absolute right-1 top-10 z-30 w-38 rounded-2xl border p-1">
                   <MenuItem
                     icon={MessageCircle}
                     label="发起对话"
@@ -203,7 +209,7 @@ export function ProjectSidebar({
       </div>
 
       <div className="px-3 pt-2 pb-1">
-        <div className="mb-2 flex items-center justify-between text-sm text-[#8f8f98]">
+        <div className="agenthub-muted mb-2 flex items-center justify-between text-sm">
           <span className="inline-flex items-center gap-2">
             <FolderOpen size={15} />
             项目
@@ -216,7 +222,7 @@ export function ProjectSidebar({
               onClick={() => setMenuOpen((value) => !value)}
             />
             {menuOpen && (
-              <div className="absolute right-0 top-9 z-30 w-56 rounded-2xl border border-white/10 bg-[#2b2b2f] p-1.5 shadow-2xl">
+              <div className="agenthub-menu absolute right-0 top-9 z-30 w-56 rounded-2xl border p-1.5">
                 <MenuItem
                   icon={Plus}
                   label="新建空白项目"
@@ -235,7 +241,7 @@ export function ProjectSidebar({
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
         {projects.length === 0 ? (
-          <div className="px-2 py-8 text-sm text-[#74747d]">暂无项目</div>
+          <div className="agenthub-faint px-2 py-8 text-sm">暂无项目</div>
         ) : projects.map((project) => {
           const selected = currentProjectId === project.id && activePanel === "sessions";
           const isRenaming = renamingProjectId === project.id;
@@ -244,12 +250,12 @@ export function ProjectSidebar({
               <button
                 type="button"
                 onClick={() => { onSelectProject(project.id); onOpenPanel("sessions"); }}
-                className={`w-full rounded-2xl px-2.5 py-2.5 text-left transition-colors ${
-                  selected ? "bg-white/10 text-white" : "text-[#d8d8df] hover:bg-white/[0.07]"
+                className={`w-full rounded-2xl px-2.5 py-2.5 text-left transition-all duration-200 ${
+                  selected ? "agenthub-nav-active" : "agenthub-nav-idle"
                 }`}
               >
                 <div className="flex items-center gap-2">
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-[#a4a4ad]">
+                  <span className="agenthub-soft flex h-8 w-8 shrink-0 items-center justify-center rounded-full border agenthub-muted">
                     <Folder size={15} />
                   </span>
                   <span className="min-w-0 flex-1">
@@ -263,13 +269,13 @@ export function ProjectSidebar({
                           if (event.key === "Escape") setRenamingProjectId(null);
                         }}
                         onClick={(event) => event.stopPropagation()}
-                        className="w-full rounded-lg border border-blue-300 bg-[#111318] px-2 py-1 text-sm text-white outline-none"
+                        className="w-full rounded-lg border px-2 py-1 text-sm outline-none agenthub-composer"
                         autoFocus
                       />
                     ) : (
                       <>
                         <span className="block truncate text-sm font-medium">{project.name}</span>
-                        <span className="mt-0.5 block truncate text-xs text-[#74747d]">{project.status}</span>
+                        <span className="agenthub-faint mt-0.5 block truncate text-xs">{project.status}</span>
                       </>
                     )}
                   </span>
@@ -281,14 +287,14 @@ export function ProjectSidebar({
                   event.stopPropagation();
                   setProjectMenuOpen((value) => (value === project.id ? null : project.id));
                 }}
-                className="absolute right-2 top-3 inline-flex h-7 w-7 items-center justify-center rounded-full text-[#8f8f98] opacity-0 hover:bg-white/10 hover:text-white group-hover:opacity-100"
+                className="agenthub-icon-button absolute right-2 top-3 inline-flex h-7 w-7 items-center justify-center rounded-full opacity-0 group-hover:opacity-100"
                 title="项目操作"
                 aria-label="项目操作"
               >
                 <MoreHorizontal size={15} />
               </button>
               {projectMenuOpen === project.id && (
-                <div className="absolute right-1 top-10 z-30 w-44 rounded-2xl border border-white/10 bg-[#2b2b2f] p-1 shadow-2xl">
+                <div className="agenthub-menu absolute right-1 top-10 z-30 w-44 rounded-2xl border p-1">
                   <MenuItem
                     icon={Pencil}
                     label="重命名"
@@ -328,18 +334,18 @@ export function ProjectSidebar({
             role="dialog"
             aria-modal="true"
             aria-labelledby="blank-project-title"
-            className="w-full max-w-sm rounded-3xl border border-white/10 bg-[#202123] p-4 shadow-2xl"
+            className="agenthub-modal w-full max-w-sm rounded-3xl border p-4"
           >
             <div className="mb-4 flex items-start gap-3">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-[#d8d8df]">
+              <span className="agenthub-soft agenthub-muted flex h-10 w-10 shrink-0 items-center justify-center rounded-full border">
                 <FolderOpen size={18} />
               </span>
               <div>
-                <h2 id="blank-project-title" className="text-base font-semibold text-white">新建项目</h2>
-                <p className="mt-0.5 text-xs text-[#8f8f98]">为空项目选择一个名称。</p>
+                <h2 id="blank-project-title" className="agenthub-strong text-base font-semibold">新建项目</h2>
+                <p className="agenthub-muted mt-0.5 text-xs">为空项目选择一个名称。</p>
               </div>
             </div>
-            <label className="block text-xs font-medium text-[#9aa5b1]" htmlFor="blank-project-name">
+            <label className="agenthub-muted block text-xs font-medium" htmlFor="blank-project-name">
               项目名称
             </label>
             <input
@@ -350,14 +356,14 @@ export function ProjectSidebar({
                 if (event.key === "Enter") void submitCreateProject();
                 if (event.key === "Escape") setCreateModalOpen(false);
               }}
-              className="mt-2 h-11 w-full rounded-2xl border border-white/10 bg-[#0f141a] px-3 text-sm text-white outline-none transition placeholder:text-[#74747d] focus:border-sky-400/50 focus:ring-2 focus:ring-sky-400/15"
+              className="agenthub-composer agenthub-textarea mt-2 h-11 w-full rounded-2xl border px-3 text-sm outline-none transition focus:ring-2 focus:ring-[color:var(--ah-accent-soft)]"
               autoFocus
             />
             <div className="mt-5 flex justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setCreateModalOpen(false)}
-                className="h-10 rounded-full border border-white/10 px-4 text-sm text-[#d8d8df] transition hover:bg-white/10"
+                className="agenthub-icon-button h-10 rounded-full px-4 text-sm"
               >
                 取消
               </button>
@@ -365,7 +371,8 @@ export function ProjectSidebar({
                 type="button"
                 onClick={() => void submitCreateProject()}
                 disabled={!createName.trim() || creating}
-                className="h-10 rounded-full bg-[#2f7cf6] px-5 text-sm font-medium text-white transition hover:bg-[#3d88ff] active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50"
+                className="h-10 rounded-full px-5 text-sm font-medium text-white transition active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50"
+                style={{ background: "var(--ah-accent-strong)" }}
               >
                 创建
               </button>
@@ -374,6 +381,37 @@ export function ProjectSidebar({
         </div>
       )}
     </aside>
+  );
+}
+
+function ThemeToggle({
+  theme,
+  onChange,
+}: {
+  theme: ThemeMode;
+  onChange: (theme: ThemeMode) => void;
+}) {
+  return (
+    <div className="agenthub-theme-segment grid grid-cols-2 rounded-full p-1">
+      <button
+        type="button"
+        data-active={theme === "dark"}
+        onClick={() => onChange("dark")}
+        className="agenthub-theme-choice inline-flex h-8 items-center justify-center gap-1.5 rounded-full text-xs font-medium transition"
+      >
+        <Moon size={13} aria-hidden="true" />
+        暗黑
+      </button>
+      <button
+        type="button"
+        data-active={theme === "light"}
+        onClick={() => onChange("light")}
+        className="agenthub-theme-choice inline-flex h-8 items-center justify-center gap-1.5 rounded-full text-xs font-medium transition"
+      >
+        <Sun size={13} aria-hidden="true" />
+        明亮
+      </button>
+    </div>
   );
 }
 
@@ -392,11 +430,11 @@ function NavButton({
     <button
       type="button"
       onClick={onClick}
-      className={`flex w-full items-center gap-2 rounded-2xl px-2.5 py-2 text-left text-sm transition-colors ${
-        active ? "bg-white/10 text-white" : "text-[#d8d8df] hover:bg-white/[0.07]"
+      className={`flex w-full items-center gap-2 rounded-2xl px-2.5 py-2 text-left text-sm transition-all duration-200 ${
+        active ? "agenthub-nav-active" : "agenthub-nav-idle"
       }`}
     >
-      {Icon && <Icon size={15} className="shrink-0 text-[#a4a4ad]" />}
+      {Icon && <Icon size={15} className="agenthub-muted shrink-0" />}
       {label}
     </button>
   );
@@ -418,7 +456,7 @@ function IconButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-white/[0.06] text-[#c9c9d1] transition hover:bg-white/10 disabled:opacity-50"
+      className="agenthub-icon-button inline-flex h-7 w-7 items-center justify-center rounded-full disabled:opacity-50"
       title={title}
       aria-label={title}
     >
@@ -442,11 +480,11 @@ function MenuItem({
     <button
       type="button"
       onClick={onClick}
-      className={`flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm ${
-        danger ? "text-red-200 hover:bg-red-500/15" : "text-[#f3f3f4] hover:bg-white/[0.08]"
+      className={`flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition ${
+        danger ? "text-[color:var(--ah-danger)] hover:bg-red-500/15" : "agenthub-nav-idle"
       }`}
     >
-      {Icon && <Icon size={15} className="shrink-0 text-[#a4a4ad]" />}
+      {Icon && <Icon size={15} className="agenthub-muted shrink-0" />}
       {label}
     </button>
   );

@@ -71,6 +71,58 @@ function replaceById<T extends { id: string }>(items: T[], item: T) {
   return [item, ...items.filter((existing) => existing.id !== item.id)];
 }
 
+function artifactIdentityKey(artifact: Artifact) {
+  const filePath = artifact.filePath?.replace(/\\/g, "/").toLowerCase();
+  if (filePath) {
+    return [
+      "file",
+      artifact.sessionId,
+      artifact.projectId ?? "",
+      artifact.type,
+      filePath,
+    ].join(":");
+  }
+  return `artifact:${artifact.id}`;
+}
+
+function newerArtifact(left: Artifact, right: Artifact) {
+  if (left.version !== right.version) return left.version > right.version ? left : right;
+  const leftTime = Date.parse(left.createdAt || "");
+  const rightTime = Date.parse(right.createdAt || "");
+  return (Number.isFinite(leftTime) ? leftTime : 0) >= (Number.isFinite(rightTime) ? rightTime : 0)
+    ? left
+    : right;
+}
+
+function normalizeArtifacts(artifacts: Artifact[]) {
+  const byId = new Map<string, Artifact>();
+  artifacts.forEach((artifact) => byId.set(artifact.id, artifact));
+
+  const directParents = new Set(
+    artifacts
+      .map((artifact) => artifact.parentArtifactId)
+      .filter((id): id is string => Boolean(id)),
+  );
+  const heads = artifacts.filter((artifact) => !directParents.has(artifact.id));
+  const source = heads.length > 0 ? heads : artifacts;
+  const byIdentity = new Map<string, Artifact>();
+
+  source.forEach((artifact) => {
+    const parent = artifact.parentArtifactId ? byId.get(artifact.parentArtifactId) : null;
+    const key = artifact.filePath || !parent
+      ? artifactIdentityKey(artifact)
+      : artifactIdentityKey(parent);
+    const current = byIdentity.get(key);
+    byIdentity.set(key, current ? newerArtifact(artifact, current) : artifact);
+  });
+
+  return [...byIdentity.values()].sort((left, right) => {
+    const leftTime = Date.parse(left.createdAt || "");
+    const rightTime = Date.parse(right.createdAt || "");
+    return (Number.isFinite(rightTime) ? rightTime : 0) - (Number.isFinite(leftTime) ? leftTime : 0);
+  });
+}
+
 function updateMessageInList(messages: Message[], id: string, updater: (message: Message) => Message) {
   return messages.map((message) => (message.id === id ? updater(message) : message));
 }
@@ -311,28 +363,44 @@ export const useChatStore = create<ChatState>((set, get) => ({
       };
     }),
   setArtifacts: (artifacts) =>
-    set((s) => ({
-      artifacts,
-      artifactsBySession: s.currentSessionId
-        ? { ...s.artifactsBySession, [s.currentSessionId]: artifacts }
-        : s.artifactsBySession,
-    })),
+    set((s) => {
+      const normalized = normalizeArtifacts(artifacts);
+      return {
+        artifacts: normalized,
+        artifactsBySession: s.currentSessionId
+          ? { ...s.artifactsBySession, [s.currentSessionId]: normalized }
+          : s.artifactsBySession,
+      };
+    }),
   setArtifactsForSession: (sessionId, artifacts) =>
-    set((s) => ({
-      artifactsBySession: { ...s.artifactsBySession, [sessionId]: artifacts },
-      ...applyCurrentSession(s, sessionId, { artifacts }),
-    })),
+    set((s) => {
+      const normalized = normalizeArtifacts(artifacts);
+      return {
+        artifactsBySession: { ...s.artifactsBySession, [sessionId]: normalized },
+        ...applyCurrentSession(s, sessionId, { artifacts: normalized }),
+      };
+    }),
   upsertArtifact: (artifact) =>
     set((s) => {
       const sessionId = artifact.sessionId || s.currentSessionId;
       if (!sessionId) return {};
       const current = s.artifactsBySession[sessionId] ?? (s.currentSessionId === sessionId ? s.artifacts : []);
-      const withoutChain = current.filter((a) => (
-        a.id !== artifact.id
-        && a.parentArtifactId !== artifact.id
-        && artifact.parentArtifactId !== a.id
-      ));
-      const artifacts = [artifact, ...withoutChain];
+      const artifactKey = artifactIdentityKey(artifact);
+      const parentKey = artifact.parentArtifactId
+        ? current.find((item) => item.id === artifact.parentArtifactId)
+        : null;
+      const chainKey = parentKey ? artifactIdentityKey(parentKey) : artifactKey;
+      const withoutChain = current.filter((a) => {
+        const key = artifactIdentityKey(a);
+        return (
+          a.id !== artifact.id
+          && a.parentArtifactId !== artifact.id
+          && artifact.parentArtifactId !== a.id
+          && key !== artifactKey
+          && key !== chainKey
+        );
+      });
+      const artifacts = normalizeArtifacts([artifact, ...withoutChain]);
       return {
         artifactsBySession: { ...s.artifactsBySession, [sessionId]: artifacts },
         ...applyCurrentSession(s, sessionId, { artifacts }),

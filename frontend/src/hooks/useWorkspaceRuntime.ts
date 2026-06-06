@@ -53,8 +53,14 @@ export function useWorkspaceRuntime() {
   const updateSession = useSessionStore((state) => state.updateSession);
 
   const wsRef = useRef<WSClient | null>(null);
+  const sessionsByProjectRef = useRef<Record<string, ReturnType<typeof useSessionStore.getState>["sessions"]>>({});
+  const projectRequestRef = useRef(0);
+  const sessionRequestRef = useRef<Record<string, number>>({});
+  const memberRequestRef = useRef(0);
   const [sessionMembers, setSessionMembers] = useState<AgentConfig[]>([]);
   const [creatingProject, setCreatingProject] = useState(false);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [sessionHydrating, setSessionHydrating] = useState(false);
 
   useEffect(() => {
     if (!currentSessionId) return;
@@ -97,12 +103,16 @@ export function useWorkspaceRuntime() {
   }, [currentProjectId, currentSessionId, setSystemHealth]);
 
   const hydrateSession = useCallback(async (id: string) => {
+    const requestId = (sessionRequestRef.current[id] ?? 0) + 1;
+    sessionRequestRef.current[id] = requestId;
+    setSessionHydrating(true);
     const [messages, artifacts, runs, approvals] = await Promise.allSettled([
       fetchMessages(id),
       fetchArtifacts(id),
       fetchRuns(id),
       fetchApprovals(id),
     ]);
+    if (sessionRequestRef.current[id] !== requestId) return;
     if (messages.status === "fulfilled") setMessagesForSession(id, messages.value);
     if (artifacts.status === "fulfilled") setArtifactsForSession(id, artifacts.value);
     if (runs.status === "fulfilled") setRunsForSession(id, runs.value);
@@ -111,6 +121,7 @@ export function useWorkspaceRuntime() {
     if (artifacts.status === "rejected") setArtifactsForSession(id, []);
     if (runs.status === "rejected") setRunsForSession(id, []);
     if (approvals.status === "rejected") setApprovalsForSession(id, []);
+    if (useChatStore.getState().currentSessionId === id) setSessionHydrating(false);
   }, [
     setApprovalsForSession,
     setArtifactsForSession,
@@ -119,16 +130,37 @@ export function useWorkspaceRuntime() {
   ]);
 
   const loadSessionsForProject = useCallback(async (projectId: string | null) => {
+    const requestId = ++projectRequestRef.current;
     if (!projectId) {
       setSessions([]);
       setCurrentSessionId(null);
       setMessages([]);
       setArtifacts([]);
       resetSessionView(null);
+      setSessionsLoading(false);
+      setSessionHydrating(false);
       return;
+    }
+    const cached = sessionsByProjectRef.current[projectId];
+    if (cached) {
+      setSessions(cached);
+      const activeSessionId = useChatStore.getState().currentSessionId;
+      if (!cached.some((session) => session.id === activeSessionId)) {
+        const first = cached[0] ?? null;
+        setCurrentSessionId(first?.id ?? null);
+        if (first) void hydrateSession(first.id);
+        else resetSessionView(null);
+      }
+    } else {
+      setSessions([]);
+      setSessionsLoading(true);
     }
     try {
       const loaded = await fetchSessions(projectId);
+      if (requestId !== projectRequestRef.current || useSessionStore.getState().currentProjectId !== projectId) {
+        return;
+      }
+      sessionsByProjectRef.current[projectId] = loaded;
       setSessions(loaded);
       const activeSessionId = useChatStore.getState().currentSessionId;
       const currentStillVisible = loaded.some((session) => session.id === activeSessionId);
@@ -136,15 +168,19 @@ export function useWorkspaceRuntime() {
         const first = loaded[0] ?? null;
         setCurrentSessionId(first?.id ?? null);
         if (first) {
-          await hydrateSession(first.id);
+          void hydrateSession(first.id);
         } else {
           setMessages([]);
           setArtifacts([]);
           resetSessionView(null);
+          setSessionHydrating(false);
         }
       }
     } catch {
+      if (requestId !== projectRequestRef.current) return;
       setSessions([]);
+    } finally {
+      if (requestId === projectRequestRef.current) setSessionsLoading(false);
     }
   }, [
     setArtifacts,
@@ -157,15 +193,20 @@ export function useWorkspaceRuntime() {
 
   const loadData = useCallback(async () => {
     try {
-      const loadedProjects = await fetchProjects();
-      setProjects(loadedProjects);
-      const nextProjectId = currentProjectId ?? loadedProjects[0]?.id ?? null;
-      if (nextProjectId !== currentProjectId) setCurrentProjectId(nextProjectId);
-      await loadSessionsForProject(nextProjectId);
+      const [loadedProjects, loadedAgents] = await Promise.allSettled([
+        fetchProjects(),
+        fetchAgents(),
+      ]);
+      if (loadedProjects.status === "fulfilled") {
+        setProjects(loadedProjects.value);
+        const activeProjectId = useSessionStore.getState().currentProjectId;
+        const nextProjectId = activeProjectId ?? loadedProjects.value[0]?.id ?? null;
+        if (nextProjectId !== activeProjectId) setCurrentProjectId(nextProjectId);
+        else if (activeProjectId) void loadSessionsForProject(activeProjectId);
+      }
+      if (loadedAgents.status === "fulfilled") setAgents(loadedAgents.value);
     } catch { /* ignore bootstrap failures */ }
-    try { setAgents(await fetchAgents()); } catch { /* ignore */ }
   }, [
-    currentProjectId,
     loadSessionsForProject,
     setAgents,
     setCurrentProjectId,
@@ -177,6 +218,7 @@ export function useWorkspaceRuntime() {
 
   const handleSelectSession = async (id: string) => {
     if (id === useChatStore.getState().currentSessionId) return;
+    const memberRequestId = ++memberRequestRef.current;
     setCurrentSessionId(id);
     setStreamingError(null, id);
     void hydrateSession(id);
@@ -188,22 +230,34 @@ export function useWorkspaceRuntime() {
     }
     try {
       const members = await fetchSessionMembers(id);
+      if (memberRequestId !== memberRequestRef.current || useChatStore.getState().currentSessionId !== id) return;
       setSessionMembers(members.map((m) => ({
         id: m.agentConfigId,
         name: m.agentName,
       } as AgentConfig)));
     } catch {
+      if (memberRequestId !== memberRequestRef.current) return;
       setSessionMembers([]);
     }
   };
 
   const handleSelectProject = (id: string) => {
     if (id === currentProjectId) return;
+    memberRequestRef.current += 1;
+    const cached = sessionsByProjectRef.current[id] ?? [];
     setCurrentProjectId(id);
-    setCurrentSessionId(null);
-    setMessages([]);
-    setArtifacts([]);
-    resetSessionView(null);
+    setSessions(cached);
+    const first = cached[0] ?? null;
+    setCurrentSessionId(first?.id ?? null);
+    if (first) resetSessionView(first.id);
+    else {
+      setMessages([]);
+      setArtifacts([]);
+      resetSessionView(null);
+    }
+    setSessionMembers([]);
+    setSessionsLoading(!cached.length);
+    setSessionHydrating(Boolean(first));
     setStreamingError(null);
   };
 
@@ -212,6 +266,7 @@ export function useWorkspaceRuntime() {
     try {
       const project = await createProject(data);
       setProjects([project, ...projects]);
+      sessionsByProjectRef.current[project.id] = [];
       setCurrentProjectId(project.id);
       setSessions([]);
       setCurrentSessionId(null);
@@ -251,6 +306,7 @@ export function useWorkspaceRuntime() {
   const handleArchiveProject = async (id: string) => {
     await archiveProject(id);
     const remaining = projects.filter((project) => project.id !== id);
+    delete sessionsByProjectRef.current[id];
     setProjects(remaining);
     if (currentProjectId === id) {
       const nextId = remaining[0]?.id ?? null;
@@ -270,6 +326,7 @@ export function useWorkspaceRuntime() {
   const handleDeleteProject = async (id: string, deleteFiles: boolean) => {
     await deleteProject(id, deleteFiles);
     const remaining = projects.filter((project) => project.id !== id);
+    delete sessionsByProjectRef.current[id];
     setProjects(remaining);
     if (currentProjectId === id) {
       const nextId = remaining[0]?.id ?? null;
@@ -287,7 +344,9 @@ export function useWorkspaceRuntime() {
     if (!currentProjectId) return;
     const agent = agents.find((item) => item.id === agentId);
     const s = await createSession(agent?.name, agentId, currentProjectId);
-    setSessions([s, ...sessions]);
+    const nextSessions = [s, ...sessions];
+    sessionsByProjectRef.current[currentProjectId] = nextSessions;
+    setSessions(nextSessions);
     setCurrentSessionId(s.id);
     resetSessionView(s.id);
     setMessagesForSession(s.id, []);
@@ -300,7 +359,9 @@ export function useWorkspaceRuntime() {
   const handleCreateGroup = async (title: string, selectedIds: string[]) => {
     if (!currentProjectId) return;
     const s = await createGroupSession(title || "群聊", selectedIds, currentProjectId);
-    setSessions([s, ...sessions]);
+    const nextSessions = [s, ...sessions];
+    sessionsByProjectRef.current[currentProjectId] = nextSessions;
+    setSessions(nextSessions);
     setCurrentSessionId(s.id);
     resetSessionView(s.id);
     setMessagesForSession(s.id, []);
@@ -313,7 +374,9 @@ export function useWorkspaceRuntime() {
 
   const handleDeleteSession = async (id: string) => {
     await deleteSession(id);
-    setSessions(sessions.filter((s) => s.id !== id));
+    const nextSessions = sessions.filter((s) => s.id !== id);
+    if (currentProjectId) sessionsByProjectRef.current[currentProjectId] = nextSessions;
+    setSessions(nextSessions);
     if (currentSessionId === id) {
       setCurrentSessionId(null);
       setMessages([]);
@@ -325,7 +388,14 @@ export function useWorkspaceRuntime() {
   };
 
   const handleRenameSession = async (id: string, title: string) => {
-    updateSession(await renameSession(id, title));
+    const renamed = await renameSession(id, title);
+    updateSession(renamed);
+    if (renamed.projectId) {
+      const cached = sessionsByProjectRef.current[renamed.projectId] ?? sessions;
+      sessionsByProjectRef.current[renamed.projectId] = cached.map((session) => (
+        session.id === renamed.id ? renamed : session
+      ));
+    }
   };
 
   const currentSession = sessions.find((s) => s.id === currentSessionId);
@@ -341,6 +411,8 @@ export function useWorkspaceRuntime() {
     agents,
     sidebarTab,
     creatingProject,
+    sessionsLoading,
+    sessionHydrating,
     sessionMembers,
     currentAgent,
     currentMode,
