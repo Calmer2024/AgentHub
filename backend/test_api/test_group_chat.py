@@ -439,3 +439,176 @@ class TestGroupSession:
         assert "orchestrator.route" not in event_types
         assert "orchestrator.task_started" not in event_types
         assert "生成调度计划" in token
+
+    async def test_orchestrator_followup_approve_action_creates_execution(
+        self, test_client, test_agent, db_session, monkeypatch,
+    ):
+        agent2 = make_test_cli_agent("A2")
+        orchestrator = make_test_cli_agent("Orchestrator 调度器")
+        orchestrator.primary_skill = "orchestrator_planner"
+        orchestrator.context_policy = "planning_only"
+        db_session.add_all([agent2, orchestrator])
+        await db_session.commit()
+
+        prompts: list[str] = []
+        outputs = [
+            {
+                "plan_id": "plan_followup_001",
+                "tasks": [
+                    {
+                        "task_id": "T1",
+                        "title": "实现后端",
+                        "goal": "完成 API",
+                        "required_skills": ["backend"],
+                        "assigned_agent_id": test_agent.id,
+                        "assigned_agent_name": test_agent.name,
+                        "depends_on": [],
+                    }
+                ],
+            },
+            {
+                "action": "approve_plan",
+                "target_plan_id": "plan_followup_001",
+                "reason": "用户明确确认执行",
+            },
+        ]
+
+        async def fake_stream(self, **kwargs):
+            prompts.append(kwargs["messages"][-1]["content"])
+            payload = outputs[len(prompts) - 1]
+            yield CliEvent(
+                "agent.output",
+                "proc-1",
+                chunk=json.dumps(payload, ensure_ascii=False),
+                chunk_type="text",
+            )
+            yield CliEvent("agent.process.completed", "proc-1", exit_code=0)
+
+        from app.services.cli_agent_service import CliAgentService
+        monkeypatch.setattr(CliAgentService, "stream", fake_stream)
+
+        res = await test_client.post("/api/sessions", json={
+            "mode": "group", "agentConfigIds": [test_agent.id, agent2.id, orchestrator.id],
+        })
+        sid = res.json()["id"]
+
+        await test_client.post(
+            f"/api/sessions/{sid}/chat",
+            json={"content": "@Orchestrator 调度器 做员工报销系统", "mentions": [orchestrator.id]},
+        )
+        resp = await test_client.post(
+            f"/api/sessions/{sid}/chat",
+            json={"content": "@Orchestrator 调度器 确认，开始执行", "mentions": [orchestrator.id]},
+        )
+
+        execution_event = None
+        visible = ""
+        async for line in resp.aiter_lines():
+            if not line.startswith("data: "):
+                continue
+            data = json.loads(line[6:])
+            if data.get("type") == "orchestrator.plan_execution_created":
+                execution_event = data
+            if data.get("agentName") == "Orchestrator 调度器":
+                visible += data.get("token", "")
+
+        assert execution_event is not None
+        assert execution_event["planId"] == "plan_followup_001"
+        assert execution_event["status"] == "pending"
+        assert "已确认计划 plan_followup_001" in visible
+        assert "approve_plan" in prompts[1]
+        assert "上一版 draft plan" in prompts[1]
+
+        messages = (await test_client.get(f"/api/sessions/{sid}/messages")).json()
+        approval = messages[-1]
+        assert approval["metadata"]["orchestratorAction"]["action"] == "approve_plan"
+        assert approval["metadata"]["orchestratorExecution"]["status"] == "pending"
+
+    async def test_orchestrator_followup_revision_outputs_new_draft_plan(
+        self, test_client, test_agent, db_session, monkeypatch,
+    ):
+        agent2 = make_test_cli_agent("A2")
+        orchestrator = make_test_cli_agent("Orchestrator 调度器")
+        orchestrator.primary_skill = "orchestrator_planner"
+        orchestrator.context_policy = "planning_only"
+        db_session.add_all([agent2, orchestrator])
+        await db_session.commit()
+
+        outputs = [
+            {
+                "plan_id": "plan_revision_001",
+                "tasks": [
+                    {
+                        "task_id": "T1",
+                        "title": "原计划",
+                        "goal": "先做后端",
+                        "required_skills": ["backend"],
+                        "assigned_agent_id": test_agent.id,
+                        "assigned_agent_name": test_agent.name,
+                        "depends_on": [],
+                    }
+                ],
+            },
+            {
+                "plan_id": "plan_revision_002",
+                "tasks": [
+                    {
+                        "task_id": "T1",
+                        "title": "修改后的计划",
+                        "goal": "增加安全审查",
+                        "required_skills": ["review"],
+                        "assigned_agent_id": test_agent.id,
+                        "assigned_agent_name": test_agent.name,
+                        "depends_on": [],
+                    }
+                ],
+            },
+        ]
+        call_count = 0
+
+        async def fake_stream(self, **kwargs):
+            nonlocal call_count
+            payload = outputs[call_count]
+            call_count += 1
+            yield CliEvent(
+                "agent.output",
+                "proc-1",
+                chunk=json.dumps(payload, ensure_ascii=False),
+                chunk_type="text",
+            )
+            yield CliEvent("agent.process.completed", "proc-1", exit_code=0)
+
+        from app.services.cli_agent_service import CliAgentService
+        monkeypatch.setattr(CliAgentService, "stream", fake_stream)
+
+        res = await test_client.post("/api/sessions", json={
+            "mode": "group", "agentConfigIds": [test_agent.id, agent2.id, orchestrator.id],
+        })
+        sid = res.json()["id"]
+
+        await test_client.post(
+            f"/api/sessions/{sid}/chat",
+            json={"content": "@Orchestrator 调度器 做员工报销系统", "mentions": [orchestrator.id]},
+        )
+        resp = await test_client.post(
+            f"/api/sessions/{sid}/chat",
+            json={"content": "@Orchestrator 调度器 加一个安全审查后重新输出计划", "mentions": [orchestrator.id]},
+        )
+
+        event_types = []
+        visible = ""
+        async for line in resp.aiter_lines():
+            if not line.startswith("data: "):
+                continue
+            data = json.loads(line[6:])
+            event_types.append(data.get("type", ""))
+            if data.get("agentName") == "Orchestrator 调度器":
+                visible += data.get("token", "")
+
+        assert "orchestrator.plan_execution_created" not in event_types
+        assert "修改后的计划" in visible
+
+        messages = (await test_client.get(f"/api/sessions/{sid}/messages")).json()
+        latest = messages[-1]
+        assert latest["metadata"]["orchestratorPlan"]["normalizedPlan"]["plan_id"] == "plan_revision_002"
+        assert "orchestratorExecution" not in latest["metadata"]

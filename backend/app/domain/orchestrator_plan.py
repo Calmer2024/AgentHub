@@ -70,6 +70,44 @@ def build_plan_prompt(content: str, candidate_agents: list[dict[str, Any]]) -> s
     )
 
 
+def build_plan_followup_prompt(
+    content: str,
+    candidate_agents: list[dict[str, Any]],
+    latest_plan: dict[str, Any],
+) -> str:
+    return (
+        "请作为 AgentHub Orchestrator Agent，处理用户对上一版 draft plan 的跟进消息。\n"
+        "你必须只输出一个 JSON 对象，不要输出 Markdown 说明，不要执行任务，不要修改文件。\n\n"
+        "如果用户明确批准、确认、开始执行上一版计划，请输出控制 JSON：\n"
+        "{\n"
+        '  "action": "approve_plan",\n'
+        '  "target_plan_id": "上一版 plan_id",\n'
+        '  "reason": "为什么判断用户是在批准执行"\n'
+        "}\n\n"
+        "如果用户提出修改、补充、删除、合并、重新分配等意见，请输出一份新的 draft plan JSON，"
+        "结构仍必须符合 Plan JSON / DAG schema，不要输出 approve_plan。\n\n"
+        "候选 Agent Profiles:\n"
+        f"{_agent_lines(candidate_agents)}\n\n"
+        "上一版 draft plan：\n"
+        f"{json.dumps(latest_plan, ensure_ascii=False, indent=2)}\n\n"
+        f"用户跟进消息：\n{content.strip()}\n"
+    )
+
+
+def _agent_lines(candidate_agents: list[dict[str, Any]]) -> str:
+    agent_lines = []
+    for agent in candidate_agents:
+        agent_lines.append(
+            "- "
+            f"id={agent.get('id')}; "
+            f"name={agent.get('name')}; "
+            f"engine={agent.get('engine')}; "
+            f"primary_skill={agent.get('primary_skill')}; "
+            f"auxiliary_skills={agent.get('auxiliary_skills')}"
+        )
+    return chr(10).join(agent_lines) if agent_lines else "- 无候选 Agent"
+
+
 def extract_json_object(raw: str) -> dict[str, Any]:
     text = _strip_code_fence(raw)
     decoder = json.JSONDecoder()

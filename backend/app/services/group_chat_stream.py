@@ -13,6 +13,7 @@ from ..agents.cli_trace import trace_text
 from ..domain.orchestrator_v2 import OrchestratorV2, PipelineRequest
 from ..domain.execution_planner import AgentCall, ChainConfig
 from ..domain.orchestrator_plan import (
+    build_plan_followup_prompt,
     build_plan_prompt,
     extract_json_object,
     normalize_plan,
@@ -25,6 +26,7 @@ from .execution_trace import ExecutionTraceBuilder, merge_trace_metadata
 from .project_service import ProjectService, ProjectNotFoundError
 from .shared_context import SharedContext
 from .group_chat_finalizer import GroupChatFinalizer
+from .orchestrator_execution import PlanExecutionError, execution_registry
 
 logger = logging.getLogger(__name__)
 
@@ -158,7 +160,13 @@ class GroupChatStream:
             for agent in member_agents
             if agent.id != orchestrator_agent.id
         ]
-        prompt = build_plan_prompt(content, candidate_agents)
+        latest_plan = await self._latest_orchestrator_plan(session_id)
+        is_followup = latest_plan is not None
+        prompt = (
+            build_plan_followup_prompt(content, candidate_agents, latest_plan)
+            if latest_plan
+            else build_plan_prompt(content, candidate_agents)
+        )
         raw_output = ""
         parse_output = ""
         visible = ""
@@ -240,21 +248,22 @@ class GroupChatStream:
                     )
                 if trace_item:
                     yield self._plan_trace_delta(orchestrator_agent, message_id, process_id, call_key, trace_item)
-                yield self._sse({
-                    "type": "agent.output",
-                    "agentId": orchestrator_agent.id,
-                    "agentName": orchestrator_agent.name,
-                    "token": event.chunk if event.chunk_type == "text" else "",
-                    "messageId": message_id,
-                    "role": "planner",
-                    "phase": 0,
-                    "task": "draft plan",
-                    "callKey": call_key,
-                    "processId": process_id,
-                    "chunk": event.chunk,
-                    "chunkType": event.chunk_type,
-                    "done": False,
-                })
+                if not is_followup:
+                    yield self._sse({
+                        "type": "agent.output",
+                        "agentId": orchestrator_agent.id,
+                        "agentName": orchestrator_agent.name,
+                        "token": event.chunk if event.chunk_type == "text" else "",
+                        "messageId": message_id,
+                        "role": "planner",
+                        "phase": 0,
+                        "task": "draft plan",
+                        "callKey": call_key,
+                        "processId": process_id,
+                        "chunk": event.chunk,
+                        "chunkType": event.chunk_type,
+                        "done": False,
+                    })
                 continue
             elif event.type == "interactive_prompt":
                 item = trace.add(
@@ -325,6 +334,18 @@ class GroupChatStream:
 
         try:
             parsed = extract_json_object(parse_output)
+            if is_followup and parsed.get("action") == "approve_plan":
+                async for item in self._approve_latest_plan(
+                    session_id=session_id,
+                    message_id=message_id,
+                    agent=orchestrator_agent,
+                    plan=latest_plan,
+                    action=parsed,
+                    metadata=metadata,
+                    trace=trace,
+                ):
+                    yield item
+                return
             plan = normalize_plan(parsed)
             validation = validate_plan(
                 plan,
@@ -364,11 +385,135 @@ class GroupChatStream:
                 }
             }, trace),
         )
+        if is_followup and visible:
+            yield self._sse({
+                "type": "agent.output",
+                "agentId": orchestrator_agent.id,
+                "agentName": orchestrator_agent.name,
+                "token": visible,
+                "messageId": message_id,
+                "role": "planner",
+                "phase": 0,
+                "task": "draft plan",
+                "callKey": call_key,
+                "processId": process_id,
+                "chunk": visible,
+                "chunkType": "text",
+                "done": False,
+            })
         yield self._sse({
             "token": "",
             "done": True,
             "messageId": message_id,
         })
+
+    async def _approve_latest_plan(
+        self,
+        *,
+        session_id: str,
+        message_id: str,
+        agent: AgentConfig,
+        plan: dict,
+        action: dict,
+        metadata: dict,
+        trace: ExecutionTraceBuilder,
+    ) -> AsyncGenerator[str, None]:
+        try:
+            execution = execution_registry.create_execution(
+                session_id=session_id,
+                plan=plan,
+                active_agent_ids={member.id for member in await self._member_agents(session_id)},
+            )
+        except PlanExecutionError as exc:
+            content = "计划暂时无法进入执行：\n" + "\n".join(f"- {error}" for error in exc.errors)
+            await self._persist_orchestrator_message(
+                session_id=session_id,
+                message_id=message_id,
+                agent=agent,
+                content=content,
+                metadata=merge_trace_metadata({
+                    **metadata,
+                    "orchestratorAction": action,
+                    "orchestratorExecutionError": {
+                        "errors": exc.errors,
+                        "warnings": exc.warnings,
+                    },
+                }, trace),
+            )
+            yield self._sse({
+                "type": "agent.output",
+                "agentId": agent.id,
+                "agentName": agent.name,
+                "token": content,
+                "messageId": message_id,
+                "role": "planner",
+                "phase": 0,
+                "task": "approve plan",
+                "callKey": self._call_key(agent.id, "approve plan", 0),
+                "chunk": content,
+                "chunkType": "text",
+                "done": False,
+            })
+            yield self._sse({"token": "", "done": True, "messageId": message_id})
+            return
+
+        content = (
+            f"已确认计划 {execution['planId']}，创建执行 {execution['executionId']}。\n"
+            f"{len(execution['tasks'])} 个任务已进入 pending 队列，等待 Scheduler 启动。"
+        )
+        await self._persist_orchestrator_message(
+            session_id=session_id,
+            message_id=message_id,
+            agent=agent,
+            content=content,
+            metadata=merge_trace_metadata({
+                **metadata,
+                "orchestratorAction": action,
+                "orchestratorExecution": execution,
+            }, trace),
+        )
+        yield self._sse({
+            "type": "orchestrator.plan_execution_created",
+            "executionId": execution["executionId"],
+            "planId": execution["planId"],
+            "status": execution["status"],
+            "tasks": execution["tasks"],
+        })
+        yield self._sse({
+            "type": "agent.output",
+            "agentId": agent.id,
+            "agentName": agent.name,
+            "token": content,
+            "messageId": message_id,
+            "role": "planner",
+            "phase": 0,
+            "task": "approve plan",
+            "callKey": self._call_key(agent.id, "approve plan", 0),
+            "chunk": content,
+            "chunkType": "text",
+            "done": False,
+        })
+        yield self._sse({"token": "", "done": True, "messageId": message_id})
+
+    async def _latest_orchestrator_plan(self, session_id: str) -> dict | None:
+        rows = await self.db.execute(
+            select(DBMessage)
+            .where(DBMessage.session_id == session_id, DBMessage.role == "assistant")
+            .order_by(DBMessage.created_at.desc(), DBMessage.id.desc())
+            .limit(20)
+        )
+        for message in rows.scalars().all():
+            try:
+                metadata = json.loads(message.metadata_json or "{}")
+            except json.JSONDecodeError:
+                continue
+            plan_meta = metadata.get("orchestratorPlan")
+            if not isinstance(plan_meta, dict):
+                continue
+            plan = plan_meta.get("normalizedPlan")
+            if isinstance(plan, dict):
+                return plan
+        return None
 
     async def _persist_orchestrator_message(
         self,
