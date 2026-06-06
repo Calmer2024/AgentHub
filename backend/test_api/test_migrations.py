@@ -72,6 +72,11 @@ async def test_new_columns_exist(test_client):
         r = await s.execute(text("PRAGMA table_info('sessions')"))
         session_cols = {row[1] for row in r.fetchall()}
         assert "project_id" in session_cols
+        assert "is_pinned" in session_cols
+        assert "archived_at" in session_cols
+        assert "unread_count" in session_cols
+        assert "last_read_at" in session_cols
+        assert "is_muted" in session_cols
 
         r = await s.execute(text(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='projects'"

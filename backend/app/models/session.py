@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
 
 from ..database import Base
@@ -19,6 +19,11 @@ class Session(Base):
     agent_name = Column(String, nullable=True)
     mode = Column(String, nullable=False, default="single")
     is_active = Column(String, nullable=False, default="1")  # "1"=active, "0"=soft-deleted
+    is_pinned = Column(String, nullable=False, default="0")
+    archived_at = Column(DateTime, nullable=True)
+    unread_count = Column(Integer, nullable=False, default=0)
+    last_read_at = Column(DateTime, nullable=True)
+    is_muted = Column(String, nullable=False, default="0")
     created_at = Column(DateTime, nullable=False, default=_utcnow)
     updated_at = Column(DateTime, nullable=False, default=_utcnow, onupdate=_utcnow)
 

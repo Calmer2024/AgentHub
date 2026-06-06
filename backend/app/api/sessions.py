@@ -5,9 +5,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db
 from ..services import (
     SessionService, SessionCreate, SessionRead, SessionUpdate, MemberRead,
-    SessionNotFoundError, AgentNotFoundError,
+    SessionNotFoundError, AgentNotFoundError, ForwardMessagesRequest,
+    ForwardMessagesResult,
 )
-from ..services.session_service import ProjectNotFoundError
+from ..services.session_service import MessageNotForwardableError, ProjectNotFoundError
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -25,8 +26,12 @@ async def create_session(data: SessionCreate, db: AsyncSession = Depends(get_db)
 
 
 @router.get("", response_model=List[SessionRead])
-async def list_sessions(projectId: str | None = None, db: AsyncSession = Depends(get_db)):
-    return await _svc(db).list_sessions(projectId)
+async def list_sessions(
+    projectId: str | None = None,
+    includeArchived: bool = False,
+    db: AsyncSession = Depends(get_db),
+):
+    return await _svc(db).list_sessions(projectId, include_archived=includeArchived)
 
 
 @router.get("/{session_id}", response_model=SessionRead)
@@ -58,6 +63,24 @@ async def update_session(session_id: str, data: SessionUpdate, db: AsyncSession 
         raise HTTPException(status_code=404, detail="session not found")
     except AgentNotFoundError:
         raise HTTPException(status_code=400, detail="Agent 不存在")
+
+
+@router.post("/{session_id}/read", response_model=SessionRead)
+async def mark_session_read(session_id: str, db: AsyncSession = Depends(get_db)):
+    try:
+        return await _svc(db).mark_read(session_id)
+    except SessionNotFoundError:
+        raise HTTPException(status_code=404, detail="session not found")
+
+
+@router.post("/forward", response_model=ForwardMessagesResult, status_code=201)
+async def forward_messages(data: ForwardMessagesRequest, db: AsyncSession = Depends(get_db)):
+    try:
+        return await _svc(db).forward_messages(data)
+    except SessionNotFoundError:
+        raise HTTPException(status_code=404, detail="target session not found")
+    except MessageNotForwardableError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.delete("/{session_id}")

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Skill registry for Agent Profiles.
 
 AgentHub keeps a small built-in baseline, then extends it from the user's local

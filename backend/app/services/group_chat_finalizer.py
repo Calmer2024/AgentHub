@@ -10,6 +10,7 @@ from ..core.timezone import china_now
 from ..domain.execution_planner import AgentCall
 from ..models import Message as DBMessage
 from .artifact_output_bridge import ArtifactOutputBridge, artifact_to_event_payload
+from .session_service import SessionService
 
 
 class GroupChatFinalizer:
@@ -35,6 +36,7 @@ class GroupChatFinalizer:
                 agent_errors, agent_traces,
             )
             session.updated_at = china_now()
+            SessionService.increment_unread(session, len(created_ids))
             await self.db.commit()
             async for item in self._scan_agent_messages(session, created_ids):
                 yield item

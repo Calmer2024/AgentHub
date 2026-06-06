@@ -97,7 +97,6 @@ class CliTaskRunner:
             upstream_results,
         )
         message_id = f"msg_agent_{uuid.uuid4().hex[:12]}"
-        task["visibleMessageId"] = message_id
         task["taskWorkspacePath"] = task_workspace_path
         visible = ""
         raw_output = ""
@@ -122,6 +121,7 @@ class CliTaskRunner:
             "",
             merge_trace_metadata(metadata, trace),
         )
+        task["visibleMessageId"] = message_id
         await _broadcast_ws(execution["sessionId"], {
             "type": "agent.start",
             "sessionId": execution["sessionId"],
@@ -675,7 +675,17 @@ class OrchestratorExecutionRegistry:
 
     def get_execution(self, execution_id: str) -> dict[str, Any] | None:
         execution = self._executions.get(execution_id)
-        return copy.deepcopy(execution) if execution else None
+        if not execution:
+            return None
+        snapshot = copy.deepcopy(execution)
+        for task in snapshot.get("tasks") or []:
+            if (
+                task.get("status") == "running"
+                and task.get("runnerType") == "cli"
+                and not task.get("visibleMessageId")
+            ):
+                task["status"] = "pending"
+        return snapshot
 
     def bind_runtime(
         self,
@@ -923,21 +933,24 @@ class OrchestratorExecutionRegistry:
             phase += 1
 
         completed_at = self._now()
-        execution["status"] = "completed"
-        execution["completedAt"] = completed_at
-        execution["updatedAt"] = completed_at
+        final_execution = copy.deepcopy(execution)
+        final_execution["status"] = "completed"
+        final_execution["completedAt"] = completed_at
+        final_execution["updatedAt"] = completed_at
         await self._mark_runtime_run_status(
-            execution,
+            final_execution,
             "completed",
-            current_message_id=self._latest_visible_message_id(execution),
+            current_message_id=self._latest_visible_message_id(final_execution),
         )
-        execution["events"].append({
+        final_execution["events"].append({
             "type": "execution_completed",
             "status": "completed",
             "timestamp": completed_at,
             "message": "Scheduler 已按 DAG 完成全部任务。",
         })
-        await self._persist_execution_snapshot(execution)
+        await self._persist_execution_snapshot(final_execution)
+        execution.clear()
+        execution.update(final_execution)
 
     @staticmethod
     def _is_cancelled(execution: dict[str, Any]) -> bool:

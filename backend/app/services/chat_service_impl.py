@@ -16,6 +16,7 @@ from .message_service_sqlalchemy import (
     build_reply_reference_metadata,
 )
 from .run_service import RunService, run_to_read, task_to_read
+from .session_service import SessionService
 from .single_cli_chat_stream import SingleCliChatStream
 
 class ChatServiceImpl:
@@ -60,6 +61,7 @@ class ChatServiceImpl:
 
         # 持久化用户消息
         user_msg_id = str(uuid.uuid4())
+        SessionService.clear_unread(session)
         self.db.add(DBMessage(
             id=user_msg_id, session_id=session_id, role="user",
             content=content, content_type="text", source_type="user",
