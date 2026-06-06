@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Activity, CheckCircle2, ChevronDown, ChevronRight, Clock3, GitBranch, Square, XCircle } from "lucide-react";
 import { cancelOrchestratorExecution, fetchOrchestratorExecution } from "../api/client";
 import type { OrchestratorExecution, OrchestratorExecutionTask } from "../types";
+import { useChatStore } from "../stores/chatStore";
 
 interface Props {
   initialExecution: OrchestratorExecution;
@@ -12,6 +13,12 @@ export function OrchestratorExecutionPanel({ initialExecution }: Props) {
   const [showEvents, setShowEvents] = useState(false);
   const [pollingLost, setPollingLost] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
+  const cancelRunLocally = useChatStore((state) => state.cancelRunLocally);
+  const runs = useChatStore((state) => state.runs);
+  const runtimeRunId = useMemo(() => {
+    const matched = runs.find((run) => run.metadata?.executionId === execution.executionId);
+    return execution.runId ?? matched?.id ?? null;
+  }, [execution.executionId, execution.runId, runs]);
   const isLive = !pollingLost && ["pending", "running", "cancelling"].includes(execution.status);
   const canCancel = !pollingLost && !isCancelling && ["pending", "running", "cancelling"].includes(execution.status);
   const completed = execution.tasks.filter((task) => task.status === "completed").length;
@@ -66,8 +73,14 @@ export function OrchestratorExecutionPanel({ initialExecution }: Props) {
                 onClick={async () => {
                   setIsCancelling(true);
                   try {
+                    if (runtimeRunId) {
+                      cancelRunLocally(runtimeRunId, "用户在调度执行面板停止运行");
+                    }
                     const next = await cancelOrchestratorExecution(execution.executionId);
                     setExecution(next);
+                    window.dispatchEvent(new CustomEvent("agenthub:orchestrator-execution-cancelled", {
+                      detail: { sessionId: next.sessionId, executionId: next.executionId, runId: next.runId ?? runtimeRunId },
+                    }));
                   } finally {
                     setIsCancelling(false);
                   }

@@ -225,6 +225,16 @@ export function useWorkspaceRuntime() {
     setTasksForRun,
   ]);
 
+  useEffect(() => {
+    const refreshCancelledExecution = (event: Event) => {
+      const detail = (event as CustomEvent<{ sessionId?: string }>).detail;
+      const sessionId = detail?.sessionId ?? useChatStore.getState().currentSessionId;
+      if (sessionId) void hydrateSession(sessionId);
+    };
+    window.addEventListener("agenthub:orchestrator-execution-cancelled", refreshCancelledExecution);
+    return () => window.removeEventListener("agenthub:orchestrator-execution-cancelled", refreshCancelledExecution);
+  }, [hydrateSession]);
+
   const loadSessionsForProject = useCallback(async (projectId: string | null) => {
     const requestId = ++projectRequestRef.current;
     if (!projectId) {
