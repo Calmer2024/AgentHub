@@ -132,39 +132,41 @@ function App() {
 
   return (
     <div className="agenthub-shell h-[100dvh] w-screen flex flex-col md:flex-row overflow-hidden">
-      <ProjectSidebar
-        projects={projects}
-        currentProjectId={currentProjectId}
-        agents={agents}
-        activePanel={sidebarTab}
-        creating={creatingProject}
-        onSelectProject={handleSelectProject}
-        onCreateBlankProject={handleCreateBlankProject}
-        onPickExistingFolder={handlePickExistingFolder}
-        onArchiveProject={handleArchiveProject}
-        onRenameProject={handleRenameProject}
-        onDeleteProject={handleDeleteProject}
-        onOpenPanel={setSidebarTab}
-        onStartAgentChat={handleNewSession}
-        onCreateAgent={() => setAgentModal({ mode: "create" })}
-        onEditAgent={(agentId) => setAgentModal({ mode: "edit", agentId })}
-        onDeleteAgent={async (agentId) => {
-          await deleteAgent(agentId);
-          await loadData();
-        }}
-      />
-
-      <div className="agenthub-sidebar w-full md:w-[300px] h-[32dvh] md:h-full border-r flex flex-col shrink-0 transition-colors duration-300">
-        <SessionList
-          project={currentProject}
-          sessions={sessions} currentSessionId={currentSessionId}
-          loading={sessionsLoading}
-          agents={agents} onSelectSession={handleSelectSession}
-          onNewSession={handleNewSession}
-          onNewGroupSession={() => setShowGroupCreator(true)}
-          onDeleteSession={handleDeleteSession}
-          onRenameSession={handleRenameSession}
+      <div className="agenthub-left-cluster flex w-full shrink-0 flex-col md:h-full md:w-[584px] md:flex-row">
+        <ProjectSidebar
+          projects={projects}
+          currentProjectId={currentProjectId}
+          agents={agents}
+          activePanel={sidebarTab}
+          creating={creatingProject}
+          onSelectProject={handleSelectProject}
+          onCreateBlankProject={handleCreateBlankProject}
+          onPickExistingFolder={handlePickExistingFolder}
+          onArchiveProject={handleArchiveProject}
+          onRenameProject={handleRenameProject}
+          onDeleteProject={handleDeleteProject}
+          onOpenPanel={setSidebarTab}
+          onStartAgentChat={handleNewSession}
+          onCreateAgent={() => setAgentModal({ mode: "create" })}
+          onEditAgent={(agentId) => setAgentModal({ mode: "edit", agentId })}
+          onDeleteAgent={async (agentId) => {
+            await deleteAgent(agentId);
+            await loadData();
+          }}
         />
+
+        <div className="agenthub-session-nest flex h-[32dvh] w-full flex-col shrink-0 transition-colors duration-300 md:h-full md:w-[300px]">
+          <SessionList
+            project={currentProject}
+            sessions={sessions} currentSessionId={currentSessionId}
+            loading={sessionsLoading}
+            agents={agents} onSelectSession={handleSelectSession}
+            onNewSession={handleNewSession}
+            onNewGroupSession={() => setShowGroupCreator(true)}
+            onDeleteSession={handleDeleteSession}
+            onRenameSession={handleRenameSession}
+          />
+        </div>
       </div>
 
       {sidebarTab === "debug" ? (

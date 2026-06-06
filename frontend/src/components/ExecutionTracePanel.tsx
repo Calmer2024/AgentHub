@@ -45,10 +45,10 @@ const ACTION_LABELS: Record<string, string> = {
 };
 
 const LEVEL_STYLE: Record<string, string> = {
-  info: "border-sky-300/20 bg-sky-300/10 text-sky-100",
-  success: "border-emerald-300/25 bg-emerald-300/10 text-emerald-100",
-  warning: "border-amber-300/30 bg-amber-300/10 text-amber-100",
-  error: "border-rose-300/35 bg-rose-300/10 text-rose-100",
+  info: "agenthub-status-info",
+  success: "agenthub-status-success",
+  warning: "agenthub-status-warning",
+  error: "agenthub-status-error",
 };
 
 export function ExecutionTracePanel({ trace, className = "" }: Props) {
@@ -92,38 +92,38 @@ export function ExecutionTracePanel({ trace, className = "" }: Props) {
   if (!trace || items.length === 0) return null;
 
   return (
-    <section className={`mt-3 overflow-hidden rounded-[14px] border border-white/10 bg-[#151619] text-zinc-100 shadow-[0_12px_32px_rgba(0,0,0,0.18)] ${className}`}>
+    <section className={`agenthub-card mt-3 overflow-hidden rounded-2xl border ${className}`}>
       <button
         type="button"
         onClick={() => setManualOpen(!open)}
-        className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition hover:bg-white/[0.04]"
+        className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition hover:bg-[color:var(--ah-accent-soft)]"
       >
         <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border ${statusFrame(trace.status)}`}>
           {statusIcon(trace.status)}
         </span>
         <span className="min-w-0 flex-1">
-          <span className="flex items-center gap-2 text-xs font-semibold text-zinc-100">
+          <span className="agenthub-strong flex items-center gap-2 text-xs font-semibold">
             <span>执行过程</span>
-            {trace.agentName && <span className="font-normal text-zinc-500">{trace.agentName}</span>}
+            {trace.agentName && <span className="agenthub-faint font-normal">{trace.agentName}</span>}
             {isRunning && (
-              <span className="inline-flex items-center gap-1 rounded-md border border-sky-300/25 bg-sky-300/10 px-1.5 py-0.5 text-[10px] text-sky-100">
+              <span className="agenthub-status-info inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px]">
                 <SquareActivity size={10} className="animate-pulse" aria-hidden="true" />
                 运行中
               </span>
             )}
           </span>
-          <span className="mt-0.5 block truncate text-[11px] leading-5 text-zinc-400">{summary}</span>
+          <span className="agenthub-muted mt-0.5 block truncate text-[11px] leading-5">{summary}</span>
         </span>
         <TraceBadges items={items} />
-        <span className="rounded-md border border-white/10 p-1 text-zinc-300" aria-hidden="true">
+        <span className="agenthub-icon-button rounded-full p-1" aria-hidden="true">
           {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         </span>
       </button>
 
       {open && (
-        <div className="border-t border-white/10 px-3 py-3">
+        <div className="border-t px-3 py-3" style={{ borderColor: "var(--ah-border)" }}>
           <div ref={traceScrollRef} className="max-h-96 overflow-y-auto overscroll-contain pr-1">
-            <ol className="relative space-y-2 before:absolute before:left-[14px] before:top-2 before:h-[calc(100%-1rem)] before:w-px before:bg-white/10">
+            <ol className="relative space-y-2 before:absolute before:left-[14px] before:top-2 before:h-[calc(100%-1rem)] before:w-px before:bg-[color:var(--ah-border)]">
               {items.map((item, index) => (
                 <TraceRow
                   key={item.id}
@@ -155,8 +155,8 @@ function Badge({ icon, text, tone = "default" }: { icon: ReactNode; text: string
   return (
     <span className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-1 text-[10px] ${
       tone === "error"
-        ? "border-rose-300/25 bg-rose-300/10 text-rose-100"
-        : "border-white/10 bg-white/[0.04] text-zinc-300"
+        ? "agenthub-status-error"
+        : "agenthub-status"
     }`}>
       {icon}
       {text}
@@ -182,8 +182,8 @@ function TraceRow({
 
   return (
     <li className="relative pl-8">
-      <span className={`absolute left-0 top-1 flex h-7 w-7 items-center justify-center rounded-full border bg-[#151619] ${dotStyle(item, level)} ${
-        isRunning ? "shadow-[0_0_0_4px_rgba(56,189,248,0.08)]" : ""
+      <span className={`agenthub-card absolute left-0 top-1 flex h-7 w-7 items-center justify-center rounded-full border ${dotStyle(item, level)} ${
+        isRunning ? "shadow-[0_0_0_4px_var(--ah-accent-soft)]" : ""
       }`}>
         {kindIcon(item)}
       </span>
@@ -191,7 +191,7 @@ function TraceRow({
         <header className="flex min-w-0 items-start gap-2">
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-1.5">
-              <span className="rounded-md border border-white/10 bg-black/10 px-1.5 py-0.5 text-[10px] font-medium text-zinc-300">
+              <span className="agenthub-status rounded-md px-1.5 py-0.5 text-[10px] font-medium">
                 {actionLabel(item)}
               </span>
               {item.status && (
@@ -202,55 +202,55 @@ function TraceRow({
               {typeof item.exitCode === "number" && (
                 <span className={`rounded-md border px-1.5 py-0.5 text-[10px] ${
                   item.exitCode === 0
-                    ? "border-emerald-300/20 bg-emerald-300/10 text-emerald-100"
-                    : "border-rose-300/25 bg-rose-300/10 text-rose-100"
+                    ? "agenthub-status-success"
+                    : "agenthub-status-error"
                 }`}>
                   exit {item.exitCode}
                 </span>
               )}
-              {item.provider && <span className="text-[10px] text-zinc-500">{item.provider}</span>}
-              <time className="text-[10px] text-zinc-500">{formatTime(item.timestamp)}</time>
+              {item.provider && <span className="agenthub-faint text-[10px]">{item.provider}</span>}
+              <time className="agenthub-faint text-[10px]">{formatTime(item.timestamp)}</time>
             </div>
-            <h4 className="mt-1 break-words text-[12px] font-semibold leading-5 text-zinc-100">{title}</h4>
+            <h4 className="agenthub-strong mt-1 break-words text-[12px] font-semibold leading-5">{title}</h4>
           </div>
         </header>
 
         {item.target && (
-          <div className="mt-2 flex min-w-0 items-center gap-1.5 rounded-md border border-white/10 bg-black/10 px-2 py-1 text-[11px] text-zinc-300">
-            <FolderOpen size={12} className="shrink-0 text-zinc-500" aria-hidden="true" />
+          <div className="agenthub-status mt-2 flex min-w-0 items-center gap-1.5 rounded-md px-2 py-1 text-[11px]">
+            <FolderOpen size={12} className="agenthub-faint shrink-0" aria-hidden="true" />
             <span className="truncate font-mono">{item.target}</span>
           </div>
         )}
 
         {item.command && (
-          <pre className="mt-2 overflow-x-auto rounded-md border border-white/10 bg-[#0d0f12] px-2.5 py-2 font-mono text-[11px] leading-5 text-zinc-200">
+          <pre className="agenthub-code-surface mt-2 overflow-x-auto rounded-md border px-2.5 py-2 font-mono text-[11px] leading-5">
             {item.command}
           </pre>
         )}
 
         {showDetail && (
-          <p className="mt-2 whitespace-pre-wrap break-words text-[11px] leading-5 text-zinc-300">{detail}</p>
+          <p className="mt-2 whitespace-pre-wrap break-words text-[11px] leading-5">{detail}</p>
         )}
 
         {output && (
           <div className={`mt-2 rounded-md border px-2.5 py-2 ${
             item.stderr
-              ? "border-rose-300/20 bg-rose-950/20"
-              : "border-emerald-300/15 bg-emerald-950/10"
+              ? "agenthub-status-error"
+              : "agenthub-status"
           }`}>
-            <div className="mb-1 flex items-center gap-1.5 text-[10px] font-medium text-zinc-400">
+            <div className="agenthub-muted mb-1 flex items-center gap-1.5 text-[10px] font-medium">
               <Terminal size={11} aria-hidden="true" />
               <span>{item.stderr ? "错误输出" : "输出预览"}</span>
             </div>
-            <pre className="max-h-44 overflow-auto whitespace-pre-wrap break-words font-mono text-[10.5px] leading-4 text-zinc-200">
+            <pre className="max-h-44 overflow-auto whitespace-pre-wrap break-words font-mono text-[10.5px] leading-4">
               {output}
             </pre>
           </div>
         )}
 
         {showRaw && (
-          <details className="mt-2 rounded-md border border-white/10 bg-black/10 px-2 py-1.5 text-[11px] text-zinc-400">
-            <summary className="cursor-pointer text-zinc-300">原始输出</summary>
+          <details className="agenthub-status mt-2 rounded-md px-2 py-1.5 text-[11px]">
+            <summary className="cursor-pointer">原始输出</summary>
             <pre className="mt-2 max-h-52 overflow-auto whitespace-pre-wrap break-words font-mono text-[10px] leading-4">
               {item.raw}
             </pre>
@@ -336,10 +336,10 @@ function kindIcon(item: ExecutionTraceItem) {
 }
 
 function dotStyle(item: ExecutionTraceItem, level: string) {
-  if (level === "error") return "border-rose-300/40 text-rose-100";
-  if (level === "warning") return "border-amber-300/40 text-amber-100";
-  if (item.kind === "process" && item.action === "complete") return "border-emerald-300/35 text-emerald-100";
-  return "border-sky-300/25 text-sky-100";
+  if (level === "error") return "border-[color:var(--ah-danger)] text-[color:var(--ah-danger)]";
+  if (level === "warning") return "border-[color:var(--ah-warning)] text-[color:var(--ah-warning)]";
+  if (item.kind === "process" && item.action === "complete") return "border-[color:var(--ah-success)] text-[color:var(--ah-success)]";
+  return "border-[color:var(--ah-border-strong)] text-[color:var(--ah-text-strong)]";
 }
 
 function statusIcon(status: ExecutionTrace["status"]) {
@@ -351,10 +351,10 @@ function statusIcon(status: ExecutionTrace["status"]) {
 }
 
 function statusFrame(status: ExecutionTrace["status"]) {
-  if (status === "running") return "border-sky-300/30 bg-sky-300/10 text-sky-100";
-  if (status === "error") return "border-rose-300/35 bg-rose-300/10 text-rose-100";
-  if (status === "cancelled") return "border-amber-300/35 bg-amber-300/10 text-amber-100";
-  return "border-emerald-300/30 bg-emerald-300/10 text-emerald-100";
+  if (status === "running") return "agenthub-status-info";
+  if (status === "error") return "agenthub-status-error";
+  if (status === "cancelled") return "agenthub-status-warning";
+  return "agenthub-status-success";
 }
 
 function formatTime(value: string) {
@@ -375,13 +375,13 @@ function statusLabel(status: string) {
 
 function statusBadgeStyle(status: string, level: string) {
   if (level === "error" || status === "failed" || status === "error") {
-    return "border-rose-300/25 bg-rose-300/10 text-rose-100";
+    return "agenthub-status-error";
   }
   if (status === "completed" || status === "success") {
-    return "border-emerald-300/20 bg-emerald-300/10 text-emerald-100";
+    return "agenthub-status-success";
   }
   if (status === "cancelled") {
-    return "border-amber-300/25 bg-amber-300/10 text-amber-100";
+    return "agenthub-status-warning";
   }
-  return "border-sky-300/20 bg-sky-300/10 text-sky-100";
+  return "agenthub-status-info";
 }

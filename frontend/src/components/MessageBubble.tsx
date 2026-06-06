@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Info, Pin } from "lucide-react";
@@ -52,12 +52,12 @@ const ROLE_LABELS: Record<string, string> = {
 };
 
 const ROLE_STYLES: Record<string, string> = {
-  planner: "border-violet-400 bg-violet-50 text-violet-700",
-  executor: "border-blue-400 bg-blue-50 text-blue-700",
-  reviewer: "border-amber-400 bg-amber-50 text-amber-700",
-  researcher: "border-emerald-400 bg-emerald-50 text-emerald-700",
-  synthesizer: "border-cyan-400 bg-cyan-50 text-cyan-700",
-  critic: "border-red-400 bg-red-50 text-red-700",
+  planner: "border-indigo-300/40 bg-indigo-50 text-indigo-700",
+  executor: "border-sky-300/40 bg-sky-50 text-sky-700",
+  reviewer: "border-amber-300/50 bg-amber-50 text-amber-700",
+  researcher: "border-emerald-300/45 bg-emerald-50 text-emerald-700",
+  synthesizer: "border-cyan-300/45 bg-cyan-50 text-cyan-700",
+  critic: "border-rose-300/45 bg-rose-50 text-rose-700",
 };
 
 function replyReference(message: Message): ReplyReference | null {
@@ -80,10 +80,39 @@ function replyReference(message: Message): ReplyReference | null {
 
 function EmptyAssistantReply() {
   return (
-    <p className="inline-flex items-center gap-2 text-sm text-zinc-400">
+    <p className="agenthub-muted inline-flex items-center gap-2 text-sm">
       <Info size={14} aria-hidden="true" />
       <span>未返回可见回复</span>
     </p>
+  );
+}
+
+function MarkdownContent({ content }: { content: string }) {
+  return (
+    <div className="agent-markdown max-w-none">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          code({ className, children, ...props }) {
+            const match = /language-(\w+)/.exec(className || "");
+            const codeStr = String(children).replace(/\n$/, "");
+            const isInline = !match && !codeStr.includes("\n");
+            if (isInline) {
+              return <code className="agenthub-inline-code" {...props}>{children}</code>;
+            }
+            return (
+              <pre className="agenthub-code-block max-w-full overflow-x-auto rounded-2xl border p-0 text-xs leading-5">
+                <code className={match ? `language-${match[1]}` : undefined} {...props}>
+                  {codeStr}
+                </code>
+              </pre>
+            );
+          },
+        }}
+      >
+        {content}
+      </ReactMarkdown>
+    </div>
   );
 }
 
@@ -94,6 +123,7 @@ function MessageBubbleBase({
   onReply, onRegenerate, onTogglePin, onCopy, onJumpToMessage, onArtifactsChanged,
   onCancelRun, cancellingRunId, onApprove, onReject, onOpenApprovalArtifact, busyApprovalId,
 }: Props) {
+  const [contextMenuPosition, setContextMenuPosition] = useState<{ x: number; y: number } | null>(null);
   const isUser = message.role === "user";
   const isEmpty = message.content === "";
   const orchestratorPlan = message.metadata?.orchestratorPlan;
@@ -109,7 +139,7 @@ function MessageBubbleBase({
   const bgClass = isUser
     ? "agenthub-bubble-user"
     : "agenthub-bubble-agent border";
-  const roundClass = isUser ? "rounded-[20px] rounded-br-md" : "rounded-[20px] rounded-bl-md";
+  const roundClass = isUser ? "rounded-[22px] rounded-br-lg" : "rounded-[22px] rounded-bl-lg";
   const summaryClass = "agenthub-card border";
   const bubbleClass = isSummary
     ? summaryClass
@@ -133,10 +163,33 @@ function MessageBubbleBase({
   const messageApprovals = relatedApprovals ?? approvals.filter((approval) => approval.messageId === message.id);
   const artifactsById = artifactById ?? new Map(artifacts.map((artifact) => [artifact.id, artifact]));
 
+  useEffect(() => {
+    if (!contextMenuPosition) return;
+    const close = () => setContextMenuPosition(null);
+    window.addEventListener("mousedown", close);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => {
+      window.removeEventListener("mousedown", close);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
+  }, [contextMenuPosition]);
+
+  const openContextMenu = (event: React.MouseEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const menuWidth = 176;
+    const menuHeight = 184;
+    setContextMenuPosition({
+      x: Math.min(event.clientX, window.innerWidth - menuWidth - 8),
+      y: Math.min(event.clientY, window.innerHeight - menuHeight - 8),
+    });
+  };
+
   return (
     <div className={`group relative mb-4 flex scroll-mt-6 items-end gap-2.5 transition ${
       isUser ? "flex-row-reverse justify-start" : "justify-start"
-    } ${highlighted ? "rounded-2xl bg-yellow-100/10 ring-2 ring-yellow-300/60" : ""}`}>
+    } ${highlighted ? "rounded-2xl bg-[color:var(--ah-highlight-bg)] ring-2 ring-[color:var(--ah-border-strong)]" : ""}`}>
       <AgentAvatar
         agent={avatarKind === "agent" ? agent : null}
         name={avatarName}
@@ -144,18 +197,24 @@ function MessageBubbleBase({
         size="md"
         className="mb-0.5"
       />
-      <div className={`${isSummary || orchestratorPlan || orchestratorExecution ? "max-w-[min(92%,1080px)]" : "max-w-[min(78%,860px)]"} relative transition-transform duration-150 group-hover:-translate-y-0.5 ${bubbleClass} ${roundClass}`}>
+      <div
+        className={`${isSummary || orchestratorPlan || orchestratorExecution ? "max-w-[min(92%,1080px)]" : "max-w-[min(78%,860px)]"} relative transition-transform duration-150 group-hover:-translate-y-0.5 ${bubbleClass} ${roundClass}`}
+        onContextMenu={openContextMenu}
+      >
         <MessageActions
           message={message}
+          open={Boolean(contextMenuPosition)}
+          position={contextMenuPosition}
           onReply={onReply}
           onRegenerate={onRegenerate}
           onTogglePin={onTogglePin}
           onCopy={onCopy}
+          onClose={() => setContextMenuPosition(null)}
         />
         {!isUser && isSummary && (
           <div className="sticky top-0 z-10 px-3 py-2 text-xs font-semibold rounded-t-[20px] border-b agenthub-soft">
             <span>系统整理</span>
-            <span className="agenthub-muted ml-2">{message.sourceName ?? "Orchestrator 中枢"}</span>
+            <span className="agenthub-muted ml-2">{message.sourceName ?? "编排器中枢"}</span>
           </div>
         )}
         {!isUser && !isSummary && message.agentName && (
@@ -167,7 +226,7 @@ function MessageBubbleBase({
               </span>
             )}
             {typeof message.phase === "number" && (
-              <span className="agenthub-muted ml-2">Phase {message.phase}</span>
+              <span className="agenthub-muted ml-2">阶段 {message.phase}</span>
             )}
             {message.taskName && (
               <span className="ml-2 inline-block max-w-full truncate align-bottom text-slate-400">
@@ -176,9 +235,9 @@ function MessageBubbleBase({
             )}
           </div>
         )}
-        <div className="px-4 py-3">
+        <div className={isUser ? "px-5 py-3.5" : "px-4 py-3.5"}>
         {message.isPinned && (
-          <div className={`mb-2 text-xs font-medium ${isUser ? "text-white/85" : "agenthub-accent"}`}>
+          <div className={`mb-2 text-xs font-medium ${isUser ? "text-current/80" : "agenthub-accent"}`}>
             <Pin size={13} aria-label="已 Pin" />
           </div>
         )}
@@ -205,40 +264,17 @@ function MessageBubbleBase({
             )}
           </div>
         ) : isUser ? (
-          <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
+          <MarkdownContent content={message.content} />
         ) : showEmptyAssistant ? (
           <EmptyAssistantReply />
         ) : (
-          <div className="agent-markdown max-w-none">
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              components={{
-                code({ className, children, ...props }) {
-                  const match = /language-(\w+)/.exec(className || "");
-                  const codeStr = String(children).replace(/\n$/, "");
-                  const isInline = !match && !codeStr.includes("\n");
-                  if (isInline) {
-                    return <code className="bg-black/10 rounded px-1 py-0.5 text-xs" {...props}>{children}</code>;
-                  }
-                  return (
-                    <pre className="max-w-full overflow-x-auto rounded-xl bg-[#0d1117] p-3 text-xs leading-5 text-[#d6deeb]">
-                      <code className={match ? `language-${match[1]}` : undefined} {...props}>
-                        {codeStr}
-                      </code>
-                    </pre>
-                  );
-                },
-              }}
-            >
-              {message.content}
-            </ReactMarkdown>
-          </div>
+          <MarkdownContent content={message.content} />
         )}
         {!isUser && orchestratorExecution && (
           <OrchestratorExecutionPanel initialExecution={orchestratorExecution} />
         )}
         {hasPreviousVersion && previousVersion && (
-          <details className="mt-3 rounded-md bg-white/[0.06] px-3 py-2 text-xs text-zinc-300">
+          <details className="agenthub-soft mt-3 rounded-md px-3 py-2 text-xs">
             <summary className="cursor-pointer font-medium">查看原版</summary>
             <p className="mt-2 whitespace-pre-wrap">{previousVersion}</p>
           </details>

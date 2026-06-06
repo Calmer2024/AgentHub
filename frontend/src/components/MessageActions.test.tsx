@@ -17,30 +17,36 @@ describe("MessageActions", () => {
     render(
       <MessageActions
         message={assistant}
+        open
+        position={{ x: 10, y: 10 }}
         onReply={vi.fn()}
         onRegenerate={vi.fn()}
         onTogglePin={vi.fn()}
         onCopy={vi.fn()}
+        onClose={vi.fn()}
       />,
     );
 
-    expect(screen.getByLabelText("引用回复")).toBeInTheDocument();
-    expect(screen.getByLabelText("重新生成")).toBeInTheDocument();
-    expect(screen.getByLabelText("Pin 消息")).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "引用回复" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "重新生成" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Pin 消息" })).toBeInTheDocument();
   });
 
   it("用户消息不显示重新生成操作", () => {
     render(
       <MessageActions
         message={{ ...assistant, role: "user", agentName: null }}
+        open
+        position={{ x: 10, y: 10 }}
         onReply={vi.fn()}
         onRegenerate={vi.fn()}
         onTogglePin={vi.fn()}
         onCopy={vi.fn()}
+        onClose={vi.fn()}
       />,
     );
 
-    expect(screen.queryByLabelText("重新生成")).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "重新生成" })).not.toBeInTheDocument();
   });
 
   it("点击 Pin 触发回调", () => {
@@ -48,14 +54,17 @@ describe("MessageActions", () => {
     render(
       <MessageActions
         message={assistant}
+        open
+        position={{ x: 10, y: 10 }}
         onReply={vi.fn()}
         onRegenerate={vi.fn()}
         onTogglePin={onTogglePin}
         onCopy={vi.fn()}
+        onClose={vi.fn()}
       />,
     );
 
-    fireEvent.click(screen.getByLabelText("Pin 消息"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Pin 消息" }));
     expect(onTogglePin).toHaveBeenCalledWith(assistant);
   });
 });

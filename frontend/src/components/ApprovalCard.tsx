@@ -32,11 +32,11 @@ export function ApprovalCard({
 }: Props) {
   const pending = approval.status === "pending_review";
   return (
-    <div className="mt-3 overflow-hidden rounded-lg border border-amber-300/25 bg-amber-300/[0.08]">
-      <div className="flex items-center gap-2 border-b border-amber-300/15 bg-amber-300/[0.08] px-3 py-2 text-xs font-medium text-amber-100">
+    <div className="agenthub-status-warning mt-3 overflow-hidden rounded-2xl border">
+      <div className="flex items-center gap-2 border-b px-3 py-2 text-xs font-medium" style={{ borderColor: "var(--ah-border)" }}>
         {iconFor(approval.status)}
         <span>{approval.title}</span>
-        <span className="ml-auto text-[11px] text-amber-100/75">{labelFor(approval.status)}</span>
+        <span className="agenthub-muted ml-auto text-[11px]">{labelFor(approval.status)}</span>
       </div>
       <div className="space-y-3 px-3 py-3">
         {approval.summary && (
@@ -46,11 +46,11 @@ export function ApprovalCard({
           <button
             type="button"
             onClick={() => onOpenArtifact?.(artifact)}
-            className="agenthub-soft flex w-full items-center gap-2 rounded-md border px-2.5 py-2 text-left text-xs transition hover:border-[color:var(--ah-accent)]"
+            className="agenthub-soft flex w-full items-center gap-2 rounded-md border px-2.5 py-2 text-left text-xs transition hover:border-[color:var(--ah-border-hover)]"
           >
-            <FileSearch size={14} className="shrink-0 text-sky-200" aria-hidden="true" />
+            <FileSearch size={14} className="agenthub-muted shrink-0" aria-hidden="true" />
             <span className="min-w-0 flex-1">
-              <span className="block truncate font-medium text-sky-100">
+              <span className="agenthub-strong block truncate font-medium">
                 {artifact.title || artifact.filePath || "关联产物"}
               </span>
               <span className="agenthub-muted mt-0.5 block truncate text-[11px]">
@@ -79,7 +79,7 @@ export function ApprovalCard({
               type="button"
               onClick={() => onApprove(approval)}
               disabled={busy}
-              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-emerald-300/25 bg-emerald-300/10 px-2.5 text-xs font-medium text-emerald-100 transition hover:bg-emerald-300/15 disabled:opacity-50"
+              className="agenthub-primary-button inline-flex h-8 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium transition disabled:opacity-50"
             >
               {busy ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
               确认继续

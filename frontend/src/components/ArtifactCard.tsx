@@ -41,7 +41,7 @@ function artifactLabel(artifact: Artifact) {
   return "文档";
 }
 
-function artifactIcon(artifact: Artifact, className = "text-[#8b949e]") {
+function artifactIcon(artifact: Artifact, className = "agenthub-muted") {
   const props = { size: 15, className: `shrink-0 ${className}`, "aria-hidden": true };
   if (artifact.type === "code_diff") return <FileCode2 {...props} />;
   if (artifact.type === "web_preview") return <Globe2 {...props} />;
@@ -56,9 +56,9 @@ function statusText(status: Artifact["status"]) {
 }
 
 function statusClass(status: Artifact["status"]) {
-  if (status === "rendering") return "border-amber-400/25 bg-amber-400/10 text-amber-200";
-  if (status === "error") return "border-rose-400/25 bg-rose-400/10 text-rose-200";
-  return "border-emerald-400/25 bg-emerald-400/10 text-emerald-200";
+  if (status === "rendering") return "agenthub-status-warning";
+  if (status === "error") return "agenthub-status-error";
+  return "agenthub-status-success";
 }
 
 function normalizeDiffContent(content: string) {
@@ -79,10 +79,10 @@ function changeLabel(change: string) {
 }
 
 function changeClass(change: string) {
-  if (change === "created" || change === "added") return "border-emerald-400/25 bg-emerald-400/10 text-emerald-200";
-  if (change === "deleted" || change === "removed") return "border-rose-400/25 bg-rose-400/10 text-rose-200";
-  if (change === "renamed") return "border-sky-400/25 bg-sky-400/10 text-sky-200";
-  return "border-amber-400/25 bg-amber-400/10 text-amber-200";
+  if (change === "created" || change === "added") return "agenthub-status-success";
+  if (change === "deleted" || change === "removed") return "agenthub-status-error";
+  if (change === "renamed") return "agenthub-status-info";
+  return "agenthub-status-warning";
 }
 
 function parseFileTreeChanges(content: string): FileTreeChange[] {
@@ -216,7 +216,7 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
   const fullscreenDialog = fullscreen && typeof document !== "undefined"
     ? createPortal(
       <div
-        className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/55 p-3 backdrop-blur-sm md:p-6"
+        className="agenthub-backdrop fixed inset-0 z-[1000] flex items-center justify-center p-3 md:p-6"
         role="dialog"
         aria-modal="true"
         aria-label={`${artifactLabel(artifact)}：${artifact.title || artifact.filePath || "产物预览"}`}
@@ -231,10 +231,10 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
               <div className="agenthub-muted flex items-center gap-2 text-[11px]">
                 {artifactIcon(artifact)}
                 <span>{artifactLabel(artifact)}</span>
-                <span className={`rounded-md border px-1.5 py-0.5 ${statusClass(artifact.status)}`}>
+                <span className={`rounded-md px-1.5 py-0.5 ${statusClass(artifact.status)}`}>
                   {statusText(artifact.status)}
                 </span>
-                <span className="font-mono text-[#7d8590]">v{displayVersion}</span>
+                <span className="agenthub-faint font-mono">v{displayVersion}</span>
               </div>
               <h3 className="agenthub-strong mt-1 truncate text-base font-semibold">{artifact.title || "产物预览"}</h3>
               {artifact.filePath && <p className="agenthub-faint mt-0.5 truncate font-mono text-xs">{artifact.filePath}</p>}
@@ -320,7 +320,7 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
 
   return (
     <>
-      <article className="agenthub-card group/card relative overflow-visible rounded-lg border transition hover:border-[color:var(--ah-accent)]">
+      <article className="agenthub-card group/card relative overflow-visible rounded-2xl border transition hover:border-[color:var(--ah-border-hover)]">
         <div className="flex items-start justify-between gap-3 border-b px-3 py-2" style={{ borderColor: "var(--ah-border)" }}>
           <button
             type="button"
@@ -331,7 +331,7 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
             <div className="agenthub-muted flex items-center gap-2 text-[11px]">
               {artifactIcon(artifact)}
               <span>{artifactLabel(artifact)}</span>
-              <span className={`rounded-md border px-1.5 py-0.5 ${statusClass(artifact.status)}`}>
+              <span className={`rounded-md px-1.5 py-0.5 ${statusClass(artifact.status)}`}>
                 {statusText(artifact.status)}
               </span>
               <span className="font-mono">v{artifact.version}</span>
@@ -438,7 +438,7 @@ function ArtifactPreview({
   onEditFile?: (change: FileTreeChange) => void;
 }) {
   if (artifact.type === "code_diff") {
-    return <DiffViewer diff={contentDiff} compact title={artifact.filePath ?? artifact.title ?? "diff"} />;
+    return <DiffViewer diff={contentDiff} compact title={artifact.filePath ?? artifact.title ?? "差异"} />;
   }
 
   if (artifact.type === "file_tree") {
@@ -447,15 +447,15 @@ function ArtifactPreview({
 
   if (artifact.type === "web_preview") {
     return (
-      <div className="relative h-80 overflow-hidden rounded-md border border-[#30363d] bg-white md:h-96">
+      <div className="relative h-80 overflow-hidden rounded-2xl border bg-white md:h-96" style={{ borderColor: "var(--ah-border)" }}>
         {previewLoading && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#0d1117]/80 text-xs text-[#c9d1d9]">
+          <div className="agenthub-backdrop absolute inset-0 z-10 flex items-center justify-center text-xs">
             <Loader2 size={14} className="mr-2 animate-spin" />
             正在加载本机预览
           </div>
         )}
         {previewError && (
-          <div className="absolute left-2 top-2 z-10 rounded-md border border-amber-400/30 bg-amber-400/15 px-2 py-1 text-[11px] text-amber-100">
+          <div className="agenthub-status-warning absolute left-2 top-2 z-10 rounded-full border px-2 py-1 text-[11px]">
             已回退到内容快照
           </div>
         )}
@@ -465,7 +465,7 @@ function ArtifactPreview({
   }
 
   return (
-    <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-md border border-[#30363d] bg-[#0d1117] p-3 text-xs text-[#c9d1d9]">
+    <pre className="agenthub-code-surface max-h-48 overflow-auto whitespace-pre-wrap rounded-2xl border p-3 text-xs">
       {content}
     </pre>
   );
@@ -494,17 +494,17 @@ function ArtifactFullPreview({
 }) {
   if (artifact.type === "web_preview") {
     return (
-      <div className="flex h-[76vh] min-h-0 flex-col overflow-hidden rounded-md border border-[#30363d] bg-white">
+      <div className="flex h-[76vh] min-h-0 flex-col overflow-hidden rounded-2xl border bg-white" style={{ borderColor: "var(--ah-border)" }}>
         {(previewUrl || previewError || previewLoading) && (
-          <div className="flex items-center justify-between gap-3 border-b border-[#30363d] bg-[#161b22] px-3 py-2">
-              <div className="min-w-0 truncate text-xs text-[#8b949e]">
+          <div className="agenthub-code-header flex items-center justify-between gap-3 border-b px-3 py-2">
+              <div className="min-w-0 truncate text-xs">
               {previewLoading
                 ? "正在连接本机预览"
                 : previewUrl
-                  ? "本机 workspace 预览"
+                  ? "本机工作区预览"
                   : "真实预览不可用，已显示内容快照"}
               {artifact.filePath && (
-                <span className="ml-2 font-mono text-[#7d8590]">{artifact.filePath}</span>
+                <span className="ml-2 font-mono">{artifact.filePath}</span>
               )}
             </div>
           </div>
@@ -524,11 +524,11 @@ function ArtifactFullPreview({
   }
 
   if (artifact.type === "code_diff") {
-    return <DiffViewer diff={contentDiff} title={artifact.filePath ?? artifact.title ?? "diff"} />;
+    return <DiffViewer diff={contentDiff} title={artifact.filePath ?? artifact.title ?? "差异"} />;
   }
 
   return (
-    <pre className="min-h-80 overflow-auto rounded-md bg-[#0d1117] p-3 text-xs leading-5 text-[#d6deeb]">
+    <pre className="agenthub-code-surface min-h-80 overflow-auto rounded-2xl border p-3 text-xs leading-5">
       <code>{content}</code>
     </pre>
   );
@@ -547,7 +547,7 @@ function FileTreePreview({
 }) {
   if (changes.length === 0) {
     return (
-      <div className="rounded-md border border-[#30363d] bg-[#0d1117] px-3 py-2 text-xs text-[#8b949e]">
+      <div className="agenthub-code-surface rounded-2xl border px-3 py-2 text-xs">
         暂无文件变更详情
       </div>
     );
@@ -567,7 +567,7 @@ function FileTreePreview({
         />
       ))}
       {hiddenCount > 0 && (
-        <div className="rounded-md border border-[#30363d] bg-[#0d1117] px-3 py-2 text-xs text-[#8b949e]">
+        <div className="agenthub-code-surface rounded-2xl border px-3 py-2 text-xs">
           还有 {hiddenCount} 个文件，点击打开完整变更
         </div>
       )}
@@ -588,19 +588,19 @@ function FileChangeRow({
 
   return (
     <div className="group/row relative">
-      <div className="flex min-h-9 items-center gap-2 rounded-md border border-[#30363d] bg-[#0d1117] px-2.5 py-1.5 text-xs transition group-hover/row:border-[#3a6ff7]/50 group-hover/row:bg-[#161b22]">
+      <div className="agenthub-code-surface flex min-h-9 items-center gap-2 rounded-xl border px-2.5 py-1.5 text-xs transition group-hover/row:border-[color:var(--ah-border-strong)]">
         <span className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border font-mono text-[10px] ${changeClass(change.change)}`}>
           {changeLabel(change.change)}
         </span>
-        <span className="min-w-0 flex-1 truncate font-mono text-[#c9d1d9]">{change.path}</span>
+        <span className="min-w-0 flex-1 truncate font-mono">{change.path}</span>
         {hasDiff && (
-          <span className="shrink-0 text-[11px] text-[#7d8590]">{expanded ? "diff" : "hover"}</span>
+          <span className="agenthub-faint shrink-0 text-[11px]">{expanded ? "差异" : "悬停"}</span>
         )}
         {onEditFile && change.change !== "deleted" && change.change !== "removed" && (
           <button
             type="button"
             onClick={() => onEditFile(change)}
-            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded border border-[#30363d] text-[#8b949e] hover:bg-[#21262d] hover:text-[#f0f6fc]"
+            className="agenthub-icon-button inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full"
             aria-label={`编辑文件 ${change.path}`}
             title="编辑文件"
           >

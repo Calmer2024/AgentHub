@@ -38,6 +38,13 @@ export function ChatInput({ onSubmit, disabled, busy, mentionableAgents }: Props
     return () => window.removeEventListener("agenthub:focus-chat-input", focusInput);
   }, []);
 
+  useEffect(() => {
+    const input = inputRef.current;
+    if (!input) return;
+    input.style.height = "auto";
+    input.style.height = `${Math.min(input.scrollHeight, 176)}px`;
+  }, [content]);
+
   const filteredAgents = mentionableAgents.filter((a) =>
     a.name.toLowerCase().includes(mentionFilter.toLowerCase())
   );
@@ -124,10 +131,10 @@ export function ChatInput({ onSubmit, disabled, busy, mentionableAgents }: Props
     const range = codeReference.startLine && codeReference.endLine
       ? `:${codeReference.startLine}-${codeReference.endLine}`
       : "";
-    const label = codeReference.filePath ?? codeReference.title ?? "artifact";
+    const label = codeReference.filePath ?? codeReference.title ?? "产物";
     const language = codeReference.language || "text";
     return [
-      `[Code reference: ${label}${range}]`,
+      `[代码引用：${label}${range}]`,
       `\`\`\`${language}`,
       codeReference.content,
       "```",
@@ -137,11 +144,11 @@ export function ChatInput({ onSubmit, disabled, busy, mentionableAgents }: Props
   };
 
   return (
-    <form onSubmit={handleSubmit} className="agenthub-inputbar relative border-t px-4 py-3">
+    <form onSubmit={handleSubmit} className="agenthub-inputbar relative px-4 pb-4 pt-2">
       {showMentions && (
-        <div ref={listRef} className="agenthub-menu absolute bottom-full left-4 z-10 mb-2 max-h-56 w-72 overflow-y-auto rounded-2xl border p-1.5">
+        <div ref={listRef} className="agenthub-menu absolute bottom-full left-4 z-40 mb-2 max-h-56 w-72 overflow-y-auto rounded-2xl border p-1.5">
           {filteredAgents.length === 0 ? (
-            <div className="agenthub-muted px-3 py-2 text-xs">无匹配 Agent</div>
+            <div className="agenthub-muted px-3 py-2 text-xs">无匹配智能体</div>
           ) : (
             filteredAgents.map((a, i) => (
               <button
@@ -168,7 +175,7 @@ export function ChatInput({ onSubmit, disabled, busy, mentionableAgents }: Props
         </div>
       )}
       {codeReference && (
-        <div className="mx-auto mb-3 max-w-4xl rounded-2xl border px-3 py-2 text-sm agenthub-soft">
+        <div className="agenthub-soft mx-auto mb-3 max-w-4xl rounded-2xl border px-3 py-2 text-sm">
           <div className="flex items-center gap-2">
             <FileCode2 size={15} className="agenthub-accent shrink-0" aria-hidden="true" />
             <div className="min-w-0 flex-1">
@@ -195,24 +202,23 @@ export function ChatInput({ onSubmit, disabled, busy, mentionableAgents }: Props
           </div>
         </div>
       )}
-      <div className="agenthub-composer mx-auto flex max-w-4xl items-end gap-2 rounded-[24px] border p-2 transition focus-within:border-[color:var(--ah-accent)] focus-within:ring-2 focus-within:ring-[color:var(--ah-accent-soft)]">
+      <div className="agenthub-chat-composer agenthub-focus-ring mx-auto flex max-w-4xl items-end gap-2 rounded-[24px] border p-2">
         <textarea
           ref={inputRef}
           value={content}
           onChange={(e) => handleInput(e.target.value)}
           onKeyDown={handleKeyDown}
           disabled={disabled}
-          placeholder={busy ? "当前对话正在输出..." : disabled ? "请选择可用 Agent" : "输入消息，@ 提及 Agent"}
+          placeholder={busy ? "当前对话正在输出..." : disabled ? "请选择可用智能体" : "输入消息，@ 提及智能体"}
           rows={1}
-          className="agenthub-textarea max-h-36 min-h-[42px] flex-1 resize-none bg-transparent px-3 py-2.5 text-sm leading-6 focus:outline-none"
+          className="agenthub-textarea max-h-44 min-h-[42px] flex-1 resize-none overflow-y-auto bg-transparent px-3 py-2.5 text-sm leading-6 focus:outline-none"
         />
         <button
           type="submit"
           disabled={disabled || !content.trim()}
           aria-label="发送"
           title="发送"
-          className="inline-flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-full text-white shadow-[0_10px_22px_rgba(91,121,111,0.24)] transition hover:brightness-105 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
-          style={{ background: "var(--ah-accent-strong)" }}
+          className="agenthub-primary-button inline-flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-full transition disabled:cursor-not-allowed disabled:opacity-40"
         >
           <SendHorizontal size={18} />
         </button>

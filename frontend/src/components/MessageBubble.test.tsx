@@ -100,4 +100,22 @@ describe("MessageBubble", () => {
     expect(screen.getByText("npm test")).toBeInTheDocument();
     expect(screen.getByText("frontend")).toBeInTheDocument();
   });
+
+  it("右键气泡时展示消息操作菜单", () => {
+    render(
+      <MessageBubble
+        message={{
+          ...baseMessage,
+          content: "```ts\nconst ok = true\n```",
+        }}
+        isStreaming={false}
+        {...handlers}
+      />,
+    );
+
+    fireEvent.contextMenu(screen.getByText("const ok = true"));
+    expect(screen.getByRole("menuitem", { name: "引用回复" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "重新生成" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Pin 消息" })).toBeInTheDocument();
+  });
 });

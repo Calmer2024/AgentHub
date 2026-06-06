@@ -1,11 +1,12 @@
 /** GroupChatCreator — 群聊创建弹窗。
 
-自动化优先: 链式协作由 Orchestrator 自动触发，用户只需选择 Agent。
+自动化优先: 链式协作由编排器自动触发，用户只需选择智能体。
 */
 
 import { useMemo, useState } from "react";
 import { Check, Users, X } from "lucide-react";
 import type { AgentConfig } from "../types";
+import { AgentAvatar } from "./AgentAvatar";
 
 const MAX_GROUP_AGENTS = 12;
 
@@ -33,29 +34,32 @@ export function GroupChatCreator({ agents, onConfirm, onCancel }: Props) {
   const canCreate = selectedList.length >= 2 && selectedList.length <= MAX_GROUP_AGENTS;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm mx-4 p-6 max-h-[90vh] overflow-y-auto">
+    <div className="agenthub-backdrop fixed inset-0 z-50 flex items-center justify-center px-4">
+      <div className="agenthub-modal max-h-[90vh] w-full max-w-sm overflow-y-auto rounded-3xl border p-5">
         <div className="mb-1 flex items-center gap-2">
-          <Users size={18} className="text-gray-500" />
-          <h2 className="text-lg font-semibold text-gray-900">新建群聊</h2>
+          <span className="agenthub-soft flex h-9 w-9 items-center justify-center rounded-full border">
+            <Users size={17} />
+          </span>
+          <h2 className="agenthub-strong text-lg font-semibold">新建群聊</h2>
         </div>
-        <p className="text-xs text-gray-400 mb-3">
+        <p className="agenthub-muted mb-3 text-xs">
           默认带上调度器；在群聊中 @调度器 生成计划，普通消息仍按群聊协作处理。最多选择 {MAX_GROUP_AGENTS} 个 Agent。
         </p>
 
         <input value={title} onChange={(e) => setTitle(e.target.value)}
           placeholder="群聊名称（可选）"
-          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="agenthub-composer agenthub-textarea agenthub-focus-ring mb-3 w-full rounded-2xl border px-3 py-2 text-sm"
         />
 
         <div className="max-h-48 overflow-y-auto space-y-1 mb-4">
           {agents.map((a) => (
-            <label key={a.id} className={`flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors ${selected.has(a.id) ? "bg-blue-50" : "hover:bg-gray-50"}`}>
+            <label key={a.id} className={`flex cursor-pointer items-center gap-2 rounded-2xl px-3 py-2 transition-colors ${selected.has(a.id) ? "agenthub-nav-active" : "agenthub-nav-idle"}`}>
               <input type="checkbox" checked={selected.has(a.id)} onChange={() => toggle(a.id)}
-                className="w-4 h-4 text-blue-600 rounded" />
-              <div>
-                <p className="text-sm font-medium text-gray-900">{a.name}</p>
-                <p className="text-xs text-gray-400">
+                className="h-4 w-4 rounded accent-[color:var(--ah-accent-strong)]" />
+              <AgentAvatar agent={a} size="sm" />
+              <div className="min-w-0">
+                <p className="agenthub-strong truncate text-sm font-medium">{a.name}</p>
+                <p className="agenthub-muted truncate text-xs">
                   {a.primarySkill === "orchestrator_planner"
                     ? "调度器 · @它生成 draft plan"
                     : a.description || `${a.cliTool} · ${a.executable ?? "未配置"}`}
@@ -69,7 +73,7 @@ export function GroupChatCreator({ agents, onConfirm, onCancel }: Props) {
           <button
             type="button"
             onClick={onCancel}
-            className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-gray-300 py-2.5 text-sm text-gray-600 hover:bg-gray-50"
+            className="agenthub-icon-button inline-flex flex-1 items-center justify-center gap-1.5 rounded-full py-2.5 text-sm"
           >
             <X size={15} />
             取消
@@ -78,7 +82,7 @@ export function GroupChatCreator({ agents, onConfirm, onCancel }: Props) {
             type="button"
             onClick={() => onConfirm(title, selectedList)}
             disabled={!canCreate}
-            className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-blue-600 py-2.5 text-sm text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50">
+            className="agenthub-primary-button inline-flex flex-1 items-center justify-center gap-1.5 rounded-full py-2.5 text-sm disabled:cursor-not-allowed disabled:opacity-50">
             <Check size={15} />
             {selected.size > MAX_GROUP_AGENTS ? `最多 ${MAX_GROUP_AGENTS} 个` : `创建 (${selected.size})`}
           </button>

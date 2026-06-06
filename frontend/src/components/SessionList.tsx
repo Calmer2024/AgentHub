@@ -72,7 +72,7 @@ export function SessionList({ project, sessions, currentSessionId, loading = fal
             </span>
             <div>
               <h2 className="agenthub-strong text-sm font-semibold">选择项目开始</h2>
-              <p className="agenthub-muted mt-0.5 text-xs">所有聊天都会绑定到项目 workspace。</p>
+              <p className="agenthub-muted mt-0.5 text-xs">所有对话都会绑定到项目工作区。</p>
             </div>
           </div>
         )}
@@ -83,11 +83,10 @@ export function SessionList({ project, sessions, currentSessionId, loading = fal
               <button
                 onClick={() => setAgentPickerOpen((open) => !open)}
                 disabled={creating || agents.length === 0}
-                className="flex h-10 w-full items-center justify-center gap-2 rounded-full text-sm font-medium text-white shadow-[0_10px_26px_rgba(91,121,111,0.22)] transition hover:brightness-105 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50"
-                style={{ background: "var(--ah-accent-strong)" }}
+                className="agenthub-primary-button flex h-10 w-full items-center justify-center gap-2 rounded-full text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {creating ? (
-                  <span className="h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-current/30 border-t-current" />
                 ) : (
                   <MessageCircle size={15} />
                 )}
@@ -142,75 +141,81 @@ export function SessionList({ project, sessions, currentSessionId, loading = fal
             const info = getSessionInfo(session);
             const running = isSessionRunning(session.id, runtimeBySession, runsBySession);
             return (
-            <div key={session.id} className="relative group mb-1 animate-[agenthub-slide-in_180ms_ease-out_both]">
-              <button
-                onClick={() => onSelectSession(session.id)}
-                className={`w-full text-left px-3 py-2.5 rounded-2xl transition-all duration-200 ${
-                  currentSessionId === session.id
-                    ? "agenthub-nav-active"
-                    : "agenthub-nav-idle"
+              <div
+                key={session.id}
+                className={`group relative mb-1 animate-[agenthub-slide-in_180ms_ease-out_both] ${
+                  menuOpen === session.id ? "z-40" : "z-0"
                 }`}
               >
-                {renaming === session.id ? (
-                  <input
-                    value={renameTitle} onChange={(e) => setRenameTitle(e.target.value)}
-                    onBlur={() => { if (renameTitle.trim()) onRenameSession(session.id, renameTitle.trim()); setRenaming(null); }}
-                    onKeyDown={(e) => { if (e.key === "Enter") { if (renameTitle.trim()) onRenameSession(session.id, renameTitle.trim()); setRenaming(null); } }}
-                    onClick={(e) => e.stopPropagation()}
-                    className="agenthub-composer agenthub-textarea w-full rounded-xl border px-2 py-1 text-sm outline-none"
-                    autoFocus
-                  />
-                ) : (
-                  <div className="flex items-center gap-3">
-                    {session.mode === "group"
-                      ? <AgentAvatar kind="group" name="群聊" size="md" />
-                      : <AgentAvatar agent={info.agent} name={info.label} size="md" />}
-                    <div className="min-w-0 flex-1">
-                      <div className="flex min-w-0 items-center gap-2">
-                        <p className="truncate text-sm font-semibold">{session.title}</p>
-                        {session.mode === "group" && <Users size={13} className="shrink-0 text-[#b8c7d9]" />}
-                      </div>
-                      <div className="mt-0.5 flex items-center justify-between gap-2">
-                        <p className="agenthub-muted truncate text-xs">
-                          {running ? "对方正在输入" : info.label}
-                        </p>
-                        <p className="agenthub-faint shrink-0 text-[11px]">
-                          {formatChinaDateTime(session.updatedAt, {
-                            month: "numeric",
-                            day: "numeric",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </p>
+                <button
+                  onClick={() => onSelectSession(session.id)}
+                  className={`w-full text-left px-3 py-2.5 rounded-2xl transition-all duration-200 ${
+                    currentSessionId === session.id
+                      ? "agenthub-nav-active"
+                      : "agenthub-nav-idle"
+                  }`}
+                >
+                  {renaming === session.id ? (
+                    <input
+                      value={renameTitle} onChange={(e) => setRenameTitle(e.target.value)}
+                      onBlur={() => { if (renameTitle.trim()) onRenameSession(session.id, renameTitle.trim()); setRenaming(null); }}
+                      onKeyDown={(e) => { if (e.key === "Enter") { if (renameTitle.trim()) onRenameSession(session.id, renameTitle.trim()); setRenaming(null); } }}
+                      onClick={(e) => e.stopPropagation()}
+                      className="agenthub-composer agenthub-textarea w-full rounded-xl border px-2 py-1 text-sm outline-none"
+                      autoFocus
+                    />
+                  ) : (
+                    <div className="flex items-center gap-3">
+                      {session.mode === "group"
+                        ? <AgentAvatar kind="group" name="群聊" size="md" />
+                        : <AgentAvatar agent={info.agent} name={info.label} size="md" />}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <p className="truncate text-sm font-semibold">{session.title}</p>
+                          {session.mode === "group" && <Users size={13} className="agenthub-muted shrink-0" />}
+                        </div>
+                        <div className="mt-0.5 flex items-center justify-between gap-2">
+                          <p className="agenthub-muted truncate text-xs">
+                            {running ? "对方正在输入" : info.label}
+                          </p>
+                          <p className="agenthub-faint shrink-0 text-[11px]">
+                            {formatChinaDateTime(session.updatedAt, {
+                              month: "numeric",
+                              day: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </p>
+                        </div>
                       </div>
                     </div>
+                  )}
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setMenuOpen(menuOpen === session.id ? null : session.id); }}
+                  className="agenthub-icon-button absolute right-1 top-2 inline-flex h-7 w-7 items-center justify-center rounded-lg opacity-0 transition-opacity group-hover:opacity-100"
+                  aria-label="会话操作"
+                  title="会话操作"
+                >
+                  <MoreHorizontal size={16} />
+                </button>
+                {menuOpen === session.id && (
+                  <div className="agenthub-menu absolute right-0 top-8 z-50 w-40 rounded-2xl border p-1">
+                    <button onClick={() => { setRenaming(session.id); setRenameTitle(session.title); setMenuOpen(null); }}
+                      className="agenthub-nav-idle flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm">
+                      <Pencil size={14} />
+                      重命名
+                    </button>
+                    <button onClick={() => { onDeleteSession(session.id); setMenuOpen(null); }}
+                      className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm text-[color:var(--ah-danger)] hover:bg-[color:var(--ah-danger-soft)]">
+                      <Trash2 size={14} />
+                      删除
+                    </button>
                   </div>
                 )}
-              </button>
-              <button
-                onClick={(e) => { e.stopPropagation(); setMenuOpen(menuOpen === session.id ? null : session.id); }}
-                className="agenthub-icon-button absolute right-1 top-2 inline-flex h-7 w-7 items-center justify-center rounded-lg opacity-0 transition-opacity group-hover:opacity-100"
-                aria-label="会话操作"
-                title="会话操作"
-              >
-                <MoreHorizontal size={16} />
-              </button>
-              {menuOpen === session.id && (
-                <div className="agenthub-menu absolute right-0 top-8 z-10 w-40 rounded-2xl border p-1">
-                  <button onClick={() => { setRenaming(session.id); setRenameTitle(session.title); setMenuOpen(null); }}
-                    className="agenthub-nav-idle flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm">
-                    <Pencil size={14} />
-                    重命名
-                  </button>
-                  <button onClick={() => { onDeleteSession(session.id); setMenuOpen(null); }}
-                    className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm text-[color:var(--ah-danger)] hover:bg-red-500/15">
-                    <Trash2 size={14} />
-                    删除
-                  </button>
-                </div>
-              )}
-            </div>
-          );})
+              </div>
+            );
+          })
         )}
       </div>
     </div>
@@ -223,12 +228,12 @@ function SessionListSkeleton() {
       {Array.from({ length: 6 }).map((_, index) => (
         <div
           key={index}
-          className="flex items-center gap-3 rounded-2xl border border-white/[0.04] bg-white/[0.035] px-3 py-2.5"
+          className="agenthub-skeleton flex items-center gap-3 rounded-2xl border px-3 py-2.5"
         >
-          <div className="h-10 w-10 shrink-0 animate-pulse rounded-full bg-white/[0.08]" />
+          <div className="h-10 w-10 shrink-0 animate-pulse rounded-full bg-[color:var(--ah-panel-muted)]" />
           <div className="min-w-0 flex-1 space-y-2">
-            <div className="h-3 w-2/3 animate-pulse rounded-full bg-white/[0.10]" />
-            <div className="h-2.5 w-5/6 animate-pulse rounded-full bg-white/[0.06]" />
+            <div className="h-3 w-2/3 animate-pulse rounded-full bg-[color:var(--ah-panel-muted)]" />
+            <div className="h-2.5 w-5/6 animate-pulse rounded-full bg-[color:var(--ah-card-soft)]" />
           </div>
         </div>
       ))}

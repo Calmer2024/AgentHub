@@ -11,26 +11,26 @@ export function AgentCliRow({
   onDelete: () => Promise<void>;
 }) {
   return (
-    <div className="rounded-lg border border-white/10 bg-[#202123] p-3">
+    <div className="agenthub-card rounded-2xl border p-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span
-              className={`h-2 w-2 shrink-0 rounded-full ${agent.status === "ready" ? "bg-emerald-300" : "bg-[#74747d]"}`}
+              className={`h-2 w-2 shrink-0 rounded-full ${agent.status === "ready" ? "bg-[color:var(--ah-text-strong)]" : "bg-[color:var(--ah-faint)]"}`}
             />
-            <p className="truncate text-sm font-medium text-white">{agent.name}</p>
+            <p className="agenthub-strong truncate text-sm font-medium">{agent.name}</p>
           </div>
-          <p className="mt-1 truncate text-xs text-[#8f8f98]">
+          <p className="agenthub-muted mt-1 truncate text-xs">
             Engine: {engineLabel(agent.cliTool)} · Skill: {agent.primarySkill || "general_coding"}
             {agent.auxiliarySkills.length > 0 ? ` + ${agent.auxiliarySkills.length}` : ""}
           </p>
-          <p className="mt-1 truncate text-xs text-[#74747d]">
+          <p className="agenthub-muted mt-1 truncate text-xs">
             {agent.executable || "未配置 executable"} {agent.initArgs.join(" ")}
           </p>
           {agent.description && (
-            <p className="mt-1 truncate text-xs text-[#74747d]">{agent.description}</p>
+            <p className="agenthub-faint mt-1 truncate text-xs">{agent.description}</p>
           )}
-          <p className="mt-1 text-xs text-[#74747d]">
+          <p className="agenthub-faint mt-1 text-xs">
             {agent.status === "ready" ? agent.version || "就绪" : "未找到 executable"}
           </p>
         </div>
@@ -38,7 +38,7 @@ export function AgentCliRow({
           <button
             type="button"
             onClick={onEdit}
-            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-[#cfd1d6] hover:bg-white/[0.08]"
+            className="agenthub-icon-button inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs"
           >
             <Settings size={13} />
             设置
@@ -46,7 +46,7 @@ export function AgentCliRow({
           <button
             type="button"
             onClick={onDelete}
-            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-red-300 hover:bg-red-500/15"
+            className="inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs text-[color:var(--ah-danger)] hover:bg-[color:var(--ah-danger-soft)]"
           >
             <Trash2 size={13} />
             删除

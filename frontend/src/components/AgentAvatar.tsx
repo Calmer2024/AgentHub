@@ -133,7 +133,7 @@ function resolveLook(
   if (kind === "user") {
     return {
       icon: UserRound,
-      className: "border-blue-300/20 bg-blue-500 text-white",
+      className: "agenthub-primary-button border-[color:var(--ah-border-strong)]",
       label: "用户",
     };
   }

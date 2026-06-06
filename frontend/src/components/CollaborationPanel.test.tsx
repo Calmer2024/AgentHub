@@ -33,9 +33,9 @@ describe("CollaborationPanel", () => {
       />,
     );
 
-    expect(screen.getByText(/Orchestrator/)).toBeInTheDocument();
-    expect(screen.getByText("Phase 0")).toBeInTheDocument();
-    expect(screen.getByText("Phase 1")).toBeInTheDocument();
+    expect(screen.getByText(/编排器/)).toBeInTheDocument();
+    expect(screen.getByText("阶段 0")).toBeInTheDocument();
+    expect(screen.getByText("阶段 1")).toBeInTheDocument();
     expect(screen.getByText("@前端")).toBeInTheDocument();
     expect(screen.getByText("@后端")).toBeInTheDocument();
   });

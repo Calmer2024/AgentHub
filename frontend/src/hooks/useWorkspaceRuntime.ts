@@ -355,7 +355,10 @@ export function useWorkspaceRuntime() {
     setSessions(cached);
     const first = cached[0] ?? null;
     setCurrentSessionId(first?.id ?? null);
-    if (first) resetSessionView(first.id);
+    if (first) {
+      resetSessionView(first.id);
+      void hydrateSession(first.id);
+    }
     else {
       setMessages([]);
       setArtifacts([]);

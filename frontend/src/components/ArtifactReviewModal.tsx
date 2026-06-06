@@ -14,27 +14,27 @@ export function ArtifactReviewModal({ artifact, onClose, onChanged }: Props) {
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[1060] flex items-center justify-center bg-black/70 p-3 md:p-6"
+      className="agenthub-backdrop fixed inset-0 z-[1060] flex items-center justify-center p-3 md:p-6"
       role="dialog"
       aria-modal="true"
       aria-label="审批产物审阅"
       onClick={onClose}
     >
       <div
-        className="flex max-h-[90dvh] w-full max-w-5xl flex-col overflow-hidden rounded-lg border border-[#30363d] bg-[#0d1117] shadow-2xl"
+        className="agenthub-modal flex max-h-[90dvh] w-full max-w-5xl flex-col overflow-hidden rounded-3xl border"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="flex items-center justify-between gap-3 border-b border-[#30363d] bg-[#161b22] px-4 py-3">
+        <div className="agenthub-header flex items-center justify-between gap-3 border-b px-4 py-3">
           <div className="min-w-0">
-            <div className="text-[11px] text-[#8b949e]">审批审阅</div>
-            <h3 className="mt-1 truncate text-base font-semibold text-[#f0f6fc]">
+            <div className="agenthub-muted text-[11px]">审批审阅</div>
+            <h3 className="agenthub-strong mt-1 truncate text-base font-semibold">
               {artifact.title || artifact.filePath || "关联产物"}
             </h3>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#30363d] text-[#8b949e] hover:bg-[#21262d] hover:text-[#f0f6fc]"
+            className="agenthub-icon-button inline-flex h-8 w-8 items-center justify-center rounded-full"
             aria-label="关闭审批审阅"
             title="关闭"
           >

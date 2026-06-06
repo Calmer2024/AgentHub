@@ -171,7 +171,7 @@ export function ChatWindow({
   const hasActiveRun = useMemo(() => runs.some((run) => ACTIVE_RUN_STATUSES.has(run.status)), [runs]);
   const headerStatus = isStreaming || hasActiveRun
     ? "对方正在输入"
-    : isGroup ? "多人 Agent 协作" : currentAgent?.cliTool ?? "CLI Agent";
+    : isGroup ? "多智能体协作" : currentAgent?.cliTool ?? "命令行智能体";
 
   const refreshRuntime = useCallback(async () => {
     try {
@@ -328,13 +328,13 @@ export function ChatWindow({
         <div className="flex min-w-0 items-center gap-3">
           <AgentAvatar
             agent={!isGroup ? currentAgent : undefined}
-            name={isGroup ? "群聊" : currentAgent?.name ?? "未选择 Agent"}
+            name={isGroup ? "群聊" : currentAgent?.name ?? "未选择智能体"}
             kind={isGroup ? "group" : "agent"}
             size="md"
           />
           <div className="min-w-0">
             <h1 className="agenthub-strong truncate text-base font-semibold">
-              {isGroup ? "群聊" : currentAgent?.name ?? "未选择 Agent"}
+              {isGroup ? "群聊" : currentAgent?.name ?? "未选择智能体"}
             </h1>
             <p className="agenthub-muted mt-0.5 truncate text-xs">
               {headerStatus}
@@ -360,8 +360,8 @@ export function ChatWindow({
           >
             <Files size={15} />
             {artifacts.length > 0 && (
-              <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border px-1 text-[10px] font-semibold text-white"
-                style={{ borderColor: "var(--ah-header-bg)", background: "var(--ah-accent-strong)" }}>
+              <span className="agenthub-primary-button absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border px-1 text-[10px] font-semibold"
+                style={{ borderColor: "var(--ah-header-bg)" }}>
                 {artifacts.length > 9 ? "9+" : artifacts.length}
               </span>
             )}
@@ -379,24 +379,24 @@ export function ChatWindow({
       </div>
       {hydrating && (
         <div className="h-0.5 overflow-hidden bg-transparent" aria-label="正在同步当前对话">
-          <div className="h-full w-1/2 animate-[agenthub-progress_920ms_ease-in-out_infinite] rounded-full bg-[#8fb7aa]" />
+          <div className="h-full w-1/2 animate-[agenthub-progress_920ms_ease-in-out_infinite] rounded-full bg-[color:var(--ah-accent-strong)]" />
         </div>
       )}
 
       {/* Alerts area (non-scrollable, stacks naturally) */}
       {!isGroup && !currentAgent && (
-        <div className="mx-6 mt-3 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl">
-          <p className="text-sm text-amber-700">请先在 Agent 管理页面创建或选择一个 Agent</p>
+        <div className="agenthub-status-warning mx-6 mt-3 rounded-xl border px-4 py-3">
+          <p className="text-sm">请先在智能体管理中创建或选择一个智能体</p>
         </div>
       )}
 
       {/* Orchestrator route banner */}
       {!isPlanOnly && routeAgents && routeAgents.length > 0 && (
-        <div className="mx-6 mt-3 px-4 py-3 bg-blue-50 border border-blue-200 rounded-xl">
-          <p className="text-xs text-blue-600 font-medium mb-1">
-            Orchestrator 已路由
+        <div className="agenthub-status-info mx-6 mt-3 rounded-xl border px-4 py-3">
+          <p className="mb-1 text-xs font-medium">
+            编排器已路由
             {orchestratorIntent && (
-              <span className="ml-1.5 px-1.5 py-0.5 bg-blue-100 text-blue-500 rounded text-[10px]">
+              <span className="agenthub-status ml-1.5 rounded px-1.5 py-0.5 text-[10px]">
                 {INTENT_LABELS[orchestratorIntent] ?? orchestratorIntent}
               </span>
             )}
@@ -404,13 +404,13 @@ export function ChatWindow({
           </p>
           <div className="flex flex-wrap gap-1.5">
             {routeAgents.map((a) => (
-              <span key={a.id} className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full text-xs font-medium">
+              <span key={a.id} className="agenthub-status inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium">
                 @{a.name}
               </span>
             ))}
           </div>
           {planSummary && (
-            <p className="mt-2 text-xs text-blue-700 leading-relaxed">{planSummary}</p>
+            <p className="mt-2 text-xs leading-relaxed">{planSummary}</p>
           )}
         </div>
       )}
@@ -429,12 +429,12 @@ export function ChatWindow({
 
       {/* Error banner */}
       {streamingError && (
-        <div className="mx-6 mt-3 px-4 py-3 bg-red-50 border border-red-200 rounded-xl flex items-center justify-between">
-          <span className="text-sm text-red-700">{streamingError}</span>
+        <div className="agenthub-status-error mx-6 mt-3 flex items-center justify-between rounded-xl border px-4 py-3">
+          <span className="text-sm">{streamingError}</span>
           <button
             type="button"
             onClick={onDismissError}
-            className="ml-2 inline-flex h-7 w-7 items-center justify-center rounded-lg text-red-400 hover:bg-red-100 hover:text-red-600"
+            className="ml-2 inline-flex h-7 w-7 items-center justify-center rounded-lg hover:bg-[color:var(--ah-danger-soft)]"
             aria-label="关闭错误提示"
             title="关闭错误提示"
           >
@@ -447,7 +447,7 @@ export function ChatWindow({
         {/* Messages area (scrollable) */}
         <div
           ref={scrollRef}
-          className="agenthub-message-area relative min-h-0 w-full overflow-y-auto p-4 md:p-6"
+          className="agenthub-message-area relative min-h-0 w-full overflow-y-auto p-4 pb-28 md:p-6 md:pb-28"
         >
           {messages.length === 0 && collabTasks.length === 0 && hydrating ? (
             <MessageListSkeleton />
@@ -570,9 +570,9 @@ function MessageListSkeleton() {
             key={index}
             className={`flex items-end gap-2.5 ${user ? "flex-row-reverse" : ""}`}
           >
-            <div className="h-10 w-10 shrink-0 animate-pulse rounded-full bg-white/[0.08]" />
+            <div className="h-10 w-10 shrink-0 animate-pulse rounded-full bg-[color:var(--ah-panel-muted)]" />
             <div
-              className={`animate-pulse rounded-[20px] bg-white/[0.07] ${
+              className={`animate-pulse rounded-[20px] bg-[color:var(--ah-card-soft)] ${
                 user ? "h-16 w-[min(58%,520px)] rounded-br-md" : "h-24 w-[min(76%,720px)] rounded-bl-md"
               }`}
             />

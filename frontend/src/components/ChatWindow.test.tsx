@@ -195,7 +195,7 @@ describe("ChatWindow runtime cancel", () => {
       expect(screen.queryByText("对方正在输入")).not.toBeInTheDocument();
     });
     expect(abort).toHaveBeenCalledTimes(1);
-    expect(screen.getByPlaceholderText("输入消息，@ 提及 Agent")).toBeEnabled();
+    expect(screen.getByPlaceholderText("输入消息，@ 提及智能体")).toBeEnabled();
     expect(screen.getByText(/本次运行已中止成功/)).toBeInTheDocument();
     expect(screen.queryByText("正在生成")).not.toBeInTheDocument();
   });

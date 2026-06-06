@@ -76,25 +76,25 @@ function parseUnifiedDiff(text: string): DiffLine[] {
 }
 
 function lineClasses(type: DiffLineType) {
-  if (type === "add") return "bg-emerald-500/[0.13] text-emerald-100";
-  if (type === "remove") return "bg-rose-500/[0.14] text-rose-100";
-  if (type === "hunk") return "bg-[#122d4a] text-[#8fc7ff]";
-  if (type === "file") return "bg-[#202a35] text-[#d2d8e0]";
-  return "bg-[#111820] text-[#c8d1dc]";
+  if (type === "add") return "bg-[color:var(--ah-diff-add-bg)] text-[color:var(--ah-diff-add-text)]";
+  if (type === "remove") return "bg-[color:var(--ah-diff-remove-bg)] text-[color:var(--ah-diff-remove-text)]";
+  if (type === "hunk") return "bg-[color:var(--ah-diff-hunk-bg)] text-[color:var(--ah-text-strong)]";
+  if (type === "file") return "bg-[color:var(--ah-code-header)] text-[color:var(--ah-code-text)]";
+  return "bg-[color:var(--ah-code-panel)] text-[color:var(--ah-code-text)]";
 }
 
 function gutterClasses(type: DiffLineType) {
-  if (type === "add") return "text-emerald-300/75";
-  if (type === "remove") return "text-rose-300/75";
-  if (type === "hunk") return "text-[#8fc7ff]/80";
-  return "text-[#6f7b88]";
+  if (type === "add") return "text-[color:var(--ah-success)]";
+  if (type === "remove") return "text-[color:var(--ah-danger)]";
+  if (type === "hunk") return "text-[color:var(--ah-text-strong)]";
+  return "text-[color:var(--ah-code-muted)]";
 }
 
 export function DiffViewer({ diff, compact = false, title }: Props) {
   if (!diff) {
     return (
-      <div className="overflow-hidden rounded-md border border-[#30363d] bg-[#0d1117]">
-        <div className="px-3 py-4 text-xs text-[#8b949e]">选择两个版本查看差异</div>
+      <div className="agenthub-code-surface overflow-hidden rounded-2xl border">
+        <div className="px-3 py-4 text-xs text-[color:var(--ah-code-muted)]">选择两个版本查看差异</div>
       </div>
     );
   }
@@ -106,14 +106,14 @@ export function DiffViewer({ diff, compact = false, title }: Props) {
   const hiddenRows = rows.length - visibleRows.length;
 
   return (
-    <div className="overflow-hidden rounded-md border border-[#30363d] bg-[#0d1117] text-xs shadow-[0_18px_45px_rgba(0,0,0,0.24)]">
-      <div className="flex items-center justify-between gap-3 border-b border-[#30363d] bg-[#161b22] px-3 py-2">
-        <div className="min-w-0 font-medium text-[#c9d1d9]">
+    <div className="agenthub-code-surface overflow-hidden rounded-2xl border text-xs shadow-[0_18px_45px_rgba(0,0,0,0.18)]">
+      <div className="agenthub-code-header flex items-center justify-between gap-3 border-b px-3 py-2">
+        <div className="min-w-0 font-medium">
           {title ?? `v${diff.fromVersion} → v${diff.toVersion}`}
         </div>
         <div className="flex shrink-0 items-center gap-2 font-mono text-[11px]">
-          <span className="text-emerald-300">+{additions}</span>
-          <span className="text-rose-300">-{removals}</span>
+          <span className="text-[color:var(--ah-success)]">+{additions}</span>
+          <span className="text-[color:var(--ah-danger)]">-{removals}</span>
         </div>
       </div>
       <div className={compact ? "max-h-64 overflow-hidden" : "max-h-[68vh] overflow-auto"}>
@@ -121,13 +121,13 @@ export function DiffViewer({ diff, compact = false, title }: Props) {
           <tbody>
             {visibleRows.map((row, index) => (
               <tr key={`${index}:${row.text}`} className={lineClasses(row.type)}>
-                <td className={`w-10 select-none border-r border-[#30363d] px-2 text-right ${gutterClasses(row.type)}`}>
+                <td className={`w-10 select-none border-r px-2 text-right ${gutterClasses(row.type)}`} style={{ borderColor: "var(--ah-code-border)" }}>
                   {row.oldLine ?? ""}
                 </td>
-                <td className={`w-10 select-none border-r border-[#30363d] px-2 text-right ${gutterClasses(row.type)}`}>
+                <td className={`w-10 select-none border-r px-2 text-right ${gutterClasses(row.type)}`} style={{ borderColor: "var(--ah-code-border)" }}>
                   {row.newLine ?? ""}
                 </td>
-                <td className="w-6 select-none px-2 text-center text-[#8b949e]">
+                <td className="w-6 select-none px-2 text-center text-[color:var(--ah-code-muted)]">
                   {row.type === "add" ? "+" : row.type === "remove" ? "-" : " "}
                 </td>
                 <td className="min-w-0 whitespace-pre-wrap break-words py-0.5 pr-3">
@@ -138,8 +138,8 @@ export function DiffViewer({ diff, compact = false, title }: Props) {
           </tbody>
         </table>
         {hiddenRows > 0 && (
-          <div className="border-t border-[#30363d] bg-[#161b22] px-3 py-2 font-mono text-[11px] text-[#8b949e]">
-            还有 {hiddenRows} 行，点击打开完整 diff
+          <div className="agenthub-code-header border-t px-3 py-2 font-mono text-[11px]">
+            还有 {hiddenRows} 行，点击打开完整差异
           </div>
         )}
       </div>

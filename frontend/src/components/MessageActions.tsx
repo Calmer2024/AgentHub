@@ -1,61 +1,72 @@
 import type { Message } from "../types";
 import { Copy, Pin, PinOff, Quote, RefreshCw } from "lucide-react";
+import { createPortal } from "react-dom";
+import type { ReactNode } from "react";
 
 interface Props {
   message: Message;
+  open: boolean;
+  position: { x: number; y: number } | null;
   onReply: (message: Message) => void;
   onRegenerate: (message: Message) => void;
   onTogglePin: (message: Message) => void;
   onCopy: (content: string) => void;
+  onClose: () => void;
 }
 
 export function MessageActions({
-  message, onReply, onRegenerate, onTogglePin, onCopy,
+  message, open, position, onReply, onRegenerate, onTogglePin, onCopy, onClose,
 }: Props) {
   const canRegenerate = message.role === "assistant" && !message.isCollaborating;
+  if (!open || !position || typeof document === "undefined") return null;
 
-  return (
-    <div className={`agenthub-menu absolute -top-3 hidden items-center gap-1 rounded-full border px-1 py-1 group-hover:flex ${
-      message.role === "user" ? "left-2" : "right-2"
-    }`}>
-      <button
-        type="button"
-        onClick={() => onReply(message)}
-        className="rounded-full p-1.5 agenthub-muted transition hover:bg-[color:var(--ah-accent-soft)] hover:text-[color:var(--ah-text-strong)] active:translate-y-px"
-        aria-label="引用回复"
-        title="引用回复"
-      >
-        <Quote size={14} />
-      </button>
+  const run = (action: () => void) => {
+    action();
+    onClose();
+  };
+
+  const menu = (
+    <div
+      className="agenthub-menu fixed z-[1200] w-44 rounded-2xl border p-1.5"
+      style={{ left: position.x, top: position.y }}
+      role="menu"
+      onContextMenu={(event) => event.preventDefault()}
+      onMouseDown={(event) => event.stopPropagation()}
+    >
+      <MenuAction icon={<Quote size={14} />} label="引用回复" onClick={() => run(() => onReply(message))} />
       {canRegenerate && (
-        <button
-          type="button"
-          onClick={() => onRegenerate(message)}
-          className="rounded-full p-1.5 agenthub-muted transition hover:bg-[color:var(--ah-accent-soft)] hover:text-[color:var(--ah-text-strong)] active:translate-y-px"
-          aria-label="重新生成"
-          title="重新生成"
-        >
-          <RefreshCw size={14} />
-        </button>
+        <MenuAction icon={<RefreshCw size={14} />} label="重新生成" onClick={() => run(() => onRegenerate(message))} />
       )}
-      <button
-        type="button"
-        onClick={() => onTogglePin(message)}
-        className="rounded-full p-1.5 agenthub-muted transition hover:bg-[color:var(--ah-accent-soft)] hover:text-[color:var(--ah-text-strong)] active:translate-y-px"
-        aria-label={message.isPinned ? "取消 Pin" : "Pin 消息"}
-        title={message.isPinned ? "取消 Pin" : "Pin 消息"}
-      >
-        {message.isPinned ? <PinOff size={14} /> : <Pin size={14} />}
-      </button>
-      <button
-        type="button"
-        onClick={() => onCopy(message.content)}
-        className="rounded-full p-1.5 agenthub-muted transition hover:bg-[color:var(--ah-accent-soft)] hover:text-[color:var(--ah-text-strong)] active:translate-y-px"
-        aria-label="复制"
-        title="复制"
-      >
-        <Copy size={14} />
-      </button>
+      <MenuAction
+        icon={message.isPinned ? <PinOff size={14} /> : <Pin size={14} />}
+        label={message.isPinned ? "取消 Pin" : "Pin 消息"}
+        onClick={() => run(() => onTogglePin(message))}
+      />
+      <MenuAction icon={<Copy size={14} />} label="复制" onClick={() => run(() => onCopy(message.content))} />
     </div>
+  );
+
+  return createPortal(menu, document.body);
+}
+
+function MenuAction({
+  icon,
+  label,
+  onClick,
+}: {
+  icon: ReactNode;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={onClick}
+      className="agenthub-nav-idle flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition active:translate-y-px"
+    >
+      <span className="agenthub-muted inline-flex h-5 w-5 items-center justify-center">{icon}</span>
+      <span>{label}</span>
+    </button>
   );
 }
