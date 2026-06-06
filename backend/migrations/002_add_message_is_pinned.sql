@@ -1,0 +1,1 @@
+ALTER TABLE messages ADD COLUMN is_pinned VARCHAR DEFAULT '0';

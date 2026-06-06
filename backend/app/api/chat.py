@@ -1,99 +1,35 @@
 import json
-import uuid
-from typing import AsyncGenerator
+import logging
+from collections.abc import AsyncIterator
+
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
-from ..models import Session as DBSession, Message as DBMessage
-from ..agents import ClaudeAdapter
-from ..agents.deepseek_adapter import DeepSeekAdapter
-from ..config import settings
+from ..models import Session as DBSession
+from ..services.chat_service_impl import ChatServiceImpl
+from ..services.schemas import ChatRequest, MessageRead
+from ..services.message_service_sqlalchemy import SqlAlchemyMessageService
+from ..agents.cli_runtime import CliProcessNotFound, cli_process_manager
 
 router = APIRouter(prefix="", tags=["chat"])
-
-agent = None
-if settings.deepseek_api_key:
-    agent = DeepSeekAdapter()
-elif settings.anthropic_api_key:
-    agent = ClaudeAdapter()
+logger = logging.getLogger(__name__)
 
 
-class ChatRequest(BaseModel):
-    content: str
+class InteractiveReplyRequest(BaseModel):
+    processId: str
+    reply: str
 
 
-async def generate_chat_stream(
-    session_id: str,
-    user_content: str,
-    db: AsyncSession,
-    session: DBSession,
-) -> AsyncGenerator[str, None]:
-    if not agent:
-        yield f"data: {json.dumps({'token': '', 'done': True, 'error': '没有配置 API Key，请在 .env 中设置 DEEPSEEK_API_KEY 或 ANTHROPIC_API_KEY'}, ensure_ascii=False)}\n\n"
-        return
-
-    user_msg_id = str(uuid.uuid4())
-    user_msg = DBMessage(
-        id=user_msg_id,
-        session_id=session_id,
-        role="user",
-        content=user_content,
-    )
-    db.add(user_msg)
-    await db.commit()
-
-    result = await db.execute(
-        select(DBMessage)
-        .where(DBMessage.session_id == session_id)
-        .order_by(DBMessage.created_at.asc())
-        .limit(50)
-    )
-    history_messages = result.scalars().all()
-
-    messages_for_llm = [
-        {"role": m.role, "content": m.content}
-        for m in history_messages
-    ]
-
-    assistant_msg_id = str(uuid.uuid4())
-    full_response = ""
-
-    try:
-        async for token in agent.chat_stream(
-            messages=messages_for_llm,
-            system_prompt="你是一个有帮助的 AI 助手。请用简洁清晰的方式回答用户的问题。",
-        ):
-            full_response += token
-            yield f"data: {json.dumps({'token': token, 'done': False}, ensure_ascii=False)}\n\n"
-    except Exception as e:
-        yield f"data: {json.dumps({'token': '', 'done': True, 'error': str(e)}, ensure_ascii=False)}\n\n"
-        return
-
-    assistant_msg = DBMessage(
-        id=assistant_msg_id,
-        session_id=session_id,
-        role="assistant",
-        content=full_response,
-    )
-    db.add(assistant_msg)
-
-    from datetime import datetime, timezone
-    session.updated_at = datetime.now(timezone.utc)
-    await db.commit()
-
-    yield f"data: {json.dumps({'token': '', 'done': True, 'message_id': assistant_msg_id}, ensure_ascii=False)}\n\n"
+def _chat_svc(db: AsyncSession):
+    from ..main import _event_bus
+    return ChatServiceImpl(db, event_bus=_event_bus)
 
 
 @router.post("/sessions/{session_id}/chat")
-async def chat(
-    session_id: str,
-    data: ChatRequest,
-    db: AsyncSession = Depends(get_db),
-):
+async def chat(session_id: str, data: ChatRequest, db: AsyncSession = Depends(get_db)):
     if not data.content.strip():
         raise HTTPException(status_code=400, detail="content must not be empty")
 
@@ -101,27 +37,44 @@ async def chat(
     if not session:
         raise HTTPException(status_code=404, detail="session not found")
 
+    svc = _chat_svc(db)
     return StreamingResponse(
-        generate_chat_stream(session_id, data.content, db, session),
+        _safe_sse_stream(svc.send_message_stream(
+            session_id, data.content, data.mentions,
+            parent_message_id=data.parent_message_id,
+            chain_config=data.chain_config,
+        )),
         media_type="text/event-stream",
     )
 
 
-@router.get("/sessions/{session_id}/messages")
+@router.get("/sessions/{session_id}/messages", response_model=list[MessageRead])
 async def list_messages(session_id: str, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(
-        select(DBMessage)
-        .where(DBMessage.session_id == session_id)
-        .order_by(DBMessage.created_at.asc())
-    )
-    messages = result.scalars().all()
-    return [
-        {
-            "id": m.id,
-            "sessionId": m.session_id,
-            "role": m.role,
-            "content": m.content,
-            "createdAt": m.created_at.isoformat(),
+    svc = SqlAlchemyMessageService(db)
+    return await svc.get_session_messages(session_id, limit=500)
+
+
+@router.post("/sessions/{session_id}/interactive_reply")
+async def interactive_reply(session_id: str, data: InteractiveReplyRequest):
+    if data.reply not in {"y", "n"}:
+        raise HTTPException(status_code=400, detail="reply must be 'y' or 'n'")
+    try:
+        await cli_process_manager.reply(data.processId, data.reply)
+    except CliProcessNotFound:
+        raise HTTPException(status_code=404, detail="process not found")
+    return {"status": "acknowledged"}
+
+
+async def _safe_sse_stream(stream: AsyncIterator[str]) -> AsyncIterator[str]:
+    try:
+        async for item in stream:
+            yield item
+    except Exception as exc:
+        logger.exception("chat SSE stream failed")
+        payload = {
+            "type": "error",
+            "token": "",
+            "done": True,
+            "error": f"{type(exc).__name__}: {exc}",
         }
-        for m in messages
-    ]
+        yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"

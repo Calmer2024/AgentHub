@@ -1,5 +1,8 @@
-from .base import BaseAgentAdapter, AgentCapability, AgentResponse
-from .claude_adapter import ClaudeAdapter
-from .deepseek_adapter import DeepSeekAdapter
+from .cli_adapters import ClaudeCodeAdapter, CliAgentAdapter, CodexAdapter, OpenCodeAdapter
 
-__all__ = ["BaseAgentAdapter", "AgentCapability", "AgentResponse", "ClaudeAdapter", "DeepSeekAdapter"]
+__all__ = [
+    "ClaudeCodeAdapter",
+    "CliAgentAdapter",
+    "CodexAdapter",
+    "OpenCodeAdapter",
+]

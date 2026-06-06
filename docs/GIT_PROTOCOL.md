@@ -1,7 +1,8 @@
 # Git 协作规范
 
-**版本**: v1.0
+**版本**: v2.0
 **创建日期**: 2026-05-26
+**最后更新**: 2026-06-02
 **适用范围**: AgentHub 所有开发者（人类 + AI Agent）
 
 ---
@@ -22,40 +23,48 @@
 ### 2.1 分支模型
 
 ```
-main ─────────────────────────────────────────────────────▶
-  │
-  ├── phase/phase1-walking-skeleton ──── (当前)
-  │       └── feat/xxx
-  │       └── fix/xxx
-  │
-  ├── phase/phase2-xxx ──── (未来)
-  │
-  └── hotfix/xxx ──── (紧急修复，直接基于 main)
+main ───────────────────────────────────────────────────────────▶
+  │                                                              ↑
+  ├── phase/main ─────────────────────────────────────▶         │
+  │       │                                              │       │
+  │       ├── phase/phase3-smart-collab ──── (已完成)     │       │
+  │       │                                              │       │
+  │       ├── phase/phase4-xxx ──── (未来开发)            │       │
+  │       │       └── feat/xxx (小粒度功能)               │       │
+  │       │                                              │       │
+  │       └── fix/xxx (Bug 修复，基于 phase/main)         │       │
+  │                                                      │       │
+  └── hotfix/xxx ──── (紧急修复，基于 main) ─────────────┘       │
+                                                                  │
+  Phase 阶段验收通过后: phase/main ──merge commit──▶ main ───────┘
 ```
 
 ### 2.2 分支类型
 
 | 分支前缀 | 用途 | 命名示例 | 生命周期 |
 |---------|------|---------|---------|
-| `phase/` | 阶段性开发主线（长期分支） | `phase/phase1-walking-skeleton` | 整个 Phase |
-| `feat/` | 新功能开发（基于 `phase/` 分支） | `feat/sse-chat-endpoint` | 1-3 天 |
-| `fix/` | Bug 修复 | `fix/sse-json-single-quotes` | 几小时-1 天 |
-| `refactor/` | 重构（不改变行为） | `refactor/extract-chat-service` | 1-2 天 |
+| `main` | 生产稳定分支 | `main` | 永久 |
+| `phase/main` | **唯一集成分支**，所有 Phase 开发的汇合点 | `phase/main` | 永久 |
+| `phase/<name>` | Phase 级功能开发（基于 `phase/main`） | `phase/phase3-smart-collab` | 功能完成、合并后删除 |
+| `feat/` | 小粒度新功能（基于 `phase/main` 或 `phase/<name>`） | `feat/sse-chat-endpoint` | 功能完成即可删除 |
+| `fix/` | Bug 修复 | `fix/sse-json-single-quotes` | 修复完成即可删除 |
+| `refactor/` | 重构（不改变行为） | `refactor/extract-chat-service` | 重构完成即可删除 |
 | `docs/` | 文档变更 | `docs/test-protocol` | 几小时 |
 | `hotfix/` | 紧急修复（基于 `main`） | `hotfix/api-key-leak` | 几小时 |
 
 ### 2.3 分支生命周期
 
 ```
-1. 从 phase/ 分支切出 feat/ 或 fix/
-2. 本地开发 → 小 commit 迭代
-3. 推到远程 → 创建 PR → Code Review
-4. 合并到 phase/ 分支（squash 或 rebase）
-5. 删除 feat/fix 分支
+开发阶段:
+1. 从 phase/main 切出 phase/<phase-name> 开发分支
+2. 本地开发 → 小 commit 迭代 → 推送到远程
+3. 开发完成后合并回 phase/main（fast-forward 或 merge commit）
+4. 删除 phase/<phase-name> 分支（本地 + 远程）
 
-Phase 完成时:
-6. phase/ 分支合并到 main（保留完整 history，merge commit）
-7. 在 main 上打 tag
+Phase 阶段验收通过后:
+5. phase/main 合并到 main（merge commit，保留完整 history）
+6. 在 main 上打 tag（如 v0.3.0）
+7. phase/main 继续作为下一 Phase 的集成分支
 ```
 
 ---
@@ -159,10 +168,10 @@ Phase 完成时:
 
 | 场景 | 策略 | 原因 |
 |------|------|------|
-| `feat/` → `phase/` | **Squash & Merge** | 保持 phase 分支历史干净 |
-| `phase/` → `main` | **Merge Commit** | 保留 Phase 级别的完整历史 |
+| `phase/<name>` → `phase/main` | **Fast-forward 或 Merge Commit** | 保留开发分支完整历史，合并后删除源分支 |
+| `phase/main` → `main` | **Merge Commit** (`--no-ff`) | 保留 Phase 级别的完整历史，可追溯版本演进 |
 | `hotfix/` → `main` | **Merge Commit** | 紧急修复必须可追溯 |
-| `main` 回退到 `phase/` | **Merge main → phase/** | 同步 hotfix 到开发分支 |
+| `hotfix/` 同步回 `phase/main` | **Merge main → phase/main** | 同步 hotfix 到集成分支 |
 
 ---
 
@@ -239,55 +248,80 @@ Desktop.ini
 # === 临时文件 ===
 *.tmp
 *.log
-.trae/
 ```
 
 ---
 
 ## 8. 常见场景操作指南
 
-### 8.1 开始新功能
+### 8.1 开始新 Phase 开发
 
 ```bash
-git checkout phase/phase1-walking-skeleton
-git pull
-git checkout -b feat/my-new-feature
-# 开发 → 多次 commit → 推送到远程
-git push -u origin feat/my-new-feature
-# 在 GitHub 创建 PR → base: phase/phase1-walking-skeleton
+# 1. 从 phase/main 切出开发分支
+git checkout phase/main
+git pull origin phase/main
+git checkout -b phase/phase4-new-feature
+
+# 2. 开发 → 多次 commit → 推送到远程
+git push -u origin phase/phase4-new-feature
+
+# 3. 在 GitHub 创建 PR → base: phase/main
 ```
 
-### 8.2 Phase 完成合并
+### 8.2 Phase 开发完成，合并回 phase/main
 
 ```bash
-# 1. 确保 phase 分支所有 PR 已合并
-git checkout phase/phase1-walking-skeleton
-git pull
+# 1. 确保开发分支所有改动已提交
+git checkout phase/phase4-new-feature
+git status  # 必须干净
 
 # 2. 运行全量测试
-cd backend && pytest test_api/ test_smoke.py -q
+cd backend && pytest test_api/ test_unit/ test_smoke.py -q
 cd frontend && npx tsc --noEmit && npx vitest run
 
-# 3. 合并到 main
+# 3. 合并到 phase/main
+git checkout phase/main
+git pull origin phase/main
+git merge phase/phase4-new-feature
+
+# 4. 推送并清理
+git push origin phase/main
+git branch -d phase/phase4-new-feature
+git push origin --delete phase/phase4-new-feature
+```
+
+### 8.3 阶段验收通过，phase/main → main
+
+```bash
+# 1. 确保 phase/main 是最新状态
+git checkout phase/main
+git pull origin phase/main
+
+# 2. 运行全量测试（再次验证）
+cd backend && pytest test_api/ test_unit/ test_smoke.py -q
+cd frontend && npx tsc --noEmit && npx vitest run
+
+# 3. 合并到 main（merge commit，保留完整历史）
 git checkout main
-git merge --no-ff phase/phase1-walking-skeleton -m "merge: Phase 1 行走骨架完成"
+git pull origin main
+git merge --no-ff phase/main -m "merge: Phase 3 增强功能完成"
 
 # 4. 打 tag
-git tag -a v0.1.0 -m "Phase 1: 行走骨架"
+git tag -a v0.3.0 -m "Phase 3: 智能协作 — Orchestrator V2 + DAG + 群聊流式"
 
 # 5. 推送
 git push origin main --tags
 ```
 
-### 8.3 紧急 Hotfix
+### 8.4 紧急 Hotfix
 
 ```bash
 git checkout main
 git checkout -b hotfix/urgent-fix
 # 修复 → commit → push → PR
 # 合并到 main 后:
-git checkout phase/phase1-walking-skeleton
-git merge main  # 同步 hotfix 到开发分支
+git checkout phase/main
+git merge main  # 同步 hotfix 到集成分支
 ```
 
 ### 8.4 撤销错误 commit（未推送）
@@ -315,15 +349,123 @@ git reset --hard HEAD~1
 
 ---
 
-## 10. 检查清单
+## 10. 操作前强制验证流程（必读）
 
-每次提交前：
+> **本节是硬性规则，不是建议。** 任何一次 Git 操作（add/commit/push），无论由人类还是 AI Agent 执行，都必须完整走过以下三关。跳过任一关 = 操作无效。
 
-- [ ] 提交粒度合理（一件事，一个 commit）
-- [ ] Commit message 格式正确（type: 描述）
-- [ ] 没有提交 `.env`、`node_modules`、`__pycache__` 等
-- [ ] 关联测试通过
-- [ ] 如果是 bug 修复，有回归测试
+### 10.1 第一关：Pre-Add 文件审查
+
+**时机**：`git add` 之前。
+
+**规则**：绝不能使用 `git add -A` 或 `git add .`。必须先用 `git status` 查看全部待暂存文件，逐类确认后再选择性 add。
+
+**操作序列**：
+
+```bash
+# 1. 先看全貌
+git status
+
+# 2. 逐项确认：每一个 ?? 或 M 标记的文件都必须被归类到以下三类之一：
+#    ✅ 应该提交 → git add <file>
+#    ❌ 不应提交 → 加入 .gitignore 或手动排除
+#    ⏸️  暂不提交 → 留到下次，本次不 add
+```
+
+**敏感文件排除清单**（以下任何一项出现在 `git status` 中 = 红灯，立即排查）：
+
+| 文件/模式 | 风险 | 检测方式 |
+|-----------|------|---------|
+| `.env`（不含 `.example` 后缀） | API Key 泄露 | `git status` 中应只出现 `.env.example` |
+| `*.db`、`*.sqlite`、`*.sqlite3` | 数据库含用户数据 | `git status -- '*.db' '*.sqlite'` |
+| `node_modules/` | 巨型依赖，污染仓库 | `.gitignore` 已覆盖，须确认生效 |
+| `venv/`、`.venv/`、`__pycache__/` | Python 环境/缓存 | `.gitignore` 已覆盖，须确认生效 |
+| `*.pem`、`*.key`、`credentials.*` | 密钥文件 | `git status` 须为空 |
+| `.vscode/settings.json` | IDE 个人配置 | `.gitignore` 已覆盖 |
+| `*.log`、`*.tmp` | 临时文件 | 确认 `.gitignore` 覆盖 |
+| `dist/`、`build/` | 构建产物 | `.gitignore` 已覆盖，须确认生效 |
+
+**验证 `.gitignore` 是否生效**：
+
+```bash
+# 对于怀疑被误加入的文件，用 check-ignore 验证
+git check-ignore -v <文件路径>
+
+# 示例：确认 .env 被忽略
+git check-ignore -v backend/.env
+# 期望输出: .gitignore:N:.env   backend/.env
+# 无输出 = .gitignore 未覆盖，必须立即修复！
+```
+
+### 10.2 第二关：Pre-Commit 质量门禁
+
+**时机**：`git commit` 之前，文件已 add 到暂存区。
+
+**逐条确认**：
+
+```
+□ 暂存区检查
+  $ git diff --cached --name-only
+  → 每个文件都符合提交意图？没有误 add 的文件？
+
+□ 敏感内容扫描
+  $ git diff --cached | grep -iE "(api_key|apikey|secret|password|token)"
+  → 空输出 = 通过。有结果 = 立即检查是否硬编码了密钥。
+
+□ 提交粒度
+  → 这个 commit 只做了一件事吗？（见 3.1 节）
+
+□ Commit message
+  → 格式: <type>: <描述> （见 3.2 节）
+
+□ 关联测试
+  → 改动的代码有对应的测试吗？测试通过了吗？
+  $ cd backend && pytest test_api/ test_smoke.py -q
+  $ cd frontend && npx tsc --noEmit
+```
+
+### 10.3 第三关：Pre-Push 最终确认
+
+**时机**：`git push` 之前。
+
+```
+□ 远端差异
+  $ git log origin/<branch>..HEAD --oneline
+  → 确认即将推送的 commit 列表是否和预期一致。
+
+□ 无 WIP commit
+  → 没有 "WIP"、"save"、"tmp" 等临时提交。
+
+□ 无大文件
+  $ git diff --stat origin/<branch>..HEAD
+  → 确认没有误提交的巨型二进制文件。
+```
+
+### 10.4 AI Agent 专用强制流程
+
+AI Agent 在执行任何 Git 操作时，在上述三关之外还必须：
+
+1. **先读后写**：执行 `git add` 之前，必须先运行 `git status` 并将结果输出给用户可见。
+2. **写前报告**：列出即将 commit 的文件清单 + commit message 草稿，给用户最后确认机会。
+3. **禁止盲推**：不得在用户说"提交代码"时直接 add → commit → push 一条龙。分步执行，每步确认。
+4. **push 前告知**：push 之前必须明确告知用户"即将推送到 <remote>/<branch>"。
+5. **[ai] 前缀**：AI 提交的 commit message 必须带 `[ai]` 前缀。
+
+### 10.5 违规恢复
+
+```
+场景：误提交了 .env 到暂存区（还未 commit）
+  $ git reset HEAD -- .env       # 从暂存区移除
+
+场景：误提交了 .env 并已 commit（还未 push）
+  $ git rm --cached .env         # 从 Git 跟踪移除（保留本地文件）
+  $ git commit --amend           # 修正上一个 commit
+  → 确认 .gitignore 已包含 .env
+
+场景：误提交了密钥并已 push 到远程
+  → 立即：在云平台吊销该密钥（比删代码更紧急！）
+  → 然后：git rm --cached + commit + force push
+  → 注意：密钥一旦推送到 GitHub，即使删除也在历史中可见。必须吊销换新。
+```
 
 ---
 
@@ -332,3 +474,4 @@ git reset --hard HEAD~1
 | 日期 | 版本 | 变更 |
 |------|------|------|
 | 2026-05-26 | v1.0 | 初始版本，定义分支策略、Commit 规范、PR 流程、AI 提交规则 |
+| 2026-06-02 | v2.0 | 简化分支模型：`phase/main` 为唯一集成分支，所有 Phase 开发基于 `phase/main` 切分支，最终 `phase/main` → `main` |

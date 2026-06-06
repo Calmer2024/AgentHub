@@ -30,17 +30,49 @@ dist-ssr/
 
 # Database
 *.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
 data/
+backend/.test-bin/
+backend/.test-workspaces/
+backend/pytest-cache-files-*/
+backend/backend/
+backend/.agenthub-backend-*.log
+frontend/.agenthub-frontend-*.log
+backend/.uvicorn-dev.*.log
+frontend/.vite-dev.*.log
+.tmp/
+
+# Local temporary files
+.tmp-test/
+HANDOFF-*.md
+frontend/vite.config.js.timestamp-*.mjs
 
 # Environment
 .env
 .env.local
+.claude/settings.local.json
+
+# Legacy venv
+backend/venv_old/
+
+# E2E artifacts
+e2e/screenshots/
 
 # IDE
 .vscode/
 .idea/
 *.swp
 *.swo
+
+# TypeScript build info
+*.tsbuildinfo
 
 # OS
 .DS_Store

@@ -1,55 +1,29 @@
-# AgentHub 项目规则
+# AgentHub 项目规则 (Trae 特化)
 
-## AI 协作规则（最高优先级）
+> 本文件是 CLAUDE.md 的补充，仅包含 Trae IDE 中需要强调的约定。
+> 全局规则（技术栈、架构约束、代码规范、禁止事项）以 CLAUDE.md 为唯一权威来源。
 
-### 三层协作体系
-本项目采用 Rules → Spec → Skill 三层 AI 协作体系（见 ADR-0007）：
+## AI 协作铁律
 
-1. **Rules（本文件 + CLAUDE.md）**：始终生效的全局约束，AI 每次对话自动加载
-2. **Spec（docs/specs/）**：每个功能模块的详细规格，开发前必须让 AI 阅读对应 Spec
-3. **Skill（.claude/skills/）**：可重复调用的开发工作流，封装标准化流程
+> 全局规则以 [CLAUDE.md](../../CLAUDE.md) 为唯一权威来源。以下仅列出 Trae IDE 中需特别强调的要点。
 
-### AI 协作铁律
-- **无 Spec 不开发**：没有对应 Spec 文档的模块，AI 应拒绝开始写代码
-- **契约优先**：先定义接口（抽象类/类型），再写实现。接口定了就不能随便改
-- **按需引入架构层**：只在触发条件满足时才引入新架构层（见 ADR-0004），禁止提前建"可能以后用"的抽象
-- **每个增量可演示**：一个增量结束时，必须是前端可操作、效果可见的完整状态
+1. **无 Spec 不开发**：没有对应 Spec 文档的模块，AI 应拒绝开始写代码（见 CLAUDE.md Forbidden 节）
+2. **契约优先**：先定义接口（抽象类/类型），再写实现（见 ADR-0005）
+3. **按需引入架构层**：只在触发条件满足时才引入新架构层（见 ADR-0004），禁止提前建"可能以后用"的抽象
+4. **每个增量可演示**：一个增量结束时，必须是前端可操作、效果可见的完整状态
 
 ## Vibe Coding 核心约定
 
-1. **架构打底优先**：正式写功能代码前，先完成顶层架构设计
+1. **架构打底优先**：正式写功能代码前，先完成顶层架构设计（Phase 0）
 2. **模块逐个突破**：完成一个模块后，立即写该模块的单元测试
-3. **小步提交原则**：每完成一个能跑的小功能就立刻 commit
-4. **单文件上限 300 行**：避免写出怪物文件，长了就拆分
-5. **每日快照**：每天工作结束前 commit 标注"今日快照"
-
-## 技术栈约束（锁定，不可变更）
-
-- 前端：React + TypeScript + Vite + shadcn/ui + Tailwind CSS v3
-- 后端：Python FastAPI + SQLAlchemy 2.0 + SQLite (aiosqlite)
-- 桌面端：Tauri v2
-- 移动端：Capacitor
-- AI SDK：anthropic (Python), @anthropic-ai/sdk (TypeScript)
-
-## 架构约束
-
-- 只能向下依赖：上层可依赖下层，下层绝不依赖上层
-- 同层不互依赖：同一层模块通过 Event Bus 或接口通信
-- Domain 层零框架依赖：Orchestrator、ContextManager 不 import FastAPI/SQLAlchemy
-- 环境变量管理所有密钥：API Key、数据库路径等通过 `.env` 注入，绝不硬编码
-
-## 代码风格
-
-- 所有注释和文档统一使用中文
-- Python：所有函数 `async def`，完整类型注解
-- TypeScript：禁止 `any` 类型，Zustand 管理全局状态
-- API 路由：必须校验输入（空消息 → 400，不存在资源 → 404）
-- 优先跑通功能，再逐步优化细节
+3. **小步提交原则**：每完成一个能跑的小功能就立刻 commit（见 docs/GIT_PROTOCOL.md）
+4. **避免臃肿文件**：行数只是代码气味提示，不是硬性上限；按职责、可测试性和可理解性判断是否拆分（见 CLAUDE.md Code Rules）
+5. **每日快照**：每天工作结束前 commit 标注当日进展
 
 ## 当前开发阶段
 
-**Phase 1: Walking Skeleton（行走骨架）**
-- 范围：单聊全链路（前端 → API → Claude → SQLite）
-- 不在范围：群聊、Orchestrator、WebSocket、产物预览、多 Agent、认证
-- 验收标准：见 `docs/specs/phase1-skeleton-spec.md` 第 4 节
-- 完成标志：5 条 AC 全部通过
+**Phase 7: 任务可控性 + 审批 + 环境体检 + IM 体验 + 演示闭环** — v1.0 baseline 发布 (2026-06-07)
+
+范围：运行取消/恢复、审批卡片、环境体检、消息级 Artifact 体验、会话 IM 基线、明亮主题与圆角布局、真实 Claude Code 演示脚本。
+
+Phase 1-6 核心闭环已验收通过；Phase 7A-7C 已验收；Phase 7D 的会话置顶/归档/未读/免打扰/转发/多选、消息右键菜单、执行过程全屏已实现。真实 cc 完整自动化 E2E、截图审计和 Store 领域拆分作为后续增强继续沉淀。

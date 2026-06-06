@@ -1,4 +1,4 @@
-# ADR-0003: Vibe Coding 开发哲学
+# ADR-0003: Vibe Coding 开发规则
 
 **Date**: 2026-05-25  
 **Status**: Accepted
