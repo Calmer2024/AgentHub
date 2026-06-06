@@ -30,8 +30,8 @@ PLAN_SCHEMA: dict[str, Any] = {
         "assigned_agent_name": "Agent 显示名称",
         "assignment_reason": "为什么分配给它",
         "depends_on": [],
-        "expected_outputs": ["输出物"],
-        "acceptance_criteria": ["验收标准"],
+        "expected_outputs": ["交付物类型或建议位置，不要强制精确文件名"],
+        "acceptance_criteria": ["可验证的完成标准"],
         "needs_approval": False,
         "is_blocking": True,
     }],
@@ -65,7 +65,11 @@ def build_plan_prompt(content: str, candidate_agents: list[dict[str, Any]]) -> s
         "2. 优先按 required_skills 解释任务需要什么能力。\n"
         "3. 可以填写 assigned_agent_id 和 assigned_agent_name，但必须写 assignment_reason。\n"
         "4. depends_on 必须引用已有 task_id，整体必须是 DAG。\n"
-        "5. status 固定为 draft，execution_policy.mode 固定为 plan_only。\n\n"
+        "5. status 固定为 draft，execution_policy.mode 固定为 plan_only。\n"
+        "6. expected_outputs 只描述交付物类型、目录层级或建议位置；除非用户明确指定，"
+        "不要精确到固定文件名，避免限制执行 Agent 的实现选择。\n"
+        "7. acceptance_criteria 写成可验收的行为/质量标准，不要把语言要求重复塞进每个任务。\n"
+        "8. 输出语言遵循用户输入语言；用户用中文时，计划标题、目标、交接说明和后续执行要求都用中文。\n\n"
         f"用户需求：\n{content.strip()}\n"
     )
 
@@ -86,6 +90,8 @@ def build_plan_followup_prompt(
         "}\n\n"
         "如果用户提出修改、补充、删除、合并、重新分配等意见，请输出一份新的 draft plan JSON，"
         "结构仍必须符合 Plan JSON / DAG schema，不要输出 approve_plan。\n\n"
+        "计划约束：expected_outputs 只描述交付物类型、目录层级或建议位置；除非用户明确指定，"
+        "不要精确到固定文件名。输出语言遵循用户输入语言；用户用中文时，计划内容也用中文。\n\n"
         "候选 Agent Profiles:\n"
         f"{_agent_lines(candidate_agents)}\n\n"
         "上一版 draft plan：\n"

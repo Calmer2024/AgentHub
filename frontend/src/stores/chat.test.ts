@@ -530,6 +530,103 @@ describe("Chat Store (split)", () => {
     expect(useChatStore.getState().getCollab("s-dag").planSummary).toContain("架构师");
   });
 
+  it("服务端结构化调度计划水合后替换本地 planner 占位气泡", () => {
+    useChatStore.setState({
+      currentSessionId: "s-plan",
+      messages: [
+        {
+          id: "local-agent-orchestrator-0-draft",
+          sessionId: "s-plan",
+          role: "assistant",
+          content: "{ raw json }",
+          agentName: "Orchestrator 调度器",
+          sourceType: "agent",
+          sourceId: "agent-orchestrator",
+          sourceName: "Orchestrator 调度器",
+          agentRole: "planner",
+          phase: 0,
+          taskName: "draft plan",
+          isCollaborating: true,
+          createdAt: "",
+          metadata: {
+            executionTrace: {
+              status: "running",
+              agentName: "Orchestrator 调度器",
+              cliTool: "codex",
+              workspacePath: null,
+              startedAt: "",
+              completedAt: null,
+              processId: "proc-1",
+              exitCode: null,
+              items: [],
+            },
+          },
+        },
+      ],
+      messagesBySession: {
+        "s-plan": [
+          {
+            id: "local-agent-orchestrator-0-draft",
+            sessionId: "s-plan",
+            role: "assistant",
+            content: "{ raw json }",
+            agentName: "Orchestrator 调度器",
+            sourceType: "agent",
+            sourceId: "agent-orchestrator",
+            sourceName: "Orchestrator 调度器",
+            agentRole: "planner",
+            phase: 0,
+            taskName: "draft plan",
+            isCollaborating: true,
+            createdAt: "",
+          },
+        ],
+      },
+      runtimeBySession: {
+        "s-plan": {
+          isStreaming: true,
+          activeStreamKey: "stream-s-plan",
+          activeRunId: null,
+          activeStreamAbort: null,
+          activeProgress: null,
+        },
+      },
+    });
+
+    useChatStore.getState().setMessagesForSession("s-plan", [
+      {
+        id: "msg-plan-server",
+        sessionId: "s-plan",
+        role: "assistant",
+        content: "{ normalized json }",
+        agentName: "Orchestrator 调度器",
+        sourceType: "agent",
+        sourceId: "agent-orchestrator",
+        sourceName: "Orchestrator 调度器",
+        createdAt: "",
+        metadata: {
+          orchestratorPlan: {
+            ok: true,
+            normalizedPlan: {
+              plan_id: "plan_001",
+              status: "draft",
+              execution_policy: { mode: "plan_only", requires_approval_before_execution: true },
+              tasks: [],
+              execution_strategy: { parallelizable_groups: [], critical_path: [] },
+            },
+            validation: { ok: true, errors: [], warnings: [] },
+            visualization: { mermaid: "graph TD" },
+          },
+        },
+      },
+    ]);
+
+    const messages = useChatStore.getState().messages;
+    expect(messages).toHaveLength(1);
+    expect(messages[0].id).toBe("msg-plan-server");
+    expect(messages[0].metadata?.orchestratorPlan?.ok).toBe(true);
+  });
+
   it("sessionStore 初始 agents 为空数组", () => {
     expect(useSessionStore.getState().agents).toEqual([]);
   });

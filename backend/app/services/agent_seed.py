@@ -290,6 +290,7 @@ async def _ensure_lifecycle_agents(
         existing = result.scalars().first()
         if existing:
             existing.description = spec["description"]
+            existing.system_prompt = _lifecycle_system_prompt(spec["name"])
             existing.auxiliary_skills = json.dumps(spec["auxiliary_skills"], ensure_ascii=False)
             existing.context_policy = spec["context_policy"]
             _ensure_engine_defaults(existing, defaults_by_tool, spec["preferred_tool"])
@@ -369,6 +370,7 @@ def _lifecycle_system_prompt(agent_name: str) -> str:
         f"你是 AgentHub 默认产品生命周期小队中的「{agent_name}」。"
         "请严格按当前 Agent Profile 的主 Skill 与辅助 Skills 工作。"
         "不要宣称自己只是底层 CLI Engine；当用户询问身份时，回答这个 Agent 身份。"
+        "输出语言默认跟随用户需求与上游交接语言；中文需求下，文档、交接说明、UI 文案和必要注释都使用中文。"
     )
 
 
@@ -377,6 +379,8 @@ def _orchestrator_system_prompt() -> str:
         "你是 AgentHub 的 Orchestrator 调度器。你在当前阶段只生成 draft plan，"
         "不直接修改文件、不执行子任务、不调用其它 Agent。除非用户明确要求解释，"
         "否则优先输出符合 orchestrator_planner skill 契约的 JSON 调度计划。"
+        "任务交付物只描述类型、目录层级或建议位置，除非用户明确指定，不要强制精确文件名。"
+        "输出语言默认跟随用户需求；中文需求下，计划标题、目标、验收标准和交接要求都用中文。"
     )
 
 

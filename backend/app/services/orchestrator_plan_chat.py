@@ -145,22 +145,6 @@ class OrchestratorPlanChat:
                     )
                 if trace_item:
                     yield self._plan_trace_delta(orchestrator_agent, message_id, process_id, call_key, trace_item)
-                if not is_followup:
-                    yield self._sse({
-                        "type": "agent.output",
-                        "agentId": orchestrator_agent.id,
-                        "agentName": orchestrator_agent.name,
-                        "token": event.chunk if event.chunk_type == "text" else "",
-                        "messageId": message_id,
-                        "role": "planner",
-                        "phase": 0,
-                        "task": "draft plan",
-                        "callKey": call_key,
-                        "processId": process_id,
-                        "chunk": event.chunk,
-                        "chunkType": event.chunk_type,
-                        "done": False,
-                    })
                 continue
 
             if event.type == "interactive_prompt":
@@ -305,22 +289,6 @@ class OrchestratorPlanChat:
                 }
             }, trace),
         )
-        if is_followup and visible:
-            yield self._sse({
-                "type": "agent.output",
-                "agentId": orchestrator_agent.id,
-                "agentName": orchestrator_agent.name,
-                "token": visible,
-                "messageId": message_id,
-                "role": "planner",
-                "phase": 0,
-                "task": "draft plan",
-                "callKey": call_key,
-                "processId": process_id,
-                "chunk": visible,
-                "chunkType": "text",
-                "done": False,
-            })
         if run_id:
             async for item in self._complete_planner_run(
                 run_id=run_id,

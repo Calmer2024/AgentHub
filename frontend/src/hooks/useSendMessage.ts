@@ -74,6 +74,7 @@ export function useSendMessage() {
   const setActiveProgress = useChatStore((state) => state.setActiveProgress);
   const addInteractivePrompt = useChatStore((state) => state.addInteractivePrompt);
   const updateSessionMessage = useChatStore((state) => state.updateSessionMessage);
+  const replaceSessionMessageWithServer = useChatStore((state) => state.replaceSessionMessageWithServer);
   const clearRuntimeNotices = useChatStore((state) => state.clearRuntimeNotices);
   const startStreamRun = useChatStore((state) => state.startStreamRun);
   const finishStreamRun = useChatStore((state) => state.finishStreamRun);
@@ -211,6 +212,14 @@ export function useSendMessage() {
         }
         if (active && messageId) ensureSingleAssistantId(messageId);
         fetchMessages(currentSessionId).then((messages) => {
+          if (currentMode === "group") {
+            for (const serverMessage of messages) {
+              const localId = messagePlaceholders.get(serverMessage.id);
+              if (localId) {
+                replaceSessionMessageWithServer(currentSessionId, localId, serverMessage);
+              }
+            }
+          }
           setMessagesForSession(currentSessionId, messages);
         });
         fetchArtifacts(currentSessionId)
@@ -416,6 +425,7 @@ export function useSendMessage() {
     appendAgentStreamingTokenToSession, bindSessionMessageId, appendExecutionTraceItemToSession, upsertArtifact,
     finalizeExecutionTraceInSession, setArtifactsForSession, setMessagesForSession, setStreamingError,
     setActiveProgress, addInteractivePrompt, updateSessionMessage, clearRuntimeNotices,
+    replaceSessionMessageWithServer,
     setRunsForSession, upsertRun, upsertTask, setApprovalsForSession, upsertApproval,
     setSystemHealth, setHealthBlockingError,
     appendStreamingTokenToSessionMessage, startStreamRun, finishStreamRun,

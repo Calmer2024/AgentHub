@@ -383,16 +383,17 @@ class TestGroupSession:
                 done_message_id = data.get("messageId")
 
         assert "agent.start" in event_types
-        assert "agent.output" in event_types
+        assert "agent.output" not in event_types
         assert "orchestrator.route" not in event_types
         assert "orchestrator.task_started" not in event_types
-        assert "需求澄清" in agent_tokens
+        assert agent_tokens == ""
 
         messages = (await test_client.get(f"/api/sessions/{sid}/messages")).json()
         saved = next(message for message in messages if message["id"] == done_message_id)
         assert saved["agentName"] == "Orchestrator 调度器"
         assert saved["sourceType"] == "agent"
         assert saved["metadata"]["orchestratorPlan"]["ok"] is True
+        assert saved["metadata"]["orchestratorPlan"]["normalizedPlan"]["tasks"][0]["title"] == "需求澄清"
 
     async def test_orchestrator_plan_only_flags_workspace_writes(
         self, test_client, test_agent, db_session, monkeypatch,
@@ -501,10 +502,14 @@ class TestGroupSession:
                     token += data.get("token", "")
 
         assert "agent.start" in event_types
-        assert "agent.output" in event_types
+        assert "agent.output" not in event_types
         assert "orchestrator.route" not in event_types
         assert "orchestrator.task_started" not in event_types
-        assert "生成调度计划" in token
+        assert token == ""
+
+        messages = (await test_client.get(f"/api/sessions/{sid}/messages")).json()
+        latest = messages[-1]
+        assert latest["metadata"]["orchestratorPlan"]["normalizedPlan"]["tasks"][0]["title"] == "生成调度计划"
 
     async def test_orchestrator_followup_approve_action_creates_execution(
         self, test_client, test_agent, db_session, monkeypatch,
@@ -812,9 +817,10 @@ class TestGroupSession:
                 visible += data.get("token", "")
 
         assert "orchestrator.plan_execution_created" not in event_types
-        assert "修改后的计划" in visible
+        assert visible == ""
 
         messages = (await test_client.get(f"/api/sessions/{sid}/messages")).json()
         latest = messages[-1]
         assert latest["metadata"]["orchestratorPlan"]["normalizedPlan"]["plan_id"] == "plan_revision_002"
+        assert latest["metadata"]["orchestratorPlan"]["normalizedPlan"]["tasks"][0]["title"] == "修改后的计划"
         assert "orchestratorExecution" not in latest["metadata"]

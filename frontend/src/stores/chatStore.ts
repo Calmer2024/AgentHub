@@ -129,6 +129,39 @@ function updateMessageInList(messages: Message[], id: string, updater: (message:
   return messages.map((message) => (message.id === id ? updater(message) : message));
 }
 
+function replaceLocalMessageWithServer(
+  messages: Message[],
+  localId: string,
+  serverMessage: Message,
+) {
+  let replaced = false;
+  const withoutDuplicateServer = messages.filter((message) => message.id !== serverMessage.id);
+  const next = withoutDuplicateServer.map((message) => {
+    if (message.id !== localId) return message;
+    replaced = true;
+    return mergeLocalAndServerMessage(message, serverMessage);
+  });
+  return replaced ? next : [...next, serverMessage];
+}
+
+function mergeLocalAndServerMessage(local: Message, server: Message): Message {
+  const localTrace = local.metadata?.executionTrace;
+  const serverTrace = server.metadata?.executionTrace;
+  return {
+    ...server,
+    content: server.content || local.content,
+    agentRole: server.agentRole ?? local.agentRole,
+    phase: server.phase ?? local.phase,
+    taskName: server.taskName ?? local.taskName,
+    isCollaborating: server.isCollaborating ?? local.isCollaborating,
+    metadata: {
+      ...(local.metadata ?? {}),
+      ...(server.metadata ?? {}),
+      executionTrace: serverTrace ?? localTrace,
+    },
+  };
+}
+
 function mergeHydratedMessages(
   sessionId: string,
   current: Message[],
@@ -149,9 +182,32 @@ function mergeHydratedMessages(
     !incomingIds.has(message.id)
     && message.sessionId === sessionId
     && shouldPreserveLiveMessage(message, runs)
+    && !hasHydratedServerCounterpart(message, incoming)
   ));
   if (liveMessages.length === 0) return incoming;
   return [...incoming, ...liveMessages];
+}
+
+function hasHydratedServerCounterpart(local: Message, incoming: Message[]) {
+  if (!local.id.startsWith("local-agent-")) return false;
+  return incoming.some((message) => (
+    message.role === local.role
+    && message.sourceType === local.sourceType
+    && message.sourceId === local.sourceId
+    && message.agentName === local.agentName
+    && (
+      (
+        local.agentRole === "planner"
+        && local.taskName === "draft plan"
+        && Boolean(message.metadata?.orchestratorPlan || message.metadata?.orchestratorPlanError)
+      )
+      || (
+        message.agentRole === local.agentRole
+        && message.phase === local.phase
+        && message.taskName === local.taskName
+      )
+    )
+  ));
 }
 
 function shouldPreserveLiveMessage(message: Message, runs: RunRead[]) {
@@ -240,6 +296,7 @@ interface ChatState {
   appendAgentStreamingTokenToSession: (sessionId: string, localId: string, agentName: string, token: string) => void;
   bindMessageId: (localId: string, serverId: string) => void;
   bindSessionMessageId: (sessionId: string, localId: string, serverId: string) => void;
+  replaceSessionMessageWithServer: (sessionId: string, localId: string, serverMessage: Message) => void;
   appendExecutionTraceItem: (
     messageId: string,
     item: ExecutionTraceItem,
@@ -601,6 +658,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set((s) => {
       const current = s.messagesBySession[sessionId] ?? (s.currentSessionId === sessionId ? s.messages : []);
       const messages = updateMessageInList(current, localId, (m) => ({ ...m, id: serverId }));
+      return {
+        messagesBySession: { ...s.messagesBySession, [sessionId]: messages },
+        ...applyCurrentSession(s, sessionId, { messages }),
+      };
+    }),
+  replaceSessionMessageWithServer: (sessionId, localId, serverMessage) =>
+    set((s) => {
+      const current = s.messagesBySession[sessionId] ?? (s.currentSessionId === sessionId ? s.messages : []);
+      const messages = replaceLocalMessageWithServer(current, localId, serverMessage);
       return {
         messagesBySession: { ...s.messagesBySession, [sessionId]: messages },
         ...applyCurrentSession(s, sessionId, { messages }),
