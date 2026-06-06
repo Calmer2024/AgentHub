@@ -159,7 +159,7 @@ Phase 4-7 采用**功能板块制**：每板块独立完整交付。板块间按
 |-------|------|---------|
 | Phase 1 | [specs/phase1/](docs/specs/phase1/) | [01-skeleton-spec.md](docs/specs/phase1/01-skeleton-spec.md) |
 | Phase 2 | [specs/phase2/](docs/specs/phase2/) | [01-core-features-spec.md](docs/specs/phase2/01-core-features-spec.md) |
-| Phase 3 | [specs/phase3/](docs/specs/phase3/) | [README](docs/specs/phase3/README.md) + [Orchestrator 文档集](docs/specs/phase3/02-orchestrator/README.md)，含 [真实 Agent 执行复盘](docs/specs/phase3/02-orchestrator/10-real-agent-execution/README.md) |
+| Phase 3 | [specs/phase3/](docs/specs/phase3/) | [README](docs/specs/phase3/README.md) + [Orchestrator 文档集](docs/specs/phase3/02-orchestrator/README.md)，含 [真实 Agent 执行复盘](docs/specs/phase3/02-orchestrator/10-real-agent-execution/README.md) 与 [群聊调度器管家路由](docs/specs/phase3/02-orchestrator/11-group-chat-steward-routing.md) |
 | Phase 4 | [specs/phase4/](docs/specs/phase4/) | [README](docs/specs/phase4/README.md) + 消息操作 + 搜索 |
 | Phase 5 | [specs/phase5/](docs/specs/phase5/) | [README](docs/specs/phase5/README.md) + [版本/Diff](docs/specs/phase5/01-artifact-versioning.md) + [在线编辑](docs/specs/phase5/02-artifact-editing.md) |
 | Phase 6 | [specs/phase6/](docs/specs/phase6/) | [README](docs/specs/phase6/README.md) + [Workspace Runtime](docs/specs/phase6/00-workspace-runtime.md) + [CLI 适配器](docs/specs/phase6/01-cli-adapter.md) + [产物桥接](docs/specs/phase6/02-artifact-output-bridge.md) + [Agent Profile](docs/specs/phase6/03-agent-engine-skill-profile.md) |

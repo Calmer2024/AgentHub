@@ -318,7 +318,7 @@ created_at / updated_at
 
 ### 7.1 不 @ 消息先交给调度器管家
 
-群聊中用户不 @ 时，不应直接自动路由给多个 Agent 执行。建议改为：
+群聊中用户不 @ 时，不应直接自动路由给多个 Agent 执行。完整行为规范见 [群聊调度器管家路由](../../phase3/02-orchestrator/11-group-chat-steward-routing.md)。从上下文管理角度，该入口应先做轻量分类：
 
 ```text
 普通群聊消息
@@ -326,7 +326,7 @@ created_at / updated_at
   -> 只记录上下文 / 单 Agent 快速响应 / 多 Agent 小协作 / 生成 draft plan
 ```
 
-复杂任务或涉及文件修改的长流程必须生成计划并等待用户确认。
+复杂任务或涉及文件修改的长流程必须生成计划并等待用户确认。这样可以避免“不 @”消息把完整群聊 transcript 直接灌给多个 Agent，也为后续 Context Pack 构建提供稳定入口。
 
 ### 7.2 DAG Agent 输入改为任务包
 

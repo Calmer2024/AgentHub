@@ -23,5 +23,5 @@
 ## 下次建议
 
 1. 手测合并后的主线：群聊计划生成、批准执行、Agent 气泡、运行停止、刷新恢复、产物条、审批卡片。
-2. 决定群聊“不 @”默认行为：建议交给调度器管家先做轻量意图分流，而不是直接自动路由执行。
+2. 实现群聊“不 @”调度器管家四档分流：规格见 `docs/specs/phase3/02-orchestrator/11-group-chat-steward-routing.md`。
 3. 下一阶段先做 Context Pack debug metadata，再考虑单聊 Context Pack 化。

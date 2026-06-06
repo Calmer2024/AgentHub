@@ -20,6 +20,7 @@
 | 8 | [08-dev-plan.md](08-dev-plan.md) | 开发计划: 已完成 vs 待实现，下一步 Step 计划 | 开发者 |
 | 9 | [09-dev-log.md](09-dev-log.md) | 开发日志: 时间线、Bug 与教训 | 所有人 |
 | 10 | [10-real-agent-execution/](10-real-agent-execution/) | 真实 CLI Agent 执行复盘、问题清单、后续切片 | 所有人 |
+| 11 | [11-group-chat-steward-routing.md](11-group-chat-steward-routing.md) | 群聊不 @ 时由调度器管家做四档意图分流，避免旧自动路由直接执行 | 后端/产品 |
 
 > **ADR-0007** 在 `docs/adr/0007-orchestrator-architecture.md`。收录了所有架构决策的"是什么 + 为什么"。本文档集只描述"是什么 + 怎么做"，不重复决策理由。
 
@@ -47,6 +48,7 @@
 | CollaborationPanel (DAG 图) | ✅ 已交付 | Phase 节点 + 依赖箭头 + 状态 |
 | Agent 气泡 (角色标签) | ✅ 已交付 | 角色标签、Phase 标记、协作竖线 |
 | Plan-first 真实执行 | 🚧 阶段通过 | draft plan 批准后可创建 execution，Scheduler 按 DAG 调度真实 CLI Agent，详见 [真实执行复盘](10-real-agent-execution/) |
+| 群聊调度器管家路由 | 📋 待实现 | 不 @ 时先做 context_only / single_agent / mini_collab / draft_plan 四档分流，详见 [11-group-chat-steward-routing.md](11-group-chat-steward-routing.md) |
 | 错误处理矩阵 | ✅ 已交付 | 超时/不可用/全失败/链中断/截断 |
 | 测试覆盖 | ✅ 已交付 | Backend/Frontend 单测；含 DAG/SharedContext/API SSE/真实 UI 验收测试 |
 
