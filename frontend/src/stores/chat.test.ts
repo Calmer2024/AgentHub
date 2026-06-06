@@ -65,6 +65,45 @@ describe("Chat Store (split)", () => {
     expect(useChatStore.getState().messages.map((m) => m.id)).toEqual(["next"]);
   });
 
+  it("chatStore 刷新服务端消息时保留异步执行中的 Agent 气泡", () => {
+    useChatStore.setState({
+      currentSessionId: "s-current",
+      messages: [
+        { id: "server-1", sessionId: "s-current", role: "assistant", content: "已确认执行", agentName: "调度器", createdAt: "" },
+        {
+          id: "msg_agent_running",
+          sessionId: "s-current",
+          role: "assistant",
+          content: "正在分析",
+          agentName: "架构师",
+          sourceType: "agent",
+          agentRole: "executor",
+          phase: 0,
+          taskName: "系统架构设计",
+          isCollaborating: true,
+          metadata: {
+            executionTrace: {
+              status: "running",
+              agentName: "架构师",
+              startedAt: "",
+              completedAt: null,
+              processId: "cli_1",
+              exitCode: null,
+              items: [],
+            },
+          },
+          createdAt: "",
+        },
+      ],
+    });
+
+    useChatStore.getState().setMessagesForSession("s-current", [
+      { id: "server-1", sessionId: "s-current", role: "assistant", content: "已确认执行", agentName: "调度器", createdAt: "" },
+    ]);
+
+    expect(useChatStore.getState().messages.map((m) => m.id)).toEqual(["server-1", "msg_agent_running"]);
+  });
+
   it("chatStore 忽略非当前会话的异步产物覆盖", () => {
     const artifact = (id: string, sessionId: string): Artifact => ({
       id,

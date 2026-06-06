@@ -32,6 +32,21 @@ function emptyCollab(): CollabSnapshot {
   };
 }
 
+function mergeServerMessages(current: Message[], incoming: Message[]) {
+  const incomingIds = new Set(incoming.map((message) => message.id));
+  const liveAgentMessages = current.filter((message) => (
+    !incomingIds.has(message.id)
+    && !message.id.startsWith("local-")
+    && message.sourceType === "agent"
+    && Boolean(message.isCollaborating || message.agentRole)
+    && (
+      message.metadata?.executionTrace?.status === "running"
+      || message.id.startsWith("msg_agent_")
+    )
+  ));
+  return [...incoming, ...liveAgentMessages];
+}
+
 interface ChatState {
   currentSessionId: string | null;
   messages: Message[];
@@ -116,7 +131,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setCurrentSessionId: (id) => set({ currentSessionId: id }),
   setMessages: (messages) => set({ messages }),
   setMessagesForSession: (sessionId, messages) =>
-    set((s) => (s.currentSessionId === sessionId ? { messages } : {})),
+    set((s) => (s.currentSessionId === sessionId ? {
+      messages: mergeServerMessages(s.messages, messages),
+    } : {})),
   setArtifacts: (artifacts) => set({ artifacts }),
   setArtifactsForSession: (sessionId, artifacts) =>
     set((s) => (s.currentSessionId === sessionId ? { artifacts } : {})),
