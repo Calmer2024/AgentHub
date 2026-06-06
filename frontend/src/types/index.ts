@@ -7,6 +7,17 @@ export interface ReplyReference {
   createdAt?: string;
 }
 
+export interface CodeReference {
+  artifactId?: string | null;
+  projectId?: string | null;
+  filePath?: string | null;
+  title?: string | null;
+  language?: string | null;
+  startLine?: number | null;
+  endLine?: number | null;
+  content: string;
+}
+
 export interface ExecutionTraceItem {
   id: string;
   kind: "process" | "progress" | "tool" | "command" | "file" | "artifact" | "prompt" | "error" | "info";
@@ -32,7 +43,7 @@ export interface ExecutionTraceItem {
 }
 
 export interface ExecutionTrace {
-  status: "running" | "completed" | "error";
+  status: "running" | "completed" | "error" | "cancelled";
   agentName?: string | null;
   cliTool?: string | null;
   workspacePath?: string | null;
@@ -205,7 +216,7 @@ export interface Artifact {
   sessionId: string;
   messageId: string;
   projectId?: string | null;
-  type: "code_diff" | "web_preview" | "document";
+  type: "code_diff" | "web_preview" | "document" | "file_tree";
   title: string;
   content: string;
   status: "rendering" | "ready" | "error";
@@ -251,6 +262,109 @@ export interface ArtifactEditResult {
   artifact: Artifact | null;
   proposedContent: string;
   strategy: string;
+}
+
+export interface WorkspaceFile {
+  path: string;
+  content: string;
+  size: number;
+}
+
+export interface ArtifactCandidate {
+  artifactType: Artifact["type"];
+  title: string;
+  source: string;
+  confidence: number;
+  reason: string;
+  contentPreview: string;
+}
+
+export interface ArtifactScanResult {
+  created: Artifact[];
+  candidates: ArtifactCandidate[];
+  skipped: Array<{
+    reason: string;
+    artifactId?: string | null;
+    title?: string | null;
+    detail?: string | null;
+  }>;
+}
+
+export type RunStatus = "queued" | "running" | "pausing" | "paused" | "cancelling" | "cancelled" | "completed" | "failed";
+export type TaskStatus = "pending" | "running" | "paused" | "completed" | "failed" | "cancelled" | "rejected";
+
+export interface RunRead {
+  id: string;
+  sessionId: string;
+  projectId?: string | null;
+  mode: "single" | "group" | "orchestrated" | string;
+  status: RunStatus;
+  currentMessageId?: string | null;
+  startedAt: string;
+  updatedAt: string;
+  completedAt?: string | null;
+  cancelReason?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+export interface TaskRead {
+  id: string;
+  runId: string;
+  sessionId: string;
+  agentId?: string | null;
+  messageId?: string | null;
+  name: string;
+  role?: string | null;
+  phase?: number | null;
+  status: TaskStatus;
+  dependsOn: string[];
+  startedAt?: string | null;
+  completedAt?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+export type ApprovalStatus = "pending_review" | "approved" | "rejected";
+
+export interface ApprovalCheckpoint {
+  id: string;
+  runId: string;
+  taskId: string;
+  sessionId: string;
+  messageId?: string | null;
+  artifactId?: string | null;
+  artifactVersion?: number | null;
+  title: string;
+  summary: string;
+  status: ApprovalStatus;
+  reason?: string | null;
+  createdAt: string;
+  decidedAt?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+export type HealthStatus = "ok" | "warning" | "error" | "missing";
+export type HealthSeverity = "info" | "warning" | "blocking";
+
+export interface SystemHealthItem {
+  key: string;
+  label: string;
+  status: HealthStatus;
+  severity: HealthSeverity;
+  detail: string;
+  action?: {
+    label: string;
+    target: "agent_panel" | "project_settings" | "docs" | "retry";
+  } | null;
+  metadata?: Record<string, string | number | boolean | null> | null;
+}
+
+export interface SystemHealthRead {
+  overall: "ok" | "warning" | "error";
+  checkedAt: string;
+  projectId?: string | null;
+  sessionId?: string | null;
+  blockingReasons: string[];
+  items: SystemHealthItem[];
 }
 
 // === Orchestrator / Collaboration types ===

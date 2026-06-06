@@ -25,6 +25,7 @@ from ..models import AgentConfig, Message as DBMessage, Session as DBSession
 from ..agents.cli_trace import trace_text
 from .cli_agent_service import CliAgentService
 from .execution_trace import ExecutionTraceBuilder, merge_trace_metadata
+from .run_service import RunService, run_to_read, task_to_read
 from .session_service import SessionService
 from .streaming_text import iter_stream_pieces
 
@@ -145,6 +146,13 @@ class CliTaskRunner:
             process_id = event.process_id or process_id
             if event.type == "agent.process.started":
                 metadata["processId"] = process_id
+                await self._bind_runtime_process(
+                    execution,
+                    task,
+                    agent,
+                    message_id,
+                    process_id,
+                )
                 trace.set_process(process_id)
                 item = trace.add(
                     kind="process",
@@ -220,6 +228,7 @@ class CliTaskRunner:
             if event.type == "agent.process.completed":
                 exit_code = event.exit_code
                 metadata["exitCode"] = exit_code
+                await self._complete_runtime_process(process_id, exit_code=exit_code)
                 status = "completed" if exit_code in (0, None) else "error"
                 item = trace.add(
                     kind="process",
@@ -249,6 +258,11 @@ class CliTaskRunner:
 
             if event.type in {"agent.process.timeout", "error"}:
                 error = event.error or f"{agent.name} 执行失败"
+                await self._complete_runtime_process(
+                    process_id,
+                    exit_code=exit_code,
+                    status="failed",
+                )
                 item = trace.add(
                     kind="error",
                     text=error,
@@ -276,6 +290,11 @@ class CliTaskRunner:
 
         if exit_code not in (0, None):
             error = f"{agent.name} 执行失败，exitCode={exit_code}"
+            await self._complete_runtime_process(
+                process_id,
+                exit_code=exit_code,
+                status="failed",
+            )
             trace.complete(status="error", exit_code=exit_code)
             metadata["error"] = error
             await self._persist_visible_message(
@@ -329,6 +348,11 @@ class CliTaskRunner:
                 "taskWorkspacePath": task.get("taskWorkspacePath"),
             }
         }
+        if execution.get("runId"):
+            metadata["runId"] = execution["runId"]
+            metadata["runStatus"] = "running"
+        if task.get("runTaskId"):
+            metadata["taskId"] = task["runTaskId"]
         if extra_metadata:
             metadata.update(extra_metadata)
         async with self._session_factory() as db:
@@ -348,6 +372,70 @@ class CliTaskRunner:
             if session:
                 session.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
             await db.commit()
+
+    async def _bind_runtime_process(
+        self,
+        execution: dict[str, Any],
+        task: dict[str, Any],
+        agent: AgentConfig,
+        message_id: str,
+        process_id: str,
+    ) -> None:
+        run_id = execution.get("runId")
+        if not run_id or not process_id:
+            return
+        async with self._session_factory() as db:
+            service = RunService(db)
+            run = await service.bind_current_message(run_id, message_id)
+            await _broadcast_ws(execution["sessionId"], {
+                "type": "run.status_changed",
+                "runId": run.id,
+                "sessionId": run.session_id,
+                "status": run.status,
+                "run": run_to_read(run).model_dump(by_alias=True, mode="json"),
+                "token": "",
+                "done": False,
+            })
+            if task.get("runTaskId"):
+                task_row = await service.mark_task_status(
+                    task["runTaskId"],
+                    "running",
+                    message_id=message_id,
+                )
+                await _broadcast_ws(execution["sessionId"], {
+                    "type": "task.status_changed",
+                    "runId": task_row.run_id,
+                    "taskId": task_row.id,
+                    "sessionId": task_row.session_id,
+                    "status": task_row.status,
+                    "task": task_to_read(task_row).model_dump(by_alias=True, mode="json"),
+                    "token": "",
+                    "done": False,
+                })
+            await service.bind_process(
+                run_id=run_id,
+                task_id=task.get("runTaskId"),
+                session_id=execution["sessionId"],
+                agent_id=agent.id,
+                message_id=message_id,
+                process_id=process_id,
+            )
+
+    async def _complete_runtime_process(
+        self,
+        process_id: str,
+        *,
+        exit_code: int | None,
+        status: str | None = None,
+    ) -> None:
+        if not process_id:
+            return
+        async with self._session_factory() as db:
+            await RunService(db).complete_process(
+                process_id,
+                exit_code=exit_code,
+                status=status,
+            )
 
     async def _broadcast_trace(
         self,
@@ -481,6 +569,7 @@ class OrchestratorExecutionRegistry:
         session_id: str,
         plan: dict[str, Any],
         active_agent_ids: set[str],
+        auto_start: bool = True,
     ) -> dict[str, Any]:
         normalized = normalize_plan(plan)
         validation = validate_plan(normalized, active_agent_ids)
@@ -525,12 +614,48 @@ class OrchestratorExecutionRegistry:
             },
         }
         self._executions[execution_id] = execution
-        self._start_background_scheduler(execution_id)
+        if auto_start:
+            self._start_background_scheduler(execution_id)
         return copy.deepcopy(execution)
 
     def get_execution(self, execution_id: str) -> dict[str, Any] | None:
         execution = self._executions.get(execution_id)
         return copy.deepcopy(execution) if execution else None
+
+    def bind_runtime(
+        self,
+        execution_id: str,
+        *,
+        run_id: str,
+        task_id_by_orchestrator_task_id: dict[str, str],
+    ) -> None:
+        execution = self._executions.get(execution_id)
+        if not execution:
+            return
+        execution["runId"] = run_id
+        execution.setdefault("runtime", {})["runId"] = run_id
+        for task in execution.get("tasks") or []:
+            task_id = str(task.get("taskId"))
+            run_task_id = task_id_by_orchestrator_task_id.get(task_id)
+            if run_task_id:
+                task["runId"] = run_id
+                task["runTaskId"] = run_task_id
+        execution["updatedAt"] = self._now()
+
+    def bind_control_message(
+        self,
+        execution_id: str,
+        message_id: str,
+    ) -> None:
+        execution = self._executions.get(execution_id)
+        if not execution:
+            return
+        execution["controlMessageId"] = message_id
+        execution["updatedAt"] = self._now()
+
+    def start_execution(self, execution_id: str) -> None:
+        if execution_id in self._executions:
+            self._start_background_scheduler(execution_id)
 
     async def cancel_execution(self, execution_id: str) -> dict[str, Any] | None:
         execution = self._executions.get(execution_id)
@@ -550,8 +675,43 @@ class OrchestratorExecutionRegistry:
             "message": "用户请求停止当前调度执行。",
         })
         terminated = await cli_process_manager.terminate_session(execution["sessionId"])
+        if execution.get("runId"):
+            async with self._session_factory() as db:
+                await RunService(db).cancel_run(execution["runId"], "用户请求停止当前调度执行")
         self._mark_cancelled(execution, terminated_process_count=terminated)
+        await self._persist_execution_snapshot(execution)
         return copy.deepcopy(execution)
+
+    def mark_cancelled_by_run(
+        self,
+        run_id: str,
+        *,
+        reason: str | None = None,
+    ) -> dict[str, Any] | None:
+        for execution in self._executions.values():
+            if execution.get("runId") != run_id:
+                continue
+            if execution.get("status") in {"completed", "failed", "cancelled"}:
+                return copy.deepcopy(execution)
+            cancelled_at = self._now()
+            execution["cancelRequested"] = True
+            execution["status"] = "cancelling"
+            execution["updatedAt"] = cancelled_at
+            execution["events"].append({
+                "type": "execution_cancel_requested",
+                "status": "cancelling",
+                "timestamp": cancelled_at,
+                "message": reason or "用户通过运行控制停止当前调度执行。",
+            })
+            self._mark_cancelled(execution)
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                asyncio.run(self._persist_execution_snapshot(execution))
+            else:
+                loop.create_task(self._persist_execution_snapshot(execution))
+            return copy.deepcopy(execution)
+        return None
 
     def _start_background_scheduler(self, execution_id: str) -> None:
         try:
@@ -565,6 +725,7 @@ class OrchestratorExecutionRegistry:
         execution = self._executions.get(execution_id)
         if execution is None:
             return
+        await self._mark_runtime_run_status(execution, "running")
         tasks = execution["tasks"]
         pending = {task["taskId"] for task in tasks}
         completed: set[str] = set()
@@ -574,6 +735,7 @@ class OrchestratorExecutionRegistry:
         while pending:
             if self._is_cancelled(execution):
                 self._mark_cancelled(execution)
+                await self._cancel_runtime_execution(execution)
                 return
             ready = sorted(
                 task_id
@@ -591,6 +753,8 @@ class OrchestratorExecutionRegistry:
                     "message": "模拟 Scheduler 无法找到可运行任务，请检查 DAG 依赖。",
                     "remainingTaskIds": sorted(pending),
                 })
+                await self._mark_runtime_run_status(execution, "failed")
+                await self._persist_execution_snapshot(execution)
                 return
 
             running_at = self._now()
@@ -611,6 +775,12 @@ class OrchestratorExecutionRegistry:
                 task["phase"] = phase
                 task["startedAt"] = running_at
                 task["updatedAt"] = running_at
+                await self._mark_runtime_task_status(
+                    execution,
+                    task,
+                    "running",
+                    metadata_patch={"phase": phase},
+                )
                 execution["events"].append({
                     "type": "task_started",
                     "status": "running",
@@ -628,10 +798,12 @@ class OrchestratorExecutionRegistry:
             except Exception as exc:
                 if self._is_cancelled(execution):
                     self._mark_cancelled(execution)
+                    await self._cancel_runtime_execution(execution)
                     return
                 failed_at = self._now()
                 execution["status"] = "failed"
                 execution["updatedAt"] = failed_at
+                await self._mark_runtime_run_status(execution, "failed")
                 execution["events"].append({
                     "type": "execution_failed",
                     "status": "failed",
@@ -644,6 +816,13 @@ class OrchestratorExecutionRegistry:
                     task = task_by_id[task_id]
                     task["status"] = "failed"
                     task["updatedAt"] = failed_at
+                    await self._mark_runtime_task_status(
+                        execution,
+                        task,
+                        "failed",
+                        metadata_patch={"error": str(exc)},
+                    )
+                await self._persist_execution_snapshot(execution)
                 return
             completed_at = self._now()
             execution["updatedAt"] = completed_at
@@ -654,6 +833,12 @@ class OrchestratorExecutionRegistry:
                 task["updatedAt"] = completed_at
                 task["summary"] = summary
                 task["resultMessageId"] = await self._persist_task_result(execution, task, summary)
+                await self._mark_runtime_task_status(
+                    execution,
+                    task,
+                    "completed",
+                    message_id=task.get("visibleMessageId"),
+                )
                 execution["events"].append({
                     "type": "task_completed",
                     "status": "completed",
@@ -666,6 +851,7 @@ class OrchestratorExecutionRegistry:
                 completed.add(task_id)
             if self._is_cancelled(execution):
                 self._mark_cancelled(execution)
+                await self._cancel_runtime_execution(execution)
                 return
 
             phase += 1
@@ -674,12 +860,18 @@ class OrchestratorExecutionRegistry:
         execution["status"] = "completed"
         execution["completedAt"] = completed_at
         execution["updatedAt"] = completed_at
+        await self._mark_runtime_run_status(
+            execution,
+            "completed",
+            current_message_id=self._latest_visible_message_id(execution),
+        )
         execution["events"].append({
             "type": "execution_completed",
             "status": "completed",
             "timestamp": completed_at,
             "message": "Scheduler 已按 DAG 完成全部任务。",
         })
+        await self._persist_execution_snapshot(execution)
 
     @staticmethod
     def _is_cancelled(execution: dict[str, Any]) -> bool:
@@ -755,6 +947,22 @@ class OrchestratorExecutionRegistry:
             await db.commit()
         return message_id
 
+    async def _persist_execution_snapshot(self, execution: dict[str, Any]) -> None:
+        message_id = execution.get("controlMessageId")
+        if not message_id:
+            return
+        async with self._session_factory() as db:
+            message = await db.get(DBMessage, message_id)
+            if not message:
+                return
+            try:
+                metadata = json.loads(message.metadata_json or "{}")
+            except json.JSONDecodeError:
+                metadata = {}
+            metadata["orchestratorExecution"] = copy.deepcopy(execution)
+            message.metadata_json = json.dumps(metadata, ensure_ascii=False)
+            await db.commit()
+
     @staticmethod
     def _validate_execution_readiness(plan: dict[str, Any], active_agent_ids: set[str]) -> list[str]:
         errors: list[str] = []
@@ -799,6 +1007,87 @@ class OrchestratorExecutionRegistry:
     async def _run_task(self, task: dict[str, Any], execution: dict[str, Any]) -> str:
         runner = self._cli_runner if task.get("runnerType") == "cli" else self._task_runner
         return await runner.run(task, execution, task.get("upstreamResults") or [])
+
+    async def _mark_runtime_run_status(
+        self,
+        execution: dict[str, Any],
+        status: str,
+        *,
+        current_message_id: str | None = None,
+        reason: str | None = None,
+    ) -> None:
+        run_id = execution.get("runId")
+        if not run_id:
+            return
+        async with self._session_factory() as db:
+            run = await RunService(db).mark_run_status(
+                run_id,
+                status,
+                current_message_id=current_message_id,
+                reason=reason,
+            )
+            await _broadcast_ws(execution["sessionId"], {
+                "type": "run.status_changed",
+                "runId": run.id,
+                "sessionId": run.session_id,
+                "status": run.status,
+                "run": run_to_read(run).model_dump(by_alias=True, mode="json"),
+                "token": "",
+                "done": False,
+            })
+
+    async def _mark_runtime_task_status(
+        self,
+        execution: dict[str, Any],
+        task: dict[str, Any],
+        status: str,
+        *,
+        message_id: str | None = None,
+        metadata_patch: dict[str, Any] | None = None,
+    ) -> None:
+        run_task_id = task.get("runTaskId")
+        if not run_task_id:
+            return
+        async with self._session_factory() as db:
+            task_row = await RunService(db).mark_task_status(
+                run_task_id,
+                status,
+                message_id=message_id,
+                metadata_patch=metadata_patch,
+            )
+            await _broadcast_ws(execution["sessionId"], {
+                "type": "task.status_changed",
+                "runId": task_row.run_id,
+                "taskId": task_row.id,
+                "sessionId": task_row.session_id,
+                "status": task_row.status,
+                "task": task_to_read(task_row).model_dump(by_alias=True, mode="json"),
+                "token": "",
+                "done": False,
+            })
+
+    async def _cancel_runtime_execution(self, execution: dict[str, Any]) -> None:
+        run_id = execution.get("runId")
+        if not run_id:
+            return
+        async with self._session_factory() as db:
+            run = await RunService(db).cancel_run(run_id, "调度执行已停止")
+            await _broadcast_ws(execution["sessionId"], {
+                "type": "run.status_changed",
+                "runId": run.id,
+                "sessionId": run.session_id,
+                "status": run.status,
+                "run": run_to_read(run).model_dump(by_alias=True, mode="json"),
+                "token": "",
+                "done": False,
+            })
+
+    @staticmethod
+    def _latest_visible_message_id(execution: dict[str, Any]) -> str | None:
+        for task in reversed(execution.get("tasks") or []):
+            if task.get("visibleMessageId"):
+                return task["visibleMessageId"]
+        return None
 
     @staticmethod
     def _runner_type_for(execution: dict[str, Any]) -> str:

@@ -1,4 +1,4 @@
-# ADR-0010: Agent = Engine + Skills 建模
+﻿# ADR-0010: Agent = Engine + Skills 建模
 
 **Date**: 2026-06-05
 **Status**: Proposed

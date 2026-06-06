@@ -184,8 +184,23 @@ def _detect_auth_for_provider(
     environ: Mapping[str, str],
 ) -> CodexAuthSettings:
     env_key_name = _string(provider.get("env_key"))
+    auth_command = _auth_command(provider)
     requires_openai_auth = provider.get("requires_openai_auth") is True
     has_chatgpt_auth = _auth_json_has_chatgpt_tokens(codex_home)
+
+    if auth_command:
+        fallback = _lookup_proxy_api_key(codex_home, environ) if connection == "proxy" else _lookup_secret("OPENAI_API_KEY", codex_home, environ)
+        if fallback.value:
+            return CodexAuthSettings(
+                api_key=fallback.value,
+                auth_mode="command",
+                api_key_source=fallback.source,
+                has_chatgpt_auth=has_chatgpt_auth,
+            )
+        return CodexAuthSettings(
+            auth_mode="command_missing",
+            has_chatgpt_auth=has_chatgpt_auth,
+        )
 
     if env_key_name:
         secret = _lookup_secret(env_key_name, codex_home, environ)
@@ -319,6 +334,13 @@ def _provider_api_key(provider: dict) -> str:
         if value:
             return value
     return ""
+
+
+def _auth_command(provider: dict) -> str:
+    auth = provider.get("auth")
+    if not isinstance(auth, dict):
+        return ""
+    return _string(auth.get("command"))
 
 
 def _is_official_openai_url(base_url: str) -> bool:

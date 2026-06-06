@@ -1,16 +1,16 @@
-# Spec: Phase 6B-6E — CLI Agent 适配器
+﻿# Spec: Phase 6B-6E — CLI Agent 适配器
 
 **版本**: v3.2
 **更新日期**: 2026-06-05
 **状态**: Implementation Baseline
-**关联 ADR/PRD**: [ADR-0005](../../adr/0005-target-architecture.md)、[ADR-0009](../../adr/0009-project-workspace-model.md)、[ADR-0010](../../adr/0010-agent-engine-skill-model.md)、[PRD-01](../../PRD/01-Architecture_Adapter.md)
+**关联 ADR/PRD**: [ADR-0005](../../adr/0005-target-architecture.md)、[ADR-0009](../../adr/0009-project-workspace-model.md)、[ADR-0011](../../adr/0011-agent-engine-skill-model.md)、[PRD-01](../../PRD/01-Architecture_Adapter.md)
 **依赖模块**: Phase 6A Workspace Runtime、Phase 3 EventBus / BaseAgentAdapter
 
 ---
 
 ## 1. 目标
 
-将用户本机安装的真实 CLI 工具（Claude Code、Codex、OpenCode）接入 AgentHub 的运行时。按 [ADR-0010](../../adr/0010-agent-engine-skill-model.md) 的新口径，这些 CLI 工具是 **Engine**，不是用户最终调度的 Agent 本体。用户可见 Agent Profile = Engine + Skills + Context Policy；用户在 Project 下与某个 Agent Profile 发起私聊时，后端会为该 Profile 选择的 Engine 在 Project 目录中启动一个 CLI 实例。
+将用户本机安装的真实 CLI 工具（Claude Code、Codex、OpenCode）接入 AgentHub 的运行时。按 [ADR-0011](../../adr/0011-agent-engine-skill-model.md) 的新口径，这些 CLI 工具是 **Engine**，不是用户最终调度的 Agent 本体。用户可见 Agent Profile = Engine + Skills + Context Policy；用户在 Project 下与某个 Agent Profile 发起私聊时，后端会为该 Profile 选择的 Engine 在 Project 目录中启动一个 CLI 实例。
 
 本模块通过 PTY/subprocess 管理每个对话对应的 CLI 进程生命周期，实现 stdin/stdout 桥接、ANSI 清洗、交互式拦截，并把 CLI 输出转换为标准化事件（`agent.output` / `artifact.detected` / `interactive_prompt`），最终实现分层渲染——文本进消息气泡、进度进状态条、产物进 Artifact Card、交互进确认卡片。
 
@@ -40,7 +40,7 @@
   → stdin 注入 prompt → stdout 读取 → ANSI 清洗 → 交互拦截 → 分层解析
   → 标准化事件 → SSE/WebSocket 推送到前端
   → 前端分层渲染（文本→消息、进度→状态条、产物→Card、交互→卡片）
-  → Artifact Bridge 创建 Artifact → Drawer
+  → Artifact Bridge 创建 Artifact → 消息级 ArtifactCard
 ```
 
 ### 2.2 上下游契约
@@ -49,7 +49,7 @@
 |------|-------------|------------|
 | **上游输入** | WorkspaceService.get_workspace_path(session_id) → cwd；AgentConfig（executable、init_args、env vars）；用户聊天消息 / Orchestrator 子任务 | 消费 workspace_path 作为进程 cwd；消费 AgentConfig 作为进程启动参数 |
 | **下游产出** | `agent.output`（文本块）、`interactive_prompt`（确认请求）、`artifact.detected`（产物信号）、进程生命周期事件（started/completed/timeout） | 产出标准化事件供 SSE 推送和 Artifact Bridge 消费 |
-| **本模块不通** | 不创建 Artifact 数据库记录（→ Artifact Bridge）；不渲染 Drawer（→ Phase 7）；不在 AgentHub 内安装 CLI 工具（用户在外部安装） | |
+| **本模块不通** | 不创建 Artifact 数据库记录（→ Artifact Bridge）；不渲染消息级 ArtifactCard（→ Phase 6F）；不在 AgentHub 内安装 CLI 工具（用户在外部安装） | |
 
 ---
 
@@ -410,7 +410,7 @@ CLI 进程: stdout 输出 "... Do you want to run this? (y/n) "
 | 不写 Artifact 数据库记录 | Adapter 只上报 artifact_signal | Phase 6F Artifact Bridge |
 | 不做 CLI 工具的多版本管理 | 超出范围 | 用户 |
 | 不做 CLI 工具的输出翻译/多语言 | 保持原始输出 | — |
-| 不渲染 Drawer / 审批卡片 | 下游链路 | Phase 7 |
+| 不渲染消息级 ArtifactCard / 审批卡片 | 下游链路 | Phase 6F / Phase 7 |
 | 不做远程 CLI 执行（SSH 到远端执行） | P1 本机版范围外 | P2 |
 
 ---

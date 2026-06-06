@@ -4,7 +4,7 @@
 
 ## 项目简介
 
-AgentHub 采用 IM 聊天作为核心交互范式，用户通过新建对话、发送消息的方式与不同 AI Agent 进行交互。支持单聊、群聊（@Agent）、Orchestrator 自动协调、产物预览等能力。最新产品闭环以 [PRD-05 端到端产品闭环](docs/PRD/05-End_to_End_Product_Flow.md) 为准：用户输入任务后，系统要打通 Agent 执行、Artifact Card、右侧 Drawer 预览、局部编辑、版本化和审批继续。
+AgentHub 采用 IM 聊天作为核心交互范式，用户通过新建对话、发送消息的方式与不同 AI Agent 进行交互。支持单聊、群聊（@Agent）、Orchestrator 自动协调、产物预览等能力。最新产品闭环以 [PRD-05 端到端产品闭环](docs/PRD/05-End_to_End_Product_Flow.md) 为准；P1 当前 Artifact 体验以 [ADR-0010](docs/adr/0010-message-level-artifact-experience.md) 为准：用户输入任务后，系统要打通 Agent 执行、消息级 Artifact Card、页面级预览/编辑/版本管理和审批继续。
 
 底层 Agent 架构以 [PRD-01 CLI Adapter](docs/PRD/01-Architecture_Adapter.md) 为准：AgentHub 不是裸调 HTTP LLM API，而是通过 PTY/subprocess 封装真实 CLI 工具（Anthropic 官方 `claude` CLI、开源 `opencode` 等），提供 stdin/stdout 桥接、ANSI 清洗、交互式拦截。这是项目唯一的 Agent 架构。
 
@@ -69,8 +69,8 @@ AgentHub/
 | Phase 3 | Orchestrator v2 + EventBus + DAG 协作面板 | ✅ 已完成 |
 | Phase 4 | 消息交互闭环（Reply/Regenerate/Pin/Search） | ✅ 已完成 |
 | Phase 5 | 产物工作台能力（版本链 + Diff + 在线编辑） | ✅ 已完成 |
-| Phase 6 | Workspace Runtime + CLI Agent 适配器 + 产物入口桥接 | 🚧 6A 已验收，6B-6F 继续 |
-| Phase 7 | UX 体验闭环 + MVP 演示闭环 | 📋 计划中 |
+| Phase 6 | Workspace Runtime + CLI Agent 适配器 + 产物入口桥接 | ✅ 核心闭环验收通过 |
+| Phase 7 | 任务可控性 + 审批 + 环境体检 + 演示闭环 | 🚧 7A-7C 验收通过，7D 待加固 |
 
 ### Phase 4 能力
 
@@ -91,9 +91,9 @@ AgentHub/
 | DeepSeek system model tool calling + 上下文降级 | ✅ |
 | ArtifactService 接入 EventBus (`artifact.created` / `artifact.version_created`) | ✅ |
 
-Phase 5 的边界也已经在文档中明确：它完成的是“对已有 Artifact 的工作台能力”，不代表 Agent 输出入口、聊天卡片和右侧 Drawer 已完整打通。Phase 6A 已补齐 Project-first workspace runtime；后续由 Phase 6B-6F/7 补齐真实 CLI 执行、Artifact Bridge 和 Drawer/审批闭环。
+Phase 5 的边界也已经在文档中明确：它完成的是“对已有 Artifact 的工作台能力”。Phase 6 已补齐 Project-first workspace runtime、真实 CLI 执行和 Artifact Bridge：CLI 产物会以消息下方卡片出现，并可继续编辑、引用和版本管理。Phase 7 已完成运行取消/恢复、审批卡片、环境体检的实现基线，后续继续做真实演示和 UX 加固。
 
-### Phase 6A 能力
+### Phase 6 能力
 
 | 能力 | 状态 |
 |------|------|
@@ -103,6 +103,9 @@ Phase 5 的边界也已经在文档中明确：它完成的是“对已有 Artif
 | 去除用户可选的“静态网页 / Vite React / 已有项目”项目类型 | ✅ |
 | workspace 文件树、文件读取安全校验、snapshot/diff、静态 preview | ✅ |
 | `/api/sessions/{id}/workspace` 返回 Session 继承的 `workspacePath` | ✅ |
+| Claude Code / Codex / OpenCode 真实 CLI Agent 路径 | ✅ |
+| CLI 输出与 workspace diff 自动创建 Artifact | ✅ |
+| 消息下方 ArtifactCard、文件编辑器、代码片段引用、版本管理 | ✅ |
 
 ## 测试
 
@@ -121,6 +124,13 @@ backend\venv\Scripts\python.exe e2e\phase4_real_acceptance.py
 
 # Phase 5 真实 HTTP 验收（自动启动临时后端）
 backend\venv\Scripts\python.exe e2e\phase5_real_acceptance.py
+```
+
+### Phase 7 验收入口
+
+```bash
+cd backend && .\venv\Scripts\python.exe -m pytest test_api/test_phase7_runtime.py -q
+cd frontend && npx vitest run src/components/ChatWindow.test.tsx src/stores/chat.test.ts
 ```
 
 ## 每轮结束服务交接
@@ -157,6 +167,7 @@ backend\venv\Scripts\python.exe e2e\phase5_real_acceptance.py
 | Phase 5 产物工作台能力 | [docs/specs/phase5/README.md](docs/specs/phase5/README.md) |
 | Phase 6 Workspace + CLI + 产物入口桥接 | [docs/specs/phase6/README.md](docs/specs/phase6/README.md) |
 | Phase 7 MVP 演示闭环 | [docs/specs/phase7/README.md](docs/specs/phase7/README.md) |
+| Phase 7 运行控制/审批/体检交付 | [docs/deliverables/phase7-runtime-control/README.md](docs/deliverables/phase7-runtime-control/README.md) |
 | Orchestrator 设计 | [docs/specs/phase3/02-orchestrator/](docs/specs/phase3/02-orchestrator/) |
 | 测试协议 | [docs/TEST_PROTOCOL.md](docs/TEST_PROTOCOL.md) |
 | Git 规范 | [docs/GIT_PROTOCOL.md](docs/GIT_PROTOCOL.md) |

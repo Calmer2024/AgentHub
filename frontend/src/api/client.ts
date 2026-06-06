@@ -3,8 +3,9 @@ import type {
   RouteAgent, CollabTask, ChainStep, ChainConfigInput,
   DAGPhase, PhaseChangeEvent, AgentStartEvent, OrchestratorSummaryStartEvent,
   Artifact, ArtifactDiff, ArtifactEditRequest, ArtifactEditResult, ArtifactVersion,
+  ArtifactScanResult,
   Project, ProjectCreateInput, ProjectUpdateInput, ProjectDeleteResult, FolderPickResult,
-  PreviewResult,
+  PreviewResult, WorkspaceFile,
   ExecutionTraceItem,
   CodexLocalConfig, CodexLocalConfigUpdate,
   SkillDefinition,
@@ -12,8 +13,10 @@ import type {
   GenerateOrchestratorPlanRequest, GenerateOrchestratorPlanResult,
   ParseOrchestratorOutputRequest, ParseOrchestratorOutputResult,
   OrchestratorExecution,
+  RunRead, TaskRead, ApprovalCheckpoint, SystemHealthRead, CodeReference,
 } from "../types";
 import { parseDagPhases, parseTasks } from "./orchestratorEvents";
+import { chinaNowIso } from "../utils/time";
 
 const API_BASE = "/api";
 
@@ -170,6 +173,27 @@ export async function createProjectPreview(
   return res.json();
 }
 
+export async function readProjectFile(projectId: string, path: string): Promise<WorkspaceFile> {
+  const params = new URLSearchParams({ path });
+  const res = await fetch(`${API_BASE}/projects/${projectId}/files?${params.toString()}`);
+  if (!res.ok) throw new Error("Failed to read project file");
+  return res.json();
+}
+
+export async function writeProjectFile(
+  projectId: string,
+  path: string,
+  content: string,
+): Promise<WorkspaceFile> {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/files`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path, content }),
+  });
+  if (!res.ok) throw new Error("Failed to write project file");
+  return res.json();
+}
+
 export async function deleteProject(
   projectId: string,
   deleteFiles = false,
@@ -245,14 +269,97 @@ export async function fetchSessionMembers(sessionId: string): Promise<Array<{ ag
   return res.json();
 }
 
-export async function summarizeSession(sessionId: string): Promise<Session> {
-  const res = await fetch(`${API_BASE}/sessions/${sessionId}/summarize`, { method: "POST" });
-  return res.json();
-}
-
 export async function fetchMessages(sessionId: string): Promise<Message[]> {
   const res = await fetch(`${API_BASE}/sessions/${sessionId}/messages`);
   if (!res.ok) throw new Error("Failed to fetch messages");
+  return res.json();
+}
+
+export async function fetchRuns(sessionId: string): Promise<RunRead[]> {
+  const res = await fetch(`${API_BASE}/sessions/${sessionId}/runs`);
+  if (!res.ok) throw new Error("Failed to fetch runs");
+  return res.json();
+}
+
+export async function cancelRun(runId: string, reason?: string): Promise<RunRead> {
+  const res = await fetch(`${API_BASE}/runs/${runId}/cancel`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason: reason ?? "" }),
+  });
+  if (!res.ok) throw new Error("Failed to cancel run");
+  return res.json();
+}
+
+export async function fetchRunTasks(runId: string): Promise<TaskRead[]> {
+  const res = await fetch(`${API_BASE}/runs/${runId}/tasks`);
+  if (!res.ok) throw new Error("Failed to fetch run tasks");
+  return res.json();
+}
+
+export async function fetchApprovals(sessionId: string): Promise<ApprovalCheckpoint[]> {
+  const res = await fetch(`${API_BASE}/sessions/${sessionId}/approvals`);
+  if (!res.ok) throw new Error("Failed to fetch approvals");
+  return res.json();
+}
+
+export async function approveCheckpoint(
+  checkpointId: string,
+  input: { artifactId?: string | null; artifactVersion?: number | null; comment?: string | null } = {},
+): Promise<ApprovalCheckpoint> {
+  const res = await fetch(`${API_BASE}/approvals/${checkpointId}/approve`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error("Failed to approve checkpoint");
+  return res.json();
+}
+
+export async function rejectCheckpoint(
+  checkpointId: string,
+  input: {
+    reason: string;
+    artifactId?: string | null;
+    artifactVersion?: number | null;
+    codeReference?: CodeReference | null;
+  },
+): Promise<ApprovalCheckpoint> {
+  const res = await fetch(`${API_BASE}/approvals/${checkpointId}/reject`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error("Failed to reject checkpoint");
+  return res.json();
+}
+
+export async function fetchSystemHealth(input: {
+  projectId?: string | null;
+  sessionId?: string | null;
+  agentId?: string | null;
+} = {}): Promise<SystemHealthRead> {
+  const params = new URLSearchParams();
+  if (input.projectId) params.set("projectId", input.projectId);
+  if (input.sessionId) params.set("sessionId", input.sessionId);
+  if (input.agentId) params.set("agentId", input.agentId);
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  const res = await fetch(`${API_BASE}/system/health${suffix}`);
+  if (!res.ok) throw new Error("Failed to fetch system health");
+  return res.json();
+}
+
+export async function checkSystemHealth(input: {
+  projectId?: string | null;
+  sessionId?: string | null;
+  agentId?: string | null;
+} = {}): Promise<SystemHealthRead> {
+  const res = await fetch(`${API_BASE}/system/health/check`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error("Failed to check system health");
   return res.json();
 }
 
@@ -294,6 +401,18 @@ export interface StreamCallbacks {
     meta: { agentName?: string; cliTool?: string; processId?: string },
   ) => void;
   onTraceCompleted?: (messageId: string, status: "completed" | "error", exitCode?: number | null) => void;
+  onArtifactScanStarted?: (messageId: string) => void;
+  onArtifactCreated?: (artifact: Artifact) => void;
+  onArtifactScanCompleted?: (
+    messageId: string,
+    summary: { createdCount: number; candidateCount: number; skippedCount: number },
+  ) => void;
+  onArtifactDetectionFailed?: (messageId: string, reason?: string) => void;
+  onRunStarted?: (run: RunRead) => void;
+  onRunStatusChanged?: (run: RunRead) => void;
+  onTaskStatusChanged?: (task: TaskRead) => void;
+  onApprovalCreated?: (approval: ApprovalCheckpoint) => void;
+  onApprovalStatusChanged?: (approval: ApprovalCheckpoint) => void;
 }
 
 export function createChatStream(
@@ -308,7 +427,10 @@ export function createChatStream(
     onToken, onDone, onRoute, onTaskStarted, onChainStep, onPhaseChange,
     onTaskCompleted, onAgentStart, onOrchestratorSummaryStart,
     onOrchestratorSummaryToken, onAgentToken, onProgress, onInteractivePrompt,
-    onTraceDelta, onTraceCompleted,
+    onTraceDelta, onTraceCompleted, onArtifactScanStarted, onArtifactCreated,
+    onArtifactScanCompleted, onArtifactDetectionFailed,
+    onRunStarted, onRunStatusChanged, onTaskStatusChanged,
+    onApprovalCreated, onApprovalStatusChanged,
   } = callbacks;
   const url = `${API_BASE}/sessions/${sessionId}/chat`;
   const abortCtrl = new AbortController();
@@ -349,6 +471,36 @@ export function createChatStream(
         if (line.startsWith("data: ")) {
           try {
             const data = JSON.parse(line.slice(6));
+
+            if (data.type === "run.started" && onRunStarted) {
+              const run = normalizeRun(data.run);
+              if (run) onRunStarted(run);
+              continue;
+            }
+
+            if (data.type === "run.status_changed" && onRunStatusChanged) {
+              const run = normalizeRun(data.run);
+              if (run) onRunStatusChanged(run);
+              continue;
+            }
+
+            if (data.type === "task.status_changed" && onTaskStatusChanged) {
+              const task = normalizeTask(data.task);
+              if (task) onTaskStatusChanged(task);
+              continue;
+            }
+
+            if (data.type === "approval.created" && onApprovalCreated) {
+              const approval = normalizeApproval(data.approval);
+              if (approval) onApprovalCreated(approval);
+              continue;
+            }
+
+            if (data.type === "approval.status_changed" && onApprovalStatusChanged) {
+              const approval = normalizeApproval(data.approval);
+              if (approval) onApprovalStatusChanged(approval);
+              continue;
+            }
 
             // orchestrator.route
             if (data.type === "orchestrator.route" && onRoute) {
@@ -506,7 +658,7 @@ export function createChatStream(
                   source: "cli",
                   chunkType: data.chunkType,
                   processId: data.processId ?? null,
-                  timestamp: trace.timestamp ?? new Date().toISOString(),
+                  timestamp: trace.timestamp ?? chinaNowIso(),
                 }, {
                   agentName: data.agentName,
                   processId: data.processId,
@@ -525,7 +677,7 @@ export function createChatStream(
                   source: "system",
                   chunkType: "process",
                   processId: data.processId ?? null,
-                  timestamp: new Date().toISOString(),
+                  timestamp: chinaNowIso(),
                 }, {
                   agentName: data.agentName,
                   processId: data.processId,
@@ -562,6 +714,35 @@ export function createChatStream(
               continue;
             }
 
+            if (data.type === "artifact.scan.started") {
+              if (data.messageId && onArtifactScanStarted) onArtifactScanStarted(data.messageId);
+              continue;
+            }
+
+            if (data.type === "artifact.created") {
+              const artifact = normalizeArtifactEvent(data);
+              if (artifact && onArtifactCreated) onArtifactCreated(artifact);
+              continue;
+            }
+
+            if (data.type === "artifact.scan.completed") {
+              if (data.messageId && onArtifactScanCompleted) {
+                onArtifactScanCompleted(data.messageId, {
+                  createdCount: Number(data.createdCount ?? 0),
+                  candidateCount: Number(data.candidateCount ?? 0),
+                  skippedCount: Number(data.skippedCount ?? 0),
+                });
+              }
+              continue;
+            }
+
+            if (data.type === "artifact.detection_failed") {
+              if (data.messageId && onArtifactDetectionFailed) {
+                onArtifactDetectionFailed(data.messageId, typeof data.reason === "string" ? data.reason : undefined);
+              }
+              continue;
+            }
+
             // token streaming
             if (data.agentId && data.token && data.callKey && onAgentToken) {
               onAgentToken(
@@ -588,7 +769,15 @@ export function createChatStream(
       }
     }
     if (!completed) onDone(undefined, "Stream ended unexpectedly");
-  })();
+  })().catch((error: unknown) => {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      return;
+    }
+    if (error instanceof Error && error.name === "AbortError") {
+      return;
+    }
+    onDone(undefined, error instanceof Error ? error.message : "Stream failed");
+  });
 
   return () => abortCtrl.abort();
 }
@@ -672,9 +861,148 @@ export function regenerateMessageStream(
       }
     }
     callbacks.onDone(undefined, "Stream ended unexpectedly");
-  })();
+  })().catch((error: unknown) => {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      return;
+    }
+    if (error instanceof Error && error.name === "AbortError") {
+      return;
+    }
+    callbacks.onDone(undefined, error instanceof Error ? error.message : "Stream failed");
+  });
 
   return () => abortCtrl.abort();
+}
+
+function normalizeArtifactEvent(data: Record<string, unknown>): Artifact | null {
+  const raw = data.artifact && typeof data.artifact === "object"
+    ? data.artifact as Record<string, unknown>
+    : data;
+  const id = raw.id ?? raw.artifactId;
+  if (typeof id !== "string") return null;
+  const type = raw.type ?? raw.artifactType;
+  if (type !== "code_diff" && type !== "web_preview" && type !== "document" && type !== "file_tree") {
+    return null;
+  }
+  const sessionId = typeof raw.sessionId === "string" ? raw.sessionId : "";
+  const messageId = typeof raw.messageId === "string" ? raw.messageId : "";
+  if (!sessionId || !messageId) return null;
+  return {
+    id,
+    sessionId,
+    messageId,
+    projectId: typeof raw.projectId === "string" ? raw.projectId : null,
+    type,
+    title: typeof raw.title === "string" ? raw.title : "产物",
+    content: typeof raw.content === "string" ? raw.content : "",
+    status: raw.status === "rendering" || raw.status === "error" ? raw.status : "ready",
+    version: typeof raw.version === "number" ? raw.version : 1,
+    parentArtifactId: typeof raw.parentArtifactId === "string" ? raw.parentArtifactId : null,
+    filePath: typeof raw.filePath === "string" ? raw.filePath : null,
+    previewId: typeof raw.previewId === "string" ? raw.previewId : null,
+    source: typeof raw.source === "string" ? raw.source : null,
+    createdAt: typeof raw.createdAt === "string" ? raw.createdAt : chinaNowIso(),
+  };
+}
+
+function normalizeRun(raw: unknown): RunRead | null {
+  if (!raw || typeof raw !== "object") return null;
+  const data = raw as Record<string, unknown>;
+  if (typeof data.id !== "string" || typeof data.sessionId !== "string") return null;
+  const status = normalizeRunStatus(data.status);
+  if (!status) return null;
+  return {
+    id: data.id,
+    sessionId: data.sessionId,
+    projectId: typeof data.projectId === "string" ? data.projectId : null,
+    mode: typeof data.mode === "string" ? data.mode : "single",
+    status,
+    currentMessageId: typeof data.currentMessageId === "string" ? data.currentMessageId : null,
+    startedAt: typeof data.startedAt === "string" ? data.startedAt : chinaNowIso(),
+    updatedAt: typeof data.updatedAt === "string" ? data.updatedAt : chinaNowIso(),
+    completedAt: typeof data.completedAt === "string" ? data.completedAt : null,
+    cancelReason: typeof data.cancelReason === "string" ? data.cancelReason : null,
+    metadata: isRecord(data.metadata) ? data.metadata : null,
+  };
+}
+
+function normalizeTask(raw: unknown): TaskRead | null {
+  if (!raw || typeof raw !== "object") return null;
+  const data = raw as Record<string, unknown>;
+  if (typeof data.id !== "string" || typeof data.runId !== "string" || typeof data.sessionId !== "string") return null;
+  const status = normalizeTaskStatus(data.status);
+  if (!status) return null;
+  return {
+    id: data.id,
+    runId: data.runId,
+    sessionId: data.sessionId,
+    agentId: typeof data.agentId === "string" ? data.agentId : null,
+    messageId: typeof data.messageId === "string" ? data.messageId : null,
+    name: typeof data.name === "string" ? data.name : "primary",
+    role: typeof data.role === "string" ? data.role : null,
+    phase: typeof data.phase === "number" ? data.phase : null,
+    status,
+    dependsOn: Array.isArray(data.dependsOn) ? data.dependsOn.map(String) : [],
+    startedAt: typeof data.startedAt === "string" ? data.startedAt : null,
+    completedAt: typeof data.completedAt === "string" ? data.completedAt : null,
+    metadata: isRecord(data.metadata) ? data.metadata : null,
+  };
+}
+
+function normalizeApproval(raw: unknown): ApprovalCheckpoint | null {
+  if (!raw || typeof raw !== "object") return null;
+  const data = raw as Record<string, unknown>;
+  if (
+    typeof data.id !== "string"
+    || typeof data.runId !== "string"
+    || typeof data.taskId !== "string"
+    || typeof data.sessionId !== "string"
+  ) return null;
+  const status = normalizeApprovalStatus(data.status);
+  if (!status) return null;
+  return {
+    id: data.id,
+    runId: data.runId,
+    taskId: data.taskId,
+    sessionId: data.sessionId,
+    messageId: typeof data.messageId === "string" ? data.messageId : null,
+    artifactId: typeof data.artifactId === "string" ? data.artifactId : null,
+    artifactVersion: typeof data.artifactVersion === "number" ? data.artifactVersion : null,
+    title: typeof data.title === "string" ? data.title : "等待确认",
+    summary: typeof data.summary === "string" ? data.summary : "",
+    status,
+    reason: typeof data.reason === "string" ? data.reason : null,
+    createdAt: typeof data.createdAt === "string" ? data.createdAt : chinaNowIso(),
+    decidedAt: typeof data.decidedAt === "string" ? data.decidedAt : null,
+    metadata: isRecord(data.metadata) ? data.metadata : null,
+  };
+}
+
+function normalizeRunStatus(value: unknown): RunRead["status"] | null {
+  if (
+    value === "queued" || value === "running" || value === "pausing"
+    || value === "paused" || value === "cancelling" || value === "cancelled"
+    || value === "completed" || value === "failed"
+  ) return value;
+  return null;
+}
+
+function normalizeTaskStatus(value: unknown): TaskRead["status"] | null {
+  if (
+    value === "pending" || value === "running" || value === "paused"
+    || value === "completed" || value === "failed" || value === "cancelled"
+    || value === "rejected"
+  ) return value;
+  return null;
+}
+
+function normalizeApprovalStatus(value: unknown): ApprovalCheckpoint["status"] | null {
+  if (value === "pending_review" || value === "approved" || value === "rejected") return value;
+  return null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 export async function fetchArtifacts(sessionId: string): Promise<Artifact[]> {
@@ -778,5 +1106,47 @@ export async function cancelOrchestratorExecution(executionId: string): Promise<
     const text = await res.text().catch(() => "");
     throw new Error(text || `HTTP ${res.status}`);
   }
+  return res.json();
+}
+
+export async function saveArtifactContent(
+  artifactId: string,
+  content: string,
+  title?: string | null,
+): Promise<Artifact> {
+  const body: Record<string, unknown> = { content, writeWorkspace: true };
+  if (title) body.title = title;
+  const res = await fetch(`${API_BASE}/artifacts/${artifactId}/save`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error("Failed to save artifact");
+  return res.json();
+}
+
+export async function restoreArtifactVersion(
+  artifactId: string,
+  version: number,
+): Promise<Artifact> {
+  const res = await fetch(`${API_BASE}/artifacts/${artifactId}/restore`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ version, writeWorkspace: true }),
+  });
+  if (!res.ok) throw new Error("Failed to restore artifact version");
+  return res.json();
+}
+
+export async function scanMessageArtifacts(
+  messageId: string,
+  force = true,
+): Promise<ArtifactScanResult> {
+  const res = await fetch(`${API_BASE}/messages/${messageId}/artifacts/scan`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ force }),
+  });
+  if (!res.ok) throw new Error("Failed to scan message artifacts");
   return res.json();
 }

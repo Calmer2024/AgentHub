@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useChatStore, type CollabSnapshot } from "./stores/chatStore";
 import { SessionList } from "./components/SessionList";
-import { ChatWindow } from "./components/ChatWindow";
+import { MemoChatWindow as ChatWindow } from "./components/ChatWindow";
 import { ProjectSidebar } from "./components/ProjectSidebar";
 import { AgentPanel } from "./components/AgentPanel";
 import { GroupChatCreator } from "./components/GroupChatCreator";
@@ -26,34 +26,36 @@ function emptyCollab(): CollabSnapshot {
   };
 }
 
+const EMPTY_COLLAB = emptyCollab();
+
 function App() {
-  const {
-    currentSessionId, messages, isStreaming, streamingError,
-    artifacts,
-    setMessagesForSession,
-    setArtifactsForSession,
-    setStreamingError,
-    setIsStreaming,
-    setReplyTarget,
-    updateMessage,
-    replaceMessageContent,
-    collabSnapshots,
-  } = useChatStore();
+  const currentSessionId = useChatStore((state) => state.currentSessionId);
+  const messages = useChatStore((state) => state.messages);
+  const isStreaming = useChatStore((state) => state.isStreaming);
+  const streamingError = useChatStore((state) => state.streamingError);
+  const artifacts = useChatStore((state) => state.artifacts);
+  const setMessagesForSession = useChatStore((state) => state.setMessagesForSession);
+  const setArtifactsForSession = useChatStore((state) => state.setArtifactsForSession);
+  const setStreamingError = useChatStore((state) => state.setStreamingError);
+  const setReplyTarget = useChatStore((state) => state.setReplyTarget);
+  const updateMessage = useChatStore((state) => state.updateMessage);
+  const replaceSessionMessageContent = useChatStore((state) => state.replaceSessionMessageContent);
 
   const {
     projects, currentProjectId, currentProject, sessions, agents, sidebarTab,
-    creatingProject, sessionMembers, currentAgent, currentMode,
+    creatingProject, sessionsLoading, sessionHydrating, sessionMembers, currentAgent, currentMode,
     setSidebarTab, loadData,
     handleSelectProject, handleArchiveProject,
     handleRenameProject, handleDeleteProject,
     handleCreateBlankProject, handlePickExistingFolder,
     handleSelectSession, handleNewSession, handleCreateGroup,
-    handleDeleteSession, handleRenameSession, handleSummarizeSession,
+    handleDeleteSession, handleRenameSession,
   } = useWorkspaceRuntime();
 
   // --- 协作状态的读写桥接 (store ↔ 组件) ---
   const collabKey = currentSessionId ?? "__none__";
-  const collab = collabSnapshots[collabKey] ?? emptyCollab();
+  const activeCollab = useChatStore((state) => state.collabSnapshots[collabKey]);
+  const collab = activeCollab ?? EMPTY_COLLAB;
 
   const routeAgents = collab.routeAgents;
   const collabTasks = collab.collabTasks;
@@ -69,7 +71,7 @@ function App() {
   const [agentModal, setAgentModal] = useState<{ mode: "create" | "edit"; agentId?: string } | null>(null);
   const handleSend = useSendMessage();
 
-  const handleTogglePin = async (message: Message) => {
+  const handleTogglePin = useCallback(async (message: Message) => {
     try {
       if (message.isPinned) {
         await unpinMessage(message.id);
@@ -79,47 +81,57 @@ function App() {
         updateMessage(message.id, { isPinned: true });
       }
     } catch {
-      setStreamingError("Pin 操作失败，请稍后重试");
+      setStreamingError("Pin 操作失败，请稍后重试", message.sessionId || currentSessionId);
     }
-  };
+  }, [currentSessionId, setStreamingError, updateMessage]);
 
-  const handleRegenerate = (message: Message) => {
-    if (!currentSessionId) return;
-    setStreamingError(null);
-    setIsStreaming(true);
-    replaceMessageContent(message.id, "");
-    regenerateMessageStream(message.id, {
+  const handleRegenerate = useCallback((message: Message) => {
+    const sessionId = message.sessionId || currentSessionId;
+    if (!sessionId) return;
+    const streamKey = `regenerate-${sessionId}-${message.id}-${Date.now()}`;
+    setStreamingError(null, sessionId);
+    useChatStore.getState().startStreamRun(sessionId, streamKey);
+    replaceSessionMessageContent(sessionId, message.id, "");
+    const abort = regenerateMessageStream(message.id, {
       onToken: (token) => {
         const state = useChatStore.getState();
-        const current = state.messages.find((m) => m.id === message.id)?.content ?? "";
-        state.replaceMessageContent(message.id, current + token);
+        const current = (state.messagesBySession[sessionId] ?? state.messages)
+          .find((m) => m.id === message.id)?.content ?? "";
+        state.replaceSessionMessageContent(sessionId, message.id, current + token);
       },
       onDone: async (_messageId, error) => {
-        setIsStreaming(false);
+        useChatStore.getState().finishStreamRun(streamKey, sessionId);
         if (error) {
-          setStreamingError(error === "重新生成超时" ? error : `重新生成失败：${error}`);
-          replaceMessageContent(message.id, message.content);
+          setStreamingError(error === "重新生成超时" ? error : `重新生成失败：${error}`, sessionId);
+          replaceSessionMessageContent(sessionId, message.id, message.content);
           return;
         }
         try {
-          setMessagesForSession(currentSessionId, await fetchMessages(currentSessionId));
+          setMessagesForSession(sessionId, await fetchMessages(sessionId));
         } catch { /* */ }
         try {
-          setArtifactsForSession(currentSessionId, await fetchArtifacts(currentSessionId));
+          setArtifactsForSession(sessionId, await fetchArtifacts(sessionId));
         } catch { /* */ }
       },
     });
-  };
+    useChatStore.getState().setActiveStreamAbort(streamKey, abort);
+  }, [
+    currentSessionId,
+    replaceSessionMessageContent,
+    setArtifactsForSession,
+    setMessagesForSession,
+    setStreamingError,
+  ]);
 
-  const handleArtifactsChanged = async () => {
+  const handleArtifactsChanged = useCallback(async () => {
     if (!currentSessionId) return;
     try {
       setArtifactsForSession(currentSessionId, await fetchArtifacts(currentSessionId));
     } catch { /* */ }
-  };
+  }, [currentSessionId, setArtifactsForSession]);
 
   return (
-    <div className="h-[100dvh] w-screen flex flex-col md:flex-row overflow-hidden bg-[#171717] text-[#ececf1]">
+    <div className="agenthub-shell h-[100dvh] w-screen flex flex-col md:flex-row overflow-hidden">
       <ProjectSidebar
         projects={projects}
         currentProjectId={currentProjectId}
@@ -142,20 +154,18 @@ function App() {
         }}
       />
 
-      {sidebarTab !== "debug" && (
-        <div className="w-full md:w-[300px] h-[32dvh] md:h-full bg-[#171717] border-r border-white/[0.08] flex flex-col shrink-0">
-          <SessionList
-            project={currentProject}
-            sessions={sessions} currentSessionId={currentSessionId}
-            agents={agents} onSelectSession={handleSelectSession}
-            onNewSession={handleNewSession}
-            onNewGroupSession={() => setShowGroupCreator(true)}
-            onDeleteSession={handleDeleteSession}
-            onRenameSession={handleRenameSession}
-            onSummarizeSession={handleSummarizeSession}
-          />
-        </div>
-      )}
+      <div className="agenthub-sidebar w-full md:w-[300px] h-[32dvh] md:h-full border-r flex flex-col shrink-0 transition-colors duration-300">
+        <SessionList
+          project={currentProject}
+          sessions={sessions} currentSessionId={currentSessionId}
+          loading={sessionsLoading}
+          agents={agents} onSelectSession={handleSelectSession}
+          onNewSession={handleNewSession}
+          onNewGroupSession={() => setShowGroupCreator(true)}
+          onDeleteSession={handleDeleteSession}
+          onRenameSession={handleRenameSession}
+        />
+      </div>
 
       {sidebarTab === "debug" ? (
         <div className="flex-1 min-h-0">
@@ -165,6 +175,7 @@ function App() {
         <ChatWindow
           messages={messages} isStreaming={isStreaming}
           artifacts={artifacts}
+          hydrating={sessionHydrating}
           streamingError={streamingError}
           currentAgent={currentAgent} currentSessionId={currentSessionId}
           agents={agents} mode={currentMode}
@@ -178,15 +189,17 @@ function App() {
           collabSummary={collabSummary}
           draftPlan={draftPlan}
           onSend={handleSend}
-          onDismissError={() => setStreamingError(null)}
+          onDismissError={() => setStreamingError(null, currentSessionId)}
           onReply={setReplyTarget}
           onRegenerate={handleRegenerate}
           onTogglePin={handleTogglePin}
           onArtifactsChanged={handleArtifactsChanged}
         />
       ) : (
-        <div className="flex-1 min-h-0 flex items-center justify-center bg-[#171717] text-[#8f8f98] text-lg px-6 text-center">
-          {currentProject ? "在当前项目中新建私聊或群聊" : "创建 Project 后开始"}
+        <div className="agenthub-chat flex-1 min-h-0 flex items-center justify-center text-lg px-6 text-center">
+          <span className="agenthub-muted">
+          {currentProject ? "在当前项目中新建私聊或群聊" : "创建项目后开始"}
+          </span>
         </div>
       )}
 

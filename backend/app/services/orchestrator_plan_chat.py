@@ -17,11 +17,12 @@ from ..domain.orchestrator_plan import (
     visualize_mermaid,
 )
 from ..domain.agent_selector import AgentSelector
-from ..models import AgentConfig, Message as DBMessage, SessionMember
+from ..models import AgentConfig, Message as DBMessage, Session as DBSession, SessionMember
 from .cli_agent_service import CliAgentService
 from .execution_trace import ExecutionTraceBuilder, merge_trace_metadata
 from .file_change_detector import FileChangeDetector
 from .orchestrator_execution import PlanExecutionError, execution_registry
+from .run_service import RunService, run_to_read, task_to_read
 
 
 class OrchestratorPlanChat:
@@ -39,6 +40,7 @@ class OrchestratorPlanChat:
         workspace_path: str,
         orchestrator_agent: AgentConfig,
         member_agents: list[AgentConfig],
+        run_id: str | None = None,
     ) -> AsyncGenerator[str, None]:
         candidate_agents = [
             self._agent_snapshot(agent)
@@ -92,6 +94,15 @@ class OrchestratorPlanChat:
             process_id = event.process_id or process_id
             if event.type == "agent.process.started":
                 metadata["processId"] = process_id
+                if run_id:
+                    async for item in self._bind_planner_runtime(
+                        run_id=run_id,
+                        session_id=session_id,
+                        agent=orchestrator_agent,
+                        message_id=message_id,
+                        process_id=process_id,
+                    ):
+                        yield item
                 trace.set_process(process_id)
                 item = trace.add(
                     kind="process",
@@ -218,6 +229,13 @@ class OrchestratorPlanChat:
                     content=visible or raw_output or f"调度器执行失败：{error}",
                     metadata=merge_trace_metadata(metadata, trace),
                 )
+                if run_id:
+                    async for item in self._mark_run_failed(
+                        run_id=run_id,
+                        message_id=message_id,
+                        error=error,
+                    ):
+                        yield item
                 yield self._err(error)
                 return
 
@@ -234,6 +252,7 @@ class OrchestratorPlanChat:
                     action=parsed,
                     metadata=metadata,
                     trace=trace,
+                    run_id=run_id,
                 ):
                     yield item
                 return
@@ -255,6 +274,13 @@ class OrchestratorPlanChat:
                     "orchestratorPlanError": str(exc),
                 }, trace),
             )
+            if run_id:
+                async for item in self._mark_run_failed(
+                    run_id=run_id,
+                    message_id=message_id,
+                    error=str(exc),
+                ):
+                    yield item
             yield self._sse({
                 "token": "",
                 "done": True,
@@ -295,6 +321,12 @@ class OrchestratorPlanChat:
                 "chunkType": "text",
                 "done": False,
             })
+        if run_id:
+            async for item in self._complete_planner_run(
+                run_id=run_id,
+                message_id=message_id,
+            ):
+                yield item
         yield self._sse({"token": "", "done": True, "messageId": message_id})
 
     async def _approve_latest_plan(
@@ -307,6 +339,7 @@ class OrchestratorPlanChat:
         action: dict,
         metadata: dict,
         trace: ExecutionTraceBuilder,
+        run_id: str | None = None,
     ) -> AsyncGenerator[str, None]:
         member_agents = await self._member_agents(session_id)
         executable_agents = [
@@ -319,6 +352,7 @@ class OrchestratorPlanChat:
                 session_id=session_id,
                 plan=plan,
                 active_agent_ids={member.id for member in member_agents},
+                auto_start=False,
             )
         except PlanExecutionError as exc:
             content = "计划暂时无法进入执行：\n" + "\n".join(f"- {error}" for error in exc.errors)
@@ -350,8 +384,28 @@ class OrchestratorPlanChat:
                 "chunkType": "text",
                 "done": False,
             })
+            if run_id:
+                async for item in self._mark_run_failed(
+                    run_id=run_id,
+                    message_id=message_id,
+                    error="；".join(exc.errors),
+                ):
+                    yield item
             yield self._sse({"token": "", "done": True, "messageId": message_id})
             return
+
+        if run_id:
+            runtime_task_ids = await self._bind_execution_runtime(
+                session_id=session_id,
+                execution=execution,
+                run_id=run_id,
+            )
+            execution_registry.bind_runtime(
+                execution["executionId"],
+                run_id=run_id,
+                task_id_by_orchestrator_task_id=runtime_task_ids,
+            )
+            execution = execution_registry.get_execution(execution["executionId"]) or execution
 
         content = (
             f"已确认计划 {execution['planId']}，创建执行 {execution['executionId']}。\n"
@@ -374,12 +428,15 @@ class OrchestratorPlanChat:
                 "orchestratorAssignmentFixups": assignment_fixups,
             }, trace),
         )
+        execution_registry.bind_control_message(execution["executionId"], message_id)
+        execution_registry.start_execution(execution["executionId"])
         yield self._sse({
             "type": "orchestrator.plan_execution_created",
             "executionId": execution["executionId"],
             "planId": execution["planId"],
             "status": execution["status"],
             "tasks": execution["tasks"],
+            "runId": execution.get("runId") or run_id,
         })
         yield self._sse({
             "type": "agent.output",
@@ -396,6 +453,135 @@ class OrchestratorPlanChat:
             "done": False,
         })
         yield self._sse({"token": "", "done": True, "messageId": message_id})
+
+    async def _bind_planner_runtime(
+        self,
+        *,
+        run_id: str,
+        session_id: str,
+        agent: AgentConfig,
+        message_id: str,
+        process_id: str,
+    ) -> AsyncGenerator[str, None]:
+        service = RunService(self.db)
+        run = await service.bind_current_message(run_id, message_id)
+        await service.bind_process(
+            run_id=run_id,
+            task_id=None,
+            session_id=session_id,
+            agent_id=agent.id,
+            message_id=message_id,
+            process_id=process_id,
+        )
+        yield self._sse({
+            "type": "run.status_changed",
+            "runId": run.id,
+            "sessionId": run.session_id,
+            "status": run.status,
+            "run": run_to_read(run).model_dump(by_alias=True, mode="json"),
+            "token": "",
+            "done": False,
+        })
+
+    async def _bind_execution_runtime(
+        self,
+        *,
+        session_id: str,
+        execution: dict,
+        run_id: str,
+    ) -> dict[str, str]:
+        session = await self.db.get(DBSession, session_id)
+        if not session:
+            return {}
+        service = RunService(self.db)
+        run = await service.mark_run_status(
+            run_id,
+            "running",
+        )
+        runtime_task_ids: dict[str, str] = {}
+        for task in execution.get("tasks") or []:
+            runtime_task = await service.create_task(
+                run,
+                agent_id=task.get("assignedAgentId"),
+                name=f"{task.get('taskId')} · {task.get('title')}",
+                role="executor",
+                phase=task.get("phase"),
+                depends_on=task.get("dependsOn") or [],
+                metadata={
+                    "executionId": execution["executionId"],
+                    "planId": execution["planId"],
+                    "orchestratorTaskId": task.get("taskId"),
+                    "requiresHumanApproval": bool(task.get("needsApproval")),
+                    "approvalTitle": f"确认 {task.get('title') or task.get('taskId')}",
+                },
+            )
+            runtime_task_ids[str(task.get("taskId"))] = runtime_task.id
+            await self._broadcast_ws(session_id, {
+                "type": "task.status_changed",
+                "runId": run_id,
+                "taskId": runtime_task.id,
+                "sessionId": session_id,
+                "status": runtime_task.status,
+                "task": task_to_read(runtime_task).model_dump(by_alias=True, mode="json"),
+                "token": "",
+                "done": False,
+            })
+        await self._broadcast_ws(session_id, {
+            "type": "run.status_changed",
+            "runId": run.id,
+            "sessionId": session_id,
+            "status": run.status,
+            "run": run_to_read(run).model_dump(by_alias=True, mode="json"),
+            "token": "",
+            "done": False,
+        })
+        return runtime_task_ids
+
+    async def _complete_planner_run(
+        self,
+        *,
+        run_id: str,
+        message_id: str,
+    ) -> AsyncGenerator[str, None]:
+        service = RunService(self.db)
+        run = await service.mark_run_status(
+            run_id,
+            "completed",
+            current_message_id=message_id,
+        )
+        yield self._sse({
+            "type": "run.status_changed",
+            "runId": run.id,
+            "sessionId": run.session_id,
+            "status": run.status,
+            "run": run_to_read(run).model_dump(by_alias=True, mode="json"),
+            "token": "",
+            "done": False,
+        })
+
+    async def _mark_run_failed(
+        self,
+        *,
+        run_id: str,
+        message_id: str,
+        error: str,
+    ) -> AsyncGenerator[str, None]:
+        service = RunService(self.db)
+        run = await service.mark_run_status(
+            run_id,
+            "failed",
+            current_message_id=message_id,
+            reason=error,
+        )
+        yield self._sse({
+            "type": "run.status_changed",
+            "runId": run.id,
+            "sessionId": run.session_id,
+            "status": run.status,
+            "run": run_to_read(run).model_dump(by_alias=True, mode="json"),
+            "token": "",
+            "done": False,
+        })
 
     async def _member_agents(self, session_id: str) -> list[AgentConfig]:
         rows = await self.db.execute(
@@ -549,3 +735,11 @@ class OrchestratorPlanChat:
     @staticmethod
     def _err(msg: str) -> str:
         return f"data: {json.dumps({'token': '', 'done': True, 'error': msg}, ensure_ascii=False)}\n\n"
+
+    @staticmethod
+    async def _broadcast_ws(session_id: str, payload: dict) -> None:
+        try:
+            from ..api.ws_manager import manager as ws_manager
+            await ws_manager.broadcast(session_id, payload)
+        except Exception:
+            pass

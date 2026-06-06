@@ -1,4 +1,4 @@
-# AgentHub 文档中心
+﻿# AgentHub 文档中心
 
 > 本文档是 `docs/` 目录的总索引，说明每一份文档和子目录的作用，帮助新成员快速定位所需信息。
 
@@ -32,10 +32,10 @@ docs/
 **产品交付阶段**：P1 先做桌面版（Web UI + 本地无头服务器 → 本机文件系统 + 本机 CLI Agent），P2 再做 SaaS 云版（云端沙箱 + 一键部署）。详见 PRD-00 第 9 节。
 
 ### 我想了解项目现在的状态
-→ 看 [CONTEXT.md](../CONTEXT.md) 的 Phase 表格；当前 Phase 6 进度看 [specs/phase6/README.md](specs/phase6/README.md) 与 [dev-logs/phase6-dev-log.md](dev-logs/phase6-dev-log.md)。历史 Phase 3 审计见 [audit/phase3-audit-report.md](audit/phase3-audit-report.md)。
+→ 看 [CONTEXT.md](../CONTEXT.md) 的 Phase 表格；Phase 6 进度看 [specs/phase6/README.md](specs/phase6/README.md) 与 [dev-logs/phase6-dev-log.md](dev-logs/phase6-dev-log.md)，Phase 7A-7C 看 [deliverables/phase7-runtime-control/](deliverables/phase7-runtime-control/)。历史 Phase 3 审计见 [audit/phase3-audit-report.md](audit/phase3-audit-report.md)。
 
 ### 我要了解 Phase 6 当前进度
-→ 进入 [specs/phase6/](specs/phase6/) 目录。先读 README.md 获取总览；[00-workspace-runtime.md](specs/phase6/00-workspace-runtime.md) 已验收，CLI Adapter 当前交付快照见 [deliverables/phase6-cli-adapter/](deliverables/phase6-cli-adapter/)，后续重点看 Artifact Bridge 和真实 CLI 输出解析补强。
+→ 进入 [specs/phase6/](specs/phase6/) 目录。先读 README.md 获取总览；[00-workspace-runtime.md](specs/phase6/00-workspace-runtime.md) 已验收，CLI Adapter 交付快照见 [deliverables/phase6-cli-adapter/](deliverables/phase6-cli-adapter/)，Artifact Bridge 验收快照见 [deliverables/phase6-artifact-bridge/](deliverables/phase6-artifact-bridge/)。
 
 ### 我想理解为什么要这样设计
 → 进入 [adr/](adr/) 目录，按编号顺序阅读架构决策记录。
@@ -77,7 +77,8 @@ docs/
 | ADR-0007 | [0007-orchestrator-architecture.md](adr/0007-orchestrator-architecture.md) | Orchestrator 架构: Pipeline + DAG |
 | ADR-0008 | [0008-revised-development-strategy.md](adr/0008-revised-development-strategy.md) | **🆕** 功能板块制 + Phase 4-7 路线图 |
 | ADR-0009 | [0009-project-workspace-model.md](adr/0009-project-workspace-model.md) | **🆕** Project-Workspace 绑定模型 + CLI 适配策略 + 分层渲染 |
-| ADR-0010 | [0010-agent-engine-skill-model.md](adr/0010-agent-engine-skill-model.md) | **🆕** Agent = Engine + Skills 建模；调度器作为特殊 Agent |
+| ADR-0010 | [0010-message-level-artifact-experience.md](adr/0010-message-level-artifact-experience.md) | 消息级 Artifact 体验取代 P1 右侧 Drawer |
+| ADR-0011 | [0011-agent-engine-skill-model.md](adr/0011-agent-engine-skill-model.md) | **🆕** Agent = Engine + Skills 建模；调度器作为特殊 Agent |
 
 **阅读建议**: 新成员按编号顺序读。开发者遇到设计疑问时，先查对应 ADR 是否有记录。
 
@@ -92,7 +93,8 @@ docs/
 | [phase3/](specs/phase3/) | Orchestrator + Infrastructure | ✅ | EventBus + Pipeline + DAG + CollaborationPanel |
 | [phase4/](specs/phase4/) | 消息交互闭环 | ✅ | Reply/Regenerate/Pin + FTS5 搜索 |
 | [phase5/](specs/phase5/) | 产物工作台能力 | ✅ | 对已有 Artifact 做版本链 + Diff + 在线编辑；上游入口由 Phase 6/7 补齐 |
-| [phase6/](specs/phase6/) | Workspace Runtime + CLI Engine + Agent Profile + 产物入口桥接 | 🚧 | 6A 本机 Project/workspace runtime 已验收；6B-6E CLI Adapter 实现基线已落地；6F 继续做 `artifact.detected` 与 Artifact Card 闭环；6G 规划 Agent = Engine + Skills 建模 |
+| [phase6/](specs/phase6/) | Workspace Runtime + CLI Engine + Agent Profile + 产物入口桥接 | ✅ | 6A Workspace Runtime、6B-6E CLI Adapter、6F Artifact Bridge 与 Agent = Engine + Skills 建模均已落地 |
+| [phase7/](specs/phase7/) | 任务可控性 + 审批 + 环境体检 + 演示闭环 | 🚧 | 7A-7C run/task 取消与恢复、审批卡片、环境体检已验收；7D 继续真实 cc 演示与 UX 加固 |
 
 ### deliverables/ — 阶段性交付快照
 
@@ -101,7 +103,8 @@ docs/
 | 目录 | 内容 |
 |------|------|
 | [phase6-cli-adapter/](deliverables/phase6-cli-adapter/) | CLI Adapter 架构与实现原理、用户/开发者使用指南、阶段开发日志 |
-| [phase7/](specs/phase7/) | UX 体验闭环 + MVP 演示闭环 | 📋 | 三栏布局 + 产物抽屉 + 审批卡片 + 环境体检 |
+| [phase6-artifact-bridge/](deliverables/phase6-artifact-bridge/) | Artifact Bridge 验收快照：消息级产物卡片、文件编辑器、代码引用、版本管理与真实服务验收 |
+| [phase7-runtime-control/](deliverables/phase7-runtime-control/) | Phase 7A-7C 验收快照：运行控制、审批卡片、环境体检与取消回退修复 |
 | [planning/](specs/planning/) | 历史规划 | 📦 | 旧的 Phase 3 模块化计划 (已被 ADR-0008 取代) |
 
 每个 Phase 目录下都有独立的 `README.md`，包含验收标准清单和子模块索引。
@@ -119,7 +122,9 @@ docs/
 | [phase3-dev-log.md](dev-logs/phase3-dev-log.md) | Phase 3: 6 天时间线、6 个关键 Bug、4 次 Grill Session、测试覆盖演变 |
 | [phase4-dev-log.md](dev-logs/phase4-dev-log.md) | Phase 4: 消息交互闭环、FTS5 修复、真实 UI 验收 |
 | [phase5-dev-log.md](dev-logs/phase5-dev-log.md) | Phase 5: 产物版本链、Diff、在线编辑、架构优化、真实 HTTP 验收 |
-| [phase6-dev-log.md](dev-logs/phase6-dev-log.md) | Phase 6A: Project-first workspace runtime；Phase 6B-6E: 真实本机 CLI Agent、Codex 配置托管、执行轨迹 UI |
+| [phase6-dev-log.md](dev-logs/phase6-dev-log.md) | Phase 6A: Project-first workspace runtime；Phase 6B-6E: 真实本机 CLI Agent；6F: Artifact Bridge、消息级产物卡片、文件编辑器与版本管理 |
+| [phase6-cli-adapter-dev-log.md](dev-logs/phase6-cli-adapter-dev-log.md) | Phase 6 CLI Adapter 专项交接日志：真实 CLI 验证、Codex 中转修复、执行轨迹 UI 与剩余工作 |
+| [phase7-dev-log.md](dev-logs/phase7-dev-log.md) | Phase 7A-7C: run/task/process 运行控制、审批 checkpoint、环境体检和取消回退验收修复 |
 
 ### audit/ — 审计报告
 

@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db
 from ..models import AgentConfig, Message as DBMessage, Session
 from ..services.orchestrator_execution import PlanExecutionError, execution_registry
+from ..services.run_service import RunService
 
 router = APIRouter(prefix="/orchestrator", tags=["orchestrator"])
 
@@ -34,10 +35,11 @@ async def execute_orchestrator_plan(
 
     active_agent_ids = await _active_agent_ids(db)
     try:
-        return execution_registry.create_execution(
+        execution = execution_registry.create_execution(
             session_id=data.session_id,
             plan=data.normalized_plan,
             active_agent_ids=active_agent_ids,
+            auto_start=False,
         )
     except PlanExecutionError as exc:
         raise HTTPException(
@@ -48,6 +50,41 @@ async def execute_orchestrator_plan(
                 "warnings": exc.warnings,
             },
         ) from exc
+    run_service = RunService(db)
+    run = await run_service.create_run(
+        session,
+        mode="orchestrator",
+        metadata={
+            "executionId": execution["executionId"],
+            "planId": execution["planId"],
+            "source": "orchestrator_execution",
+        },
+    )
+    runtime_task_ids: dict[str, str] = {}
+    for task in execution.get("tasks") or []:
+        runtime_task = await run_service.create_task(
+            run,
+            agent_id=task.get("assignedAgentId"),
+            name=f"{task.get('taskId')} · {task.get('title')}",
+            role="executor",
+            phase=task.get("phase"),
+            depends_on=task.get("dependsOn") or [],
+            metadata={
+                "executionId": execution["executionId"],
+                "planId": execution["planId"],
+                "orchestratorTaskId": task.get("taskId"),
+                "requiresHumanApproval": bool(task.get("needsApproval")),
+                "approvalTitle": f"确认 {task.get('title') or task.get('taskId')}",
+            },
+        )
+        runtime_task_ids[str(task.get("taskId"))] = runtime_task.id
+    execution_registry.bind_runtime(
+        execution["executionId"],
+        run_id=run.id,
+        task_id_by_orchestrator_task_id=runtime_task_ids,
+    )
+    execution_registry.start_execution(execution["executionId"])
+    return execution_registry.get_execution(execution["executionId"]) or execution
 
 
 @router.get("/executions/{execution_id}")

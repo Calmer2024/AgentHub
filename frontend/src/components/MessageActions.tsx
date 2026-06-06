@@ -15,13 +15,13 @@ export function MessageActions({
   const canRegenerate = message.role === "assistant" && !message.isCollaborating;
 
   return (
-    <div className={`absolute -top-3 hidden items-center gap-1 rounded-full border border-white/10 bg-[#101821]/95 px-1 py-1 shadow-2xl backdrop-blur group-hover:flex ${
+    <div className={`agenthub-menu absolute -top-3 hidden items-center gap-1 rounded-full border px-1 py-1 group-hover:flex ${
       message.role === "user" ? "left-2" : "right-2"
     }`}>
       <button
         type="button"
         onClick={() => onReply(message)}
-        className="rounded-full p-1.5 text-zinc-300 transition hover:bg-white/10 hover:text-white active:translate-y-px"
+        className="rounded-full p-1.5 agenthub-muted transition hover:bg-[color:var(--ah-accent-soft)] hover:text-[color:var(--ah-text-strong)] active:translate-y-px"
         aria-label="引用回复"
         title="引用回复"
       >
@@ -31,7 +31,7 @@ export function MessageActions({
         <button
           type="button"
           onClick={() => onRegenerate(message)}
-          className="rounded-full p-1.5 text-zinc-300 transition hover:bg-white/10 hover:text-white active:translate-y-px"
+          className="rounded-full p-1.5 agenthub-muted transition hover:bg-[color:var(--ah-accent-soft)] hover:text-[color:var(--ah-text-strong)] active:translate-y-px"
           aria-label="重新生成"
           title="重新生成"
         >
@@ -41,7 +41,7 @@ export function MessageActions({
       <button
         type="button"
         onClick={() => onTogglePin(message)}
-        className="rounded-full p-1.5 text-zinc-300 transition hover:bg-white/10 hover:text-white active:translate-y-px"
+        className="rounded-full p-1.5 agenthub-muted transition hover:bg-[color:var(--ah-accent-soft)] hover:text-[color:var(--ah-text-strong)] active:translate-y-px"
         aria-label={message.isPinned ? "取消 Pin" : "Pin 消息"}
         title={message.isPinned ? "取消 Pin" : "Pin 消息"}
       >
@@ -50,7 +50,7 @@ export function MessageActions({
       <button
         type="button"
         onClick={() => onCopy(message.content)}
-        className="rounded-full p-1.5 text-zinc-300 transition hover:bg-white/10 hover:text-white active:translate-y-px"
+        className="rounded-full p-1.5 agenthub-muted transition hover:bg-[color:var(--ah-accent-soft)] hover:text-[color:var(--ah-text-strong)] active:translate-y-px"
         aria-label="复制"
         title="复制"
       >

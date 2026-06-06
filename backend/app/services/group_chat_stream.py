@@ -12,7 +12,9 @@ from ..models import Session as DBSession, AgentConfig, Message as DBMessage, Se
 from ..domain.orchestrator_v2 import OrchestratorV2, PipelineRequest
 from ..domain.execution_planner import AgentCall, ChainConfig
 from .agent_executor import AgentExecutor
+from .approval_service import ApprovalService, approval_to_read
 from .project_service import ProjectService, ProjectNotFoundError
+from .run_service import RunService, task_to_read, run_to_read
 from .shared_context import SharedContext
 from .group_chat_finalizer import GroupChatFinalizer
 from .orchestrator_plan_chat import OrchestratorPlanChat
@@ -24,17 +26,19 @@ class GroupChatStream:
     """群聊流式处理器：Pipeline → Executor → SSE → 持久化。"""
 
     def __init__(
-        self, db: AsyncSession, pipeline: OrchestratorV2, executor: AgentExecutor,
+        self, db: AsyncSession, pipeline: OrchestratorV2, executor: AgentExecutor, event_bus=None,
     ):
         self.db = db
+        self.event_bus = event_bus
         self._pipeline = pipeline
         self._executor = executor
-        self._finalizer = GroupChatFinalizer(db, pipeline)
+        self._finalizer = GroupChatFinalizer(db, pipeline, event_bus=event_bus)
         self._plan_chat = OrchestratorPlanChat(db)
 
     async def send(
         self, session_id: str, content: str, mentions: list[str] | None,
         history: list[dict], pinned_message_ids: list[str], session: DBSession, chain_config=None,
+        run_id: str | None = None, approval_required: bool = False,
     ) -> AsyncGenerator[str, None]:
         member_agents = await self._member_agents(session_id)
         if not member_agents:
@@ -55,6 +59,7 @@ class GroupChatStream:
                 workspace_path=workspace_path,
                 orchestrator_agent=orchestrator_agent,
                 member_agents=member_agents,
+                run_id=run_id,
             ):
                 yield item
             return
@@ -81,6 +86,28 @@ class GroupChatStream:
         if not result.agent_calls:
             yield self._err("没有合适的 Agent 处理此请求，请尝试 @ 指定 Agent")
             return
+
+        run_service = RunService(self.db, event_bus=self.event_bus) if run_id else None
+        approval_service = ApprovalService(self.db, event_bus=self.event_bus) if run_id else None
+        run_tasks: dict[str, str] = {}
+        if run_service and run_id:
+            run = await run_service.get_run(run_id)
+            for index, call in enumerate(result.agent_calls):
+                requires_approval = approval_required and index == len(result.agent_calls) - 1
+                task = await run_service.create_task(
+                    run,
+                    agent_id=call.agent.id,
+                    name=call.task,
+                    role=call.role,
+                    phase=call.phase,
+                    depends_on=list(call.depends_on),
+                    metadata={
+                        "requiresHumanApproval": requires_approval,
+                        "approvalTitle": f"确认 {call.task}",
+                    },
+                )
+                run_tasks[self._call_key(call.agent.id, call.task, call.phase)] = task.id
+                yield self._task_status_changed(run_id, task)
 
         yield self._sse({"type": "orchestrator.route", "agents": self._route_info(result.agent_calls)})
         yield self._sse(self._task_started_payload(result))
@@ -111,9 +138,22 @@ class GroupChatStream:
             session_id=session_id,
             workspace_path=workspace_path,
         ):
+            sse_items = []
             async for item in self._event_to_sse(
                 ev, agent_names, msg_ids, agent_errors, seen_calls, agent_traces,
             ):
+                sse_items.append(item)
+            if run_service and run_id:
+                async for runtime_event in self._runtime_events_for_executor_event(
+                    run_service,
+                    run_id,
+                    run_tasks,
+                    ev,
+                    msg_ids,
+                    session_id,
+                ):
+                    yield runtime_event
+            for item in sse_items:
                 yield item
             if ev.event_type == "token" and ev.token and not ev.done:
                 agent_texts[self._event_key(ev)] = agent_texts.get(self._event_key(ev), "") + ev.token
@@ -123,6 +163,34 @@ class GroupChatStream:
             msg_ids, agent_texts, agent_errors, agent_traces,
         ):
             yield item
+
+        if run_service and run_id:
+            pending_checkpoints = []
+            if approval_service:
+                for call_key, task_id in run_tasks.items():
+                    checkpoint = await approval_service.create_for_completed_task_if_needed(
+                        task_id=task_id,
+                        message_id=msg_ids.get(call_key),
+                        summary=(agent_texts.get(call_key) or "")[:240],
+                    )
+                    if checkpoint:
+                        pending_checkpoints.append(checkpoint)
+                        yield self._approval_created(checkpoint)
+                        task = await run_service.mark_task_status(
+                            task_id,
+                            "paused",
+                            message_id=msg_ids.get(call_key),
+                            metadata_patch={"approvalCheckpointId": checkpoint.id},
+                        )
+                        yield self._task_status_changed(run_id, task)
+            run = await run_service.complete_run_from_tasks(run_id)
+            if pending_checkpoints:
+                run = await run_service.mark_run_status(
+                    run_id,
+                    "paused",
+                    current_message_id=pending_checkpoints[-1].message_id,
+                )
+            yield self._run_status_changed(run)
 
     async def _member_agents(self, session_id: str) -> list[AgentConfig]:
         rows = await self.db.execute(
@@ -292,6 +360,99 @@ class GroupChatStream:
             "callKey": call_key,
             "processId": ev.metadata.get("processId"),
             "item": trace,
+            "token": "",
+            "done": False,
+        })
+
+    async def _runtime_events_for_executor_event(
+        self,
+        run_service: RunService,
+        run_id: str,
+        run_tasks: dict[str, str],
+        ev,
+        msg_ids: dict[str, str],
+        session_id: str,
+    ):
+        call_key = self._event_key(ev)
+        task_id = run_tasks.get(call_key)
+        if not task_id:
+            return
+        message_id = msg_ids.get(call_key)
+        if ev.event_type == "agent.process.started":
+            task = await run_service.mark_task_status(
+                task_id,
+                "running",
+                message_id=message_id,
+            )
+            yield self._task_status_changed(run_id, task)
+            process_id = ev.metadata.get("processId")
+            if process_id:
+                await run_service.bind_process(
+                    run_id=run_id,
+                    task_id=task_id,
+                    session_id=session_id,
+                    agent_id=ev.agent_id,
+                    message_id=message_id,
+                    process_id=process_id,
+                )
+            run = await run_service.mark_run_status(
+                run_id,
+                "running",
+                current_message_id=message_id,
+            )
+            yield self._run_status_changed(run)
+        elif ev.event_type == "agent.process.completed":
+            process_id = ev.metadata.get("processId")
+            exit_code = ev.metadata.get("exitCode")
+            if process_id:
+                await run_service.complete_process(
+                    str(process_id),
+                    exit_code=exit_code if isinstance(exit_code, int) else None,
+                )
+        elif ev.done:
+            status = "failed" if ev.error else "completed"
+            task = await run_service.mark_task_status(
+                task_id,
+                status,
+                message_id=message_id,
+                metadata_patch={"error": ev.error} if ev.error else None,
+            )
+            yield self._task_status_changed(run_id, task)
+
+    def _run_status_changed(self, run) -> str:
+        return self._sse({
+            "type": "run.status_changed",
+            "runId": run.id,
+            "sessionId": run.session_id,
+            "status": run.status,
+            "updatedAt": run.updated_at.isoformat() if run.updated_at else "",
+            "run": run_to_read(run).model_dump(by_alias=True, mode="json"),
+            "token": "",
+            "done": False,
+        })
+
+    def _task_status_changed(self, run_id: str, task) -> str:
+        return self._sse({
+            "type": "task.status_changed",
+            "runId": run_id,
+            "taskId": task.id,
+            "sessionId": task.session_id,
+            "status": task.status,
+            "task": task_to_read(task).model_dump(by_alias=True, mode="json"),
+            "token": "",
+            "done": False,
+        })
+
+    def _approval_created(self, checkpoint) -> str:
+        return self._sse({
+            "type": "approval.created",
+            "checkpointId": checkpoint.id,
+            "runId": checkpoint.run_id,
+            "taskId": checkpoint.task_id,
+            "sessionId": checkpoint.session_id,
+            "messageId": checkpoint.message_id,
+            "artifactId": checkpoint.artifact_id,
+            "approval": approval_to_read(checkpoint).model_dump(by_alias=True, mode="json"),
             "token": "",
             "done": False,
         })

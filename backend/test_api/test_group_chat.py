@@ -322,9 +322,7 @@ class TestGroupSession:
         assert task_started["dag"]["phases"][1]["mode"] == "parallel"
         assert any(e["phase"] == 1 and e["status"] == "running" for e in phase_events)
         assert any(e["phase"] == 2 and e["status"] == "completed" for e in phase_events)
-        assert "orchestrator.summary_started" in summary_events
-        assert "orchestrator.summary_delta" in summary_events
-        assert "orchestrator.summary_completed" in summary_events
+        assert summary_events == []
         assert token_with_role
 
     async def test_mention_orchestrator_returns_draft_plan_only(
@@ -608,7 +606,8 @@ class TestGroupSession:
         approval = messages[-1]
         approval = next(message for message in messages if message["metadata"] and "orchestratorAction" in message["metadata"])
         assert approval["metadata"]["orchestratorAction"]["action"] == "approve_plan"
-        assert approval["metadata"]["orchestratorExecution"]["status"] == "running"
+        assert approval["metadata"]["orchestratorExecution"]["status"] == "completed"
+        assert approval["metadata"]["orchestratorExecution"]["tasks"][0]["visibleMessageId"]
 
         rows = await db_session.execute(
             select(Message).where(

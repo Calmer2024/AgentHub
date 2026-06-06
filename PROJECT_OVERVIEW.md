@@ -75,7 +75,7 @@ AgentHub/
 
 ## 已经做完了什么？
 
-项目按 Phase 1-7 推进，目前 Phase 1-5 已完成，Phase 6A（Workspace Runtime）已通过人工验收；Phase 6B-6F（CLI Adapter + Artifact Bridge）和 Phase 7 继续推进。
+项目按 Phase 1-7 推进，目前 Phase 1-6 核心闭环已完成并通过验收；Phase 7A-7C 的运行任务可控性、审批卡片和环境体检也已通过本轮验收，Phase 7D 继续推进 MVP 演示和 UX 加固。
 
 ### Phase 1：单聊全链路 ✅
 
@@ -132,26 +132,25 @@ Phase 3 聚焦多 Agent 协作基础设施与 Orchestrator 深化。
 
 真实 HTTP 验收已通过：临时启动后端，创建真实会话/消息/产物，完成编辑预览、确认创建 v2、版本链追溯、Diff 校验和会话产物链头刷新。
 
-需要注意：Phase 5 完成的是“已有 Artifact 的工作台能力”，不是完整产物链路。Phase 6A 已补齐 Project-first workspace runtime：Project 绑定本机目录，Session 继承 `Project.workspace_path`，支持文件树、Diff、静态预览和路径安全校验。Agent 真实 CLI 执行、文件变更自动生成 Artifact Card、右侧 Drawer 预览、审批卡片绑定产物，会在 Phase 6B-6F/7 继续补齐。
+需要注意：Phase 5 完成的是“已有 Artifact 的工作台能力”，不是完整产物链路。Phase 6 已补齐 Project-first workspace runtime、真实 CLI Agent 执行和 Artifact Bridge：Project 绑定本机目录，Session 继承 `Project.workspace_path`，Agent 文件变更会自动生成消息下方 Artifact Card，并可继续进入文件编辑器、代码引用和版本管理。当前 P1 产品路线不再做右侧 Drawer，消息级 Artifact 体验以 ADR-0010 为准；审批卡片绑定产物、运行可控性和环境体检留给 Phase 7。
 
 ---
 
-## 接下来要做什么？（Phase 6B-7）
+## 接下来要做什么？（Phase 7D）
 
-### Phase 6：Workspace Runtime + CLI Agent 适配器 + 产物入口桥接
+### Phase 6：Workspace Runtime + CLI Agent 适配器 + 产物入口桥接 ✅
 
-- ✅ 6A 已完成：Project 实体、创建项目菜单（新建空白文件夹 / 选择现有文件夹）、系统目录选择器授权、workspace 文件树/Diff/静态预览、Session→workspace 查询
-- 下一步让项目型会话有真实执行目录：CLI Agent 启动时必须以当前 session 继承的 `Project.workspace_path` 作为 `cwd`
-- 通过 PTY/subprocess 管理 Claude Code、opencode 等真实 CLI 工具
-- stdout 流式推送、ANSI 清洗、交互式确认拦截
-- 把 CLI Agent 输出中的 HTML、代码块、patch、workspace 文件变更摘要转换为标准 `artifact.detected` 事件
-- 由 ArtifactService 创建 Artifact，并让聊天流出现可预览的 Artifact Card
+- Project 实体、创建项目菜单、系统目录选择器授权、workspace 文件树/Diff/静态预览、Session→workspace 查询已完成。
+- Claude Code、Codex、OpenCode 真实 CLI Agent 以 `Project.workspace_path` 为 cwd 执行，并通过 SSE 展示文本和执行轨迹。
+- CLI 输出、消息代码块和 workspace diff 已由 ArtifactOutputBridge 转为真实 Artifact，并在对应消息下方以 ArtifactCard 展示。
+- 文件编辑器、代码片段引用、Artifact 版本管理和会话文件入口已通过本轮验收。
 
-### Phase 7：UX 体验闭环 + MVP 演示闭环
+### Phase 7：任务可控性 + 审批 + 环境体检 + 演示闭环 🚧
 
-- Zustand Store 拆分（chat / session / search）
-- 三栏动态布局、产物抽屉、审批卡片、环境体检、全局 UX 润色
-- 跑通 workspace 绑定 → 输入任务 → Agent 输出 Artifact → 打开 Drawer → 编辑确认新版本 → 审批继续 → 中枢总结的演示脚本
+- ✅ 运行任务可控性：run/task/process 状态持久化、取消真实 CLI 进程、停止后明确提示并解锁输入框。
+- ✅ Human-in-the-loop 审批卡片：确认继续、驳回并携带 Artifact/代码引用回到 ChatInput。
+- ✅ 统一环境体检：CLI、Node/Python、workspace、DeepSeek 系统模型、活跃进程状态，发送前可阻断不可执行环境。
+- 🚧 Phase 7D：跑通 workspace 绑定 → 输入任务 → Agent 输出消息级 Artifact → 编辑/引用/版本管理 → 审批继续 → 中枢总结的真实 cc 演示脚本，并补截图审计。
 
 ---
 
@@ -192,6 +191,10 @@ API 路由层 (FastAPI)
 | `session_members` | 群聊成员关联表 |
 | `agent_configs` | CLI Agent 配置（名称、备注、executable、init_args、非敏感 env vars） |
 | `artifacts` | 产物（代码、网页预览等，支持版本链） |
+| `runs` | Phase 7 运行记录（单聊/群聊一次执行的状态） |
+| `run_tasks` | Phase 7 run 下的 Agent/task 状态 |
+| `run_processes` | Phase 7 CLI 进程与 run/task 的绑定 |
+| `approval_checkpoints` | Phase 7 人工审批断点 |
 | `messages_fts` | FTS5 全文搜索虚拟表 |
 
 ---
@@ -297,7 +300,8 @@ python e2e/full_ui_audit.py
 | **端到端 PRD** | `docs/PRD/05-End_to_End_Product_Flow.md` | 启动文档需求追踪与 MVP 产品闭环 |
 | **Phase 4 Spec** | `docs/specs/phase4/README.md` | 消息交互闭环的权威规格与验收记录 |
 | **Phase 5 Spec** | `docs/specs/phase5/README.md` | 产物工作台能力完成记录与未打通边界 |
-| **Phase 6 Spec** | `docs/specs/phase6/README.md` | Workspace Runtime 已验收记录，以及 CLI/Artifact Bridge 后续规格 |
+| **Phase 6 Spec** | `docs/specs/phase6/README.md` | Workspace Runtime、CLI Adapter、Artifact Bridge 核心闭环验收记录 |
+| **Phase 7 交付快照** | `docs/deliverables/phase7-runtime-control/README.md` | 运行控制、审批卡片、环境体检实现与验收记录 |
 | **Docs Index** | `docs/README.md` | 查看所有文档入口 |
 
 ### 按需查阅

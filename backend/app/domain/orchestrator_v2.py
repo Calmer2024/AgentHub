@@ -148,9 +148,13 @@ class OrchestratorV2:
 
     def _select_agents(self, req: PipelineRequest, required_tags: list[str]) -> list[AgentConfig]:
         """Stage: @mention 精确匹配 → 标签匹配 → fallback。"""
+        candidates = req.member_agents if req.mentions else [
+            agent for agent in req.member_agents
+            if (agent.primary_skill or "") != "orchestrator_planner"
+        ]
         scored = self.agent_selector.select(
             required_tags=required_tags,
-            candidates=req.member_agents,
+            candidates=candidates,
             mentions=req.mentions,
         )
         if req.supplemental and not req.mentions:

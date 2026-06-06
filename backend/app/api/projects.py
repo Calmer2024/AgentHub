@@ -38,6 +38,11 @@ class FileRead(BaseModel):
     size: int
 
 
+class FileWriteRequest(BaseModel):
+    path: str
+    content: str
+
+
 class SnapshotRequest(BaseModel):
     label: str
 
@@ -184,6 +189,20 @@ async def read_file(project_id: str, path: str, db: AsyncSession = Depends(get_d
         raise HTTPException(status_code=400, detail="文件过大，无法在编辑器中打开")
     except WorkspaceNotFoundError:
         raise HTTPException(status_code=404, detail="file not found")
+
+
+@router.put("/{project_id}/files", response_model=FileRead)
+async def write_file(project_id: str, data: FileWriteRequest, db: AsyncSession = Depends(get_db)):
+    try:
+        return await _svc(db).write_file(project_id, data.path, data.content)
+    except ProjectNotFoundError:
+        raise HTTPException(status_code=404, detail="project not found")
+    except WorkspaceSecurityError:
+        raise HTTPException(status_code=403, detail="无权访问此路径")
+    except ProjectValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except WorkspaceNotFoundError:
+        raise HTTPException(status_code=404, detail="workspace not found")
 
 
 @router.post("/{project_id}/snapshot", response_model=SnapshotRead, status_code=201)

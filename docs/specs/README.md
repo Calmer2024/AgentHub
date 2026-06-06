@@ -1,6 +1,6 @@
 # AgentHub Specs — 功能规格文档索引
 
-**最后更新**: 2026-06-03
+**最后更新**: 2026-06-06
 **关联**: [ADR-0008](../adr/0008-revised-development-strategy.md) (开发策略)
 
 ---
@@ -16,8 +16,8 @@ specs/
 ├── phase3/                      ← Phase 3: Orchestrator + Infrastructure ✅
 ├── phase4/                      ← Phase 4: 消息交互闭环 ✅
 ├── phase5/                      ← Phase 5: 产物工作台能力 ✅
-├── phase6/                      ← Phase 6: Workspace Runtime + CLI Engine + Agent Profile + 产物入口桥接 📋
-├── phase7/                      ← Phase 7: UX 体验闭环 + MVP 演示闭环 📋
+├── phase6/                      ← Phase 6: Workspace Runtime + CLI Engine + Agent Profile + 产物入口桥接 ✅
+├── phase7/                      ← Phase 7: 任务可控性 + 审批 + 环境体检 + 演示闭环 📋
 └── planning/                    ← 历史规划文档（参考）
 ```
 
@@ -34,8 +34,8 @@ specs/
 | [Phase 3](phase3/) | Orchestrator + Infrastructure | ✅ | EventBus、Orchestrator v2 (Pipeline + DAG)、CollaborationPanel |
 | [Phase 4](phase4/) | 消息交互闭环 | ✅ | Reply/Regenerate/Pin、全文搜索 FTS5 |
 | [Phase 5](phase5/) | 产物工作台能力 | ✅ | 对已有 Artifact 提供版本链 + Diff、在线编辑；不宣称上游产物生成入口已完整打通 |
-| [Phase 6](phase6/) | Workspace Runtime + CLI Engine + Agent Profile + 产物入口桥接 | 📋 | 本机 workspace 创建/绑定、CLI Engine 进程管理、Agent = Engine + Skills 建模、ANSI 清洗、交互拦截，并把 Agent 输出和文件变更转为标准 Artifact 事件 |
-| [Phase 7](phase7/) | UX 体验闭环 + MVP 演示闭环 | 📋 | 三栏布局、产物抽屉、审批卡片、环境体检，跑通 workspace→输入→Agent→Artifact→预览→编辑→审批 |
+| [Phase 6](phase6/) | Workspace Runtime + CLI Engine + Agent Profile + 产物入口桥接 | ✅ | 本机 workspace 创建/绑定、真实 CLI Agent、Agent = Engine + Skills 建模、执行轨迹、消息级 Artifact Card、文件编辑器、代码引用、版本管理 |
+| [Phase 7](phase7/) | 任务可控性 + 审批 + 环境体检 + 演示闭环 | 📋 | run/task 取消与恢复、审批卡片、环境体检、真实 cc 演示与 UX 加固 |
 
 ---
 
@@ -50,9 +50,8 @@ specs/
   -> Agent 以 workspace_path 作为 cwd 读写文件
   -> 文件变更 / Agent 输出检测
   -> Artifact 创建
-  -> 聊天流 Artifact Card
-  -> Artifact Drawer 预览
-  -> 局部编辑/版本化
+  -> 聊天流消息级 Artifact Card
+  -> 页面级预览/编辑/版本化
   -> 审批继续调度
   -> 最终中枢总结
 ```

@@ -381,7 +381,7 @@ export function AgentCliForm({
                   <div className="flex items-start gap-2 rounded-lg border border-[#3a6ff7]/20 bg-[#3a6ff7]/10 px-3 py-2 text-xs leading-5 text-[#b9caff]">
                     <ServerCog size={15} className="mt-0.5 shrink-0" />
                     <span>
-                      保存后 AgentHub 会把凭据写入本机 Codex .env，并把 Codex provider 指向稳定的 env_key；不会存进 Agent 配置。
+                      保存后 AgentHub 会把凭据写入本机 Codex .env，并让 Codex 通过本机凭据读取器按需读取；不会存进 Agent 配置。
                     </span>
                   </div>
                 </ConfigSection>

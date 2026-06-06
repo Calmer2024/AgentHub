@@ -440,6 +440,36 @@ def test_codex_auto_detects_proxy_provider_from_codex_home(tmp_path, monkeypatch
     assert env == {"AGENTHUB_CODEX_PROVIDER_TOKEN": "proxy-key"}
 
 
+def test_codex_auto_detects_command_backed_proxy_auth(tmp_path, monkeypatch):
+    codex_home = tmp_path / ".codex"
+    codex_home.mkdir()
+    helper = codex_home / "agenthub" / "codex-auth-helper.ps1"
+    helper.parent.mkdir()
+    helper.write_text("param([string]$Name)\n", encoding="utf-8")
+    (codex_home / "config.toml").write_text(
+        'model = "gpt-5.5"\n'
+        'model_provider = "proxy"\n'
+        '[model_providers.proxy]\n'
+        'name = "Local Proxy"\n'
+        'base_url = "https://proxy.example.com"\n'
+        'wire_api = "responses"\n'
+        '[model_providers.proxy.auth]\n'
+        'command = "powershell.exe"\n'
+        f'args = ["-File", "{str(helper).replace("\\", "\\\\")}", "CODEX_API_KEY"]\n',
+        encoding="utf-8",
+    )
+    (codex_home / ".env").write_text("CODEX_API_KEY=proxy-key\n", encoding="utf-8")
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+
+    args, env = CodexAdapter()._apply_connection_settings(["exec", "--json", "-"], {})
+
+    joined = "\n".join(args)
+    assert "--ignore-user-config" in args
+    assert 'model_providers.agenthub_proxy.base_url="https://proxy.example.com/v1"' in joined
+    assert 'model_providers.agenthub_proxy.env_key="AGENTHUB_CODEX_PROVIDER_TOKEN"' in joined
+    assert env == {"AGENTHUB_CODEX_PROVIDER_TOKEN": "proxy-key"}
+
+
 def test_codex_auto_detects_official_openai_base_url(tmp_path, monkeypatch):
     codex_home = tmp_path / ".codex"
     codex_home.mkdir()

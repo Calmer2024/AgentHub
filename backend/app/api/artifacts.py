@@ -10,6 +10,7 @@ from ..services.artifact_service import (
     ArtifactNotFoundError,
     ArtifactService,
     ArtifactVersionNotFoundError,
+    ArtifactWorkspaceWriteError,
     DiffResult,
 )
 
@@ -113,6 +114,21 @@ class ArtifactEditRead(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class ArtifactSaveRequest(BaseModel):
+    content: str
+    title: str | None = None
+    write_workspace: bool = Field(default=True, alias="writeWorkspace")
+
+    model_config = {"populate_by_name": True}
+
+
+class ArtifactRestoreRequest(BaseModel):
+    version: int
+    write_workspace: bool = Field(default=True, alias="writeWorkspace")
+
+    model_config = {"populate_by_name": True}
+
+
 @router.get("/sessions/{session_id}/artifacts", response_model=List[ArtifactRead])
 async def list_artifacts(session_id: str, db: AsyncSession = Depends(get_db)):
     artifacts = await _artifact_svc(db).list_current_artifacts(session_id)
@@ -180,3 +196,44 @@ async def edit_artifact(
         proposed_content=result.proposed_content,
         strategy=result.strategy,
     )
+
+
+@router.post("/artifacts/{artifact_id}/save", response_model=ArtifactRead)
+async def save_artifact_content(
+    artifact_id: str,
+    data: ArtifactSaveRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        artifact = await _artifact_svc(db).save_content(
+            artifact_id,
+            data.content,
+            title=data.title,
+            write_workspace=data.write_workspace,
+        )
+    except ArtifactNotFoundError:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    except ArtifactWorkspaceWriteError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return ArtifactRead.from_orm_with_iso(artifact)
+
+
+@router.post("/artifacts/{artifact_id}/restore", response_model=ArtifactRead)
+async def restore_artifact_version(
+    artifact_id: str,
+    data: ArtifactRestoreRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        artifact = await _artifact_svc(db).restore_version(
+            artifact_id,
+            data.version,
+            write_workspace=data.write_workspace,
+        )
+    except ArtifactNotFoundError:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    except ArtifactVersionNotFoundError:
+        raise HTTPException(status_code=404, detail="Artifact version not found")
+    except ArtifactWorkspaceWriteError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return ArtifactRead.from_orm_with_iso(artifact)

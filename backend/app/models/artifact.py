@@ -1,12 +1,12 @@
-from datetime import datetime, timezone
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
 
 from ..database import Base
+from ..core.timezone import china_now
 
 
 def _utcnow():
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    return china_now()
 
 
 class Artifact(Base):

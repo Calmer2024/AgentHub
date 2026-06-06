@@ -1,19 +1,30 @@
+import { memo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
-import { Info, Loader2, Pin } from "lucide-react";
-import type { AgentConfig, Message, ReplyReference } from "../types";
+import { Info, Pin } from "lucide-react";
+import type {
+  AgentConfig, ApprovalCheckpoint, Artifact, Message, ReplyReference, RunRead, TaskRead,
+} from "../types";
 import { MessageActions } from "./MessageActions";
 import { ReplyPreview } from "./ReplyPreview";
 import { ExecutionTracePanel } from "./ExecutionTracePanel";
 import { AgentAvatar } from "./AgentAvatar";
 import { OrchestratorPlanPanel } from "./OrchestratorPlanPanel";
 import { OrchestratorExecutionPanel } from "./OrchestratorExecutionPanel";
+import { MessageArtifactStrip } from "./MessageArtifactStrip";
+import { RuntimeControlStrip } from "./RuntimeControlStrip";
+import { ApprovalCard } from "./ApprovalCard";
 
 interface Props {
   message: Message;
-  isStreaming: boolean;
+  isStreaming?: boolean;
+  artifacts?: Artifact[];
+  relatedArtifacts?: Artifact[];
+  run?: RunRead | null;
+  tasks?: TaskRead[];
+  approvals?: ApprovalCheckpoint[];
+  relatedApprovals?: ApprovalCheckpoint[];
+  artifactById?: Map<string, Artifact>;
   agent?: AgentConfig | null;
   parentMessage?: Message | null;
   highlighted?: boolean;
@@ -22,6 +33,13 @@ interface Props {
   onTogglePin: (message: Message) => void;
   onCopy: (content: string) => void;
   onJumpToMessage: (messageId: string) => void;
+  onArtifactsChanged?: () => void;
+  onCancelRun?: (runId: string) => void;
+  cancellingRunId?: string | null;
+  onApprove?: (approval: ApprovalCheckpoint) => void;
+  onReject?: (approval: ApprovalCheckpoint) => void;
+  onOpenApprovalArtifact?: (artifact: Artifact) => void;
+  busyApprovalId?: string | null;
 }
 
 const ROLE_LABELS: Record<string, string> = {
@@ -60,16 +78,6 @@ function replyReference(message: Message): ReplyReference | null {
   };
 }
 
-function TypingIndicator() {
-  return (
-    <span className="inline-flex items-center gap-1 px-1 py-1">
-      <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-      <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-      <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
-    </span>
-  );
-}
-
 function EmptyAssistantReply() {
   return (
     <p className="inline-flex items-center gap-2 text-sm text-zinc-400">
@@ -79,33 +87,19 @@ function EmptyAssistantReply() {
   );
 }
 
-function StreamingStatus() {
-  return (
-    <div className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-sky-300/15 bg-sky-300/10 px-2 py-1 text-[11px] text-sky-100">
-      <Loader2 size={12} className="animate-spin" aria-hidden="true" />
-      <span>正在生成</span>
-    </div>
-  );
-}
-
-export function MessageBubble({
-  message, isStreaming, agent, parentMessage, highlighted = false,
-  onReply, onRegenerate, onTogglePin, onCopy, onJumpToMessage,
+function MessageBubbleBase({
+  message, artifacts = [], relatedArtifacts, run = null, tasks = [],
+  approvals = [], relatedApprovals, artifactById,
+  agent, parentMessage, highlighted = false,
+  onReply, onRegenerate, onTogglePin, onCopy, onJumpToMessage, onArtifactsChanged,
+  onCancelRun, cancellingRunId, onApprove, onReject, onOpenApprovalArtifact, busyApprovalId,
 }: Props) {
   const isUser = message.role === "user";
   const isEmpty = message.content === "";
-  const traceStatus = message.metadata?.executionTrace?.status;
   const orchestratorPlan = message.metadata?.orchestratorPlan;
   const orchestratorPlanError = message.metadata?.orchestratorPlanError;
   const orchestratorExecution = message.metadata?.orchestratorExecution;
-  const isLocalPending = message.id.startsWith("local-");
-  const showTyping = !isUser && isEmpty && (
-    traceStatus === "running" || (!traceStatus && isStreaming && isLocalPending)
-  );
   const showEmptyAssistant = !isUser && isEmpty;
-  const showStreamingStatus = !isUser && !isEmpty && (
-    traceStatus === "running" || (!traceStatus && isStreaming && isLocalPending)
-  );
   const isSummary = message.sourceType === "orchestrator" || message.contentType === "orchestrator_summary";
   const isCollaborating = Boolean(message.isCollaborating || message.agentRole);
   const roleStyle = message.agentRole
@@ -113,15 +107,13 @@ export function MessageBubble({
     : ROLE_STYLES.executor;
 
   const bgClass = isUser
-    ? "bg-[#2f7cf6] text-white shadow-[0_12px_28px_rgba(47,124,246,0.28)]"
-    : "border border-white/10 bg-[#1d2733]/95 text-[#ececf1] shadow-[0_14px_34px_rgba(0,0,0,0.18)]";
+    ? "agenthub-bubble-user"
+    : "agenthub-bubble-agent border";
   const roundClass = isUser ? "rounded-[20px] rounded-br-md" : "rounded-[20px] rounded-bl-md";
-  const summaryClass = "border border-indigo-300/25 bg-indigo-950/25 text-[#ececf1] shadow-sm";
+  const summaryClass = "agenthub-card border";
   const bubbleClass = isSummary
     ? summaryClass
-    : isCollaborating && !isUser
-      ? `border-l-4 border-white/10 bg-[#1d2733]/95 text-[#ececf1] shadow-[0_14px_34px_rgba(0,0,0,0.18)] ${roleStyle.split(" ")[0]}`
-      : bgClass;
+    : isCollaborating && !isUser ? `border-l-4 ${roleStyle}` : bgClass;
 
   const hasPreviousVersion = Array.isArray(message.metadata?.versions)
     && message.metadata.versions.length > 0;
@@ -138,6 +130,8 @@ export function MessageBubble({
   const avatarName = isUser
     ? "用户"
     : message.agentName ?? message.sourceName ?? "AI";
+  const messageApprovals = relatedApprovals ?? approvals.filter((approval) => approval.messageId === message.id);
+  const artifactsById = artifactById ?? new Map(artifacts.map((artifact) => [artifact.id, artifact]));
 
   return (
     <div className={`group relative mb-4 flex scroll-mt-6 items-end gap-2.5 transition ${
@@ -159,13 +153,13 @@ export function MessageBubble({
           onCopy={onCopy}
         />
         {!isUser && isSummary && (
-          <div className="sticky top-0 z-10 px-3 py-2 text-xs font-semibold rounded-t-[20px] bg-indigo-100/95 text-indigo-900 border-b border-indigo-200 shadow-sm">
+          <div className="sticky top-0 z-10 px-3 py-2 text-xs font-semibold rounded-t-[20px] border-b agenthub-soft">
             <span>系统整理</span>
-            <span className="ml-2 text-indigo-600">{message.sourceName ?? "Orchestrator 中枢"}</span>
+            <span className="agenthub-muted ml-2">{message.sourceName ?? "Orchestrator 中枢"}</span>
           </div>
         )}
         {!isUser && !isSummary && message.agentName && (
-          <div className={`px-3 py-1.5 text-xs font-medium rounded-t-[20px] ${isCollaborating ? "bg-white/70 text-slate-700" : "border-b border-white/10 bg-white/[0.04] text-zinc-300"}`}>
+          <div className={`px-3 py-1.5 text-xs font-medium rounded-t-[20px] ${isCollaborating ? "agenthub-soft" : "border-b agenthub-soft"}`}>
             <span>@{message.agentName}</span>
             {message.agentRole && (
               <span className={`ml-2 px-1.5 py-0.5 rounded border ${roleStyle}`}>
@@ -173,7 +167,7 @@ export function MessageBubble({
               </span>
             )}
             {typeof message.phase === "number" && (
-              <span className="ml-2 text-slate-400">Phase {message.phase}</span>
+              <span className="agenthub-muted ml-2">Phase {message.phase}</span>
             )}
             {message.taskName && (
               <span className="ml-2 inline-block max-w-full truncate align-bottom text-slate-400">
@@ -184,7 +178,7 @@ export function MessageBubble({
         )}
         <div className="px-4 py-3">
         {message.isPinned && (
-          <div className={`mb-2 text-xs font-medium ${isUser ? "text-blue-100" : "text-sky-300"}`}>
+          <div className={`mb-2 text-xs font-medium ${isUser ? "text-white/85" : "agenthub-accent"}`}>
             <Pin size={13} aria-label="已 Pin" />
           </div>
         )}
@@ -210,8 +204,6 @@ export function MessageBubble({
               </details>
             )}
           </div>
-        ) : showTyping ? (
-          <TypingIndicator />
         ) : isUser ? (
           <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
         ) : showEmptyAssistant ? (
@@ -229,28 +221,11 @@ export function MessageBubble({
                     return <code className="bg-black/10 rounded px-1 py-0.5 text-xs" {...props}>{children}</code>;
                   }
                   return (
-                    <SyntaxHighlighter
-                      style={oneDark}
-                      language={match ? match[1] : "text"}
-                      PreTag="div"
-                      wrapLongLines
-                      codeTagProps={{
-                        style: {
-                          whiteSpace: "pre-wrap",
-                          wordBreak: "break-word",
-                        },
-                      }}
-                      customStyle={{
-                        borderRadius: "0.75rem",
-                        fontSize: "0.8rem",
-                        maxWidth: "100%",
-                        overflowX: "auto",
-                        whiteSpace: "pre-wrap",
-                        wordBreak: "break-word",
-                      }}
-                    >
-                      {codeStr}
-                    </SyntaxHighlighter>
+                    <pre className="max-w-full overflow-x-auto rounded-xl bg-[#0d1117] p-3 text-xs leading-5 text-[#d6deeb]">
+                      <code className={match ? `language-${match[1]}` : undefined} {...props}>
+                        {codeStr}
+                      </code>
+                    </pre>
                   );
                 },
               }}
@@ -268,12 +243,40 @@ export function MessageBubble({
             <p className="mt-2 whitespace-pre-wrap">{previousVersion}</p>
           </details>
         )}
-        {showStreamingStatus && <StreamingStatus />}
+        {!isUser && (
+          <RuntimeControlStrip
+            run={run}
+            tasks={tasks}
+            onCancel={(runId) => onCancelRun?.(runId)}
+            cancelling={cancellingRunId === run?.id}
+          />
+        )}
         {!isUser && (
           <ExecutionTracePanel trace={message.metadata?.executionTrace} />
         )}
+        {!isUser && (
+          <MessageArtifactStrip
+            message={message}
+            artifacts={artifacts}
+            relatedArtifacts={relatedArtifacts}
+            onChanged={onArtifactsChanged}
+          />
+        )}
+        {!isUser && messageApprovals.map((approval) => (
+          <ApprovalCard
+            key={approval.id}
+            approval={approval}
+            artifact={approval.artifactId ? artifactsById.get(approval.artifactId) ?? null : null}
+            busy={busyApprovalId === approval.id}
+            onApprove={(item) => onApprove?.(item)}
+            onReject={(item) => onReject?.(item)}
+            onOpenArtifact={(artifact) => onOpenApprovalArtifact?.(artifact)}
+          />
+        ))}
         </div>
       </div>
     </div>
   );
 }
+
+export const MessageBubble = memo(MessageBubbleBase);

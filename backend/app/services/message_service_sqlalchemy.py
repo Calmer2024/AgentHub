@@ -4,12 +4,12 @@ import asyncio
 import json
 import uuid
 from collections.abc import AsyncIterator
-from datetime import datetime, timezone
 
 from sqlalchemy import Select, select, text
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.timezone import china_now, china_now_iso
 from ..domain.context_manager import ContextManager, PromptAssemblyInput
 from ..models import AgentConfig, Message as DBMessage, Session as DBSession
 from .cli_agent_service import CliAgentService
@@ -187,13 +187,13 @@ class SqlAlchemyMessageService(MessageService):
         versions = list(metadata.get("versions", []))
         versions.append({
             "content": original,
-            "createdAt": datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
+            "createdAt": china_now_iso(),
             "reason": "regenerate",
         })
         metadata["versions"] = versions[-5:]
         message.content = full
         message.metadata_json = json.dumps(metadata, ensure_ascii=False)
-        session.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        session.updated_at = china_now()
         await self.db.commit()
 
         yield self._sse({
