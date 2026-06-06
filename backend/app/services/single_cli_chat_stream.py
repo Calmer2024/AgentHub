@@ -636,6 +636,7 @@ class SingleCliChatStream:
             metadata_json=json.dumps(metadata, ensure_ascii=False),
         ))
         session.updated_at = china_now()
+        SessionService.increment_unread(session)
         await self.db.commit()
 
     @staticmethod

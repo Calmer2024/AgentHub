@@ -54,6 +54,11 @@ class SessionRead(BaseModel):
     project_id: str | None = Field(default=None, alias="projectId")
     agent_config_id: str | None = Field(default=None, alias="agentConfigId")
     mode: str = "single"
+    is_pinned: bool = Field(default=False, alias="isPinned")
+    archived_at: datetime | None = Field(default=None, alias="archivedAt")
+    unread_count: int = Field(default=0, alias="unreadCount")
+    last_read_at: datetime | None = Field(default=None, alias="lastReadAt")
+    is_muted: bool = Field(default=False, alias="isMuted")
     created_at: datetime = Field(alias="createdAt")
     updated_at: datetime = Field(alias="updatedAt")
 
@@ -63,6 +68,22 @@ class SessionRead(BaseModel):
 class SessionUpdate(BaseModel):
     title: str | None = None
     agent_config_id: str | None = Field(default=None, alias="agentConfigId")
+    is_pinned: bool | None = Field(default=None, alias="isPinned")
+    archived: bool | None = None
+    is_muted: bool | None = Field(default=None, alias="isMuted")
+
+    model_config = {"populate_by_name": True}
+
+
+class ForwardMessagesRequest(BaseModel):
+    message_ids: list[str] = Field(alias="messageIds", min_length=1, max_length=20)
+    target_session_ids: list[str] = Field(alias="targetSessionIds", min_length=1, max_length=10)
+
+    model_config = {"populate_by_name": True}
+
+
+class ForwardMessagesResult(BaseModel):
+    messages: list[MessageRead]
 
     model_config = {"populate_by_name": True}
 

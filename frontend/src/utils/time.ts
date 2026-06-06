@@ -34,6 +34,18 @@ export function formatChinaTime(
   });
 }
 
+export function formatChinaFullDateTime(value: string): string {
+  return formatChinaDateTime(value, {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+}
+
 export function chinaNowIso(): string {
   const parts = new Intl.DateTimeFormat("zh-CN", {
     timeZone: CHINA_TIME_ZONE,

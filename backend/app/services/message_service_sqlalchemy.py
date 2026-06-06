@@ -4,6 +4,7 @@ import asyncio
 import json
 import uuid
 from collections.abc import AsyncIterator
+from datetime import datetime
 
 from sqlalchemy import Select, select, text
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
@@ -188,6 +189,7 @@ class SqlAlchemyMessageService(MessageService):
         message.content = full
         message.metadata_json = json.dumps(metadata, ensure_ascii=False)
         session.updated_at = china_now()
+        session.unread_count = max(0, int(getattr(session, "unread_count", 0) or 0) + 1)
         await self.db.commit()
 
         yield self._sse({

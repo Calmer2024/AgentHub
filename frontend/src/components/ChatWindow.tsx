@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Files, Search, X } from "lucide-react";
-import type { Message, AgentConfig, CollabTask, ChainStep, DAGPhase, Artifact, ApprovalCheckpoint, TaskRead } from "../types";
+import { CheckSquare, Files, Forward, Search, X } from "lucide-react";
+import type { Message, AgentConfig, CollabTask, ChainStep, DAGPhase, Artifact, ApprovalCheckpoint, TaskRead, Session } from "../types";
 import { MessageBubble } from "./MessageBubble";
 import { ChatInput } from "./ChatInput";
 import { CollaborationPanel } from "./CollaborationPanel";
@@ -11,6 +11,7 @@ import {
   fetchApprovals,
   fetchArtifacts,
   fetchMessages,
+  forwardMessages,
   fetchRuns,
   fetchSystemHealth,
   rejectCheckpoint,
@@ -31,6 +32,7 @@ interface Props {
   hydrating?: boolean;
   currentAgent: AgentConfig | null;
   currentSessionId: string;
+  sessions: Session[];
   agents: AgentConfig[];
   mode: string;
   routeAgents: Array<{ id: string; name: string }> | null;
@@ -66,7 +68,7 @@ const EMPTY_APPROVALS: ApprovalCheckpoint[] = [];
 export function ChatWindow({
   messages, artifacts, isStreaming, streamingError,
   hydrating = false,
-  currentAgent, currentSessionId, agents, mode, routeAgents, orchestratorIntent, planSummary, mentionableAgents,
+  currentAgent, currentSessionId, sessions, agents, mode, routeAgents, orchestratorIntent, planSummary, mentionableAgents,
   collabTasks, dagPhases, collabCompleted, collabSummary,
   onSend, onDismissError, onReply, onRegenerate, onTogglePin, onArtifactsChanged,
 }: Props) {
@@ -81,6 +83,11 @@ export function ChatWindow({
   const [cancellingRunId, setCancellingRunId] = useState<string | null>(null);
   const [busyApprovalId, setBusyApprovalId] = useState<string | null>(null);
   const [healthLoading, setHealthLoading] = useState(false);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedMessageIds, setSelectedMessageIds] = useState<Set<string>>(() => new Set());
+  const [forwardingIds, setForwardingIds] = useState<string[] | null>(null);
+  const [forwardTargetIds, setForwardTargetIds] = useState<Set<string>>(() => new Set());
+  const [forwardingBusy, setForwardingBusy] = useState(false);
   const interactivePrompts = useChatStore((state) => state.interactivePrompts);
   const removeInteractivePrompt = useChatStore((state) => state.removeInteractivePrompt);
   const runs = useChatStore((state) => state.runs);
@@ -96,6 +103,7 @@ export function ChatWindow({
   const setReplyTarget = useChatStore((state) => state.setReplyTarget);
   const setCodeReference = useChatStore((state) => state.setCodeReference);
   const cancelRunLocally = useChatStore((state) => state.cancelRunLocally);
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
@@ -272,6 +280,68 @@ export function ChatWindow({
   const copyContent = useCallback((content: string) => {
     void navigator.clipboard?.writeText(content);
   }, []);
+
+  const beginMultiSelect = useCallback((message: Message) => {
+    setSelectionMode(true);
+    setSelectedMessageIds(new Set([message.id]));
+  }, []);
+
+  const toggleSelectedMessage = useCallback((message: Message) => {
+    setSelectedMessageIds((current) => {
+      const next = new Set(current);
+      if (next.has(message.id)) next.delete(message.id);
+      else next.add(message.id);
+      return next;
+    });
+  }, []);
+
+  const openForwardDialog = useCallback((ids: string[]) => {
+    if (ids.length === 0) return;
+    setForwardingIds(ids);
+    setForwardTargetIds(new Set());
+  }, []);
+
+  const handleForwardMessage = useCallback((message: Message) => {
+    openForwardDialog([message.id]);
+  }, [openForwardDialog]);
+
+  const handleForwardSelected = useCallback(() => {
+    openForwardDialog([...selectedMessageIds]);
+  }, [openForwardDialog, selectedMessageIds]);
+
+  const closeForwardDialog = useCallback(() => {
+    setForwardingIds(null);
+    setForwardTargetIds(new Set());
+  }, []);
+
+  const submitForward = useCallback(async () => {
+    if (!forwardingIds || forwardingIds.length === 0 || forwardTargetIds.size === 0) return;
+    setForwardingBusy(true);
+    try {
+      await forwardMessages(forwardingIds, [...forwardTargetIds]);
+      await refreshRuntime();
+      setSelectionMode(false);
+      setSelectedMessageIds(new Set());
+      closeForwardDialog();
+    } catch {
+      setStreamingError("转发失败，请稍后重试", currentSessionId);
+    } finally {
+      setForwardingBusy(false);
+    }
+  }, [
+    closeForwardDialog,
+    currentSessionId,
+    forwardingIds,
+    forwardTargetIds,
+    refreshRuntime,
+    setStreamingError,
+  ]);
+
+  useEffect(() => {
+    setSelectionMode(false);
+    setSelectedMessageIds(new Set());
+    closeForwardDialog();
+  }, [currentSessionId, closeForwardDialog]);
 
   const cancelMessageRun = useCallback((runId: string) => {
     void handleCancelRun(runId);
@@ -468,9 +538,14 @@ export function ChatWindow({
                     agent={msg.agentName ? agentByName.get(msg.agentName) ?? null : null}
                     parentMessage={msg.parentMessageId ? messageById.get(msg.parentMessageId) ?? null : null}
                     highlighted={highlightedMessageId === msg.id}
+                    selectionMode={selectionMode}
+                    selected={selectedMessageIds.has(msg.id)}
                     onReply={onReply}
                     onRegenerate={onRegenerate}
                     onTogglePin={onTogglePin}
+                    onForward={handleForwardMessage}
+                    onMultiSelect={beginMultiSelect}
+                    onToggleSelect={toggleSelectedMessage}
                     onCopy={copyContent}
                     onJumpToMessage={jumpToMessage}
                     onArtifactsChanged={onArtifactsChanged}
@@ -543,6 +618,51 @@ export function ChatWindow({
         onChanged={onArtifactsChanged}
       />
 
+      {selectionMode && (
+        <div className="agenthub-selection-bar absolute bottom-24 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-full border px-3 py-2 shadow-lg">
+          <CheckSquare size={15} />
+          <span className="text-sm font-medium">已选择 {selectedMessageIds.size} 条</span>
+          <button
+            type="button"
+            onClick={handleForwardSelected}
+            disabled={selectedMessageIds.size === 0}
+            className="agenthub-primary-button inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Forward size={14} />
+            转发
+          </button>
+          <button
+            type="button"
+            onClick={() => { setSelectionMode(false); setSelectedMessageIds(new Set()); }}
+            className="agenthub-icon-button inline-flex h-8 w-8 items-center justify-center rounded-full"
+            aria-label="退出多选"
+            title="退出多选"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
+      {forwardingIds && (
+        <ForwardMessagesDialog
+          sessions={sessions}
+          currentSessionId={currentSessionId}
+          selectedTargetIds={forwardTargetIds}
+          messageCount={forwardingIds.length}
+          busy={forwardingBusy}
+          onToggleTarget={(sessionId) => {
+            setForwardTargetIds((current) => {
+              const next = new Set(current);
+              if (next.has(sessionId)) next.delete(sessionId);
+              else next.add(sessionId);
+              return next;
+            });
+          }}
+          onCancel={closeForwardDialog}
+          onSubmit={submitForward}
+        />
+      )}
+
       {/* Chat input */}
       <ChatInput
         onSubmit={onSend}
@@ -550,6 +670,96 @@ export function ChatWindow({
         busy={isStreaming || hasActiveRun}
         mentionableAgents={isGroup ? mentionableAgents : agents}
       />
+    </div>
+  );
+}
+
+function ForwardMessagesDialog({
+  sessions,
+  currentSessionId,
+  selectedTargetIds,
+  messageCount,
+  busy,
+  onToggleTarget,
+  onCancel,
+  onSubmit,
+}: {
+  sessions: Session[];
+  currentSessionId: string;
+  selectedTargetIds: Set<string>;
+  messageCount: number;
+  busy: boolean;
+  onToggleTarget: (sessionId: string) => void;
+  onCancel: () => void;
+  onSubmit: () => void;
+}) {
+  const targets = sessions.filter((session) => !session.archivedAt && session.id !== currentSessionId);
+  return (
+    <div className="agenthub-backdrop fixed inset-0 z-[1300] flex items-center justify-center px-4">
+      <div className="agenthub-modal agenthub-modal-pop flex max-h-[78dvh] w-full max-w-md flex-col overflow-hidden rounded-3xl border">
+        <div className="agenthub-header flex items-center justify-between border-b px-4 py-3">
+          <div>
+            <h2 className="agenthub-strong text-base font-semibold">转发消息</h2>
+            <p className="agenthub-muted mt-0.5 text-xs">选择目标对话，已选 {messageCount} 条消息</p>
+          </div>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="agenthub-icon-button inline-flex h-8 w-8 items-center justify-center rounded-full"
+            aria-label="关闭转发"
+            title="关闭"
+          >
+            <X size={14} />
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto p-2">
+          {targets.length === 0 ? (
+            <div className="agenthub-muted px-4 py-8 text-center text-sm">暂无可转发的目标对话</div>
+          ) : (
+            targets.map((session) => {
+              const checked = selectedTargetIds.has(session.id);
+              return (
+                <button
+                  key={session.id}
+                  type="button"
+                  onClick={() => onToggleTarget(session.id)}
+                  className="agenthub-nav-idle flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left"
+                >
+                  <span className={`agenthub-select-toggle inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${
+                    checked ? "agenthub-select-toggle-active" : ""
+                  }`}>
+                    {checked && <span className="h-2 w-2 rounded-full bg-current" />}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="agenthub-strong block truncate text-sm font-semibold">{session.title}</span>
+                    <span className="agenthub-muted mt-0.5 block text-xs">
+                      {session.mode === "group" ? "群聊" : "私聊"}
+                    </span>
+                  </span>
+                </button>
+              );
+            })
+          )}
+        </div>
+        <div className="agenthub-header flex items-center justify-end gap-2 border-t px-4 py-3">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="agenthub-icon-button h-9 rounded-full px-4 text-sm font-medium"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            onClick={onSubmit}
+            disabled={busy || selectedTargetIds.size === 0}
+            className="agenthub-primary-button inline-flex h-9 items-center gap-2 rounded-full px-4 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {busy ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current/30 border-t-current" /> : <Forward size={14} />}
+            发送
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

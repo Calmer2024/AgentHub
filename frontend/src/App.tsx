@@ -5,7 +5,15 @@ import { MemoChatWindow as ChatWindow } from "./components/ChatWindow";
 import { ProjectSidebar } from "./components/ProjectSidebar";
 import { AgentPanel } from "./components/AgentPanel";
 import { GroupChatCreator } from "./components/GroupChatCreator";
-import { deleteAgent, fetchArtifacts, fetchMessages, pinMessage, regenerateMessageStream, unpinMessage } from "./api/client";
+import {
+  deleteAgent,
+  fetchArtifacts,
+  fetchMessages,
+  markSessionRead,
+  pinMessage,
+  regenerateMessageStream,
+  unpinMessage,
+} from "./api/client";
 import { useSendMessage } from "./hooks/useSendMessage";
 import { useWorkspaceRuntime } from "./hooks/useWorkspaceRuntime";
 import type { Message } from "./types";
@@ -47,7 +55,8 @@ function App() {
     handleRenameProject, handleDeleteProject,
     handleCreateBlankProject, handlePickExistingFolder,
     handleSelectSession, handleNewSession, handleCreateGroup,
-    handleDeleteSession, handleRenameSession,
+    handleDeleteSession, handleRenameSession, handlePinSession, handleArchiveSession,
+    handleMuteSession,
   } = useWorkspaceRuntime();
 
   // --- 协作状态的读写桥接 (store ↔ 组件) ---
@@ -109,6 +118,7 @@ function App() {
         try {
           setArtifactsForSession(sessionId, await fetchArtifacts(sessionId));
         } catch { /* */ }
+        markSessionRead(sessionId).catch(() => {});
       },
     });
     useChatStore.getState().setActiveStreamAbort(streamKey, abort);
@@ -162,6 +172,9 @@ function App() {
             onNewGroupSession={() => setShowGroupCreator(true)}
             onDeleteSession={handleDeleteSession}
             onRenameSession={handleRenameSession}
+            onPinSession={handlePinSession}
+            onArchiveSession={handleArchiveSession}
+            onMuteSession={handleMuteSession}
           />
         </div>
       </div>
@@ -173,6 +186,7 @@ function App() {
           hydrating={sessionHydrating}
           streamingError={streamingError}
           currentAgent={currentAgent} currentSessionId={currentSessionId}
+          sessions={sessions}
           agents={agents} mode={currentMode}
           routeAgents={routeAgents} orchestratorIntent={orchestratorIntent}
           planSummary={planSummary}

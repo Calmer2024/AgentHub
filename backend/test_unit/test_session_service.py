@@ -4,11 +4,11 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 
 from app.database import Base
-from app.models import AgentConfig, Session as DBSession
+from app.models import AgentConfig, Message as DBMessage, Session as DBSession
 from app.services.session_service import (
     SessionService, SessionNotFoundError, AgentNotFoundError,
 )
-from app.services.schemas import SessionCreate, SessionUpdate
+from app.services.schemas import ForwardMessagesRequest, SessionCreate, SessionUpdate
 
 TEST_DB = "sqlite+aiosqlite:///:memory:"
 
@@ -91,6 +91,29 @@ class TestListSessions:
         sessions = await svc.list_sessions()
         assert len(sessions) == 2
 
+    async def test_pinned_sessions_sort_before_recent_items(self, svc: SessionService, test_agent):
+        first = await svc.create_session(SessionCreate(title="较早置顶"))
+        second = await svc.create_session(SessionCreate(title="较新普通"))
+        await svc.update_session(first.id, SessionUpdate(is_pinned=True))
+
+        sessions = await svc.list_sessions()
+
+        assert sessions[0].id == first.id
+        assert sessions[0].is_pinned is True
+        assert sessions[1].id == second.id
+
+    async def test_archived_sessions_hidden_by_default(self, svc: SessionService, test_agent):
+        archived = await svc.create_session(SessionCreate(title="已归档"))
+        visible = await svc.create_session(SessionCreate(title="仍显示"))
+        await svc.update_session(archived.id, SessionUpdate(archived=True))
+
+        sessions = await svc.list_sessions()
+        all_sessions = await svc.list_sessions(include_archived=True)
+
+        assert [session.id for session in sessions] == [visible.id]
+        assert {session.id for session in all_sessions} == {archived.id, visible.id}
+        assert next(session for session in all_sessions if session.id == archived.id).archived_at is not None
+
 
 class TestGetSession:
     async def test_get_existing(self, svc: SessionService, test_agent):
@@ -109,6 +132,31 @@ class TestUpdateSession:
         created = await svc.create_session(SessionCreate(title="旧标题"))
         updated = await svc.update_session(created.id, SessionUpdate(title="新标题"))
         assert updated.title == "新标题"
+
+    async def test_update_pin_and_archive_flags(self, svc: SessionService, test_agent):
+        created = await svc.create_session(SessionCreate(title="状态测试"))
+        pinned = await svc.update_session(created.id, SessionUpdate(is_pinned=True))
+        archived = await svc.update_session(created.id, SessionUpdate(archived=True))
+        restored = await svc.update_session(created.id, SessionUpdate(is_pinned=False, archived=False))
+
+        assert pinned.is_pinned is True
+        assert archived.archived_at is not None
+        assert restored.is_pinned is False
+        assert restored.archived_at is None
+
+    async def test_mute_and_mark_read(self, svc: SessionService, test_agent):
+        created = await svc.create_session(SessionCreate(title="免打扰"))
+        muted = await svc.update_session(created.id, SessionUpdate(is_muted=True))
+        db_session = await svc.db.get(DBSession, created.id)
+        assert db_session is not None
+        SessionService.increment_unread(db_session, 3)
+        await svc.db.commit()
+
+        read = await svc.mark_read(created.id)
+
+        assert muted.is_muted is True
+        assert read.unread_count == 0
+        assert read.last_read_at is not None
 
     async def test_update_nonexistent_raises(self, svc: SessionService):
         with pytest.raises(SessionNotFoundError):
@@ -139,3 +187,36 @@ class TestMembers:
         created = await svc.create_session(SessionCreate(title="无成员"))
         members = await svc.get_members(created.id)
         assert len(members) == 0
+
+
+class TestForwardMessages:
+    async def test_forward_messages_creates_real_user_messages(self, svc: SessionService, test_agent):
+        source = await svc.create_session(SessionCreate(title="源对话"))
+        target = await svc.create_session(SessionCreate(title="目标对话"))
+        message = DBMessage(
+            id=str(uuid.uuid4()),
+            session_id=source.id,
+            role="assistant",
+            content="这里是需要转发的结论",
+            content_type="text",
+            agent_name="测试 Agent",
+            source_type="agent",
+            source_id=test_agent.id,
+            source_name="测试 Agent",
+        )
+        svc.db.add(message)
+        await svc.db.commit()
+
+        result = await svc.forward_messages(ForwardMessagesRequest(
+            messageIds=[message.id],
+            targetSessionIds=[target.id],
+        ))
+
+        assert len(result.messages) == 1
+        forwarded = result.messages[0]
+        assert forwarded.session_id == target.id
+        assert forwarded.role == "user"
+        assert "转发自 测试 Agent" in forwarded.content
+        assert forwarded.metadata is not None
+        assert forwarded.metadata["forwarded"] is True
+        assert forwarded.metadata["forwardSource"]["id"] == message.id

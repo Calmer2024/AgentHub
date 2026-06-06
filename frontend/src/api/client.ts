@@ -196,9 +196,12 @@ export async function deleteProject(
   return res.json();
 }
 
-export async function fetchSessions(projectId?: string): Promise<Session[]> {
-  const params = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
-  const res = await fetch(`${API_BASE}/sessions${params}`);
+export async function fetchSessions(projectId?: string, includeArchived = false): Promise<Session[]> {
+  const params = new URLSearchParams();
+  if (projectId) params.set("projectId", projectId);
+  if (includeArchived) params.set("includeArchived", "true");
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  const res = await fetch(`${API_BASE}/sessions${suffix}`);
   if (!res.ok) throw new Error("Failed to fetch sessions");
   return res.json();
 }
@@ -243,6 +246,55 @@ export async function renameSession(sessionId: string, title: string): Promise<S
     method: "PATCH", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ title }),
   });
+  return res.json();
+}
+
+export async function pinSession(sessionId: string, isPinned: boolean): Promise<Session> {
+  const res = await fetch(`${API_BASE}/sessions/${sessionId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ isPinned }),
+  });
+  if (!res.ok) throw new Error("Failed to update session pin");
+  return res.json();
+}
+
+export async function archiveSession(sessionId: string, archived = true): Promise<Session> {
+  const res = await fetch(`${API_BASE}/sessions/${sessionId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ archived }),
+  });
+  if (!res.ok) throw new Error("Failed to archive session");
+  return res.json();
+}
+
+export async function muteSession(sessionId: string, isMuted: boolean): Promise<Session> {
+  const res = await fetch(`${API_BASE}/sessions/${sessionId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ isMuted }),
+  });
+  if (!res.ok) throw new Error("Failed to update session mute");
+  return res.json();
+}
+
+export async function markSessionRead(sessionId: string): Promise<Session> {
+  const res = await fetch(`${API_BASE}/sessions/${sessionId}/read`, { method: "POST" });
+  if (!res.ok) throw new Error("Failed to mark session read");
+  return res.json();
+}
+
+export async function forwardMessages(
+  messageIds: string[],
+  targetSessionIds: string[],
+): Promise<{ messages: Message[] }> {
+  const res = await fetch(`${API_BASE}/sessions/forward`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ messageIds, targetSessionIds }),
+  });
+  if (!res.ok) throw new Error("Failed to forward messages");
   return res.json();
 }
 

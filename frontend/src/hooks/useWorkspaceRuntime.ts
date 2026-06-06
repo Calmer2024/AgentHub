@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   archiveProject,
+  archiveSession,
   createGroupSession,
   createProject,
   createSession,
@@ -15,7 +16,10 @@ import {
   fetchSessionMembers,
   fetchSessions,
   fetchSystemHealth,
+  markSessionRead,
+  muteSession,
   pickProjectFolder,
+  pinSession,
   renameSession,
   updateProject,
 } from "../api/client";
@@ -146,7 +150,7 @@ export function useWorkspaceRuntime() {
       setSessions(cached);
       const activeSessionId = useChatStore.getState().currentSessionId;
       if (!cached.some((session) => session.id === activeSessionId)) {
-        const first = cached[0] ?? null;
+        const first = cached.find((session) => !session.archivedAt) ?? null;
         setCurrentSessionId(first?.id ?? null);
         if (first) void hydrateSession(first.id);
         else resetSessionView(null);
@@ -156,7 +160,7 @@ export function useWorkspaceRuntime() {
       setSessionsLoading(true);
     }
     try {
-      const loaded = await fetchSessions(projectId);
+      const loaded = await fetchSessions(projectId, true);
       if (requestId !== projectRequestRef.current || useSessionStore.getState().currentProjectId !== projectId) {
         return;
       }
@@ -165,7 +169,7 @@ export function useWorkspaceRuntime() {
       const activeSessionId = useChatStore.getState().currentSessionId;
       const currentStillVisible = loaded.some((session) => session.id === activeSessionId);
       if (!currentStillVisible) {
-        const first = loaded[0] ?? null;
+        const first = loaded.find((session) => !session.archivedAt) ?? null;
         setCurrentSessionId(first?.id ?? null);
         if (first) {
           void hydrateSession(first.id);
@@ -222,6 +226,17 @@ export function useWorkspaceRuntime() {
     setCurrentSessionId(id);
     setStreamingError(null, id);
     void hydrateSession(id);
+    void markSessionRead(id)
+      .then((updated) => {
+        updateSession(updated);
+        if (updated.projectId) {
+          const cached = sessionsByProjectRef.current[updated.projectId] ?? sessions;
+          sessionsByProjectRef.current[updated.projectId] = cached.map((session) => (
+            session.id === updated.id ? updated : session
+          ));
+        }
+      })
+      .catch(() => {});
 
     const sess = sessions.find((s) => s.id === id);
     if (sess?.mode !== "group") {
@@ -247,7 +262,7 @@ export function useWorkspaceRuntime() {
     const cached = sessionsByProjectRef.current[id] ?? [];
     setCurrentProjectId(id);
     setSessions(cached);
-    const first = cached[0] ?? null;
+    const first = cached.find((session) => !session.archivedAt) ?? null;
     setCurrentSessionId(first?.id ?? null);
     if (first) {
       resetSessionView(first.id);
@@ -401,6 +416,55 @@ export function useWorkspaceRuntime() {
     }
   };
 
+  const sortSessions = (items: typeof sessions) => [...items].sort((a, b) => {
+    const pinnedDelta = Number(Boolean(b.isPinned)) - Number(Boolean(a.isPinned));
+    if (pinnedDelta !== 0) return pinnedDelta;
+    return Date.parse(b.updatedAt || "") - Date.parse(a.updatedAt || "");
+  });
+
+  const replaceSessionInList = (updated: typeof sessions[number], source = sessions) => (
+    sortSessions(source.map((session) => session.id === updated.id ? updated : session))
+  );
+
+  const handlePinSession = async (id: string, isPinned: boolean) => {
+    const updated = await pinSession(id, isPinned);
+    const nextSessions = replaceSessionInList(updated);
+    if (updated.projectId) sessionsByProjectRef.current[updated.projectId] = nextSessions;
+    setSessions(nextSessions);
+  };
+
+  const handleMuteSession = async (id: string, isMuted: boolean) => {
+    const updated = await muteSession(id, isMuted);
+    const nextSessions = replaceSessionInList(updated);
+    if (updated.projectId) sessionsByProjectRef.current[updated.projectId] = nextSessions;
+    setSessions(nextSessions);
+  };
+
+  const handleArchiveSession = async (id: string, archivedFlag = true) => {
+    const updated = await archiveSession(id, archivedFlag);
+    const nextSessions = replaceSessionInList(updated);
+    if (updated.projectId) sessionsByProjectRef.current[updated.projectId] = nextSessions;
+    else if (currentProjectId) sessionsByProjectRef.current[currentProjectId] = nextSessions;
+    setSessions(nextSessions);
+    if (archivedFlag && currentSessionId === id) {
+      const next = nextSessions.find((session) => !session.archivedAt) ?? null;
+      setCurrentSessionId(next?.id ?? null);
+      if (next) {
+        resetSessionView(next.id);
+        void hydrateSession(next.id);
+      } else {
+        setMessages([]);
+        setArtifacts([]);
+        resetSessionView(null);
+      }
+    }
+    if (archivedFlag) {
+      clearRuntimeState(id);
+      clearSessionCache(id);
+      clearCollab(id);
+    }
+  };
+
   const currentSession = sessions.find((s) => s.id === currentSessionId);
   const currentProject = projects.find((p) => p.id === currentProjectId) ?? null;
   const currentAgent = agents.find((a) => a.id === currentSession?.agentConfigId) ?? null;
@@ -433,5 +497,8 @@ export function useWorkspaceRuntime() {
     handleCreateGroup,
     handleDeleteSession,
     handleRenameSession,
+    handlePinSession,
+    handleArchiveSession,
+    handleMuteSession,
   };
 }
