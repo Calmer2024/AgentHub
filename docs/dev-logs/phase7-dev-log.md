@@ -2,7 +2,7 @@
 
 **日期**: 2026-06-06
 **阶段**: Phase 7A-7C
-**状态**: 7A 运行任务可控性、7B 人工审批断点、7C 环境体检实现基线已通过本轮人工验收；7D 演示与 UX 加固待继续
+**状态**: 7A 运行任务可控性、7B 人工审批断点、7C 环境体检实现基线已通过本轮人工验收；并完成一轮对话 UX、并行运行与前端性能修复
 
 ---
 
@@ -36,10 +36,22 @@
 已修复：
 
 - 点击停止后前端立即调用当前 SSE abort，并本地回退 run/message 状态为 `cancelled`；
-- `ChatInput` 立即恢复可输入状态，`Agent 正在回答`提示消失；
+- `ChatInput` 立即恢复可输入状态，顶部状态从“对方正在输入”恢复为 Agent 状态；
 - 当前会话追加“本次运行已中止成功，可以继续发送新消息。”系统消息；
 - 后端 `RunService.cancel_run()` 会终止进程、取消 task/process、合并 message metadata，并持久化一条来源为“运行控制”的系统消息；
 - 即使后端取消请求未返回，前端也会先完成本地解锁，避免所有对话框被一次长请求占用。
+
+## 2.1 UX / 并行 / 性能二次修复
+
+本轮继续修复人工验收后的 7 个前端体验问题：
+
+- 对话气泡内不再渲染 Agent 头像旁的独立 typing 状态；IM 唯一状态入口收敛到 ChatHeader 的 Agent 名称下方。
+- 左侧项目标题已统一为“项目”，好友标题保留图标入口。
+- 后端事件时间 `china_now_iso()`、workspace snapshot 与前端本地时间工具统一为 `Asia/Shanghai` / `+08:00` 口径。
+- 群聊收尾不再自动生成 `orchestrator.summary_*` 中枢总结事件，也不再写入 `orchestrator_summary` 消息。
+- SSE 回调从“当前活动会话”解耦为按 `streamKey/sessionId` 写回原会话缓存，切到其它对话后后台输出不会丢失。
+- 不同会话可各自保留独立 stream/run/abort，后台会话继续运行；会话列表会显示“对方正在输入”提示。
+- 优化会话切换性能：移除普通会话切换时的重复 reset，避免 `loadSessionsForProject` 因 `currentSessionId` 变化反复拉取；消息气泡改为接收预索引后的 artifacts/approvals；移除聊天/产物预览中的同步 `react-syntax-highlighter`，主包从约 1.13 MB 降至约 499 KB。
 
 ## 3. 关键决策
 
@@ -63,10 +75,21 @@
   - 缺失 workspace 进入 blockingReasons。
 - `frontend/src/components/ChatWindow.test.tsx`
   - 后端取消请求不返回时，点击停止也会立即中止本地回复、调用 abort、解锁输入框并显示中止成功消息。
+- `frontend/src/components/SessionList.test.tsx`
+  - 后台运行会话在列表中展示“对方正在输入”。
 - `frontend/src/stores/chat.test.ts`
-  - run/task/approval 状态合并与取消回退。
+  - run/task/approval 状态合并与取消回退；
+  - 不同会话可同时保留独立 streaming runtime。
+- `backend/test_api/test_group_chat.py`
+  - 群聊仍保留 route/task/agent events 和消息落库，但不再产生中枢总结事件或总结消息。
 
-提交前验证命令以本轮最终 Git 记录为准。
+本轮验证命令：
+
+```powershell
+cd frontend; npx vitest run; npm run build
+cd backend; pytest test_api/test_phase7_runtime.py test_api/test_group_chat.py
+cd backend; pytest test_unit/test_orchestrator_summarizer.py
+```
 
 ## 5. 交接入口
 

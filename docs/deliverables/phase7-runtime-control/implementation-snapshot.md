@@ -86,3 +86,15 @@ API：
 - 当前会话追加“本次运行已中止成功，可以继续发送新消息。”系统消息；
 - 任务和运行状态本地同步为 cancelled；
 - 后端请求失败时仅显示提示，不重新锁住输入框。
+
+## 7. 本轮 UX / 并行 / 性能加固
+
+在 7A-7C 验收通过后，本轮继续处理对话体验与并发运行问题：
+
+- ChatHeader 成为唯一 IM 状态入口：运行中显示“对方正在输入”，消息气泡内不再显示独立 typing 状态。
+- 后台会话流式输出按 `streamKey/sessionId` 写回原会话缓存，切换到其它对话不会丢失正在生成的消息、trace、artifact 或 approval 事件。
+- `chatStore` 支持不同会话同时保留独立 `activeStreamKey`、`activeRunId`、abort handler 和 runtime 状态；会话列表会给后台运行会话显示“对方正在输入”。
+- 禁用群聊收尾自动中枢总结：后端不再发送 `orchestrator.summary_*`，也不再落库 `orchestrator_summary` 消息。
+- 前端切换性能优化：普通会话切换不再重复 reset，不再因为 `currentSessionId` 变化反复拉取整个项目会话列表；消息气泡改为接收预索引后的相关 artifacts/approvals。
+- 移除聊天正文和产物文本预览里的同步 `react-syntax-highlighter`，保留轻量 `<pre><code>` 展示；CodeMirror 仍只在文件编辑器打开时懒加载。主包从约 1.13 MB 降至约 499 KB。
+- 非数据库事件时间改为明确 `Asia/Shanghai` / `+08:00` 输出，前端显示继续使用统一中国时区工具。

@@ -14,6 +14,11 @@
 - 需要人工确认的任务会在消息下方出现 ApprovalCard。
 - 确认继续、驳回修改走真实 API 和持久化 checkpoint，不是静态 UI。
 - ChatHeader 可看到环境体检状态，发送前会用 blockingReasons 阻断不可执行环境。
+- IM 状态入口已收敛到 Agent 名称下方；消息气泡头像旁不再出现独立“正在回答/typing”状态。
+- 切换到其它对话后，原对话后台输出不会丢失，会话列表会显示“对方正在输入”。
+- 不同会话可以并行保留独立运行实例，不再被单个全局 streaming 状态占用。
+- 群聊不再每轮自动生成中枢总结消息。
+- 项目时间显示、前端本地时间与后端事件时间统一为中国时区口径。
 
 ## 2. 人工验收缺陷修复记录
 
@@ -28,12 +33,23 @@
 - 后端 `cancel_run` 持久化 cancelled 状态并追加同类系统消息；
 - 增加前端回归测试覆盖“后端取消请求未返回时，本地仍能立即中止和解锁”。
 
+二次修复：
+
+- `useSendMessage` 不再用当前页面 active stream 过滤后台 SSE 事件，改为按 streamKey 注册状态判断；
+- `SessionList` 接入 per-session runtime，在后台运行会话上展示“对方正在输入”；
+- 移除普通会话切换时的重复视图 reset 和项目会话列表重复加载；
+- `MessageBubble` 只接收当前消息相关 artifacts/approvals，减少切换和流式输出时的全量重渲；
+- 移除聊天/产物预览同步代码高亮库，降低主包体积和渲染成本；
+- `GroupChatFinalizer` 不再调用 OrchestratorSummarizer 自动生成总结。
+
 ## 3. 自动测试覆盖
 
 新增和更新的自动测试覆盖：
 
 ```powershell
-cd backend && .\venv\Scripts\python.exe -m pytest test_api/test_phase7_runtime.py -q
+cd backend
+pytest test_api/test_phase7_runtime.py test_api/test_group_chat.py
+pytest test_unit/test_orchestrator_summarizer.py
 ```
 
 覆盖点：
@@ -46,15 +62,23 @@ cd backend && .\venv\Scripts\python.exe -m pytest test_api/test_phase7_runtime.p
 - system health 无上下文可返回；
 - 缺失 workspace 进入 blockingReasons；
 - health payload 不泄露测试密钥。
+- 群聊 route/task/agent/run 事件正常；
+- 群聊消息正常落库；
+- 群聊不再产生 `orchestrator.summary_*` SSE 或 `orchestrator_summary` 消息。
 
 ```powershell
-cd frontend && npx vitest run src/components/ChatWindow.test.tsx src/stores/chat.test.ts
+cd frontend
+npx vitest run
+npm run build
 ```
 
 覆盖点：
 
 - 后端取消请求未返回时，点击停止也会立即 abort、解锁输入框并显示中止成功消息；
-- chat store 的 run/task/approval 合并和本地取消回退。
+- chat store 的 run/task/approval 合并和本地取消回退；
+- 不同会话可同时保留独立 streaming runtime；
+- 后台运行会话在 SessionList 展示“对方正在输入”；
+- 生产构建通过，主包约 499 KB，CodeMirror 编辑器保持懒加载 chunk。
 
 ## 4. 剩余风险
 
