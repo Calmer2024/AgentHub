@@ -407,10 +407,31 @@ export const useChatStore = create<ChatState>((set, get) => ({
       };
     }),
   setRunsForSession: (sessionId, runs) =>
-    set((s) => ({
-      runsBySession: { ...s.runsBySession, [sessionId]: runs },
-      ...applyCurrentSession(s, sessionId, { runs }),
-    })),
+    set((s) => {
+      const currentRuntime = s.runtimeBySession[sessionId] ?? emptyRuntime();
+      const terminalForActiveRun = currentRuntime.activeRunId
+        ? runs.some((run) => run.id === currentRuntime.activeRunId && TERMINAL_RUN_STATUSES.has(run.status))
+        : Boolean(currentRuntime.activeStreamKey)
+          && runs.length > 0
+          && runs.every((run) => !ACTIVE_RUN_STATUSES.has(run.status));
+      const nextRuntime = terminalForActiveRun ? emptyRuntime() : currentRuntime;
+      const activeStreamsByKey = terminalForActiveRun && currentRuntime.activeStreamKey
+        ? withoutSession(s.activeStreamsByKey, currentRuntime.activeStreamKey)
+        : s.activeStreamsByKey;
+      return {
+        runsBySession: { ...s.runsBySession, [sessionId]: runs },
+        runtimeBySession: { ...s.runtimeBySession, [sessionId]: nextRuntime },
+        activeStreamsByKey,
+        ...applyCurrentSession(s, sessionId, {
+          runs,
+          isStreaming: nextRuntime.isStreaming,
+          activeRunId: nextRuntime.activeRunId,
+          activeStreamKey: nextRuntime.activeStreamKey,
+          activeStreamAbort: nextRuntime.activeStreamAbort,
+          activeProgress: nextRuntime.activeProgress,
+        }),
+      };
+    }),
   upsertRun: (run) =>
     set((s) => {
       const current = s.runsBySession[run.sessionId] ?? (s.currentSessionId === run.sessionId ? s.runs : []);

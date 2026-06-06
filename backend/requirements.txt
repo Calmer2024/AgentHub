@@ -5,3 +5,4 @@ aiosqlite>=0.20.0
 pydantic-settings>=2.2.0
 openai>=1.0.0
 python-multipart>=0.0.9
+tzdata>=2024.1
