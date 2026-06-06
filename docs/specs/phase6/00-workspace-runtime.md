@@ -37,7 +37,7 @@ Phase 5 已完成 Artifact 的版本链、Diff 和在线编辑。但它缺少一
   → Agent 读写 workspace 文件
   → FileChangeDetector 生成 diff
   → Artifact Output Bridge 创建 Artifact
-  → Artifact Card → Drawer
+  → 消息级 Artifact Card → 页面级预览/编辑弹窗
 ```
 
 ### 2.2 上下游契约
@@ -46,7 +46,7 @@ Phase 5 已完成 Artifact 的版本链、Diff 和在线编辑。但它缺少一
 |------|-------------|------------|
 | **上游输入** | 用户通过前端创建 Project（选目录/命名）；Phase 3 SessionService | 接收 Project 创建请求，初始化目录和元数据 |
 | **下游产出** | `project.created` 事件；`workspace.file_changed` 事件；`workspace.diff_ready` 事件；CLI Adapter 通过 `WorkspaceService.get_workspace_path()` 获取 cwd；Artifact Bridge 通过 `workspace.diff_ready` 检测文件变更 | 产出可信的 workspace_path、文件树、Diff、预览 URL |
-| **本模块不通** | 不执行 Agent（→ CLI Adapter）；不创建 Artifact（→ Artifact Bridge）；不渲染 Drawer（→ Phase 7）；不做 SaaS 云端 sandbox（→ P2） | |
+| **本模块不通** | 不执行 Agent（→ CLI Adapter）；不创建 Artifact（→ Artifact Bridge）；不渲染消息级 Artifact UI（→ Phase 6F）；不做 SaaS 云端 sandbox（→ P2） | |
 
 ---
 
@@ -134,7 +134,7 @@ interface ProjectRead {
 10. Agent 执行 → 读写 workspace 文件
 11. FileChangeDetector → 执行前后 hash diff → 发布 `workspace.diff_ready`
 12. Artifact Bridge → 消费 `workspace.diff_ready` → 创建 Artifact
-13. 用户 → 在 Drawer 中预览 workspace 内的 `index.html` / 查看 Diff
+13. 用户 → 在消息级 ArtifactCard 页面级弹窗中预览 workspace 内的 `index.html` / 查看 Diff
 ```
 
 ### 4.2 UX 六态覆盖
@@ -144,7 +144,7 @@ interface ProjectRead {
 | **空态** | 左侧项目区显示"暂无项目"；对话页面提示"创建 Project 后开始" | 用户首次使用，无 Project |
 | **加载态** | 创建按钮禁用；Project 创建动作进行中 | Project 创建中 / 文件树加载中 / 构建中 |
 | **正常态** | 三栏布局正常：项目栏显示所有 Project（当前选中高亮）；对话列表栏显示当前 Project 下的 Session 列表；对话页面显示聊天消息流 | Project 就绪，正常工作 |
-| **完成态** | 预览 ready：`previewUrl` 可访问，后续 Drawer iframe 可加载 | 构建成功 / 预览就绪 |
+| **完成态** | 预览 ready：`previewUrl` 可访问，后续 ArtifactCard 弹窗 iframe 可加载 | 构建成功 / 预览就绪 |
 | **错误态** | 见 §4.3 | |
 | **边界态** | Project 名称为空 → [创建项目] 按钮置灰；workspace 路径包含非法字符 → 输入框红框 + 提示；删除 Project → 右键菜单选择"归档项目"→ 弹出二次确认"工作目录不会被删除"→ 确认后 Project 从列表消失（status=archived）；同一目录被两个 Project 绑定 → 创建时 409 + 提示；Project 列表过长 → 项目栏可滚动，当前选中 Project 始终可见 | |
 
@@ -255,13 +255,13 @@ AgentHub 主界面采用三栏布局（参考 Codex + Telegram 的混合范式�
 ### 5.4 预览 workspace 产物
 
 ```
-用户: 在 Drawer 中看到 Artifact Card，点击 [👀 预览]
+用户: 在消息下方看到 Artifact Card，点击 [预览]
   → 前端: 判断 artifactType
     - web_preview: POST /api/projects/{project_id}/preview
     - code_diff: GET /api/projects/{project_id}/diff
   → 后端 PreviewService: 以静态 `index.html` 为 MVP 预览入口
   → SSE: preview.ready { previewId, previewUrl }
-  → 前端: Drawer 内容区切换为 iframe（src=previewUrl）或 DiffViewer
+  → 前端: 页面级 Artifact 弹窗切换为 iframe（src=previewUrl）或 DiffViewer
 ```
 
 ---
@@ -299,7 +299,7 @@ AgentHub 主界面采用三栏布局（参考 Codex + Telegram 的混合范式�
 
 ### 7.3 E2E 测试
 
-- 真实浏览器：创建 Project → 选择已有目录 → 在 Project 下创建私聊 → 测试 CLI fixture 写入 index.html → Drawer 预览网页
+- 真实浏览器：创建 Project → 选择已有目录 → 在 Project 下创建私聊 → 测试 CLI fixture 写入 index.html → 消息级 ArtifactCard 预览网页
 
 ---
 
@@ -334,7 +334,7 @@ AgentHub 主界面采用三栏布局（参考 Codex + Telegram 的混合范式�
 |---------|------|---------|
 | 不执行 Agent 进程 | 不是本模块职责 | Phase 6B-6E CLI Adapter |
 | 不创建 Artifact | 不是本模块职责 | Phase 6F Artifact Bridge |
-| 不渲染 Drawer UI | 下游链路 | Phase 7 |
+| 不渲染消息级 Artifact UI | 下游链路 | Phase 6F |
 | 不做 SaaS 云端 sandbox | P2 范围 | P2 CloudWorkspaceProvider |
 | 不做 Docker 容器隔离 | P1 本机版不需要 | P2 |
 | 不做实时文件监听（fs watcher） | Windows 兼容性 + 稳定性 | 用执行前后 hash diff 替代 |

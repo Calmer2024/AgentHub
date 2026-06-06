@@ -14,10 +14,10 @@
   -> 系统模型生成候选内容与 Diff
   -> 用户确认
   -> 创建新版本
-  -> Phase 7 Drawer 切换到新版本
+  -> ArtifactCard / ArtifactVersionManager 切换到新版本
 ```
 
-本模块负责已有 Artifact 的编辑能力。聊天输入框中的自然语言修改入口、右侧 Drawer 内的选区交互和新版本卡片刷新由 Phase 7 承载。
+本模块负责已有 Artifact 的编辑能力。聊天输入框中的自然语言修改入口、文件编辑器选区引用和新版本卡片刷新由 Phase 6F/Phase 7 承载。
 
 ## 2. API
 

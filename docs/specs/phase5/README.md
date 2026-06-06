@@ -14,14 +14,14 @@ Phase 5 位于北极星链路的 **Artifact 工作台能力** 段：
 Artifact 已存在
   -> 版本链 / Diff / 局部编辑
   -> 用户确认创建新版本
-  -> 下游 Phase 7 在 Drawer 中承载完整体验
+  -> Phase 6F 消息级 ArtifactCard / ArtifactVersionManager 承载完整体验
 ```
 
 Phase 5 的真实完成定义是：**对已有 Artifact，用户可以回溯版本、比较差异、选中局部内容并生成编辑 Diff，确认后创建新版本。**
 
 它不代表以下链路已经完整打通：
 - Agent/CLI 输出自动识别并创建 Artifact Card。
-- Artifact Card 到右侧 Drawer 的产品级打开体验。
+- Artifact Card 到消息级预览、文件编辑器和版本管理的产品级打开体验。
 - Orchestrator 审批节点与 Artifact 审阅绑定。
 
 这些链路分别由 Phase 6 和 Phase 7 补齐。
@@ -77,8 +77,8 @@ Phase 5 的真实完成定义是：**对已有 Artifact，用户可以回溯版�
 |------|------|
 | 上游输入 | `Artifact` 记录已存在，包含 `id/session_id/message_id/type/title/content/version/parent_artifact_id` |
 | 本阶段输出 | `artifact.version_created` 事件、新版本 Artifact、DiffResult |
-| 下游消费 | Phase 7 ArtifactDrawer 展示版本链/Diff；Orchestrator 下游任务应引用最新版本 |
-| 未覆盖边界 | `artifact.detected` / `artifact.created` 标准事件的生产与聊天卡片创建由 Phase 6/7 补齐 |
+| 下游消费 | Phase 6F ArtifactCard/ArtifactVersionManager 展示版本链/Diff；Orchestrator 下游任务应引用最新版本 |
+| 未覆盖边界 | `artifact.detected` / `artifact.created` 标准事件的生产与聊天卡片创建由 Phase 6F 补齐；审批回流由 Phase 7 补齐 |
 
 ### 从聊天回流到编辑
 

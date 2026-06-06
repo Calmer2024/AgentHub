@@ -77,6 +77,7 @@ docs/
 | ADR-0007 | [0007-orchestrator-architecture.md](adr/0007-orchestrator-architecture.md) | Orchestrator 架构: Pipeline + DAG |
 | ADR-0008 | [0008-revised-development-strategy.md](adr/0008-revised-development-strategy.md) | **🆕** 功能板块制 + Phase 4-7 路线图 |
 | ADR-0009 | [0009-project-workspace-model.md](adr/0009-project-workspace-model.md) | **🆕** Project-Workspace 绑定模型 + CLI 适配策略 + 分层渲染 |
+| ADR-0010 | [0010-message-level-artifact-experience.md](adr/0010-message-level-artifact-experience.md) | 消息级 Artifact 体验取代 P1 右侧 Drawer |
 
 **阅读建议**: 新成员按编号顺序读。开发者遇到设计疑问时，先查对应 ADR 是否有记录。
 
@@ -91,7 +92,8 @@ docs/
 | [phase3/](specs/phase3/) | Orchestrator + Infrastructure | ✅ | EventBus + Pipeline + DAG + CollaborationPanel |
 | [phase4/](specs/phase4/) | 消息交互闭环 | ✅ | Reply/Regenerate/Pin + FTS5 搜索 |
 | [phase5/](specs/phase5/) | 产物工作台能力 | ✅ | 对已有 Artifact 做版本链 + Diff + 在线编辑；上游入口由 Phase 6/7 补齐 |
-| [phase6/](specs/phase6/) | Workspace Runtime + CLI 适配器 + 产物入口桥接 | ✅ | 6A Workspace Runtime、6B-6E CLI Adapter 与 6F Artifact Bridge 核心闭环均已验收；Phase 7 继续 Drawer/审批/环境体检 |
+| [phase6/](specs/phase6/) | Workspace Runtime + CLI 适配器 + 产物入口桥接 | ✅ | 6A Workspace Runtime、6B-6E CLI Adapter 与 6F Artifact Bridge 核心闭环均已验收；Phase 7 继续运行可控性/审批/环境体检 |
+| [phase7/](specs/phase7/) | 任务可控性 + 审批 + 环境体检 + 演示闭环 | 📋 | run/task 取消与恢复、审批卡片、环境体检、真实 cc 演示与 UX 加固 |
 
 ### deliverables/ — 阶段性交付快照
 
@@ -101,7 +103,6 @@ docs/
 |------|------|
 | [phase6-cli-adapter/](deliverables/phase6-cli-adapter/) | CLI Adapter 架构与实现原理、用户/开发者使用指南、阶段开发日志 |
 | [phase6-artifact-bridge/](deliverables/phase6-artifact-bridge/) | Artifact Bridge 验收快照：消息级产物卡片、文件编辑器、代码引用、版本管理与真实服务验收 |
-| [phase7/](specs/phase7/) | UX 体验闭环 + MVP 演示闭环 | 📋 | 三栏布局 + 产物抽屉 + 审批卡片 + 环境体检 |
 | [planning/](specs/planning/) | 历史规划 | 📦 | 旧的 Phase 3 模块化计划 (已被 ADR-0008 取代) |
 
 每个 Phase 目录下都有独立的 `README.md`，包含验收标准清单和子模块索引。

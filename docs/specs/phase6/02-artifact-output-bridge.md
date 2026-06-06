@@ -39,7 +39,7 @@ Project workspace + CLI Agent 回复
   → artifacts 表 + artifact.created 事件
   → MessageArtifactStrip + 消息下方 ArtifactCard
   → Phase 5 版本/Diff/编辑能力
-  → Phase 7 Drawer 深度预览
+  → Phase 7 运行可控性 / 审批 / 环境体检
 ```
 
 ### 2.2 上下游契约
@@ -51,7 +51,7 @@ Project workspace + CLI Agent 回复
 | **上游输入** | CLI Adapter 的 `chunkType="artifact_signal"` 与 `executionTrace.items[]` | 提升检测置信度，补足工具名、命令、目标路径等上下文 |
 | **下游产出** | `ArtifactService.create_from_detection()` | 创建 Artifact v1，复用 Phase 5 版本链、Diff 和编辑能力 |
 | **下游产出** | SSE `artifact.scan.*`、`artifact.created`；`GET /api/sessions/{id}/artifacts` | 让前端即时 upsert，消息完成后 refresh 作为兜底 |
-| **本模块不通** | 不实现 Phase 7 全局 Artifact Drawer；不做部署发布；不做二进制文件在线预览 | Phase 7 / P2 处理 |
+| **本模块不通** | 不实现运行取消、审批断点、环境体检；不做部署发布；不做二进制文件在线预览 | Phase 7 / P2 处理 |
 
 ---
 
@@ -528,12 +528,12 @@ SSE/API: scan completed with candidateCount > 0 and createdCount = 0
 
 | 不做的事 | 原因 | 由谁负责 |
 |---------|------|---------|
-| 不做完整 VS Code/IDE 级项目浏览器、调试器或实时协作编辑 | 6F 只提供产物级/文件级编辑、引用和版本管理，主流程仍是聊天 | Phase 7/P2 |
+| 不做完整 VS Code/IDE 级项目浏览器、调试器或实时协作编辑 | 6F 只提供产物级/文件级编辑、引用和版本管理，主流程仍是聊天 | P2/远期 |
 | 不实现部署发布按钮 | P2 Roadmap | SaaS/部署模块 |
 | 不解析或预览二进制图片、压缩包、视频 | 当前 Artifact content 是文本模型 | 后续多媒体 Artifact |
 | 不要求用户确认高置信 Artifact | 6F 目标是自动打通链路 | 低置信候选确认可由后续 UI 增强 |
 | 不把所有代码块都变成 Artifact | 避免污染用户的产物列表 | 本模块按置信度过滤 |
-| 不把 ArtifactCard 迁移到全局 Drawer | 当前已有全屏弹层可用；Drawer 是 Phase 7 | Phase 7A |
+| 不把 ArtifactCard 迁移到全局 Drawer | 当前已有页面级弹层可用；P1 路线已由 ADR-0010 收敛为消息级 Artifact 体验 | 无 |
 
 ---
 

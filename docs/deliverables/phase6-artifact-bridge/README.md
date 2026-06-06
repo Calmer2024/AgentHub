@@ -32,6 +32,6 @@ Phase 6F 已打通核心闭环：
 
 ## 后续入口
 
-- Phase 7 Drawer/审批体验应消费当前 Artifact API 与消息级卡片状态，不重新定义 Artifact 创建入口。
+- Phase 7 审批体验应消费当前 Artifact API 与消息级卡片状态，不重新定义 Artifact 创建入口，也不恢复右侧 Drawer。
 - 若继续增强真实 CLI 解析，应优先补真实 stdout/stderr fixture，再扩展 `ArtifactOutputBridge` 或 execution trace parser。
-- 长任务取消、环境体检和审批卡片仍留给 Phase 7。
+- 长任务取消/运行恢复、环境体检和审批卡片仍留给 Phase 7。

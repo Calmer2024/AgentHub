@@ -1,6 +1,6 @@
 # Phase 6: Workspace Runtime + CLI 适配器 + 产物入口桥接
 
-**状态**: ✅ 本轮验收通过（6A Workspace Runtime、6B-6E CLI Adapter、6F Artifact Bridge 均已落地；Phase 7 继续做 Drawer/审批体验闭环）
+**状态**: ✅ 本轮验收通过（6A Workspace Runtime、6B-6E CLI Adapter、6F Artifact Bridge 均已落地；Phase 7 继续做运行可控性、审批和环境体检）
 **版本**: v3.7
 **更新日期**: 2026-06-06
 **关联 ADR**: [ADR-0005](../../adr/0005-target-architecture.md)、[ADR-0009](../../adr/0009-project-workspace-model.md)
@@ -15,7 +15,7 @@ Phase 5 完成了"已有 Artifact 的工作台能力"（版本链、Diff、在�
 
 Phase 6 回答这三个问题。它引入 **Project** 作为顶层组织实体，实现三个 CLI 工具的专属适配器，并打通从 CLI 输出到消息下方产物卡片流的完整链路。
 
-当前进度：**6A Workspace Runtime、6B-6E CLI Adapter 与 6F Artifact Bridge 核心闭环均已落地**。已落地 Project-first 三栏 UI、Project CRUD、系统目录选择器、Session→Project workspace 查询、文件树、文件读取安全校验、snapshot/diff、静态 preview；同时已接入真实本机 Claude Code / Codex / OpenCode CLI 进程、CLI-only Agent 配置、Codex 官方/中转配置托管、执行轨迹块与 Agent 设置弹窗。6F 已在 CLI 消息完成后扫描回复、执行轨迹和 workspace diff，创建 `web_preview` / `file_tree` / `code_diff` / `document` Artifact，并接入消息下方的 MessageArtifactStrip/ArtifactCard 卡片流；同时补齐文件编辑器、代码片段引用、Artifact 版本管理、会话文件入口和三类 CLI Agent logo 头像。Phase 7 继续处理审批卡片和环境体检。
+当前进度：**6A Workspace Runtime、6B-6E CLI Adapter 与 6F Artifact Bridge 核心闭环均已落地**。已落地 Project-first 三栏 UI、Project CRUD、系统目录选择器、Session→Project workspace 查询、文件树、文件读取安全校验、snapshot/diff、静态 preview；同时已接入真实本机 Claude Code / Codex / OpenCode CLI 进程、CLI-only Agent 配置、Codex 官方/中转配置托管、执行轨迹块与 Agent 设置弹窗。6F 已在 CLI 消息完成后扫描回复、执行轨迹和 workspace diff，创建 `web_preview` / `file_tree` / `code_diff` / `document` Artifact，并接入消息下方的 MessageArtifactStrip/ArtifactCard 卡片流；同时补齐文件编辑器、代码片段引用、Artifact 版本管理、会话文件入口和三类 CLI Agent logo 头像。P1 当前 Artifact 体验以 ADR-0010 为准，Phase 7 继续处理运行可控性、审批卡片和环境体检。
 
 ```text
 创建 Project + 绑定 workspace 目录
@@ -163,7 +163,7 @@ Phase 6 完成后，AgentHub 能明确回答：
 |------|----------|
 | **上游输入** | Phase 3: SessionService、EventBus、BaseAgentAdapter；Phase 5: ArtifactService |
 | **本阶段输出** | Project CRUD API、CLI Agent 执行引擎、Artifact 桥接服务、分层渲染事件流 |
-| **下游消费** | Phase 5: Artifact 版本/Diff/编辑 API；Phase 7: Artifact Drawer、Preview 渲染、Approval Card |
+| **下游消费** | Phase 5: Artifact 版本/Diff/编辑 API；Phase 7: 运行可控性、Approval Card、HealthCheck、MVP 演示脚本 |
 | **未覆盖边界** | SaaS 云端 sandbox（→ P2）；公网部署（→ P2）；完整 Web IDE（不做）；多人实时协同编辑（不做） |
 
 ---
@@ -198,8 +198,9 @@ Phase 6 完成后：
 > - v3.0 (2026-06-04): 按新 Spec 模板全面重构，去 MVP 最小实现限制，全量覆盖
 > - v3.1 (2026-06-04): 记录 Phase 6A 人工验收通过；同步项目创建菜单、系统目录选择器、去除用户可选 project type 的实现口径
 > - v3.2 (2026-06-05): 同步 CLI Adapter 实现基线、Codex 官方/中转配置托管、执行轨迹 UI 与交付文档入口
-> - v3.3 (2026-06-05): 同步 6F Artifact Bridge 新设计：消息完成后扫描回复/轨迹/workspace diff，接入 MessageArtifactStrip 与产物工作台，Phase 7 Drawer 保持为后续深度预览
+> - v3.3 (2026-06-05): 同步 6F Artifact Bridge 新设计：消息完成后扫描回复/轨迹/workspace diff，接入 MessageArtifactStrip 与产物工作台；后续 P1 Artifact 体验已由 ADR-0010 收敛为消息级卡片
 > - v3.4 (2026-06-05): 记录 6F 核心闭环完成与真实 Claude Code 验收：workspace diff/code block/manual rescan → ArtifactService → MessageArtifactStrip/ArtifactCard
 > - v3.5 (2026-06-05): 同步 UI 决策：移除独立产物工作台，ArtifactCard 直接跟随消息展示；diff UI 收敛为 VS Code/GitHub 风格统一视图
 > - v3.6 (2026-06-06): 同步文件编辑器、代码片段引用、Artifact 版本管理、会话文件入口、Agent 状态位置和三类 CLI Agent logo 头像
 > - v3.7 (2026-06-06): 记录本轮验收通过，并新增 Phase 6F Artifact Bridge deliverables 快照
+> - v3.8 (2026-06-06): 同步 ADR-0010 与新版 Phase 7：不再把 Drawer 作为 P1 后续，Phase 7 聚焦运行可控性、审批、环境体检与演示加固

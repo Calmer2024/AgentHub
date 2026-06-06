@@ -62,9 +62,9 @@ Phase 6 核心闭环已完成；剩余边界进入 Phase 7 或持续加固：
 
 - 6B-6E：继续扩充真实 CLI 输出 fixtures，让 Claude Code / Codex / OpenCode 的执行轨迹更完整地呈现具体命令、文件路径、工具参数与 stderr 信号。
 - 6F：CLI 输出与 workspace diff 转 Artifact 的核心闭环已验收，后续只做真实输出样本加固。
-- Phase 7：Artifact Drawer、审批卡片、环境体检和端到端演示闭环。
+- Phase 7：运行可控性、审批卡片、环境体检和端到端演示闭环。
 
-下一步建议优先从 [Phase 7 Spec](../specs/phase7/README.md)、[Artifact Bridge 交付快照](../deliverables/phase6-artifact-bridge/README.md) 与 [CLI Adapter 交付快照](../deliverables/phase6-cli-adapter/README.md) 开始，继续围绕 Drawer/审批体验和真实 CLI 输出样本补强。
+下一步建议优先从 [Phase 7 Spec](../specs/phase7/README.md)、[Artifact Bridge 交付快照](../deliverables/phase6-artifact-bridge/README.md) 与 [CLI Adapter 交付快照](../deliverables/phase6-cli-adapter/README.md) 开始，继续围绕运行可控性、审批体验、环境体检和真实 CLI 输出样本补强。
 
 ---
 
@@ -111,7 +111,7 @@ cd backend && .\venv\Scripts\python.exe test_real_api_codex_smoke.py
 
 当前仍需继续推进：
 
-- Phase 7：Artifact Drawer 深度预览、审批卡片、环境体检和端到端演示脚本。
+- Phase 7：运行可控性、审批卡片、环境体检和端到端演示脚本。
 - 执行轨迹细节：持续收集真实 Claude Code / Codex / OpenCode stdout/stderr，把命令、工具参数、目标文件路径和执行结果展示得更具体。
 - 前端进程控制：为长任务补充显式取消/终止入口。
 - 真实 smoke 标准化：每次验收记录 CLI 版本、认证模式、workspace 文件断言与失败日志。

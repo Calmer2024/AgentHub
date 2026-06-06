@@ -1,134 +1,185 @@
-# Phase 7: UX 体验闭环 + MVP 演示闭环 📋 PLANNED
+# Phase 7: 任务可控性 + 审批 + 环境体检 + 演示闭环
 
-**关联 ADR**: [ADR-0008](../../adr/0008-revised-development-strategy.md) §7
-**关联 PRD**: [PRD-03: User Experience](../../PRD/03-User_Experience.md), [PRD-05: End-to-End Flow](../../PRD/05-End_to_End_Product_Flow.md)
-**依赖**: Phase 4 (消息操作) + Phase 5 (产物管理) + Phase 6 (Workspace Runtime + CLI 适配器 + 产物入口桥接)
-**状态**: 计划中
+**版本**: v3.0
+**创建日期**: 2026-06-06
+**状态**: Draft
+**关联 ADR/PRD**: [ADR-0008](../../adr/0008-revised-development-strategy.md)、[ADR-0009](../../adr/0009-project-workspace-model.md)、[ADR-0010](../../adr/0010-message-level-artifact-experience.md)、[PRD-02](../../PRD/02-Orchestrator_Engine.md)、[PRD-03](../../PRD/03-User_Experience.md)、[PRD-05](../../PRD/05-End_to_End_Product_Flow.md)、[PRD-06](../../PRD/06-MVP_Local_Workspace_Delivery.md)
+**依赖模块**: Phase 4 消息交互闭环、Phase 5 Artifact 版本/编辑、Phase 6 Workspace Runtime + CLI Adapter + Artifact Bridge
+
+> 2026-06-06 重构说明：旧 Phase 7 文档仍围绕右侧 Artifact Drawer、独立产物工作台和旧 Store 收尾展开，已经与当前实现路线不一致。Phase 6F 已验收的基线是：产物与代码变更作为消息级 Artifact 卡片跟随具体 assistant 消息展示，预览/编辑/版本管理通过页面级弹窗和会话文件入口完成。Phase 7 不再重新实现 Drawer，也不再恢复独立产物工作台。
 
 ---
 
-## 1. 全局定位
+## 1. 目标
 
-Phase 7 位于北极星链路的 **用户体验与演示闭环** 段：
+Phase 7 的目标是把 Phase 1-6 已有的聊天、真实 CLI 执行、workspace 文件变更、消息级 Artifact 卡片、文件编辑器、代码引用和版本管理，推进到可答辩、可演示、可中断、可恢复的产品闭环。
+
+当前仍缺的不是“产物展示入口”，而是四类体验闭环能力：
+
+- 运行中的任务可被用户理解、取消、恢复；
+- Orchestrator/Agent 的关键节点可暂停等待用户审批；
+- 本机 CLI、运行时、workspace、系统模型状态可提前体检；
+- 真实 Claude Code 等 CLI 服务路径可被稳定脚本化验收。
+
+**成功标准**（可证伪）：
+
+- [ ] 用户能在一次真实 CLI 任务运行中看到当前 run/task 状态，并能取消正在运行的 CLI 进程。
+- [ ] 需要人工确认的任务能生成 Approval Card；确认后继续，驳回后回到对话修订，并携带 Artifact/代码引用上下文。
+- [ ] `/api/system/health` 能返回 CLI Agent、Node/Python、workspace、系统模型、活跃进程的统一健康状态；前端在创建/发送关键路径前给出阻断或降级提示。
+- [ ] MVP 演示脚本跑通：Project 绑定 workspace → 与 Claude Code 真实对话 → 生成消息级 Artifact → 编辑/引用/版本管理 → 审批继续 → 中枢总结。
+- [ ] 不通过标准：重新引入独立产物工作台、右侧 Artifact Drawer，或只做静态 UI 而不接真实 API/事件/持久化状态。
+
+---
+
+## 2. 全局定位
+
+### 2.1 北极星链路位置
 
 ```text
-Workspace 绑定
-  -> 用户输入
-  -> Orchestrator/Agent 执行
-  -> Artifact Card
-  -> Artifact Drawer 预览
-  -> 局部编辑/版本化
-  -> Approval Card 审批继续
-  -> 最终中枢总结
+Project workspace
+  → CLI Agent / Orchestrator 执行
+  → ArtifactOutputBridge
+  → 消息级 ArtifactCard + FileEditorModal + ArtifactVersionManager
+  → [Phase 7] run/task 可控性 + Approval Card + HealthCheck
+  → 真实服务 MVP 演示闭环
 ```
 
-Phase 7 的目标不是“做一点 UI 打磨”，而是把 Phase 1-6 的能力串成可答辩、可演示、用户能理解的产品闭环。
+### 2.2 已完成与本阶段边界
+
+| 分类 | 当前状态 | Phase 7 处理方式 |
+|------|----------|------------------|
+| 消息级 Artifact 卡片 | Phase 6F 已验收 | 作为输入基线消费，不重做 |
+| file_tree / code_diff / web_preview / document UI | Phase 6F 已验收 | 审批卡片可引用这些产物 |
+| 文件编辑器、代码片段引用、版本管理 | Phase 6F 已验收 | 审批驳回和演示脚本复用 |
+| 独立产物工作台 | 已移除 | 不恢复 |
+| 右侧 Artifact Drawer | P1 当前路线废弃 | 不进入 Phase 7 范围 |
+| 任务运行状态、取消、恢复 | 未完成 | Phase 7A |
+| Human-in-the-loop 审批 | 未完成 | Phase 7B |
+| 统一环境体检 | 未完成 | Phase 7C |
+| 演示脚本与 UX 加固 | 未完成 | Phase 7D |
+
+### 2.3 上下游契约
+
+| 方向 | 模块/事件/API | 本阶段的角色 |
+|------|-------------|------------|
+| **上游输入** | Phase 6 CLI SSE: `agent.process.*`、`agent.output`、`artifact.created` | 识别运行状态、产物、可取消进程 |
+| **上游输入** | Phase 5 Artifact API: versions/diff/save/restore | 审批和演示脚本消费现有版本能力 |
+| **下游产出** | `run.*`、`task.status_changed`、`approval.*`、`system.health.updated` | 前端 Store 和 UI 卡片消费 |
+| **下游产出** | 新 API: runs/cancel、approval、system health | 真实服务验收与前端可控性 |
+| **本阶段不通** | P2 SaaS 沙箱、一键部署、多人权限审批、完整 IDE、右侧 Drawer | 后续阶段或明确不做 |
 
 ---
 
-## 2. 板块目标
+## 3. 子模块索引
 
-实现 PRD-03 定义的完整用户体验：
-- **动态三栏布局**：产品级的生产力工具界面
-- **产物抽屉**：所见即所得的代码/网页预览
-- **人工审批断点**：Human-in-the-loop 的关键交互
-- **环境体检**：系统状态一目了然
-- **MVP 演示脚本**：workspace 绑定后，输入任务并完成 Agent 输出、Artifact 预览、局部编辑、审批继续
-
----
-
-## 3. 子模块
-
-### Module 7A: 动态三栏布局 + 产物抽屉
-
-| 维度 | 内容 |
-|------|------|
-| **Spec** | [02-artifact-drawer.md](02-artifact-drawer.md) |
-| **范围** | 右区 Artifact Drawer (0→40-50% 宽度, 可拖拽), 抽屉内 [代码 Diff]/[网页预览] 双态, 资产卡片增强 |
-| **前端** | `ArtifactDrawer.tsx`, `ArtifactCard.tsx` (增强), 布局容器重构 |
-
-### Module 7B: 人工审批断点
-
-| 维度 | 内容 |
-|------|------|
-| **Spec** | [03-approval-checkpoints.md](03-approval-checkpoints.md) |
-| **范围** | `requires_human_approval` → PAUSED → 前端阻断卡片 + 确认/驳回按钮 + 输入框暂停遮罩 |
-| **后端** | `POST /api/tasks/{id}/approve` (PRD-04 §3.1) |
-| **前端** | `ApprovalCard.tsx` (红色警戒线 + 操作按钮) |
-
-### Module 7C: 环境体检卡片
-
-| 维度 | 内容 |
-|------|------|
-| **Spec** | [04-health-check.md](04-health-check.md) |
-| **范围** | 左栏底部：检测 CLI 工具/运行时可用性 → 绿/红状态指示灯 |
-| **后端** | `GET /api/system/health` (新增) |
-| **前端** | `HealthCheckCard.tsx` |
-
-### Module 7D: Store 拆分 + 全局 UX 打磨
-
-| 维度 | 内容 |
-|------|------|
-| **Spec** | [01-integration.md](01-integration.md) |
-| **范围** | Zustand store: chatStore/sessionStore/searchStore 独立文件; SessionList 搜索跳转; P0/P1 UX 缺陷清零; 全局回归 |
-| **前端** | Store 文件拆分, UX polish |
-| **测试** | 全量回归: backend + frontend + E2E |
+| 模块 | Spec 文档 | 状态 | 核心交付 |
+|------|----------|------|---------|
+| **7A: 运行任务可控性** | [01-runtime-task-control.md](01-runtime-task-control.md) | Draft | 持久化 run/task 状态、取消运行、进程清理、前端运行控制条 |
+| **7B: 人工审批断点** | [02-approval-checkpoints.md](02-approval-checkpoints.md) | Draft | ApprovalCheckpoint 数据模型、确认/驳回 API、聊天流 Approval Card、Artifact/代码引用回流 |
+| **7C: 环境体检** | [03-environment-health.md](03-environment-health.md) | Draft | `/api/system/health`、CLI/Node/Python/workspace/DeepSeek/进程状态、HealthCheckCard |
+| **7D: 演示与 UX 加固** | [04-mvp-demo-ux-hardening.md](04-mvp-demo-ux-hardening.md) | Draft | Store 拆分、P0/P1 UX 清零、真实 cc 演示脚本、自动化验收矩阵 |
 
 ---
 
-## 4. 验收标准
+## 4. 已删除的旧 Phase 7 内容
 
-- [ ] **7A-1**: 点击资产卡片 [预览产物] → 右区抽屉平滑滑出（默认 40% 宽度）
-- [ ] **7A-2**: 抽屉左侧边缘可拖拽调整宽度（min 30%, max 60%）
-- [ ] **7A-3**: 抽屉内 [网页预览] 模式 → IFrame 真实渲染 HTML
-- [ ] **7A-4**: 抽屉内 [代码 Diff] 模式 → 文件树 + Monaco Editor 并排对比
-- [ ] **7A-5**: 再次点击 [预览产物] 或点击抽屉外区域 → 抽屉收起
-- [ ] **7B-1**: Orchestrator 任务 `requires_human_approval=true` → 完成时状态 PAUSED → 前端显示阻断卡片
-- [ ] **7B-2**: 阻断卡片: 红色/橙色边框 + "架构设计已完成，请审批" + [确认] [驳回] 按钮
-- [ ] **7B-3**: 点击 [确认] → 任务 COMPLETED → 自动触发下游依赖任务
-- [ ] **7B-4**: 点击 [驳回] → 输入框可用 → 用户与 Agent 讨论修改 → 再次提交审批
-- [ ] **7C-1**: 左栏底部环境体检卡片 → Claude Code/Node.js/Python 状态指示灯
-- [ ] **7C-2**: 新会话创建时自动检测 → 缺失工具红字提示
-- [ ] **7D-1**: chatStore/sessionStore/searchStore 独立文件，功能无回归
-- [ ] **7D-2**: 搜索面板点击结果 → 切换会话 → 滚动到消息 → 闪烁高亮
-- [ ] **7D-3**: 全量回归 (pytest + vitest + tsc --noEmit) 零失败
-- [ ] **7E-1**: MVP 演示脚本跑通：workspace 绑定 → 输入任务 → Agent 输出 Artifact → 打开 Drawer → 编辑并确认新版本 → 审批继续 → 中枢总结
+| 旧内容 | 删除原因 | 当前替代方案 |
+|--------|----------|--------------|
+| `ArtifactDrawer.tsx` / 右侧抽屉 | 与 2026-06-06 用户确认的消息级卡片路线冲突 | `MessageArtifactStrip` + `ArtifactCard` 页面级弹窗 |
+| 独立产物工作台 | 已在 Phase 6F 移除并验收 | Chat Header 文件按钮打开 `SessionArtifactManager` |
+| Drawer 内左右/上下 Diff 模式 | 已被 VS Code/GitHub 风格 unified diff 替代 | `DiffViewer` 统一视图 |
+| Drawer 内 CodeSelector 在线编辑 | 旧组件已删除 | `FileEditorModal` + CodeMirror + 代码引用 |
+| 起始/变更版本选择器 | 已确认不需要 | 最新版本固定与上一版本比较，版本管理另开专属界面 |
+| “Store 收尾”泛泛条目 | 不足以指导实现 | 拆入 run/approval/health/demo 四个具体 Store 契约 |
 
 ---
 
-## 5. MVP 演示脚本
+## 5. Phase 7 总体验结构
 
-Phase 7 完成时必须能演示：
-
-1. 新建协作任务：“做一个登录页，要求有邮箱、密码、提交按钮。”
-2. 系统创建或绑定本机 workspace，并在会话中展示 workspace 状态。
-3. Orchestrator 创建任务或选择 Agent，聊天流展示执行状态。
-4. Agent 在 workspace 中执行，输出或文件变更被 Phase 6 桥接为 Artifact，聊天流出现 `LoginPage v1` 卡片。
-5. 点击卡片打开右侧 Drawer，网页预览或代码 Diff 可见。
-6. 点击“引用此版本”或在 Drawer 选中按钮代码，输入“把提交按钮改成红色”。
-7. 系统生成 Diff 预览，用户确认后创建 `v2`。
-8. 如果任务需要审批，Approval Card 打开当前 Artifact，用户确认后下游任务继续。
-9. Orchestrator 输出最终总结，说明 workspace、产物、版本和后续可做事项。
-
----
-
-## 6. 上下游契约
-
-| 方向 | 契约 |
-|------|------|
-| 上游输入 | Phase 4 消息引用/搜索、Phase 5 Artifact API、Phase 6 workspace/preview 状态、`artifact.created` 与 CLI 事件 |
-| 本阶段输出 | 产品级三栏 UI、Drawer 状态、ApprovalCard 操作、环境健康状态、端到端 E2E |
-| 下游消费 | MVP 答辩演示、后续 P2 部署/多端扩展 |
-| 未覆盖边界 | 部署发布、图片/附件上传、桌面端、移动端 |
-
----
-
-## 7. 接口契约
-
-### 新增 API
-
+```text
+┌─────────────────┬───────────────────┬────────────────────────────────┐
+│ ProjectSidebar   │ SessionSidebar     │ ChatWorkspace                  │
+│                 │                   │ ┌────────────────────────────┐ │
+│ CLI Agent 状态   │ 会话列表/搜索       │ │ ChatHeader                 │ │
+│ Project 列表     │                   │ │  Search + Files + Health   │ │
+│ HealthCheckCard  │                   │ ├────────────────────────────┤ │
+│                 │                   │ │ MessageList                │ │
+│                 │                   │ │  MessageBubble             │ │
+│                 │                   │ │  RuntimeControlStrip       │ │
+│                 │                   │ │  MessageArtifactStrip      │ │
+│                 │                   │ │  ApprovalCard              │ │
+│                 │                   │ ├────────────────────────────┤ │
+│                 │                   │ │ ChatInput                  │ │
+│                 │                   │ └────────────────────────────┘ │
+└─────────────────┴───────────────────┴────────────────────────────────┘
 ```
-GET  /api/system/health    → 200 { "claude": "available", "node": "available", ... }
-POST /api/tasks/{id}/approve → 200 { "status": "COMPLETED" }
-POST /api/tasks/{id}/reject  → 200 { "status": "PENDING" }
-```
+
+视觉原则：
+
+- 保持当前紧凑生产力工具风格，不做营销式 hero 或大面积装饰。
+- 新增 UI 都使用 lucide 图标，不使用 emoji 或文本占位。
+- 操作入口靠近上下文：运行控制在正在回答的消息/头像旁，审批在需要审批的消息下方，健康状态在左栏和 ChatHeader 提供紧凑入口。
+- 所有弹层都使用页面级 portal overlay，不能被消息气泡、iframe 或滚动容器裁剪。
+
+---
+
+## 6. 全局验收矩阵
+
+| 编号 | 验收项 | 对应模块 |
+|------|--------|----------|
+| AC-P7-01 | 开始一次真实 Claude Code 对话后，前端显示 run/task 正在运行，并能通过取消按钮终止进程 | 7A |
+| AC-P7-02 | 取消后后端进程不存在，assistant 消息标记为 cancelled，输入框恢复可用 | 7A |
+| AC-P7-03 | 需要审批的任务完成后生成 Approval Card，后续任务不会自动开始 | 7B |
+| AC-P7-04 | 点击审批卡片主区域能打开现有 Artifact 预览/版本管理，而不是 Drawer | 7B |
+| AC-P7-05 | 审批确认后任务状态变为 approved/completed，并释放下游任务 | 7B |
+| AC-P7-06 | 审批驳回后 ChatInput 自动带上 Artifact/代码引用，用户可直接描述修改意见 | 7B |
+| AC-P7-07 | `/api/system/health` 返回 overall + items + blockingReasons，且不暴露任何密钥值 | 7C |
+| AC-P7-08 | CLI 缺失或 workspace 不可写时，创建/发送关键路径显示明确阻断提示 | 7C |
+| AC-P7-09 | 真实 cc 演示脚本可在本机服务完整跑通并生成验收日志 | 7D |
+| AC-P7-10 | 全量回归：backend pytest、frontend tsc/vitest、E2E smoke 均通过 | 7D |
+
+---
+
+## 7. 测试策略
+
+| 层级 | 最低覆盖 | 说明 |
+|------|----------|------|
+| 后端单元 | 30 条 | run/task 状态机、approval 状态转换、health probe 聚合、取消幂等 |
+| API 测试 | 20 条 | runs、cancel、approval approve/reject、system health、错误态 |
+| 前端组件 | 20 条 | RuntimeControlStrip、ApprovalCard、HealthCheckCard、ChatInput 引用回流 |
+| E2E | 5 场景 | 真实服务或测试 CLI：运行→取消、审批→确认、审批→驳回、健康阻断、完整 cc 演示 |
+| 真实服务验收 | 1 场景 | Claude Code 真实写入 workspace，覆盖 Artifact、编辑、审批、总结 |
+
+---
+
+## 8. 依赖
+
+| 依赖模块 | 需要的接口 | 当前状态 |
+|---------|-----------|---------|
+| Phase 6 CLI Runtime | `cli_process_manager.terminate_session()`、`active_snapshots()`、`agent.process.*` SSE | 已部分就绪 |
+| Phase 6 Artifact Bridge | `artifact.created`、`GET /api/sessions/{id}/artifacts`、消息级 ArtifactCard | 已验收 |
+| Phase 5 ArtifactService | `save`、`restore`、`versions`、`diff` | 已验收 |
+| Phase 3 Orchestrator | DAG phase/task 概念、summary 事件 | 已有基础，但缺持久化 run/task |
+| Agent Registry | `/api/agents`、`/api/agents/check-executable` | 已就绪，可被 Health API 聚合 |
+| System LLM | `system_model_status()` | 已就绪，可被 Health API 聚合 |
+
+---
+
+## 9. Non-Goals
+
+| 不做的事 | 原因 | 后续归属 |
+|---------|------|----------|
+| 不实现右侧 Artifact Drawer | 当前 P1 产品路线改为消息级 Artifact 卡片 + 页面级弹窗 | ADR-0010 |
+| 不恢复独立产物工作台 | 已被会话文件入口和消息级卡片替代 | 无 |
+| 不做多人审批权限/审计报表 | MVP 只需单用户本机流程 | P2 企业增强 |
+| 不自动安装 CLI/Node/Python | 本机 CLI 由用户外部安装 | 文档/引导 |
+| 不做云端沙箱/一键部署 | P1 桌面版范围外 | P2 SaaS |
+| 不做完整 IDE 调试器 | 当前编辑器只承担文件编辑和代码引用 | 远期可评估 |
+
+---
+
+## 10. 版本历史
+
+- v1.0 (2026-06-03): 旧版 Phase 7，围绕 Artifact Drawer、审批、环境体检、Store 收尾。
+- v2.0 (2026-06-05): 补充 Phase 6F 后的 Artifact Bridge 下游预期。
+- v3.0 (2026-06-06): 删除陈旧 Drawer/产物工作台方向，按当前实现基线重构为运行可控性、审批、环境体检、演示加固四个模块。

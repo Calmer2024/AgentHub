@@ -12,10 +12,10 @@
 Artifact 已存在
   -> 创建/查询版本链
   -> 生成版本 Diff
-  -> Phase 7 Drawer 展示历史与差异
+  -> ArtifactVersionManager / ArtifactCard 展示历史与差异
 ```
 
-本模块只处理已有 Artifact 的版本追溯和 Diff 展示，不负责 Agent 输出检测、Artifact Card 创建或 Drawer 布局。
+本模块只处理已有 Artifact 的版本追溯和 Diff 展示，不负责 Agent 输出检测或消息级 Artifact Card 创建。
 
 ## 2. API
 

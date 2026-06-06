@@ -4,7 +4,7 @@
 
 ## 项目简介
 
-AgentHub 采用 IM 聊天作为核心交互范式，用户通过新建对话、发送消息的方式与不同 AI Agent 进行交互。支持单聊、群聊（@Agent）、Orchestrator 自动协调、产物预览等能力。最新产品闭环以 [PRD-05 端到端产品闭环](docs/PRD/05-End_to_End_Product_Flow.md) 为准：用户输入任务后，系统要打通 Agent 执行、Artifact Card、右侧 Drawer 预览、局部编辑、版本化和审批继续。
+AgentHub 采用 IM 聊天作为核心交互范式，用户通过新建对话、发送消息的方式与不同 AI Agent 进行交互。支持单聊、群聊（@Agent）、Orchestrator 自动协调、产物预览等能力。最新产品闭环以 [PRD-05 端到端产品闭环](docs/PRD/05-End_to_End_Product_Flow.md) 为准；P1 当前 Artifact 体验以 [ADR-0010](docs/adr/0010-message-level-artifact-experience.md) 为准：用户输入任务后，系统要打通 Agent 执行、消息级 Artifact Card、页面级预览/编辑/版本管理和审批继续。
 
 底层 Agent 架构以 [PRD-01 CLI Adapter](docs/PRD/01-Architecture_Adapter.md) 为准：AgentHub 不是裸调 HTTP LLM API，而是通过 PTY/subprocess 封装真实 CLI 工具（Anthropic 官方 `claude` CLI、开源 `opencode` 等），提供 stdin/stdout 桥接、ANSI 清洗、交互式拦截。这是项目唯一的 Agent 架构。
 
@@ -70,7 +70,7 @@ AgentHub/
 | Phase 4 | 消息交互闭环（Reply/Regenerate/Pin/Search） | ✅ 已完成 |
 | Phase 5 | 产物工作台能力（版本链 + Diff + 在线编辑） | ✅ 已完成 |
 | Phase 6 | Workspace Runtime + CLI Agent 适配器 + 产物入口桥接 | ✅ 核心闭环验收通过 |
-| Phase 7 | UX 体验闭环 + MVP 演示闭环 | 📋 计划中 |
+| Phase 7 | 任务可控性 + 审批 + 环境体检 + 演示闭环 | 📋 计划中 |
 
 ### Phase 4 能力
 
@@ -91,7 +91,7 @@ AgentHub/
 | DeepSeek system model tool calling + 上下文降级 | ✅ |
 | ArtifactService 接入 EventBus (`artifact.created` / `artifact.version_created`) | ✅ |
 
-Phase 5 的边界也已经在文档中明确：它完成的是“对已有 Artifact 的工作台能力”。Phase 6 已补齐 Project-first workspace runtime、真实 CLI 执行和 Artifact Bridge：CLI 产物会以消息下方卡片出现，并可继续编辑、引用和版本管理。Phase 7 继续做 Drawer 深度预览、审批卡片和环境体检。
+Phase 5 的边界也已经在文档中明确：它完成的是“对已有 Artifact 的工作台能力”。Phase 6 已补齐 Project-first workspace runtime、真实 CLI 执行和 Artifact Bridge：CLI 产物会以消息下方卡片出现，并可继续编辑、引用和版本管理。Phase 7 继续做运行取消/恢复、审批卡片、环境体检和真实演示加固。
 
 ### Phase 6 能力
 

@@ -65,4 +65,4 @@ Phase 3 在基础设施之上构建了完整的 Orchestrator 智能调度引擎�
 | 产物版本 + Diff | Phase 5 |
 | 产物在线编辑 (Tool Calling) | Phase 5 |
 | CLI PTY 适配器 | Phase 6 |
-| 三栏布局 + 产物抽屉 | Phase 7 |
+| 运行可控性 + 审批 + 环境体检 | Phase 7 |

@@ -40,7 +40,7 @@
   → stdin 注入 prompt → stdout 读取 → ANSI 清洗 → 交互拦截 → 分层解析
   → 标准化事件 → SSE/WebSocket 推送到前端
   → 前端分层渲染（文本→消息、进度→状态条、产物→Card、交互→卡片）
-  → Artifact Bridge 创建 Artifact → Drawer
+  → Artifact Bridge 创建 Artifact → 消息级 ArtifactCard
 ```
 
 ### 2.2 上下游契约
@@ -49,7 +49,7 @@
 |------|-------------|------------|
 | **上游输入** | WorkspaceService.get_workspace_path(session_id) → cwd；AgentConfig（executable、init_args、env vars）；用户聊天消息 / Orchestrator 子任务 | 消费 workspace_path 作为进程 cwd；消费 AgentConfig 作为进程启动参数 |
 | **下游产出** | `agent.output`（文本块）、`interactive_prompt`（确认请求）、`artifact.detected`（产物信号）、进程生命周期事件（started/completed/timeout） | 产出标准化事件供 SSE 推送和 Artifact Bridge 消费 |
-| **本模块不通** | 不创建 Artifact 数据库记录（→ Artifact Bridge）；不渲染 Drawer（→ Phase 7）；不在 AgentHub 内安装 CLI 工具（用户在外部安装） | |
+| **本模块不通** | 不创建 Artifact 数据库记录（→ Artifact Bridge）；不渲染消息级 ArtifactCard（→ Phase 6F）；不在 AgentHub 内安装 CLI 工具（用户在外部安装） | |
 
 ---
 
@@ -410,7 +410,7 @@ CLI 进程: stdout 输出 "... Do you want to run this? (y/n) "
 | 不写 Artifact 数据库记录 | Adapter 只上报 artifact_signal | Phase 6F Artifact Bridge |
 | 不做 CLI 工具的多版本管理 | 超出范围 | 用户 |
 | 不做 CLI 工具的输出翻译/多语言 | 保持原始输出 | — |
-| 不渲染 Drawer / 审批卡片 | 下游链路 | Phase 7 |
+| 不渲染消息级 ArtifactCard / 审批卡片 | 下游链路 | Phase 6F / Phase 7 |
 | 不做远程 CLI 执行（SSH 到远端执行） | P1 本机版范围外 | P2 |
 
 ---
