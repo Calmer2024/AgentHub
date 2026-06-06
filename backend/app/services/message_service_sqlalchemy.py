@@ -37,7 +37,11 @@ class SqlAlchemyMessageService(MessageService):
         self.context_manager = context_manager or ContextManager()
 
     async def get_session_messages(
-        self, session_id: str, limit: int = 50, before: str | None = None,
+        self,
+        session_id: str,
+        limit: int = 50,
+        before: str | None = None,
+        include_internal: bool = False,
     ) -> list[MessageRead]:
         stmt: Select[tuple[DBMessage]] = (
             select(DBMessage)
@@ -45,6 +49,8 @@ class SqlAlchemyMessageService(MessageService):
             .order_by(DBMessage.created_at.asc(), DBMessage.id.asc())
             .limit(limit)
         )
+        if not include_internal:
+            stmt = stmt.where(DBMessage.content_type != "orchestrator_task_result")
         if before:
             before_msg = await self.db.get(DBMessage, before)
             if before_msg and before_msg.created_at:

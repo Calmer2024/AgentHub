@@ -4,8 +4,9 @@ import sys
 import asyncio
 from pathlib import Path
 import pytest
+from sqlalchemy import select
 
-from app.models import AgentConfig
+from app.models import AgentConfig, Message
 from app.agents.cli_events import CliEvent
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
@@ -535,11 +536,24 @@ class TestGroupSession:
 
         completed = await wait_execution_completed(test_client, execution_event["executionId"])
         assert completed["status"] == "completed"
+        assert completed["tasks"][0]["resultMessageId"]
 
         messages = (await test_client.get(f"/api/sessions/{sid}/messages")).json()
+        assert not any(message["contentType"] == "orchestrator_task_result" for message in messages)
         approval = messages[-1]
         assert approval["metadata"]["orchestratorAction"]["action"] == "approve_plan"
         assert approval["metadata"]["orchestratorExecution"]["status"] == "running"
+
+        rows = await db_session.execute(
+            select(Message).where(
+                Message.session_id == sid,
+                Message.content_type == "orchestrator_task_result",
+            )
+        )
+        task_results = list(rows.scalars().all())
+        assert len(task_results) == 1
+        metadata = json.loads(task_results[0].metadata_json)
+        assert metadata["orchestratorTaskResult"]["taskId"] == "T1"
 
     async def test_orchestrator_followup_revision_outputs_new_draft_plan(
         self, test_client, test_agent, db_session, monkeypatch,

@@ -9,11 +9,16 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import json
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from ..database import AsyncSessionLocal
 from ..domain.orchestrator_plan import normalize_plan, validate_plan
+from ..models import Message as DBMessage
 
 
 class PlanExecutionError(ValueError):
@@ -40,9 +45,14 @@ class MockTaskRunner:
 
 
 class OrchestratorExecutionRegistry:
-    def __init__(self, task_runner: TaskRunner | None = None):
+    def __init__(
+        self,
+        task_runner: TaskRunner | None = None,
+        session_factory: Callable[[], AsyncSession] | None = None,
+    ):
         self._executions: dict[str, dict[str, Any]] = {}
         self._task_runner = task_runner or MockTaskRunner()
+        self._session_factory = session_factory or AsyncSessionLocal
 
     def create_execution(
         self,
@@ -192,6 +202,7 @@ class OrchestratorExecutionRegistry:
                 task["completedAt"] = completed_at
                 task["updatedAt"] = completed_at
                 task["summary"] = summary
+                task["resultMessageId"] = await self._persist_task_result(execution, task, summary)
                 execution["events"].append({
                     "type": "task_completed",
                     "status": "completed",
@@ -215,6 +226,43 @@ class OrchestratorExecutionRegistry:
             "timestamp": completed_at,
             "message": "模拟 Scheduler 已按 DAG 完成全部任务。",
         })
+
+    async def _persist_task_result(
+        self,
+        execution: dict[str, Any],
+        task: dict[str, Any],
+        summary: str,
+    ) -> str:
+        message_id = f"msg_task_{uuid.uuid4().hex[:12]}"
+        metadata = {
+            "orchestratorTaskResult": {
+                "executionId": execution["executionId"],
+                "planId": execution["planId"],
+                "taskId": task["taskId"],
+                "title": task["title"],
+                "status": task["status"],
+                "summary": summary,
+                "assignedAgentId": task.get("assignedAgentId"),
+                "assignedAgentName": task.get("assignedAgentName"),
+                "dependsOn": task.get("dependsOn") or [],
+                "requiredSkills": task.get("requiredSkills") or [],
+            }
+        }
+        async with self._session_factory() as db:
+            db.add(DBMessage(
+                id=message_id,
+                session_id=execution["sessionId"],
+                role="system",
+                content=summary,
+                content_type="orchestrator_task_result",
+                agent_name=task.get("assignedAgentName"),
+                source_type="system",
+                source_id=task.get("assignedAgentId"),
+                source_name="Scheduler",
+                metadata_json=json.dumps(metadata, ensure_ascii=False),
+            ))
+            await db.commit()
+        return message_id
 
     @staticmethod
     def _validate_execution_readiness(plan: dict[str, Any], active_agent_ids: set[str]) -> list[str]:
@@ -242,6 +290,7 @@ class OrchestratorExecutionRegistry:
             "completedAt": None,
             "updatedAt": None,
             "summary": None,
+            "resultMessageId": None,
             "assignedAgentId": task.get("assigned_agent_id"),
             "assignedAgentName": task.get("assigned_agent_name"),
             "dependsOn": list(task.get("depends_on") or []),

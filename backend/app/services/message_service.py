@@ -13,7 +13,11 @@ class MessageService(ABC):
 
     @abstractmethod
     async def get_session_messages(
-        self, session_id: str, limit: int = 50, before: str | None = None
+        self,
+        session_id: str,
+        limit: int = 50,
+        before: str | None = None,
+        include_internal: bool = False,
     ) -> list[MessageRead]:
         ...
 

@@ -4,8 +4,9 @@ import uuid
 from pathlib import Path
 
 import pytest
+from sqlalchemy import select
 
-from app.models import AgentConfig, Project, Session
+from app.models import AgentConfig, Message, Project, Session
 
 
 async def _wait_execution_completed(test_client, execution_id: str, attempts: int = 20) -> dict:
@@ -125,6 +126,27 @@ async def test_execute_plan_starts_async_scheduler_then_completes(test_client, d
     assert completed["tasks"][0]["summary"] == (
         "T1 已完成：模拟执行 后端专家 / required_skills=backend_engineer"
     )
+    assert all(task["resultMessageId"] for task in completed["tasks"])
+
+    rows = await db_session.execute(
+        select(Message)
+        .where(
+            Message.session_id == session_id,
+            Message.content_type == "orchestrator_task_result",
+        )
+        .order_by(Message.created_at.asc(), Message.id.asc())
+    )
+    task_messages = list(rows.scalars().all())
+    assert len(task_messages) == 2
+    metadata = json.loads(task_messages[0].metadata_json)
+    result = metadata["orchestratorTaskResult"]
+    assert result["executionId"] == data["executionId"]
+    assert result["planId"] == "plan_exec_001"
+    assert result["taskId"] == "T1"
+    assert result["assignedAgentId"] == "agent_backend_exec"
+
+    visible_messages = (await test_client.get(f"/api/sessions/{session_id}/messages")).json()
+    assert not any(message["contentType"] == "orchestrator_task_result" for message in visible_messages)
 
 
 @pytest.mark.asyncio
