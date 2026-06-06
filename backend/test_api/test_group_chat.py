@@ -514,7 +514,7 @@ class TestGroupSession:
 
         assert execution_event is not None
         assert execution_event["planId"] == "plan_followup_001"
-        assert execution_event["status"] == "pending"
+        assert execution_event["status"] == "completed"
         assert "已确认计划 plan_followup_001" in visible
         assert "approve_plan" in prompts[1]
         assert "上一版 draft plan" in prompts[1]
@@ -522,7 +522,7 @@ class TestGroupSession:
         messages = (await test_client.get(f"/api/sessions/{sid}/messages")).json()
         approval = messages[-1]
         assert approval["metadata"]["orchestratorAction"]["action"] == "approve_plan"
-        assert approval["metadata"]["orchestratorExecution"]["status"] == "pending"
+        assert approval["metadata"]["orchestratorExecution"]["status"] == "completed"
 
     async def test_orchestrator_followup_revision_outputs_new_draft_plan(
         self, test_client, test_agent, db_session, monkeypatch,

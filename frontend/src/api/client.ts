@@ -11,6 +11,7 @@ import type {
   BuildOrchestratorInputRequest, BuildOrchestratorInputResult,
   GenerateOrchestratorPlanRequest, GenerateOrchestratorPlanResult,
   ParseOrchestratorOutputRequest, ParseOrchestratorOutputResult,
+  OrchestratorExecution,
 } from "../types";
 import { parseDagPhases, parseTasks } from "./orchestratorEvents";
 
@@ -753,6 +754,15 @@ export async function generateOrchestratorPlan(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(text || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function fetchOrchestratorExecution(executionId: string): Promise<OrchestratorExecution> {
+  const res = await fetch(`${API_BASE}/orchestrator/executions/${encodeURIComponent(executionId)}`);
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(text || `HTTP ${res.status}`);

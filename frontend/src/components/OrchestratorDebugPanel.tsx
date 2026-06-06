@@ -1,8 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { buildOrchestratorInput, parseOrchestratorOutput, seedDefaultAgents } from "../api/client";
+import {
+  buildOrchestratorInput,
+  fetchOrchestratorExecution,
+  parseOrchestratorOutput,
+  seedDefaultAgents,
+} from "../api/client";
 import type {
   AgentConfig,
   BuildOrchestratorInputResult,
+  OrchestratorExecution,
+  OrchestratorExecutionTask,
   OrchestratorDebugAgent,
   OrchestratorPlanTask,
   ParseOrchestratorOutputResult,
@@ -32,7 +39,9 @@ export function OrchestratorDebugPanel({ agents, onAgentsChanged }: Props) {
   const [bridgeInput, setBridgeInput] = useState<BuildOrchestratorInputResult | null>(null);
   const [rawOutput, setRawOutput] = useState("");
   const [parsed, setParsed] = useState<ParseOrchestratorOutputResult | null>(null);
-  const [loading, setLoading] = useState<"build" | "parse" | "seed" | null>(null);
+  const [executionId, setExecutionId] = useState("");
+  const [execution, setExecution] = useState<OrchestratorExecution | null>(null);
+  const [loading, setLoading] = useState<"build" | "parse" | "seed" | "execution" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [seedMessage, setSeedMessage] = useState<string | null>(null);
 
@@ -96,6 +105,20 @@ export function OrchestratorDebugPanel({ agents, onAgentsChanged }: Props) {
       }));
     } catch (err) {
       setError(err instanceof Error ? err.message : "解析调度器输出失败");
+    } finally {
+      setLoading(null);
+    }
+  };
+
+  const lookupExecution = async () => {
+    if (!executionId.trim()) return;
+    setLoading("execution");
+    setError(null);
+    try {
+      setExecution(await fetchOrchestratorExecution(executionId.trim()));
+    } catch (err) {
+      setExecution(null);
+      setError(err instanceof Error ? err.message : "查询执行状态失败");
     } finally {
       setLoading(null);
     }
@@ -298,6 +321,32 @@ export function OrchestratorDebugPanel({ agents, onAgentsChanged }: Props) {
             </button>
           </section>
 
+          <section className="space-y-3 border border-[#d8d8cc] bg-white p-4">
+            <div>
+              <h3 className="text-sm font-semibold text-[#30362f]">执行状态查询</h3>
+              <p className="mt-1 text-xs leading-5 text-[#697166]">
+                输入批准计划后返回的 exec_xxx，查看模拟 Scheduler 的 DAG 推进结果。
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <input
+                value={executionId}
+                onChange={(e) => setExecutionId(e.target.value)}
+                className="min-w-0 flex-1 border border-[#c9cbbf] bg-[#fbfbf7] px-3 py-2 font-mono text-xs outline-none transition focus:border-[#49624a] focus:ring-2 focus:ring-[#49624a]/15"
+                placeholder="exec_xxxxxxxxxxxx"
+              />
+              <button
+                type="button"
+                onClick={lookupExecution}
+                disabled={loading !== null || !executionId.trim()}
+                className="shrink-0 border border-[#1f2421] bg-white px-3 py-2 text-xs font-semibold text-[#1f2421] transition hover:bg-[#eef0e8] disabled:cursor-not-allowed disabled:border-[#c9cbbf] disabled:text-[#9ca397]"
+              >
+                {loading === "execution" ? "查询中..." : "查询"}
+              </button>
+            </div>
+            {execution && <ExecutionStatusCard execution={execution} />}
+          </section>
+
           {error && (
             <div className="border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
               {error}
@@ -320,6 +369,94 @@ export function OrchestratorDebugPanel({ agents, onAgentsChanged }: Props) {
       </div>
     </div>
   );
+}
+
+function ExecutionStatusCard({ execution }: { execution: OrchestratorExecution }) {
+  return (
+    <div className="space-y-3 border border-[#ecece4] bg-[#fbfbf7] p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="font-mono text-[11px] text-[#6f766d]">{execution.executionId}</p>
+          <p className="mt-1 text-sm font-semibold text-[#1f2421]">{execution.planId}</p>
+        </div>
+        <ExecutionStatusBadge status={execution.status} />
+      </div>
+
+      <div className="grid gap-2 text-[11px] text-[#697166] sm:grid-cols-2">
+        <p>任务数：{execution.tasks.length}</p>
+        <p>事件数：{execution.events.length}</p>
+        <p>开始：{shortTime(execution.startedAt)}</p>
+        <p>完成：{shortTime(execution.completedAt)}</p>
+      </div>
+
+      <div className="space-y-2">
+        {execution.tasks.map((task) => (
+          <ExecutionTaskRow key={task.taskId} task={task} />
+        ))}
+      </div>
+
+      <details>
+        <summary className="cursor-pointer text-xs font-semibold text-[#49624a]">查看事件日志 / JSON</summary>
+        <div className="mt-2 space-y-2">
+          <div className="max-h-44 overflow-auto border border-[#d8d8cc] bg-white p-2">
+            {execution.events.map((event, index) => (
+              <p key={`${event.type}-${index}`} className="border-b border-[#ecece4] py-1 text-[11px] leading-5 text-[#4f594f] last:border-b-0">
+                <span className="font-mono text-[#1f2421]">{event.type}</span>
+                {typeof event.phase === "number" && <span> · phase {event.phase}</span>}
+                <span> · {event.message}</span>
+              </p>
+            ))}
+          </div>
+          <pre className="max-h-80 overflow-auto whitespace-pre-wrap bg-[#1f2421] p-3 font-mono text-[11px] leading-5 text-[#e8eadf]">
+            {JSON.stringify(execution, null, 2)}
+          </pre>
+        </div>
+      </details>
+    </div>
+  );
+}
+
+function ExecutionTaskRow({ task }: { task: OrchestratorExecutionTask }) {
+  return (
+    <article className="border border-[#d8d8cc] bg-white px-3 py-2">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold text-[#30362f]">{task.taskId} · {task.title}</p>
+          <p className="mt-1 text-[11px] leading-5 text-[#697166]">
+            @{task.assignedAgentName ?? task.assignedAgentId ?? "未分配"} · 依赖：{task.dependsOn.length ? task.dependsOn.join(" / ") : "无"}
+          </p>
+        </div>
+        <ExecutionStatusBadge status={task.status} compact />
+      </div>
+      {task.summary && (
+        <p className="mt-2 bg-[#eef0e8] px-2 py-1.5 text-[11px] leading-5 text-[#384438]">
+          {task.summary}
+        </p>
+      )}
+    </article>
+  );
+}
+
+function ExecutionStatusBadge({ status, compact = false }: { status: string; compact?: boolean }) {
+  const cls = status === "completed"
+    ? "border-green-200 bg-green-50 text-green-700"
+    : status === "running"
+      ? "border-blue-200 bg-blue-50 text-blue-700"
+      : status === "failed" || status === "error"
+        ? "border-red-200 bg-red-50 text-red-700"
+        : "border-amber-200 bg-amber-50 text-amber-700";
+  return (
+    <span className={`shrink-0 border px-2 py-1 text-[11px] font-semibold ${cls} ${compact ? "" : "uppercase tracking-[0.12em]"}`}>
+      {status}
+    </span>
+  );
+}
+
+function shortTime(value?: string | null) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString();
 }
 
 function EmptyState() {

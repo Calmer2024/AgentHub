@@ -474,3 +474,48 @@ export interface GenerateOrchestratorPlanResult
     model: string;
   };
 }
+
+export interface OrchestratorExecutionTask {
+  taskId: string;
+  title: string;
+  goal: string;
+  status: "pending" | "running" | "completed" | "failed" | "error" | string;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  updatedAt?: string | null;
+  summary?: string | null;
+  assignedAgentId?: string | null;
+  assignedAgentName?: string | null;
+  dependsOn: string[];
+  requiredSkills: string[];
+  needsApproval: boolean;
+  isBlocking: boolean;
+  expectedOutputs: string[];
+  acceptanceCriteria: string[];
+}
+
+export interface OrchestratorExecutionEvent {
+  type: string;
+  status: string;
+  timestamp: string;
+  message: string;
+  phase?: number;
+  taskId?: string;
+  taskIds?: string[];
+  remainingTaskIds?: string[];
+}
+
+export interface OrchestratorExecution {
+  executionId: string;
+  sessionId: string;
+  planId: string;
+  status: "pending" | "running" | "completed" | "failed" | "error" | string;
+  createdAt: string;
+  updatedAt: string;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  tasks: OrchestratorExecutionTask[];
+  events: OrchestratorExecutionEvent[];
+  validation: OrchestratorValidation;
+  plan?: OrchestratorPlan;
+}

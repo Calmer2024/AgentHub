@@ -83,7 +83,7 @@ def _valid_plan() -> dict:
 
 
 @pytest.mark.asyncio
-async def test_execute_plan_creates_pending_execution(test_client, db_session):
+async def test_execute_plan_runs_simulated_dag_to_completion(test_client, db_session):
     session_id = await _seed_session_with_agents(db_session)
 
     res = await test_client.post("/api/orchestrator/plans/execute", json={
@@ -96,10 +96,68 @@ async def test_execute_plan_creates_pending_execution(test_client, db_session):
     assert data["executionId"].startswith("exec_")
     assert data["sessionId"] == session_id
     assert data["planId"] == "plan_exec_001"
-    assert data["status"] == "pending"
-    assert [task["status"] for task in data["tasks"]] == ["pending", "pending"]
+    assert data["status"] == "completed"
+    assert data["startedAt"] is not None
+    assert data["completedAt"] is not None
+    assert [task["status"] for task in data["tasks"]] == ["completed", "completed"]
     assert data["tasks"][1]["dependsOn"] == ["T1"]
+    assert data["tasks"][0]["summary"] == (
+        "T1 已完成：模拟执行 后端专家 / required_skills=backend_engineer"
+    )
     assert data["validation"]["ok"] is True
+
+    lookup = await test_client.get(f"/api/orchestrator/executions/{data['executionId']}")
+    assert lookup.status_code == 200
+    assert lookup.json()["executionId"] == data["executionId"]
+    assert lookup.json()["status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_execute_plan_simulates_parallel_ready_tasks(test_client, db_session):
+    session_id = await _seed_session_with_agents(db_session)
+    plan = _valid_plan()
+    plan["tasks"] = [
+        {
+            "task_id": "T1",
+            "title": "后端建模",
+            "goal": "完成领域模型",
+            "required_skills": ["backend"],
+            "assigned_agent_id": "agent_backend_exec",
+            "assigned_agent_name": "后端专家",
+            "depends_on": [],
+        },
+        {
+            "task_id": "T2",
+            "title": "前端草图",
+            "goal": "完成页面草图",
+            "required_skills": ["frontend"],
+            "assigned_agent_id": "agent_frontend_exec",
+            "assigned_agent_name": "前端专家",
+            "depends_on": [],
+        },
+        {
+            "task_id": "T3",
+            "title": "联调验收",
+            "goal": "完成验收",
+            "required_skills": ["backend", "frontend"],
+            "assigned_agent_id": "agent_backend_exec",
+            "assigned_agent_name": "后端专家",
+            "depends_on": ["T1", "T2"],
+        },
+    ]
+
+    res = await test_client.post("/api/orchestrator/plans/execute", json={
+        "sessionId": session_id,
+        "normalizedPlan": plan,
+    })
+
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "completed"
+    batch_events = [event for event in data["events"] if event["type"] == "scheduler_batch_running"]
+    assert batch_events[0]["taskIds"] == ["T1", "T2"]
+    assert batch_events[1]["taskIds"] == ["T3"]
+    assert [task["status"] for task in data["tasks"]] == ["completed", "completed", "completed"]
 
 
 @pytest.mark.asyncio

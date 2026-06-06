@@ -1,7 +1,8 @@
-"""Thin execution registry for approved Orchestrator plans.
+"""Execution registry for approved Orchestrator plans.
 
-This is the first bridge from a chat-rendered draft plan to a backend-owned
-execution object. It intentionally does not start CLI agents yet.
+This bridge owns backend execution state for a chat-rendered draft plan. The
+current scheduler is deliberately simulated: it verifies DAG topology and state
+transitions without starting real CLI agents yet.
 """
 
 from __future__ import annotations
@@ -53,20 +54,113 @@ class OrchestratorExecutionRegistry:
             "status": "pending",
             "createdAt": now,
             "updatedAt": now,
+            "startedAt": None,
+            "completedAt": None,
             "plan": copy.deepcopy(normalized),
             "tasks": tasks,
+            "events": [{
+                "type": "execution_created",
+                "status": "pending",
+                "timestamp": now,
+                "message": f"创建执行 {execution_id}，{len(tasks)} 个任务进入 pending 队列。",
+            }],
             "validation": {
                 "ok": True,
                 "errors": [],
                 "warnings": validation["warnings"],
             },
         }
+        self._run_simulated_scheduler(execution)
         self._executions[execution_id] = execution
         return copy.deepcopy(execution)
 
     def get_execution(self, execution_id: str) -> dict[str, Any] | None:
         execution = self._executions.get(execution_id)
         return copy.deepcopy(execution) if execution else None
+
+    def _run_simulated_scheduler(self, execution: dict[str, Any]) -> None:
+        tasks = execution["tasks"]
+        pending = {task["taskId"] for task in tasks}
+        completed: set[str] = set()
+        task_by_id = {task["taskId"]: task for task in tasks}
+
+        start = self._now()
+        execution["status"] = "running"
+        execution["startedAt"] = start
+        execution["updatedAt"] = start
+        execution["events"].append({
+            "type": "execution_running",
+            "status": "running",
+            "timestamp": start,
+            "message": "模拟 Scheduler 已启动。",
+        })
+
+        phase = 0
+        while pending:
+            ready = sorted(
+                task_id
+                for task_id in pending
+                if all(dep in completed for dep in task_by_id[task_id]["dependsOn"])
+            )
+            if not ready:
+                failed_at = self._now()
+                execution["status"] = "failed"
+                execution["updatedAt"] = failed_at
+                execution["events"].append({
+                    "type": "execution_failed",
+                    "status": "failed",
+                    "timestamp": failed_at,
+                    "message": "模拟 Scheduler 无法找到可运行任务，请检查 DAG 依赖。",
+                    "remainingTaskIds": sorted(pending),
+                })
+                return
+
+            running_at = self._now()
+            execution["events"].append({
+                "type": "scheduler_batch_running",
+                "status": "running",
+                "timestamp": running_at,
+                "phase": phase,
+                "taskIds": ready,
+                "message": f"第 {phase + 1} 层任务进入 running：{', '.join(ready)}",
+            })
+            for task_id in ready:
+                task = task_by_id[task_id]
+                task["status"] = "running"
+                task["startedAt"] = running_at
+                task["updatedAt"] = running_at
+
+            completed_at = self._now()
+            for task_id in ready:
+                task = task_by_id[task_id]
+                summary = self._simulated_summary(task)
+                task["status"] = "completed"
+                task["completedAt"] = completed_at
+                task["updatedAt"] = completed_at
+                task["summary"] = summary
+                execution["events"].append({
+                    "type": "task_completed",
+                    "status": "completed",
+                    "timestamp": completed_at,
+                    "phase": phase,
+                    "taskId": task_id,
+                    "message": summary,
+                })
+                pending.remove(task_id)
+                completed.add(task_id)
+
+            phase += 1
+
+        completed_at = self._now()
+        execution["status"] = "completed"
+        execution["completedAt"] = completed_at
+        execution["updatedAt"] = completed_at
+        execution["events"].append({
+            "type": "execution_completed",
+            "status": "completed",
+            "timestamp": completed_at,
+            "message": "模拟 Scheduler 已按 DAG 完成全部任务。",
+        })
 
     @staticmethod
     def _validate_execution_readiness(plan: dict[str, Any], active_agent_ids: set[str]) -> list[str]:
@@ -90,6 +184,10 @@ class OrchestratorExecutionRegistry:
             "title": str(task.get("title") or task.get("task_id")),
             "goal": str(task.get("goal") or ""),
             "status": "pending",
+            "startedAt": None,
+            "completedAt": None,
+            "updatedAt": None,
+            "summary": None,
             "assignedAgentId": task.get("assigned_agent_id"),
             "assignedAgentName": task.get("assigned_agent_name"),
             "dependsOn": list(task.get("depends_on") or []),
@@ -99,6 +197,16 @@ class OrchestratorExecutionRegistry:
             "expectedOutputs": list(task.get("expected_outputs") or []),
             "acceptanceCriteria": list(task.get("acceptance_criteria") or []),
         }
+
+    @staticmethod
+    def _simulated_summary(task: dict[str, Any]) -> str:
+        agent = task.get("assignedAgentName") or task.get("assignedAgentId") or "未分配 Agent"
+        skills = ", ".join(task.get("requiredSkills") or []) or "none"
+        return f"{task['taskId']} 已完成：模拟执行 {agent} / required_skills={skills}"
+
+    @staticmethod
+    def _now() -> str:
+        return datetime.now(timezone.utc).isoformat()
 
 
 execution_registry = OrchestratorExecutionRegistry()
