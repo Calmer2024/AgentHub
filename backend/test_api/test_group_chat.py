@@ -1,6 +1,7 @@
 import uuid
 import json
 import sys
+import asyncio
 from pathlib import Path
 import pytest
 
@@ -33,6 +34,19 @@ def make_test_cli_agent(name: str = "测试 Agent") -> AgentConfig:
         init_args=json.dumps([str(cli)]),
         env_vars="{}",
     )
+
+
+async def wait_execution_completed(test_client, execution_id: str, attempts: int = 20) -> dict:
+    latest = None
+    for _ in range(attempts):
+        response = await test_client.get(f"/api/orchestrator/executions/{execution_id}")
+        assert response.status_code == 200
+        latest = response.json()
+        if latest["status"] in {"completed", "failed"}:
+            return latest
+        await asyncio.sleep(0.05)
+    assert latest is not None
+    return latest
 
 
 @pytest.mark.asyncio
@@ -514,15 +528,18 @@ class TestGroupSession:
 
         assert execution_event is not None
         assert execution_event["planId"] == "plan_followup_001"
-        assert execution_event["status"] == "completed"
+        assert execution_event["status"] == "running"
         assert "已确认计划 plan_followup_001" in visible
         assert "approve_plan" in prompts[1]
         assert "上一版 draft plan" in prompts[1]
 
+        completed = await wait_execution_completed(test_client, execution_event["executionId"])
+        assert completed["status"] == "completed"
+
         messages = (await test_client.get(f"/api/sessions/{sid}/messages")).json()
         approval = messages[-1]
         assert approval["metadata"]["orchestratorAction"]["action"] == "approve_plan"
-        assert approval["metadata"]["orchestratorExecution"]["status"] == "completed"
+        assert approval["metadata"]["orchestratorExecution"]["status"] == "running"
 
     async def test_orchestrator_followup_revision_outputs_new_draft_plan(
         self, test_client, test_agent, db_session, monkeypatch,

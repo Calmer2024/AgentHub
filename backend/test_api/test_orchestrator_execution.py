@@ -1,10 +1,24 @@
 import json
+import asyncio
 import uuid
 from pathlib import Path
 
 import pytest
 
 from app.models import AgentConfig, Project, Session
+
+
+async def _wait_execution_completed(test_client, execution_id: str, attempts: int = 20) -> dict:
+    latest = None
+    for _ in range(attempts):
+        lookup = await test_client.get(f"/api/orchestrator/executions/{execution_id}")
+        assert lookup.status_code == 200
+        latest = lookup.json()
+        if latest["status"] in {"completed", "failed"}:
+            return latest
+        await asyncio.sleep(0.05)
+    assert latest is not None
+    return latest
 
 
 def _agent(agent_id: str, name: str, primary_skill: str) -> AgentConfig:
@@ -83,7 +97,7 @@ def _valid_plan() -> dict:
 
 
 @pytest.mark.asyncio
-async def test_execute_plan_runs_simulated_dag_to_completion(test_client, db_session):
+async def test_execute_plan_starts_async_scheduler_then_completes(test_client, db_session):
     session_id = await _seed_session_with_agents(db_session)
 
     res = await test_client.post("/api/orchestrator/plans/execute", json={
@@ -96,20 +110,21 @@ async def test_execute_plan_runs_simulated_dag_to_completion(test_client, db_ses
     assert data["executionId"].startswith("exec_")
     assert data["sessionId"] == session_id
     assert data["planId"] == "plan_exec_001"
-    assert data["status"] == "completed"
+    assert data["status"] == "running"
     assert data["startedAt"] is not None
-    assert data["completedAt"] is not None
-    assert [task["status"] for task in data["tasks"]] == ["completed", "completed"]
+    assert data["completedAt"] is None
+    assert [task["status"] for task in data["tasks"]] == ["pending", "pending"]
     assert data["tasks"][1]["dependsOn"] == ["T1"]
-    assert data["tasks"][0]["summary"] == (
-        "T1 已完成：模拟执行 后端专家 / required_skills=backend_engineer"
-    )
     assert data["validation"]["ok"] is True
 
-    lookup = await test_client.get(f"/api/orchestrator/executions/{data['executionId']}")
-    assert lookup.status_code == 200
-    assert lookup.json()["executionId"] == data["executionId"]
-    assert lookup.json()["status"] == "completed"
+    completed = await _wait_execution_completed(test_client, data["executionId"])
+    assert completed["executionId"] == data["executionId"]
+    assert completed["status"] == "completed"
+    assert completed["completedAt"] is not None
+    assert [task["status"] for task in completed["tasks"]] == ["completed", "completed"]
+    assert completed["tasks"][0]["summary"] == (
+        "T1 已完成：模拟执行 后端专家 / required_skills=backend_engineer"
+    )
 
 
 @pytest.mark.asyncio
@@ -153,10 +168,15 @@ async def test_execute_plan_simulates_parallel_ready_tasks(test_client, db_sessi
 
     assert res.status_code == 200
     data = res.json()
+    assert data["status"] == "running"
+
+    data = await _wait_execution_completed(test_client, data["executionId"])
     assert data["status"] == "completed"
     batch_events = [event for event in data["events"] if event["type"] == "scheduler_batch_running"]
     assert batch_events[0]["taskIds"] == ["T1", "T2"]
     assert batch_events[1]["taskIds"] == ["T3"]
+    started_events = [event for event in data["events"] if event["type"] == "task_started"]
+    assert [event["taskId"] for event in started_events[:2]] == ["T1", "T2"]
     assert [task["status"] for task in data["tasks"]] == ["completed", "completed", "completed"]
 
 

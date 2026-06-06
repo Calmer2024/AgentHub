@@ -336,7 +336,7 @@ class OrchestratorPlanChat:
 
         content = (
             f"已确认计划 {execution['planId']}，创建执行 {execution['executionId']}。\n"
-            f"模拟 Scheduler 已按 DAG 完成 {len(execution['tasks'])} 个任务。"
+            f"模拟 Scheduler 已启动，{len(execution['tasks'])} 个任务将按 DAG 异步推进。"
         )
         await self._persist_orchestrator_message(
             session_id=session_id,

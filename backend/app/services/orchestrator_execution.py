@@ -7,10 +7,11 @@ transitions without starting real CLI agents yet.
 
 from __future__ import annotations
 
+import asyncio
 import copy
 import uuid
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Protocol
 
 from ..domain.orchestrator_plan import normalize_plan, validate_plan
 
@@ -22,9 +23,26 @@ class PlanExecutionError(ValueError):
         self.warnings = warnings or []
 
 
+class TaskRunner(Protocol):
+    async def run(self, task: dict[str, Any], execution: dict[str, Any]) -> str:
+        """Run one scheduled task and return its user-visible summary."""
+
+
+class MockTaskRunner:
+    def __init__(self, delay_seconds: float = 0.12):
+        self.delay_seconds = delay_seconds
+
+    async def run(self, task: dict[str, Any], execution: dict[str, Any]) -> str:
+        await asyncio.sleep(self.delay_seconds)
+        agent = task.get("assignedAgentName") or task.get("assignedAgentId") or "未分配 Agent"
+        skills = ", ".join(task.get("requiredSkills") or []) or "none"
+        return f"{task['taskId']} 已完成：模拟执行 {agent} / required_skills={skills}"
+
+
 class OrchestratorExecutionRegistry:
-    def __init__(self):
+    def __init__(self, task_runner: TaskRunner | None = None):
         self._executions: dict[str, dict[str, Any]] = {}
+        self._task_runner = task_runner or MockTaskRunner()
 
     def create_execution(
         self,
@@ -51,10 +69,10 @@ class OrchestratorExecutionRegistry:
             "executionId": execution_id,
             "sessionId": session_id,
             "planId": normalized.get("plan_id"),
-            "status": "pending",
+            "status": "running",
             "createdAt": now,
             "updatedAt": now,
-            "startedAt": None,
+            "startedAt": now,
             "completedAt": None,
             "plan": copy.deepcopy(normalized),
             "tasks": tasks,
@@ -63,6 +81,11 @@ class OrchestratorExecutionRegistry:
                 "status": "pending",
                 "timestamp": now,
                 "message": f"创建执行 {execution_id}，{len(tasks)} 个任务进入 pending 队列。",
+            }, {
+                "type": "execution_running",
+                "status": "running",
+                "timestamp": now,
+                "message": "模拟 Scheduler 已启动。",
             }],
             "validation": {
                 "ok": True,
@@ -70,30 +93,30 @@ class OrchestratorExecutionRegistry:
                 "warnings": validation["warnings"],
             },
         }
-        self._run_simulated_scheduler(execution)
         self._executions[execution_id] = execution
+        self._start_background_scheduler(execution_id)
         return copy.deepcopy(execution)
 
     def get_execution(self, execution_id: str) -> dict[str, Any] | None:
         execution = self._executions.get(execution_id)
         return copy.deepcopy(execution) if execution else None
 
-    def _run_simulated_scheduler(self, execution: dict[str, Any]) -> None:
+    def _start_background_scheduler(self, execution_id: str) -> None:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            asyncio.run(self._run_scheduler(execution_id))
+            return
+        loop.create_task(self._run_scheduler(execution_id))
+
+    async def _run_scheduler(self, execution_id: str) -> None:
+        execution = self._executions.get(execution_id)
+        if execution is None:
+            return
         tasks = execution["tasks"]
         pending = {task["taskId"] for task in tasks}
         completed: set[str] = set()
         task_by_id = {task["taskId"]: task for task in tasks}
-
-        start = self._now()
-        execution["status"] = "running"
-        execution["startedAt"] = start
-        execution["updatedAt"] = start
-        execution["events"].append({
-            "type": "execution_running",
-            "status": "running",
-            "timestamp": start,
-            "message": "模拟 Scheduler 已启动。",
-        })
 
         phase = 0
         while pending:
@@ -116,6 +139,7 @@ class OrchestratorExecutionRegistry:
                 return
 
             running_at = self._now()
+            execution["updatedAt"] = running_at
             execution["events"].append({
                 "type": "scheduler_batch_running",
                 "status": "running",
@@ -129,11 +153,41 @@ class OrchestratorExecutionRegistry:
                 task["status"] = "running"
                 task["startedAt"] = running_at
                 task["updatedAt"] = running_at
+                execution["events"].append({
+                    "type": "task_started",
+                    "status": "running",
+                    "timestamp": running_at,
+                    "phase": phase,
+                    "taskId": task_id,
+                    "message": f"{task_id} 开始执行：{task.get('title')}",
+                })
 
+            try:
+                summaries = await asyncio.gather(*[
+                    self._task_runner.run(task_by_id[task_id], execution)
+                    for task_id in ready
+                ])
+            except Exception as exc:
+                failed_at = self._now()
+                execution["status"] = "failed"
+                execution["updatedAt"] = failed_at
+                execution["events"].append({
+                    "type": "execution_failed",
+                    "status": "failed",
+                    "timestamp": failed_at,
+                    "phase": phase,
+                    "taskIds": ready,
+                    "message": f"模拟 Scheduler 执行失败：{exc}",
+                })
+                for task_id in ready:
+                    task = task_by_id[task_id]
+                    task["status"] = "failed"
+                    task["updatedAt"] = failed_at
+                return
             completed_at = self._now()
-            for task_id in ready:
+            execution["updatedAt"] = completed_at
+            for task_id, summary in zip(ready, summaries):
                 task = task_by_id[task_id]
-                summary = self._simulated_summary(task)
                 task["status"] = "completed"
                 task["completedAt"] = completed_at
                 task["updatedAt"] = completed_at
@@ -197,12 +251,6 @@ class OrchestratorExecutionRegistry:
             "expectedOutputs": list(task.get("expected_outputs") or []),
             "acceptanceCriteria": list(task.get("acceptance_criteria") or []),
         }
-
-    @staticmethod
-    def _simulated_summary(task: dict[str, Any]) -> str:
-        agent = task.get("assignedAgentName") or task.get("assignedAgentId") or "未分配 Agent"
-        skills = ", ".join(task.get("requiredSkills") or []) or "none"
-        return f"{task['taskId']} 已完成：模拟执行 {agent} / required_skills={skills}"
 
     @staticmethod
     def _now() -> str:
