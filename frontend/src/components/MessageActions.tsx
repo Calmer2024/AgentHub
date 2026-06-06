@@ -1,5 +1,5 @@
 import type { Message } from "../types";
-import { Copy, Pin, PinOff, Quote, RefreshCw } from "lucide-react";
+import { CheckSquare, Copy, Forward, Pin, PinOff, Quote, RefreshCw } from "lucide-react";
 import { createPortal } from "react-dom";
 import type { ReactNode } from "react";
 
@@ -10,12 +10,15 @@ interface Props {
   onReply: (message: Message) => void;
   onRegenerate: (message: Message) => void;
   onTogglePin: (message: Message) => void;
+  onForward: (message: Message) => void;
+  onMultiSelect: (message: Message) => void;
   onCopy: (content: string) => void;
   onClose: () => void;
 }
 
 export function MessageActions({
-  message, open, position, onReply, onRegenerate, onTogglePin, onCopy, onClose,
+  message, open, position, onReply, onRegenerate, onTogglePin,
+  onForward, onMultiSelect, onCopy, onClose,
 }: Props) {
   const canRegenerate = message.role === "assistant" && !message.isCollaborating;
   if (!open || !position || typeof document === "undefined") return null;
@@ -27,7 +30,7 @@ export function MessageActions({
 
   const menu = (
     <div
-      className="agenthub-menu fixed z-[1200] w-44 rounded-2xl border p-1.5"
+      className="agenthub-menu agenthub-popover fixed z-[1200] w-44 rounded-2xl border p-1.5"
       style={{ left: position.x, top: position.y }}
       role="menu"
       onContextMenu={(event) => event.preventDefault()}
@@ -42,6 +45,8 @@ export function MessageActions({
         label={message.isPinned ? "取消 Pin" : "Pin 消息"}
         onClick={() => run(() => onTogglePin(message))}
       />
+      <MenuAction icon={<Forward size={14} />} label="转发" onClick={() => run(() => onForward(message))} />
+      <MenuAction icon={<CheckSquare size={14} />} label="多选" onClick={() => run(() => onMultiSelect(message))} />
       <MenuAction icon={<Copy size={14} />} label="复制" onClick={() => run(() => onCopy(message.content))} />
     </div>
   );

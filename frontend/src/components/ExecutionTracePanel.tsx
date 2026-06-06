@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import {
   AlertCircle, CheckCircle2, ChevronDown, ChevronRight,
   Clock3, Code2, FileCode2, FolderOpen, Hammer, Info, Play,
-  Search, SquareActivity, Terminal, TriangleAlert, XCircle,
+  Maximize2, Search, SquareActivity, Terminal, TriangleAlert, X, XCircle,
 } from "lucide-react";
 import type { ExecutionTrace, ExecutionTraceItem } from "../types";
 import { formatChinaTime } from "../utils/time";
@@ -55,6 +55,7 @@ export function ExecutionTracePanel({ trace, className = "" }: Props) {
   const items = useMemo(() => compactTraceItems(trace?.items ?? []), [trace?.items]);
   const traceScrollRef = useRef<HTMLDivElement | null>(null);
   const [manualOpen, setManualOpen] = useState<boolean | null>(null);
+  const [fullscreenOpen, setFullscreenOpen] = useState(false);
   const isRunning = trace?.status === "running";
   const isError = trace?.status === "error";
   const isCancelled = trace?.status === "cancelled";
@@ -93,11 +94,12 @@ export function ExecutionTracePanel({ trace, className = "" }: Props) {
 
   return (
     <section className={`agenthub-card mt-3 overflow-hidden rounded-2xl border ${className}`}>
-      <button
-        type="button"
-        onClick={() => setManualOpen(!open)}
-        className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition hover:bg-[color:var(--ah-accent-soft)]"
-      >
+      <div className="flex w-full items-center gap-3 px-3 py-2.5">
+        <button
+          type="button"
+          onClick={() => setManualOpen(!open)}
+          className="flex min-w-0 flex-1 items-center gap-3 rounded-xl text-left transition hover:bg-[color:var(--ah-accent-soft)]"
+        >
         <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border ${statusFrame(trace.status)}`}>
           {statusIcon(trace.status)}
         </span>
@@ -118,25 +120,70 @@ export function ExecutionTracePanel({ trace, className = "" }: Props) {
         <span className="agenthub-icon-button rounded-full p-1" aria-hidden="true">
           {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         </span>
-      </button>
+        </button>
+        <button
+          type="button"
+          onClick={() => setFullscreenOpen(true)}
+          className="agenthub-icon-button inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
+          aria-label="全屏查看执行过程"
+          title="全屏查看执行过程"
+        >
+          <Maximize2 size={14} />
+        </button>
+      </div>
 
       {open && (
         <div className="border-t px-3 py-3" style={{ borderColor: "var(--ah-border)" }}>
           <div ref={traceScrollRef} className="max-h-96 overflow-y-auto overscroll-contain pr-1">
-            <ol className="relative space-y-2 before:absolute before:left-[14px] before:top-2 before:h-[calc(100%-1rem)] before:w-px before:bg-[color:var(--ah-border)]">
-              {items.map((item, index) => (
-                <TraceRow
-                  key={item.id}
-                  item={item}
-                  isLast={index === items.length - 1}
-                  isRunning={isRunning && index === items.length - 1}
-                />
-              ))}
-            </ol>
+            <TraceTimeline items={items} isRunning={isRunning} />
+          </div>
+        </div>
+      )}
+
+      {fullscreenOpen && (
+        <div className="agenthub-backdrop fixed inset-0 z-[1100] flex items-center justify-center p-4">
+          <div className="agenthub-modal agenthub-modal-pop h-[min(92dvh,900px)] w-[min(1120px,96vw)] overflow-hidden rounded-3xl border">
+            <div className="flex items-center gap-3 border-b px-4 py-3" style={{ borderColor: "var(--ah-border)" }}>
+              <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border ${statusFrame(trace.status)}`}>
+                {statusIcon(trace.status)}
+              </span>
+              <div className="min-w-0 flex-1">
+                <h2 className="agenthub-strong truncate text-base font-semibold">执行过程</h2>
+                <p className="agenthub-muted mt-0.5 truncate text-xs">{summary}</p>
+              </div>
+              <TraceBadges items={items} />
+              <button
+                type="button"
+                onClick={() => setFullscreenOpen(false)}
+                className="agenthub-icon-button inline-flex h-9 w-9 items-center justify-center rounded-full"
+                aria-label="关闭执行过程全屏"
+                title="关闭"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="h-[calc(100%-65px)] overflow-y-auto p-4">
+              <TraceTimeline items={items} isRunning={isRunning} />
+            </div>
           </div>
         </div>
       )}
     </section>
+  );
+}
+
+function TraceTimeline({ items, isRunning }: { items: ExecutionTraceItem[]; isRunning: boolean }) {
+  return (
+    <ol className="relative space-y-2 before:absolute before:left-[14px] before:top-2 before:h-[calc(100%-1rem)] before:w-px before:bg-[color:var(--ah-border)]">
+      {items.map((item, index) => (
+        <TraceRow
+          key={item.id}
+          item={item}
+          isLast={index === items.length - 1}
+          isRunning={isRunning && index === items.length - 1}
+        />
+      ))}
+    </ol>
   );
 }
 

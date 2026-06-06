@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ChatWindow } from "./ChatWindow";
 import { useChatStore } from "../stores/chatStore";
-import type { AgentConfig, Message, RunRead, TaskRead } from "../types";
+import type { AgentConfig, Message, RunRead, Session, TaskRead } from "../types";
 
 vi.mock("../api/client", () => ({
   approveCheckpoint: vi.fn(),
@@ -10,6 +10,7 @@ vi.mock("../api/client", () => ({
   fetchApprovals: vi.fn(() => Promise.resolve([])),
   fetchArtifacts: vi.fn(() => Promise.resolve([])),
   fetchMessages: vi.fn(() => Promise.resolve([])),
+  forwardMessages: vi.fn(() => Promise.resolve({ messages: [] })),
   fetchRuns: vi.fn(() => Promise.resolve([])),
   fetchSystemHealth: vi.fn(() => Promise.resolve(null)),
   rejectCheckpoint: vi.fn(),
@@ -34,6 +35,27 @@ const agent: AgentConfig = {
   createdAt: "",
   updatedAt: "",
 };
+
+const sessions: Session[] = [
+  {
+    id: "s-cancel",
+    title: "当前对话",
+    projectId: "p1",
+    agentConfigId: agent.id,
+    mode: "single",
+    createdAt: "",
+    updatedAt: "",
+  },
+  {
+    id: "s-target",
+    title: "目标对话",
+    projectId: "p1",
+    agentConfigId: agent.id,
+    mode: "single",
+    createdAt: "",
+    updatedAt: "",
+  },
+];
 
 function resetStore() {
   useChatStore.setState({
@@ -128,6 +150,7 @@ function Harness() {
       streamingError={state.streamingError}
       currentAgent={agent}
       currentSessionId="s-cancel"
+      sessions={sessions}
       agents={[agent]}
       mode="single"
       routeAgents={null}

@@ -46,6 +46,17 @@
   --ah-info-soft: rgb(158 197 255 / 0.13);
   --ah-success: #8fd9ad;
   --ah-success-soft: rgb(143 217 173 / 0.13);
+  --ah-pinned-bg: rgb(255 255 255 / 0.1);
+  --ah-pinned-border: rgb(255 255 255 / 0.2);
+  --ah-pin-badge-bg: rgb(255 255 255 / 0.14);
+  --ah-unread-bg: #f5f5f5;
+  --ah-unread-text: #111111;
+  --ah-unread-muted-bg: rgb(255 255 255 / 0.12);
+  --ah-unread-muted-text: #b8b8b8;
+  --ah-archive-bg: rgb(255 255 255 / 0.08);
+  --ah-archive-icon-bg: rgb(255 255 255 / 0.12);
+  --ah-agent-name-text: #f1f1f1;
+  --ah-agent-name-bg: rgb(255 255 255 / 0.08);
   --ah-overlay: rgb(0 0 0 / 0.62);
   --ah-code-bg: #0d0d0d;
   --ah-code-panel: #141414;
@@ -73,11 +84,11 @@
   color-scheme: light;
   --ah-app-bg: #ffffff;
   --ah-app-wash: #ffffff;
-  --ah-rail-bg: #edf6ff;
+  --ah-rail-bg: #ffffff;
   --ah-sidebar-bg: #ffffff;
   --ah-panel-bg: #ffffff;
   --ah-panel-raised: #ffffff;
-  --ah-panel-muted: #f3f8ff;
+  --ah-panel-muted: #ffffff;
   --ah-chat-bg: #ffffff;
   --ah-header-bg: rgb(255 255 255 / 0.92);
   --ah-input-bg: transparent;
@@ -90,24 +101,35 @@
   --ah-text-strong: #10131a;
   --ah-muted: #697386;
   --ah-faint: #9aa3b2;
-  --ah-border: #e5edf7;
-  --ah-border-strong: #cfe0f5;
-  --ah-border-hover: #b8d0ee;
-  --ah-accent: #6aa6e8;
-  --ah-accent-strong: #2f7fd3;
-  --ah-accent-soft: #eaf4ff;
-  --ah-primary-bg: #2f7fd3;
-  --ah-primary-text: #ffffff;
-  --ah-user-text: #1f3f63;
-  --ah-user-bg: #e6f2ff;
+  --ah-border: #e8e9ed;
+  --ah-border-strong: #d7dbe2;
+  --ah-border-hover: #c8ccd4;
+  --ah-accent: #d7dbe2;
+  --ah-accent-strong: #242832;
+  --ah-accent-soft: #ffffff;
+  --ah-primary-bg: #ffffff;
+  --ah-primary-text: #242832;
+  --ah-user-text: #242832;
+  --ah-user-bg: #ffffff;
   --ah-danger: #9f3f3f;
   --ah-danger-soft: #fff0f0;
   --ah-warning: #8a642d;
   --ah-warning-soft: #fff8ea;
-  --ah-info: #2f7fd3;
-  --ah-info-soft: #eaf4ff;
+  --ah-info: #242832;
+  --ah-info-soft: #ffffff;
   --ah-success: #26724d;
   --ah-success-soft: #ecf8f2;
+  --ah-pinned-bg: #ffffff;
+  --ah-pinned-border: #e5e7eb;
+  --ah-pin-badge-bg: #f4f5f7;
+  --ah-unread-bg: #10131a;
+  --ah-unread-text: #ffffff;
+  --ah-unread-muted-bg: #eef0f3;
+  --ah-unread-muted-text: #697386;
+  --ah-archive-bg: #ffffff;
+  --ah-archive-icon-bg: #f5f6f8;
+  --ah-agent-name-text: #2f4c7f;
+  --ah-agent-name-bg: #f7f9fc;
   --ah-overlay: rgb(0 0 0 / 0.36);
   --ah-code-bg: #fbfcfe;
   --ah-code-panel: #f6f8fb;
@@ -119,16 +141,16 @@
   --ah-diff-add-text: #245d42;
   --ah-diff-remove-bg: #fff0f0;
   --ah-diff-remove-text: #8e3a3a;
-  --ah-diff-hunk-bg: #eef4ff;
-  --ah-highlight-bg: #eaf4ff;
+  --ah-diff-hunk-bg: #ffffff;
+  --ah-highlight-bg: #ffffff;
   --ah-highlight-text: #10131a;
   --ah-nav-active-bg: #ffffff;
-  --ah-nav-active-border: #d5e8fb;
-  --ah-nav-active-shadow: 0 8px 18px rgb(47 127 211 / 0.1);
+  --ah-nav-active-border: #e8e9ed;
+  --ah-nav-active-shadow: 0 8px 18px rgb(24 34 50 / 0.08);
   --ah-shadow: 0 16px 42px rgb(24 34 50 / 0.08);
-  --ah-left-cluster-bg: #edf6ff;
-  --ah-left-cluster-border: #dfeeff;
-  --ah-left-cluster-shadow: 0 14px 34px rgb(47 127 211 / 0.08);
+  --ah-left-cluster-bg: #ffffff;
+  --ah-left-cluster-border: #e8e9ed;
+  --ah-left-cluster-shadow: 0 14px 34px rgb(24 34 50 / 0.08);
   --ah-nested-panel-bg: #ffffff;
 }
 
@@ -156,6 +178,28 @@ body {
   from {
     opacity: 0;
     transform: translateY(8px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes agenthub-popover-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes agenthub-modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
   }
   to {
     opacity: 1;
@@ -307,6 +351,11 @@ body {
   color: var(--ah-text);
   box-shadow: var(--ah-shadow);
   backdrop-filter: blur(18px) saturate(140%);
+  transform-origin: top right;
+}
+
+.agenthub-popover {
+  animation: agenthub-popover-in 140ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .agenthub-modal {
@@ -314,6 +363,10 @@ body {
   border-color: var(--ah-border);
   color: var(--ah-text);
   box-shadow: var(--ah-shadow);
+}
+
+.agenthub-modal-pop {
+  animation: agenthub-modal-in 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .agenthub-muted {
@@ -381,8 +434,100 @@ body {
 
 .agenthub-bubble-user {
   background: var(--ah-user-bg);
+  border: 1px solid var(--ah-border);
   color: var(--ah-user-text);
   box-shadow: 0 10px 24px rgb(28 39 56 / 0.1);
+}
+
+.agenthub-agent-namebar {
+  background: transparent;
+  color: var(--ah-text);
+}
+
+.agenthub-agent-name {
+  max-width: 100%;
+  background: var(--ah-agent-name-bg);
+  color: var(--ah-agent-name-text);
+  font-weight: 750;
+  letter-spacing: 0;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.1);
+}
+
+.agenthub-message-meta {
+  color: color-mix(in srgb, var(--ah-muted) 78%, transparent);
+}
+
+.agenthub-session-section-label {
+  color: var(--ah-faint);
+  letter-spacing: 0;
+}
+
+.agenthub-session-pinned {
+  border-color: var(--ah-pinned-border);
+  background: var(--ah-pinned-bg);
+  box-shadow: inset 3px 0 0 var(--ah-text-strong);
+}
+
+.agenthub-session-pinned:hover {
+  border-color: var(--ah-border-hover);
+  background: var(--ah-pinned-bg);
+}
+
+.agenthub-pin-badge {
+  background: var(--ah-pin-badge-bg);
+  color: var(--ah-text-strong);
+}
+
+.agenthub-unread-badge {
+  background: var(--ah-unread-bg);
+  color: var(--ah-unread-text);
+  box-shadow: 0 6px 14px rgb(0 0 0 / 0.12);
+}
+
+.agenthub-unread-muted {
+  background: var(--ah-unread-muted-bg);
+  color: var(--ah-unread-muted-text);
+  box-shadow: none;
+}
+
+.agenthub-select-toggle {
+  border-color: var(--ah-border-strong);
+  background: var(--ah-card-bg);
+  color: var(--ah-muted);
+}
+
+.agenthub-select-toggle-active {
+  border-color: var(--ah-accent-strong);
+  background: var(--ah-primary-bg);
+  color: var(--ah-primary-text);
+}
+
+.agenthub-selection-bar {
+  background: var(--ah-menu-bg);
+  border-color: var(--ah-border);
+  color: var(--ah-text);
+  backdrop-filter: blur(18px) saturate(140%);
+}
+
+.agenthub-session-archived {
+  opacity: 0.88;
+}
+
+.agenthub-archive-folder {
+  border-color: var(--ah-border);
+  background: var(--ah-archive-bg);
+  color: var(--ah-text);
+  box-shadow: 0 8px 18px rgb(24 34 50 / 0.06);
+}
+
+.agenthub-archive-folder:hover {
+  border-color: var(--ah-border-hover);
+  background: var(--ah-archive-bg);
+}
+
+.agenthub-archive-icon {
+  background: var(--ah-archive-icon-bg);
+  color: var(--ah-text-strong);
 }
 
 :root[data-theme="light"] .agenthub-shell,
@@ -397,13 +542,13 @@ body {
 
 :root[data-theme="light"] .agenthub-composer {
   background: var(--ah-composer-bg);
-  box-shadow: 0 18px 46px rgb(47 127 211 / 0.1);
+  box-shadow: 0 18px 46px rgb(24 34 50 / 0.08);
 }
 
 :root[data-theme="light"] .agenthub-chat-composer {
   background: #ffffff !important;
-  border-color: #cfe0f5;
-  box-shadow: 0 12px 28px rgb(47 127 211 / 0.1);
+  border-color: var(--ah-border-strong);
+  box-shadow: 0 12px 28px rgb(24 34 50 / 0.08);
 }
 
 :root[data-theme="light"] .agenthub-inputbar {
@@ -416,7 +561,7 @@ body {
 :root[data-theme="light"] .agenthub-nav-active {
   border: 1px solid var(--ah-nav-active-border);
   background: var(--ah-nav-active-bg);
-  color: #174a80;
+  color: var(--ah-text-strong);
   box-shadow:
     var(--ah-nav-active-shadow),
     inset 3px 0 0 var(--ah-accent-strong);
@@ -424,25 +569,26 @@ body {
 
 :root[data-theme="light"] .agenthub-nav-active .agenthub-muted,
 :root[data-theme="light"] .agenthub-nav-active .agenthub-faint {
-  color: #35699f;
+  color: var(--ah-muted);
 }
 
 :root[data-theme="light"] .agenthub-nav-active .agenthub-soft {
-  border-color: #d5e8fb;
+  border-color: var(--ah-border);
   background: #ffffff;
-  color: #2f7fd3;
+  color: var(--ah-text-strong);
 }
 
 :root[data-theme="light"] .agenthub-project-icon,
 :root[data-theme="light"] .agenthub-nav-active .agenthub-project-icon {
   background: #ffffff;
-  border-color: #d5e8fb;
-  color: #2f7fd3;
+  border-color: var(--ah-border);
+  color: var(--ah-text-strong);
 }
 
 :root[data-theme="light"] .agenthub-nav-idle:hover {
-  background: #f2f8ff;
-  color: #1f4f7d;
+  background: #ffffff;
+  border-color: var(--ah-border);
+  color: var(--ah-text-strong);
 }
 
 :root[data-theme="light"] .agenthub-card:hover,

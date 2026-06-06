@@ -14,6 +14,7 @@ import { OrchestratorExecutionPanel } from "./OrchestratorExecutionPanel";
 import { MessageArtifactStrip } from "./MessageArtifactStrip";
 import { RuntimeControlStrip } from "./RuntimeControlStrip";
 import { ApprovalCard } from "./ApprovalCard";
+import { formatChinaFullDateTime } from "../utils/time";
 
 interface Props {
   message: Message;
@@ -28,9 +29,14 @@ interface Props {
   agent?: AgentConfig | null;
   parentMessage?: Message | null;
   highlighted?: boolean;
+  selectionMode?: boolean;
+  selected?: boolean;
   onReply: (message: Message) => void;
   onRegenerate: (message: Message) => void;
   onTogglePin: (message: Message) => void;
+  onForward: (message: Message) => void;
+  onMultiSelect: (message: Message) => void;
+  onToggleSelect?: (message: Message) => void;
   onCopy: (content: string) => void;
   onJumpToMessage: (messageId: string) => void;
   onArtifactsChanged?: () => void;
@@ -119,8 +125,9 @@ function MarkdownContent({ content }: { content: string }) {
 function MessageBubbleBase({
   message, artifacts = [], relatedArtifacts, run = null, tasks = [],
   approvals = [], relatedApprovals, artifactById,
-  agent, parentMessage, highlighted = false,
-  onReply, onRegenerate, onTogglePin, onCopy, onJumpToMessage, onArtifactsChanged,
+  agent, parentMessage, highlighted = false, selectionMode = false, selected = false,
+  onReply, onRegenerate, onTogglePin, onForward, onMultiSelect, onToggleSelect,
+  onCopy, onJumpToMessage, onArtifactsChanged,
   onCancelRun, cancellingRunId, onApprove, onReject, onOpenApprovalArtifact, busyApprovalId,
 }: Props) {
   const [contextMenuPosition, setContextMenuPosition] = useState<{ x: number; y: number } | null>(null);
@@ -190,6 +197,18 @@ function MessageBubbleBase({
     <div className={`group relative mb-4 flex scroll-mt-6 items-end gap-2.5 transition ${
       isUser ? "flex-row-reverse justify-start" : "justify-start"
     } ${highlighted ? "rounded-2xl bg-[color:var(--ah-highlight-bg)] ring-2 ring-[color:var(--ah-border-strong)]" : ""}`}>
+      {selectionMode && (
+        <button
+          type="button"
+          onClick={() => onToggleSelect?.(message)}
+          className={`agenthub-select-toggle mt-2 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border transition ${
+            selected ? "agenthub-select-toggle-active" : ""
+          }`}
+          aria-label={selected ? "取消选择消息" : "选择消息"}
+        >
+          {selected && <span className="h-2.5 w-2.5 rounded-full bg-current" />}
+        </button>
+      )}
       <AgentAvatar
         agent={avatarKind === "agent" ? agent : null}
         name={avatarName}
@@ -197,119 +216,132 @@ function MessageBubbleBase({
         size="md"
         className="mb-0.5"
       />
-      <div
-        className={`${isSummary || orchestratorPlan || orchestratorExecution ? "max-w-[min(92%,1080px)]" : "max-w-[min(78%,860px)]"} relative transition-transform duration-150 group-hover:-translate-y-0.5 ${bubbleClass} ${roundClass}`}
-        onContextMenu={openContextMenu}
-      >
-        <MessageActions
-          message={message}
-          open={Boolean(contextMenuPosition)}
-          position={contextMenuPosition}
-          onReply={onReply}
-          onRegenerate={onRegenerate}
-          onTogglePin={onTogglePin}
-          onCopy={onCopy}
-          onClose={() => setContextMenuPosition(null)}
-        />
-        {!isUser && isSummary && (
-          <div className="sticky top-0 z-10 px-3 py-2 text-xs font-semibold rounded-t-[20px] border-b agenthub-soft">
-            <span>系统整理</span>
-            <span className="agenthub-muted ml-2">{message.sourceName ?? "编排器中枢"}</span>
-          </div>
-        )}
-        {!isUser && !isSummary && message.agentName && (
-          <div className={`px-3 py-1.5 text-xs font-medium rounded-t-[20px] ${isCollaborating ? "agenthub-soft" : "border-b agenthub-soft"}`}>
-            <span>@{message.agentName}</span>
-            {message.agentRole && (
-              <span className={`ml-2 px-1.5 py-0.5 rounded border ${roleStyle}`}>
-                {ROLE_LABELS[message.agentRole] ?? message.agentRole}
-              </span>
-            )}
-            {typeof message.phase === "number" && (
-              <span className="agenthub-muted ml-2">阶段 {message.phase}</span>
-            )}
-            {message.taskName && (
-              <span className="ml-2 inline-block max-w-full truncate align-bottom text-slate-400">
-                {message.taskName}
-              </span>
-            )}
-          </div>
-        )}
-        <div className={isUser ? "px-5 py-3.5" : "px-4 py-3.5"}>
-        {message.isPinned && (
-          <div className={`mb-2 text-xs font-medium ${isUser ? "text-current/80" : "agenthub-accent"}`}>
-            <Pin size={13} aria-label="已 Pin" />
-          </div>
-        )}
-        {message.parentMessageId && (
-          <ReplyPreview
-            message={referencedMessage}
-            compact
-            onJump={onJumpToMessage}
-          />
-        )}
-        {orchestratorPlan ? (
-          <OrchestratorPlanPanel plan={orchestratorPlan} rawJson={message.content} />
-        ) : orchestratorPlanError ? (
-          <div className="rounded-lg border border-red-300/25 bg-red-950/25 p-3 text-sm text-red-100">
-            <p className="font-semibold">调度计划解析失败</p>
-            <p className="mt-1 text-xs text-red-100/80">{orchestratorPlanError}</p>
-            {message.content && (
-              <details className="mt-3">
-                <summary className="cursor-pointer text-xs font-semibold">查看原始输出</summary>
-                <pre className="mt-2 max-h-72 overflow-auto rounded-md bg-black/35 p-2 text-[11px] leading-5 text-red-50">
-                  {message.content}
-                </pre>
-              </details>
-            )}
-          </div>
-        ) : isUser ? (
-          <MarkdownContent content={message.content} />
-        ) : showEmptyAssistant ? (
-          <EmptyAssistantReply />
-        ) : (
-          <MarkdownContent content={message.content} />
-        )}
-        {!isUser && orchestratorExecution && (
-          <OrchestratorExecutionPanel initialExecution={orchestratorExecution} />
-        )}
-        {hasPreviousVersion && previousVersion && (
-          <details className="agenthub-soft mt-3 rounded-md px-3 py-2 text-xs">
-            <summary className="cursor-pointer font-medium">查看原版</summary>
-            <p className="mt-2 whitespace-pre-wrap">{previousVersion}</p>
-          </details>
-        )}
-        {!isUser && (
-          <RuntimeControlStrip
-            run={run}
-            tasks={tasks}
-            onCancel={(runId) => onCancelRun?.(runId)}
-            cancelling={cancellingRunId === run?.id}
-          />
-        )}
-        {!isUser && (
-          <ExecutionTracePanel trace={message.metadata?.executionTrace} />
-        )}
-        {!isUser && (
-          <MessageArtifactStrip
+      <div className={`${isSummary || orchestratorPlan || orchestratorExecution ? "max-w-[min(92%,1080px)]" : "max-w-[min(78%,860px)]"} flex flex-col ${
+        isUser ? "items-end" : "items-start"
+      }`}>
+        <div
+          className={`relative transition-transform duration-150 group-hover:-translate-y-0.5 ${
+          isSummary ? `${summaryClass} w-full` : bubbleClass
+        } ${roundClass}`}
+          onContextMenu={openContextMenu}
+        >
+          <MessageActions
             message={message}
-            artifacts={artifacts}
-            relatedArtifacts={relatedArtifacts}
-            onChanged={onArtifactsChanged}
+            open={Boolean(contextMenuPosition)}
+            position={contextMenuPosition}
+            onReply={onReply}
+            onRegenerate={onRegenerate}
+            onTogglePin={onTogglePin}
+            onForward={onForward}
+            onMultiSelect={onMultiSelect}
+            onCopy={onCopy}
+            onClose={() => setContextMenuPosition(null)}
           />
-        )}
-        {!isUser && messageApprovals.map((approval) => (
-          <ApprovalCard
-            key={approval.id}
-            approval={approval}
-            artifact={approval.artifactId ? artifactsById.get(approval.artifactId) ?? null : null}
-            busy={busyApprovalId === approval.id}
-            onApprove={(item) => onApprove?.(item)}
-            onReject={(item) => onReject?.(item)}
-            onOpenArtifact={(artifact) => onOpenApprovalArtifact?.(artifact)}
-          />
-        ))}
+          {!isUser && isSummary && (
+            <div className="agenthub-agent-namebar sticky top-0 z-10 rounded-t-[20px] px-3 pb-1.5 pt-2.5 text-xs font-semibold">
+              <span>系统整理</span>
+              <span className="agenthub-muted ml-2">{message.sourceName ?? "编排器中枢"}</span>
+            </div>
+          )}
+          {!isUser && !isSummary && message.agentName && (
+            <div className="agenthub-agent-namebar flex items-center gap-2 rounded-t-[20px] px-3 pb-1.5 pt-2.5 text-xs font-medium">
+              <span className="agenthub-agent-name inline-flex min-w-0 items-center rounded-full px-2.5 py-0.5">
+                <span className="truncate">@{message.agentName}</span>
+              </span>
+              {message.agentRole && (
+                <span className={`rounded border px-1.5 py-0.5 ${roleStyle}`}>
+                  {ROLE_LABELS[message.agentRole] ?? message.agentRole}
+                </span>
+              )}
+              {typeof message.phase === "number" && (
+                <span className="agenthub-muted">阶段 {message.phase}</span>
+              )}
+              {message.taskName && (
+                <span className="agenthub-muted inline-block max-w-full truncate align-bottom">
+                  {message.taskName}
+                </span>
+              )}
+            </div>
+          )}
+          <div className={isUser ? "px-5 py-3.5" : "px-4 py-3.5"}>
+          {message.isPinned && (
+            <div className={`mb-2 text-xs font-medium ${isUser ? "text-current/80" : "agenthub-accent"}`}>
+              <Pin size={13} aria-label="已 Pin" />
+            </div>
+          )}
+          {message.parentMessageId && (
+            <ReplyPreview
+              message={referencedMessage}
+              compact
+              onJump={onJumpToMessage}
+            />
+          )}
+          {orchestratorPlan ? (
+            <OrchestratorPlanPanel plan={orchestratorPlan} rawJson={message.content} />
+          ) : orchestratorPlanError ? (
+            <div className="rounded-lg border border-red-300/25 bg-red-950/25 p-3 text-sm text-red-100">
+              <p className="font-semibold">调度计划解析失败</p>
+              <p className="mt-1 text-xs text-red-100/80">{orchestratorPlanError}</p>
+              {message.content && (
+                <details className="mt-3">
+                  <summary className="cursor-pointer text-xs font-semibold">查看原始输出</summary>
+                  <pre className="mt-2 max-h-72 overflow-auto rounded-md bg-black/35 p-2 text-[11px] leading-5 text-red-50">
+                    {message.content}
+                  </pre>
+                </details>
+              )}
+            </div>
+          ) : isUser ? (
+            <MarkdownContent content={message.content} />
+          ) : showEmptyAssistant ? (
+            <EmptyAssistantReply />
+          ) : (
+            <MarkdownContent content={message.content} />
+          )}
+          {!isUser && orchestratorExecution && (
+            <OrchestratorExecutionPanel initialExecution={orchestratorExecution} />
+          )}
+          {hasPreviousVersion && previousVersion && (
+            <details className="agenthub-soft mt-3 rounded-md px-3 py-2 text-xs">
+              <summary className="cursor-pointer font-medium">查看原版</summary>
+              <p className="mt-2 whitespace-pre-wrap">{previousVersion}</p>
+            </details>
+          )}
+          {!isUser && (
+            <RuntimeControlStrip
+              run={run}
+              tasks={tasks}
+              onCancel={(runId) => onCancelRun?.(runId)}
+              cancelling={cancellingRunId === run?.id}
+            />
+          )}
+          {!isUser && (
+            <ExecutionTracePanel trace={message.metadata?.executionTrace} />
+          )}
+          {!isUser && (
+            <MessageArtifactStrip
+              message={message}
+              artifacts={artifacts}
+              relatedArtifacts={relatedArtifacts}
+              onChanged={onArtifactsChanged}
+            />
+          )}
+          {!isUser && messageApprovals.map((approval) => (
+            <ApprovalCard
+              key={approval.id}
+              approval={approval}
+              artifact={approval.artifactId ? artifactsById.get(approval.artifactId) ?? null : null}
+              busy={busyApprovalId === approval.id}
+              onApprove={(item) => onApprove?.(item)}
+              onReject={(item) => onReject?.(item)}
+              onOpenArtifact={(artifact) => onOpenApprovalArtifact?.(artifact)}
+            />
+          ))}
+          </div>
         </div>
+        <time className={`agenthub-message-meta mt-1.5 block px-1 text-[11px] ${isUser ? "text-right" : "text-left"}`}>
+          {formatChinaFullDateTime(message.createdAt)}
+        </time>
       </div>
     </div>
   );

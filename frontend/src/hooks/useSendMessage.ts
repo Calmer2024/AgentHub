@@ -8,6 +8,7 @@ import {
   fetchArtifacts,
   fetchMessages,
   fetchRuns,
+  markSessionRead,
 } from "../api/client";
 import type { Message, CollabTask, DAGPhase, PhaseChangeEvent, AgentStartEvent, Artifact } from "../types";
 import { chinaNowIso } from "../utils/time";
@@ -233,6 +234,7 @@ export function useSendMessage() {
         fetchApprovals(currentSessionId)
           .then((approvals) => setApprovalsForSession(currentSessionId, approvals))
           .catch(() => {});
+        markSessionRead(currentSessionId).catch(() => {});
       },
       onRoute: (agents) => {
         if (!isLiveStream()) return;

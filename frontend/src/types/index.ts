@@ -60,6 +60,11 @@ export interface Session {
   projectId: string | null;
   agentConfigId: string | null;
   mode: string;
+  isPinned?: boolean;
+  archivedAt?: string | null;
+  unreadCount?: number;
+  lastReadAt?: string | null;
+  isMuted?: boolean;
   createdAt: string;
   updatedAt: string;
 }

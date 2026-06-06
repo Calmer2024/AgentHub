@@ -16,6 +16,9 @@ const handlers = {
   onReply: vi.fn(),
   onRegenerate: vi.fn(),
   onTogglePin: vi.fn(),
+  onForward: vi.fn(),
+  onMultiSelect: vi.fn(),
+  onToggleSelect: vi.fn(),
   onCopy: vi.fn(),
   onJumpToMessage: vi.fn(),
 };
@@ -117,5 +120,73 @@ describe("MessageBubble", () => {
     expect(screen.getByRole("menuitem", { name: "引用回复" })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "重新生成" })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "Pin 消息" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "转发" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "多选" })).toBeInTheDocument();
+  });
+
+  it("多选模式显示选择控件", () => {
+    render(
+      <MessageBubble
+        message={{
+          ...baseMessage,
+          content: "hello",
+        }}
+        selectionMode
+        selected
+        isStreaming={false}
+        {...handlers}
+      />,
+    );
+
+    expect(screen.getByLabelText("取消选择消息")).toBeInTheDocument();
+  });
+
+  it("显示气泡时间戳和精致 Agent 名称", () => {
+    render(
+      <MessageBubble
+        message={{
+          ...baseMessage,
+          content: "hello",
+          agentName: "Claude Code",
+          createdAt: "2026-06-04T18:23:03+08:00",
+        }}
+        isStreaming={false}
+        {...handlers}
+      />,
+    );
+
+    expect(screen.getByText("@Claude Code")).toBeInTheDocument();
+    expect(screen.getByText("2026/06/04 18:23:03")).toBeInTheDocument();
+  });
+
+  it("执行过程支持全屏查看", () => {
+    render(
+      <MessageBubble
+        message={{
+          ...baseMessage,
+          content: "done",
+          metadata: {
+            executionTrace: {
+              status: "completed",
+              agentName: "Codex",
+              items: [{
+                id: "trace-1",
+                kind: "command",
+                text: "Codex 执行命令",
+                title: "Codex 执行命令",
+                command: "npm test",
+                timestamp: "2026-06-04T18:23:02.000Z",
+              }],
+            },
+          },
+        }}
+        isStreaming={false}
+        {...handlers}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText("全屏查看执行过程"));
+    expect(screen.getByRole("heading", { name: "执行过程" })).toBeInTheDocument();
+    expect(screen.getByText("Codex 执行命令")).toBeInTheDocument();
   });
 });
