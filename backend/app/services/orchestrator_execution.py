@@ -515,7 +515,7 @@ class OrchestratorExecutionRegistry:
                 "type": "execution_running",
                 "status": "running",
                 "timestamp": now,
-                "message": "模拟 Scheduler 已启动。",
+                "message": "Scheduler 已启动。",
             }],
             "validation": {
                 "ok": True,
@@ -582,8 +582,6 @@ class OrchestratorExecutionRegistry:
                 task = task_by_id[task_id]
                 task["upstreamResults"] = self._upstream_results_for(task, task_by_id)
                 task["runnerType"] = self._runner_type_for(execution)
-                if task["runnerType"] == "cli":
-                    execution["cliTaskCount"] = int(execution.get("cliTaskCount") or 0) + 1
                 task["status"] = "running"
                 task["phase"] = phase
                 task["startedAt"] = running_at
@@ -612,7 +610,7 @@ class OrchestratorExecutionRegistry:
                     "timestamp": failed_at,
                     "phase": phase,
                     "taskIds": ready,
-                    "message": f"模拟 Scheduler 执行失败：{exc}",
+                    "message": f"Scheduler 执行失败：{exc}",
                 })
                 for task_id in ready:
                     task = task_by_id[task_id]
@@ -649,7 +647,7 @@ class OrchestratorExecutionRegistry:
             "type": "execution_completed",
             "status": "completed",
             "timestamp": completed_at,
-            "message": "模拟 Scheduler 已按 DAG 完成全部任务。",
+            "message": "Scheduler 已按 DAG 完成全部任务。",
         })
 
     async def _persist_task_result(
@@ -739,9 +737,8 @@ class OrchestratorExecutionRegistry:
 
     @staticmethod
     def _runner_type_for(execution: dict[str, Any]) -> str:
-        if int(execution.get("cliTaskCount") or 0) < int(execution.get("cliTaskLimit") or 1):
-            return "cli"
-        return "mock"
+        runner_type = str(execution.get("runnerType") or "cli").strip().lower()
+        return "mock" if runner_type == "mock" else "cli"
 
     @staticmethod
     def _now() -> str:

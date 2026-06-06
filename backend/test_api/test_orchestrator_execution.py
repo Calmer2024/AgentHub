@@ -159,7 +159,8 @@ async def test_execute_plan_starts_async_scheduler_then_completes(test_client, d
     assert task_workspace.name == "T1"
     assert (task_workspace / "TASK.md").exists()
     assert (task_workspace / "HANDOFF.md").exists()
-    assert completed["tasks"][1]["runnerType"] == "mock"
+    assert completed["tasks"][1]["runnerType"] == "cli"
+    assert completed["tasks"][1]["visibleMessageId"]
     assert all(task["resultMessageId"] for task in completed["tasks"])
     assert completed["tasks"][0]["upstreamResults"] == []
     assert completed["tasks"][1]["upstreamResults"] == [{
@@ -258,7 +259,8 @@ async def test_execute_plan_simulates_parallel_ready_tasks(test_client, db_sessi
     started_events = [event for event in data["events"] if event["type"] == "task_started"]
     assert [event["taskId"] for event in started_events[:2]] == ["T1", "T2"]
     assert [task["status"] for task in data["tasks"]] == ["completed", "completed", "completed"]
-    assert [task["runnerType"] for task in data["tasks"]] == ["cli", "mock", "mock"]
+    assert [task["runnerType"] for task in data["tasks"]] == ["cli", "cli", "cli"]
+    assert all(task["visibleMessageId"] for task in data["tasks"])
     t3 = next(task for task in data["tasks"] if task["taskId"] == "T3")
     assert [item["taskId"] for item in t3["upstreamResults"]] == ["T1", "T2"]
 

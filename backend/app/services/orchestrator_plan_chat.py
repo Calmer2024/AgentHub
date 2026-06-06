@@ -355,7 +355,7 @@ class OrchestratorPlanChat:
 
         content = (
             f"已确认计划 {execution['planId']}，创建执行 {execution['executionId']}。\n"
-            f"模拟 Scheduler 已启动，{len(execution['tasks'])} 个任务将按 DAG 异步推进。"
+            f"Scheduler 已启动，{len(execution['tasks'])} 个任务将按 DAG 异步推进。"
         )
         if assignment_fixups:
             content += "\n" + "；".join(
