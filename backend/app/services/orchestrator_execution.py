@@ -1,8 +1,8 @@
 """Execution registry for approved Orchestrator plans.
 
 This bridge owns backend execution state for a chat-rendered draft plan. The
-current scheduler is deliberately simulated: it verifies DAG topology and state
-transitions without starting real CLI agents yet.
+current scheduler advances the DAG and can run a limited number of tasks through
+real CLI agents while simulating the rest.
 """
 
 from __future__ import annotations
@@ -10,8 +10,10 @@ from __future__ import annotations
 import asyncio
 import copy
 import json
+import re
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Callable, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,6 +26,10 @@ from .cli_agent_service import CliAgentService
 from .execution_trace import ExecutionTraceBuilder, merge_trace_metadata
 from .session_service import SessionService
 from .streaming_text import iter_stream_pieces
+
+
+TASK_VISIBLE_OUTPUT_LIMIT = 3000
+TASK_OUTPUT_TRUNCATION_NOTICE = "\n\n[后续输出已折叠：请查看任务工作包中的交付文件。]"
 
 
 class PlanExecutionError(ValueError):
@@ -82,8 +88,15 @@ class CliTaskRunner:
                 raise RuntimeError(f"Session 不存在: {execution['sessionId']}")
             workspace_path = await SessionService(db).get_workspace_path(execution["sessionId"])
 
+        task_workspace_path = self._ensure_task_workspace(
+            workspace_path,
+            execution,
+            task,
+            upstream_results,
+        )
         message_id = f"msg_agent_{uuid.uuid4().hex[:12]}"
         task["visibleMessageId"] = message_id
+        task["taskWorkspacePath"] = task_workspace_path
         await _broadcast_ws(execution["sessionId"], {
             "type": "agent.start",
             "sessionId": execution["sessionId"],
@@ -104,17 +117,28 @@ class CliTaskRunner:
             "agentType": agent.agent_type or "cli_wrapper",
             "cliTool": agent.cli_tool or "custom",
             "workspacePath": workspace_path,
+            "taskWorkspacePath": task_workspace_path,
         }
         trace = ExecutionTraceBuilder(
             agent_name=agent.name,
             cli_tool=agent.cli_tool or "custom",
-            workspace_path=workspace_path,
+            workspace_path=task_workspace_path,
         )
+        truncated_notice_sent = False
         async for event in CliAgentService().stream(
             agent=agent,
             session_id=execution["sessionId"],
-            workspace_path=workspace_path,
-            messages=[{"role": "user", "content": self._task_prompt(execution, task, upstream_results)}],
+            workspace_path=task_workspace_path,
+            messages=[{
+                "role": "user",
+                "content": self._task_prompt(
+                    execution,
+                    task,
+                    upstream_results,
+                    project_workspace_path=workspace_path,
+                    task_workspace_path=task_workspace_path,
+                ),
+            }],
             system_prompt=agent.system_prompt or "",
         ):
             process_id = event.process_id or process_id
@@ -147,8 +171,14 @@ class CliTaskRunner:
 
             if event.type == "agent.output":
                 raw_output += event.chunk
+                visible_chunk = ""
                 if event.chunk_type in {"text", "artifact_signal"}:
-                    visible += event.chunk
+                    visible_chunk, truncated_notice_sent = _bounded_visible_chunk(
+                        event.chunk,
+                        visible,
+                        truncated_notice_sent,
+                    )
+                    visible += visible_chunk
                 if event.chunk_type != "text":
                     if event.chunk_type == "artifact_signal":
                         kind = "artifact"
@@ -166,8 +196,8 @@ class CliTaskRunner:
                     )
                     if item:
                         await self._broadcast_trace(execution, task, agent, message_id, process_id, item)
-                if event.chunk_type == "text":
-                    for token in iter_stream_pieces(event.chunk):
+                if event.chunk_type == "text" and visible_chunk:
+                    for token in iter_stream_pieces(visible_chunk):
                         await _broadcast_ws(execution["sessionId"], {
                             "type": "agent.output",
                             "sessionId": execution["sessionId"],
@@ -295,6 +325,7 @@ class CliTaskRunner:
                 "title": task["title"],
                 "runnerType": "cli",
                 "upstreamResults": task.get("upstreamResults") or [],
+                "taskWorkspacePath": task.get("taskWorkspacePath"),
             }
         }
         if extra_metadata:
@@ -348,6 +379,9 @@ class CliTaskRunner:
         execution: dict[str, Any],
         task: dict[str, Any],
         upstream_results: list[dict[str, Any]],
+        *,
+        project_workspace_path: str,
+        task_workspace_path: str,
     ) -> str:
         plan = execution.get("plan") or {}
         upstream = "\n".join(
@@ -356,7 +390,15 @@ class CliTaskRunner:
         ) or "- 无"
         return (
             "你正在作为 AgentHub 调度任务中的专家 Agent 执行一个 DAG 节点。\n"
-            "请完成当前任务，输出可以直接给用户阅读和给下游任务复用的结果。\n\n"
+            "当前进程 cwd 已切到本任务工作包目录。请把详细交付物、设计草稿、交接文档写入该目录，"
+            "聊天里只输出简短进展汇报。\n\n"
+            "执行边界：\n"
+            f"- 项目根目录: {project_workspace_path}\n"
+            f"- 当前任务工作包目录: {task_workspace_path}\n"
+            "- 默认不要在项目根目录创建 docs/、frontend/、plan_*.json 等中间文件。\n"
+            "- 只有当前任务明确要求直接修改项目源码/配置时，才可以写项目根目录下的真实交付文件。\n"
+            "- 推荐在任务工作包中写 HANDOFF.md、notes.md、contracts.md 或其他必要附件，供下游任务读取。\n"
+            "- 聊天输出最多 8 行：完成了什么、写了哪些文件、下游应该看哪里、仍有什么风险。\n\n"
             f"Plan ID: {execution.get('planId')}\n"
             f"当前任务 ID: {task.get('taskId')}\n"
             f"当前任务标题: {task.get('title')}\n"
@@ -368,6 +410,56 @@ class CliTaskRunner:
             f"{upstream}\n\n"
             "完整计划 JSON:\n"
             f"{json.dumps(plan, ensure_ascii=False, indent=2)}"
+        )
+
+    def _ensure_task_workspace(
+        self,
+        project_workspace_path: str,
+        execution: dict[str, Any],
+        task: dict[str, Any],
+        upstream_results: list[dict[str, Any]],
+    ) -> str:
+        task_dir = (
+            Path(project_workspace_path)
+            / ".agenthub"
+            / "executions"
+            / _safe_path_part(execution["executionId"])
+            / "tasks"
+            / _safe_path_part(task["taskId"])
+        )
+        task_dir.mkdir(parents=True, exist_ok=True)
+        (task_dir / "TASK.md").write_text(
+            self._task_card(execution, task, upstream_results, str(task_dir)),
+            encoding="utf-8",
+        )
+        return str(task_dir)
+
+    @staticmethod
+    def _task_card(
+        execution: dict[str, Any],
+        task: dict[str, Any],
+        upstream_results: list[dict[str, Any]],
+        task_workspace_path: str,
+    ) -> str:
+        upstream = "\n".join(
+            f"- {item.get('taskId')}: {item.get('summary') or ''}"
+            for item in upstream_results
+        ) or "- 无"
+        return (
+            f"# {task.get('taskId')} · {task.get('title')}\n\n"
+            f"- Plan: {execution.get('planId')}\n"
+            f"- Execution: {execution.get('executionId')}\n"
+            f"- Task workspace: `{task_workspace_path}`\n"
+            f"- Assigned Agent: {task.get('assignedAgentName') or task.get('assignedAgentId') or '未分配'}\n"
+            f"- Required skills: {', '.join(task.get('requiredSkills') or []) or '未声明'}\n\n"
+            "## Goal\n\n"
+            f"{task.get('goal') or '未声明'}\n\n"
+            "## Expected Outputs\n\n"
+            f"{_markdown_list(task.get('expectedOutputs') or [])}\n\n"
+            "## Acceptance Criteria\n\n"
+            f"{_markdown_list(task.get('acceptanceCriteria') or [])}\n\n"
+            "## Upstream Results\n\n"
+            f"{upstream}\n"
         )
 
 
@@ -638,6 +730,7 @@ class OrchestratorExecutionRegistry:
             "isBlocking": bool(task.get("is_blocking")),
             "expectedOutputs": list(task.get("expected_outputs") or []),
             "acceptanceCriteria": list(task.get("acceptance_criteria") or []),
+            "taskWorkspacePath": None,
         }
 
     async def _run_task(self, task: dict[str, Any], execution: dict[str, Any]) -> str:
@@ -680,6 +773,33 @@ execution_registry = OrchestratorExecutionRegistry()
 
 def _call_key(agent_id: str, task: dict[str, Any]) -> str:
     return f"{agent_id}:{task.get('phase') if task.get('phase') is not None else 0}:{task.get('taskId')}"
+
+
+def _bounded_visible_chunk(
+    chunk: str,
+    current_visible: str,
+    notice_sent: bool,
+) -> tuple[str, bool]:
+    remaining = TASK_VISIBLE_OUTPUT_LIMIT - len(current_visible)
+    if remaining <= 0:
+        if notice_sent:
+            return "", True
+        return TASK_OUTPUT_TRUNCATION_NOTICE, True
+    if len(chunk) <= remaining:
+        return chunk, notice_sent
+    suffix = "" if notice_sent else TASK_OUTPUT_TRUNCATION_NOTICE
+    return chunk[:remaining].rstrip() + suffix, True
+
+
+def _safe_path_part(value: object) -> str:
+    clean = re.sub(r"[^A-Za-z0-9._-]+", "-", str(value or "").strip()).strip(".-")
+    return clean or "task"
+
+
+def _markdown_list(items: list[Any]) -> str:
+    if not items:
+        return "- 未声明"
+    return "\n".join(f"- {item}" for item in items)
 
 
 def _summary_text(content: str, limit: int = 1200) -> str:

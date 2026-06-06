@@ -50,7 +50,10 @@ def _ensure_fixture_cli() -> Path:
     script.write_text(
         "import os, sys\n"
         "data = os.read(sys.stdin.fileno(), 65536).decode('utf-8', errors='replace')\n"
-        "sys.stdout.buffer.write('真实任务输出：已根据调度任务完成执行。'.encode('utf-8'))\n"
+        "cwd = os.getcwd().replace('\\\\', '/')\n"
+        "with open('HANDOFF.md', 'w', encoding='utf-8') as f:\n"
+        "    f.write('# 任务交接\\n\\n已在任务工作包内写入交接产物。\\n')\n"
+        "sys.stdout.buffer.write(f'真实任务输出：cwd={cwd}；已写 HANDOFF.md。'.encode('utf-8'))\n"
         "sys.stdout.buffer.flush()\n",
         encoding="utf-8",
     )
@@ -145,6 +148,16 @@ async def test_execute_plan_starts_async_scheduler_then_completes(test_client, d
     assert completed["tasks"][0]["runnerType"] == "cli"
     assert completed["tasks"][0]["visibleMessageId"]
     assert "真实任务输出" in completed["tasks"][0]["summary"]
+    task_workspace = Path(completed["tasks"][0]["taskWorkspacePath"])
+    task_parts = task_workspace.parts
+    assert ".agenthub" in task_parts
+    agenthub_index = task_parts.index(".agenthub")
+    assert task_parts[agenthub_index:agenthub_index + 5] == (
+        ".agenthub", "executions", data["executionId"], "tasks", "T1",
+    )
+    assert task_workspace.name == "T1"
+    assert (task_workspace / "TASK.md").exists()
+    assert (task_workspace / "HANDOFF.md").exists()
     assert completed["tasks"][1]["runnerType"] == "mock"
     assert all(task["resultMessageId"] for task in completed["tasks"])
     assert completed["tasks"][0]["upstreamResults"] == []
@@ -189,6 +202,8 @@ async def test_execute_plan_starts_async_scheduler_then_completes(test_client, d
     )
     assert visible["metadata"]["executionTrace"]["status"] == "completed"
     assert visible["metadata"]["orchestratorTaskMessage"]["taskId"] == "T1"
+    assert visible["metadata"]["taskWorkspacePath"] == str(task_workspace)
+    assert visible["metadata"]["orchestratorTaskMessage"]["taskWorkspacePath"] == str(task_workspace)
 
 
 @pytest.mark.asyncio
