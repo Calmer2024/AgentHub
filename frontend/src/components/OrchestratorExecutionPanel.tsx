@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { Activity, CheckCircle2, ChevronDown, ChevronRight, Clock3, GitBranch, XCircle } from "lucide-react";
-import { fetchOrchestratorExecution } from "../api/client";
+import { Activity, CheckCircle2, ChevronDown, ChevronRight, Clock3, GitBranch, Square, XCircle } from "lucide-react";
+import { cancelOrchestratorExecution, fetchOrchestratorExecution } from "../api/client";
 import type { OrchestratorExecution, OrchestratorExecutionTask } from "../types";
 
 interface Props {
@@ -11,7 +11,9 @@ export function OrchestratorExecutionPanel({ initialExecution }: Props) {
   const [execution, setExecution] = useState(initialExecution);
   const [showEvents, setShowEvents] = useState(false);
   const [pollingLost, setPollingLost] = useState(false);
-  const isLive = !pollingLost && (execution.status === "pending" || execution.status === "running");
+  const [isCancelling, setIsCancelling] = useState(false);
+  const isLive = !pollingLost && ["pending", "running", "cancelling"].includes(execution.status);
+  const canCancel = !pollingLost && !isCancelling && ["pending", "running", "cancelling"].includes(execution.status);
   const completed = execution.tasks.filter((task) => task.status === "completed").length;
   const progress = execution.tasks.length ? Math.round((completed / execution.tasks.length) * 100) : 0;
   const phases = useMemo(() => groupTasksByPhase(execution.tasks), [execution.tasks]);
@@ -19,6 +21,7 @@ export function OrchestratorExecutionPanel({ initialExecution }: Props) {
   useEffect(() => {
     setExecution(initialExecution);
     setPollingLost(false);
+    setIsCancelling(false);
   }, [initialExecution.executionId, initialExecution.updatedAt, initialExecution.status]);
 
   useEffect(() => {
@@ -27,7 +30,10 @@ export function OrchestratorExecutionPanel({ initialExecution }: Props) {
     const timer = window.setInterval(async () => {
       try {
         const next = await fetchOrchestratorExecution(execution.executionId);
-        if (!cancelled) setExecution(next);
+        if (!cancelled) {
+          setExecution(next);
+          if (next.status === "cancelled") setIsCancelling(false);
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : "";
         if (!cancelled && (message.includes("404") || message.includes("Execution 不存在"))) {
@@ -52,7 +58,29 @@ export function OrchestratorExecutionPanel({ initialExecution }: Props) {
             </div>
             <p className="mt-1 font-mono text-[11px] text-slate-500">{execution.executionId}</p>
           </div>
-          <StatusBadge status={execution.status} live={isLive} stale={pollingLost} />
+          <div className="flex shrink-0 items-center gap-2">
+            <StatusBadge status={execution.status} live={isLive} stale={pollingLost} />
+            {canCancel && (
+              <button
+                type="button"
+                onClick={async () => {
+                  setIsCancelling(true);
+                  try {
+                    const next = await cancelOrchestratorExecution(execution.executionId);
+                    setExecution(next);
+                  } finally {
+                    setIsCancelling(false);
+                  }
+                }}
+                className="inline-flex items-center gap-1.5 rounded-md border border-red-200 bg-red-50 px-2 py-1 text-[11px] font-semibold text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={isCancelling}
+                title="停止当前调度执行"
+              >
+                <Square size={12} />
+                {isCancelling ? "停止中" : "停止"}
+              </button>
+            )}
+          </div>
         </div>
         <div className="mt-3">
           <div className="flex items-center justify-between text-[11px] text-slate-500">
@@ -62,7 +90,11 @@ export function OrchestratorExecutionPanel({ initialExecution }: Props) {
           <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-200">
             <div
               className={`h-full rounded-full transition-all duration-500 ${
-                execution.status === "failed" || execution.status === "error" ? "bg-red-500" : "bg-indigo-600"
+                execution.status === "failed" || execution.status === "error"
+                  ? "bg-red-500"
+                  : execution.status === "cancelled"
+                    ? "bg-slate-400"
+                    : "bg-indigo-600"
               }`}
               style={{ width: `${progress}%` }}
             />
@@ -147,10 +179,12 @@ function StatusBadge({ status, live, stale }: { status: string; live: boolean; s
     ? "border-emerald-200 bg-emerald-50 text-emerald-700"
     : status === "failed" || status === "error"
       ? "border-red-200 bg-red-50 text-red-700"
+      : status === "cancelled"
+        ? "border-slate-200 bg-slate-100 text-slate-600"
       : "border-indigo-200 bg-indigo-50 text-indigo-700";
   return (
     <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-semibold ${cls}`}>
-      {status === "completed" ? <CheckCircle2 size={12} /> : status === "failed" || status === "error" ? <XCircle size={12} /> : <Activity size={12} className={live ? "animate-pulse" : ""} />}
+      {status === "completed" ? <CheckCircle2 size={12} /> : status === "failed" || status === "error" || status === "cancelled" ? <XCircle size={12} /> : <Activity size={12} className={live ? "animate-pulse" : ""} />}
       {statusLabel(status)}
       {live && <span className="font-normal opacity-70">自动刷新</span>}
       {stale && <span className="font-normal opacity-70">历史快照</span>}
@@ -163,6 +197,8 @@ function TaskStatus({ status }: { status: string }) {
     ? "text-emerald-700"
     : status === "failed" || status === "error"
       ? "text-red-700"
+      : status === "cancelled"
+        ? "text-slate-500"
       : status === "running"
         ? "text-indigo-700"
         : "text-slate-500";
@@ -170,7 +206,7 @@ function TaskStatus({ status }: { status: string }) {
     ? <CheckCircle2 size={13} />
     : status === "running"
       ? <Clock3 size={13} className="animate-pulse" />
-      : status === "failed" || status === "error"
+      : status === "failed" || status === "error" || status === "cancelled"
         ? <XCircle size={13} />
         : <Clock3 size={13} />;
   return (
@@ -184,6 +220,8 @@ function TaskStatus({ status }: { status: string }) {
 function statusLabel(status: string) {
   if (status === "completed") return "completed";
   if (status === "running") return "running";
+  if (status === "cancelling") return "cancelling";
+  if (status === "cancelled") return "cancelled";
   if (status === "pending") return "pending";
   if (status === "failed" || status === "error") return "failed";
   return status;

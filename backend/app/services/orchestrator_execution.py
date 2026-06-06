@@ -18,6 +18,7 @@ from typing import Any, Callable, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..agents.cli_runtime import cli_process_manager
 from ..database import AsyncSessionLocal
 from ..domain.orchestrator_plan import normalize_plan, validate_plan
 from ..models import AgentConfig, Message as DBMessage, Session as DBSession
@@ -531,6 +532,27 @@ class OrchestratorExecutionRegistry:
         execution = self._executions.get(execution_id)
         return copy.deepcopy(execution) if execution else None
 
+    async def cancel_execution(self, execution_id: str) -> dict[str, Any] | None:
+        execution = self._executions.get(execution_id)
+        if execution is None:
+            return None
+        if execution.get("status") in {"completed", "failed", "cancelled"}:
+            return copy.deepcopy(execution)
+
+        cancelled_at = self._now()
+        execution["cancelRequested"] = True
+        execution["status"] = "cancelling"
+        execution["updatedAt"] = cancelled_at
+        execution["events"].append({
+            "type": "execution_cancel_requested",
+            "status": "cancelling",
+            "timestamp": cancelled_at,
+            "message": "用户请求停止当前调度执行。",
+        })
+        terminated = await cli_process_manager.terminate_session(execution["sessionId"])
+        self._mark_cancelled(execution, terminated_process_count=terminated)
+        return copy.deepcopy(execution)
+
     def _start_background_scheduler(self, execution_id: str) -> None:
         try:
             loop = asyncio.get_running_loop()
@@ -550,6 +572,9 @@ class OrchestratorExecutionRegistry:
 
         phase = 0
         while pending:
+            if self._is_cancelled(execution):
+                self._mark_cancelled(execution)
+                return
             ready = sorted(
                 task_id
                 for task_id in pending
@@ -601,6 +626,9 @@ class OrchestratorExecutionRegistry:
                     for task_id in ready
                 ])
             except Exception as exc:
+                if self._is_cancelled(execution):
+                    self._mark_cancelled(execution)
+                    return
                 failed_at = self._now()
                 execution["status"] = "failed"
                 execution["updatedAt"] = failed_at
@@ -636,6 +664,9 @@ class OrchestratorExecutionRegistry:
                 })
                 pending.remove(task_id)
                 completed.add(task_id)
+            if self._is_cancelled(execution):
+                self._mark_cancelled(execution)
+                return
 
             phase += 1
 
@@ -649,6 +680,40 @@ class OrchestratorExecutionRegistry:
             "timestamp": completed_at,
             "message": "Scheduler 已按 DAG 完成全部任务。",
         })
+
+    @staticmethod
+    def _is_cancelled(execution: dict[str, Any]) -> bool:
+        return bool(execution.get("cancelRequested")) or execution.get("status") in {"cancelling", "cancelled"}
+
+    def _mark_cancelled(
+        self,
+        execution: dict[str, Any],
+        *,
+        terminated_process_count: int | None = None,
+    ) -> None:
+        already_cancelled = execution.get("status") == "cancelled"
+        cancelled_at = self._now()
+        for task in execution.get("tasks") or []:
+            if task.get("status") == "running":
+                task["status"] = "cancelled"
+                task["updatedAt"] = cancelled_at
+            elif task.get("status") == "pending":
+                task["updatedAt"] = cancelled_at
+        execution["status"] = "cancelled"
+        execution["completedAt"] = cancelled_at
+        execution["updatedAt"] = cancelled_at
+        if already_cancelled:
+            return
+        event = {
+            "type": "execution_cancelled",
+            "status": "cancelled",
+            "timestamp": cancelled_at,
+            "message": "调度执行已停止。",
+        }
+        if terminated_process_count is not None:
+            event["terminatedProcessCount"] = terminated_process_count
+            event["message"] = f"调度执行已停止，已终止 {terminated_process_count} 个 CLI 进程。"
+        execution["events"].append(event)
 
     async def _persist_task_result(
         self,

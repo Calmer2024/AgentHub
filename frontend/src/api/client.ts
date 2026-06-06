@@ -769,3 +769,14 @@ export async function fetchOrchestratorExecution(executionId: string): Promise<O
   }
   return res.json();
 }
+
+export async function cancelOrchestratorExecution(executionId: string): Promise<OrchestratorExecution> {
+  const res = await fetch(`${API_BASE}/orchestrator/executions/${encodeURIComponent(executionId)}/cancel`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(text || `HTTP ${res.status}`);
+  }
+  return res.json();
+}

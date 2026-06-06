@@ -63,6 +63,14 @@ async def get_orchestrator_execution(
     return execution
 
 
+@router.post("/executions/{execution_id}/cancel")
+async def cancel_orchestrator_execution(execution_id: str):
+    execution = await execution_registry.cancel_execution(execution_id)
+    if execution is None:
+        raise HTTPException(status_code=404, detail="Execution 不存在或已不可取消")
+    return execution
+
+
 async def _active_agent_ids(db: AsyncSession) -> set[str]:
     result = await db.execute(select(AgentConfig.id).where(AgentConfig.is_active == True))
     return {str(agent_id) for agent_id in result.scalars().all()}

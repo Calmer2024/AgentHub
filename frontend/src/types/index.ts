@@ -480,7 +480,7 @@ export interface OrchestratorExecutionTask {
   taskId: string;
   title: string;
   goal: string;
-  status: "pending" | "running" | "completed" | "failed" | "error" | string;
+  status: "pending" | "running" | "completed" | "failed" | "error" | "cancelled" | string;
   startedAt?: string | null;
   completedAt?: string | null;
   updatedAt?: string | null;
@@ -512,7 +512,7 @@ export interface OrchestratorExecution {
   executionId: string;
   sessionId: string;
   planId: string;
-  status: "pending" | "running" | "completed" | "failed" | "error" | string;
+  status: "pending" | "running" | "completed" | "failed" | "error" | "cancelling" | "cancelled" | string;
   createdAt: string;
   updatedAt: string;
   startedAt?: string | null;

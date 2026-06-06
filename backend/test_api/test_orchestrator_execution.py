@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy import select
 
 from app.models import AgentConfig, Message, Project, Session
-from app.services.orchestrator_execution import execution_registry
+from app.services.orchestrator_execution import OrchestratorExecutionRegistry, execution_registry
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
@@ -326,6 +326,53 @@ async def test_get_execution_falls_back_to_persisted_message_snapshot(test_clien
     data = res.json()
     assert data["executionId"] == execution_id
     assert data["status"] == execution["status"]
+
+
+@pytest.mark.asyncio
+async def test_cancel_execution_marks_active_run_cancelled(test_client, db_session):
+    session_id = await _seed_session_with_agents(db_session)
+    res = await test_client.post("/api/orchestrator/plans/execute", json={
+        "sessionId": session_id,
+        "normalizedPlan": _valid_plan(),
+    })
+    assert res.status_code == 200
+    execution_id = res.json()["executionId"]
+
+    cancel = await test_client.post(f"/api/orchestrator/executions/{execution_id}/cancel")
+
+    assert cancel.status_code == 200
+    data = cancel.json()
+    assert data["status"] == "cancelled"
+    assert any(event["type"] == "execution_cancel_requested" for event in data["events"])
+    assert any(event["type"] == "execution_cancelled" for event in data["events"])
+
+
+@pytest.mark.asyncio
+async def test_cancel_registry_stops_scheduler_before_downstream_tasks():
+    class SlowRunner:
+        async def run(self, task, execution, upstream_results):
+            await asyncio.sleep(5)
+            return "should not finish"
+
+    registry = OrchestratorExecutionRegistry(task_runner=SlowRunner())
+    plan = _valid_plan()
+    plan["runnerType"] = "mock"
+    execution = registry.create_execution(
+        session_id="session_cancel_unit",
+        plan=plan,
+        active_agent_ids={"agent_frontend_exec", "agent_backend_exec"},
+    )
+    cancelled = await registry.cancel_execution(execution["executionId"])
+
+    assert cancelled is not None
+    assert cancelled["status"] == "cancelled"
+    assert cancelled["tasks"][0]["status"] in {"cancelled", "pending"}
+    assert cancelled["tasks"][1]["status"] == "pending"
+    await asyncio.sleep(0.05)
+    latest = registry.get_execution(execution["executionId"])
+    assert latest is not None
+    assert latest["status"] == "cancelled"
+    assert latest["tasks"][1]["status"] == "pending"
 
 
 @pytest.mark.asyncio
