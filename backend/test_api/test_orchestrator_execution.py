@@ -127,6 +127,15 @@ async def test_execute_plan_starts_async_scheduler_then_completes(test_client, d
         "T1 已完成：模拟执行 后端专家 / required_skills=backend_engineer"
     )
     assert all(task["resultMessageId"] for task in completed["tasks"])
+    assert completed["tasks"][0]["upstreamResults"] == []
+    assert completed["tasks"][1]["upstreamResults"] == [{
+        "taskId": "T1",
+        "title": "实现后端 API",
+        "summary": completed["tasks"][0]["summary"],
+        "resultMessageId": completed["tasks"][0]["resultMessageId"],
+        "assignedAgentId": "agent_backend_exec",
+        "assignedAgentName": "后端专家",
+    }]
 
     rows = await db_session.execute(
         select(Message)
@@ -144,6 +153,11 @@ async def test_execute_plan_starts_async_scheduler_then_completes(test_client, d
     assert result["planId"] == "plan_exec_001"
     assert result["taskId"] == "T1"
     assert result["assignedAgentId"] == "agent_backend_exec"
+    second_metadata = json.loads(task_messages[1].metadata_json)
+    second_result = second_metadata["orchestratorTaskResult"]
+    assert second_result["taskId"] == "T2"
+    assert second_result["upstreamResults"][0]["taskId"] == "T1"
+    assert second_result["upstreamResults"][0]["resultMessageId"] == completed["tasks"][0]["resultMessageId"]
 
     visible_messages = (await test_client.get(f"/api/sessions/{session_id}/messages")).json()
     assert not any(message["contentType"] == "orchestrator_task_result" for message in visible_messages)
@@ -200,6 +214,8 @@ async def test_execute_plan_simulates_parallel_ready_tasks(test_client, db_sessi
     started_events = [event for event in data["events"] if event["type"] == "task_started"]
     assert [event["taskId"] for event in started_events[:2]] == ["T1", "T2"]
     assert [task["status"] for task in data["tasks"]] == ["completed", "completed", "completed"]
+    t3 = next(task for task in data["tasks"] if task["taskId"] == "T3")
+    assert [item["taskId"] for item in t3["upstreamResults"]] == ["T1", "T2"]
 
 
 @pytest.mark.asyncio

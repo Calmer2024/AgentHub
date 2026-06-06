@@ -29,7 +29,12 @@ class PlanExecutionError(ValueError):
 
 
 class TaskRunner(Protocol):
-    async def run(self, task: dict[str, Any], execution: dict[str, Any]) -> str:
+    async def run(
+        self,
+        task: dict[str, Any],
+        execution: dict[str, Any],
+        upstream_results: list[dict[str, Any]],
+    ) -> str:
         """Run one scheduled task and return its user-visible summary."""
 
 
@@ -37,7 +42,12 @@ class MockTaskRunner:
     def __init__(self, delay_seconds: float = 0.12):
         self.delay_seconds = delay_seconds
 
-    async def run(self, task: dict[str, Any], execution: dict[str, Any]) -> str:
+    async def run(
+        self,
+        task: dict[str, Any],
+        execution: dict[str, Any],
+        upstream_results: list[dict[str, Any]],
+    ) -> str:
         await asyncio.sleep(self.delay_seconds)
         agent = task.get("assignedAgentName") or task.get("assignedAgentId") or "未分配 Agent"
         skills = ", ".join(task.get("requiredSkills") or []) or "none"
@@ -160,6 +170,7 @@ class OrchestratorExecutionRegistry:
             })
             for task_id in ready:
                 task = task_by_id[task_id]
+                task["upstreamResults"] = self._upstream_results_for(task, task_by_id)
                 task["status"] = "running"
                 task["startedAt"] = running_at
                 task["updatedAt"] = running_at
@@ -174,7 +185,11 @@ class OrchestratorExecutionRegistry:
 
             try:
                 summaries = await asyncio.gather(*[
-                    self._task_runner.run(task_by_id[task_id], execution)
+                    self._task_runner.run(
+                        task_by_id[task_id],
+                        execution,
+                        task_by_id[task_id].get("upstreamResults") or [],
+                    )
                     for task_id in ready
                 ])
             except Exception as exc:
@@ -246,6 +261,7 @@ class OrchestratorExecutionRegistry:
                 "assignedAgentName": task.get("assignedAgentName"),
                 "dependsOn": task.get("dependsOn") or [],
                 "requiredSkills": task.get("requiredSkills") or [],
+                "upstreamResults": task.get("upstreamResults") or [],
             }
         }
         async with self._session_factory() as db:
@@ -291,6 +307,7 @@ class OrchestratorExecutionRegistry:
             "updatedAt": None,
             "summary": None,
             "resultMessageId": None,
+            "upstreamResults": [],
             "assignedAgentId": task.get("assigned_agent_id"),
             "assignedAgentName": task.get("assigned_agent_name"),
             "dependsOn": list(task.get("depends_on") or []),
@@ -304,6 +321,26 @@ class OrchestratorExecutionRegistry:
     @staticmethod
     def _now() -> str:
         return datetime.now(timezone.utc).isoformat()
+
+    @staticmethod
+    def _upstream_results_for(
+        task: dict[str, Any],
+        task_by_id: dict[str, dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        results = []
+        for dep_id in task.get("dependsOn") or []:
+            upstream = task_by_id.get(dep_id)
+            if not upstream:
+                continue
+            results.append({
+                "taskId": upstream["taskId"],
+                "title": upstream.get("title"),
+                "summary": upstream.get("summary"),
+                "resultMessageId": upstream.get("resultMessageId"),
+                "assignedAgentId": upstream.get("assignedAgentId"),
+                "assignedAgentName": upstream.get("assignedAgentName"),
+            })
+        return results
 
 
 execution_registry = OrchestratorExecutionRegistry()
