@@ -43,7 +43,7 @@ export interface ExecutionTraceItem {
 }
 
 export interface ExecutionTrace {
-  status: "running" | "completed" | "error";
+  status: "running" | "completed" | "error" | "cancelled";
   agentName?: string | null;
   cliTool?: string | null;
   workspacePath?: string | null;
@@ -265,6 +265,83 @@ export interface ArtifactScanResult {
     title?: string | null;
     detail?: string | null;
   }>;
+}
+
+export type RunStatus = "queued" | "running" | "pausing" | "paused" | "cancelling" | "cancelled" | "completed" | "failed";
+export type TaskStatus = "pending" | "running" | "paused" | "completed" | "failed" | "cancelled" | "rejected";
+
+export interface RunRead {
+  id: string;
+  sessionId: string;
+  projectId?: string | null;
+  mode: "single" | "group" | "orchestrated" | string;
+  status: RunStatus;
+  currentMessageId?: string | null;
+  startedAt: string;
+  updatedAt: string;
+  completedAt?: string | null;
+  cancelReason?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+export interface TaskRead {
+  id: string;
+  runId: string;
+  sessionId: string;
+  agentId?: string | null;
+  messageId?: string | null;
+  name: string;
+  role?: string | null;
+  phase?: number | null;
+  status: TaskStatus;
+  dependsOn: string[];
+  startedAt?: string | null;
+  completedAt?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+export type ApprovalStatus = "pending_review" | "approved" | "rejected";
+
+export interface ApprovalCheckpoint {
+  id: string;
+  runId: string;
+  taskId: string;
+  sessionId: string;
+  messageId?: string | null;
+  artifactId?: string | null;
+  artifactVersion?: number | null;
+  title: string;
+  summary: string;
+  status: ApprovalStatus;
+  reason?: string | null;
+  createdAt: string;
+  decidedAt?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+export type HealthStatus = "ok" | "warning" | "error" | "missing";
+export type HealthSeverity = "info" | "warning" | "blocking";
+
+export interface SystemHealthItem {
+  key: string;
+  label: string;
+  status: HealthStatus;
+  severity: HealthSeverity;
+  detail: string;
+  action?: {
+    label: string;
+    target: "agent_panel" | "project_settings" | "docs" | "retry";
+  } | null;
+  metadata?: Record<string, string | number | boolean | null> | null;
+}
+
+export interface SystemHealthRead {
+  overall: "ok" | "warning" | "error";
+  checkedAt: string;
+  projectId?: string | null;
+  sessionId?: string | null;
+  blockingReasons: string[];
+  items: SystemHealthItem[];
 }
 
 // === Orchestrator / Collaboration types ===

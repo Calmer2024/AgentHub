@@ -2,9 +2,11 @@
 
 **版本**: v2.0
 **创建日期**: 2026-06-06
-**状态**: Draft
+**状态**: 验收通过
 **关联 ADR/PRD**: [ADR-0009](../../adr/0009-project-workspace-model.md)、[PRD-01](../../PRD/01-Architecture_Adapter.md)、[PRD-05](../../PRD/05-End_to_End_Product_Flow.md)、[PRD-06](../../PRD/06-MVP_Local_Workspace_Delivery.md)
 **依赖模块**: Agent Registry、Project Workspace Runtime、SystemLLMService、Phase 7A Run 状态
+
+> 2026-06-06 实现同步：本模块已落地 `SystemHealthService`、`GET /api/system/health`、`POST /api/system/health/check` 与前端 `HealthCheckCard`/发送前 guard。体检聚合 CLI executable、Codex 本机配置、Node/Python、workspace、DeepSeek 系统模型和活跃 CLI 进程，不返回 API key/token 等敏感值。
 
 ---
 
@@ -16,11 +18,11 @@
 
 **成功标准**（可证伪）：
 
-- [ ] `GET /api/system/health?projectId=&sessionId=` 返回统一 health payload，包含 overall、items、blockingReasons。
-- [ ] 体检聚合 CLI Agent executable 状态、Codex 配置、Node/Python 运行时、workspace 可读写、DeepSeek 系统模型、活跃 CLI 进程。
-- [ ] 前端左侧或 ChatHeader 显示紧凑 HealthCheckCard；缺失 CLI 或 workspace 不可写时，在创建/发送关键路径阻断或警告。
-- [ ] 返回 payload 不包含任何 API key、token、用户完整敏感 env 值。
-- [ ] 不通过标准：只在 AgentPanel 显示 executable 状态，但 Chat 发送路径仍然失败后才报错。
+- [x] `GET /api/system/health?projectId=&sessionId=` 返回统一 health payload，包含 overall、items、blockingReasons。
+- [x] 体检聚合 CLI Agent executable 状态、Codex 配置、Node/Python 运行时、workspace 可读写、DeepSeek 系统模型、活跃 CLI 进程。
+- [x] 前端左侧或 ChatHeader 显示紧凑 HealthCheckCard；缺失 CLI 或 workspace 不可写时，在创建/发送关键路径阻断或警告。
+- [x] 返回 payload 不包含任何 API key、token、用户完整敏感 env 值。
+- [x] 不通过标准：只在 AgentPanel 显示 executable 状态，但 Chat 发送路径仍然失败后才报错。
 
 ---
 
@@ -304,3 +306,4 @@ stores/
 > **版本历史**
 > - v1.0 (2026-06-03): 旧版环境体检卡片。
 > - v2.0 (2026-06-06): 按当前 CLI Agent/Project/SystemLLM 实现重构，新增统一 health payload 和发送前 guard。
+> - v2.1 (2026-06-06): 同步环境体检实现基线与验收状态。

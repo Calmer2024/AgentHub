@@ -2,9 +2,11 @@
 
 **版本**: v2.0
 **创建日期**: 2026-06-06
-**状态**: Draft
+**状态**: 验收通过
 **关联 ADR/PRD**: [ADR-0008](../../adr/0008-revised-development-strategy.md)、[ADR-0010](../../adr/0010-message-level-artifact-experience.md)、[PRD-02](../../PRD/02-Orchestrator_Engine.md)、[PRD-03](../../PRD/03-User_Experience.md)、[PRD-05](../../PRD/05-End_to_End_Product_Flow.md)
 **依赖模块**: Phase 7A Run/Task 状态、Phase 6F 消息级 Artifact 卡片、Phase 5 Artifact 版本/编辑
+
+> 2026-06-06 实现同步：本模块已落地 `approval_checkpoints` 表、ApprovalService、审批 API、SSE `approval.created` 事件与前端 `ApprovalCard`。审批卡片绑定原消息与关联 Artifact，确认会把 checkpoint 标记为 approved 并完成 task，驳回会记录原因并把 Artifact/代码引用上下文回流到对话修订路径。
 
 ---
 
@@ -16,11 +18,11 @@
 
 **成功标准**（可证伪）：
 
-- [ ] `requiresHumanApproval=true` 的 task 完成后进入 `paused`，下游 task 不会自动开始。
-- [ ] 前端在关联 assistant 消息下方展示 Approval Card，卡片包含任务标题、摘要、关联 Artifact、确认/驳回按钮。
-- [ ] 点击确认后 task/checkpoint 变为 `approved`，下游依赖任务被释放。
-- [ ] 点击驳回后 ChatInput 自动带入当前 Artifact/代码引用，用户可直接输入修改意见。
-- [ ] 不通过标准：审批只是前端静态按钮，没有持久化 checkpoint；或驳回后丢失 Artifact 上下文。
+- [x] `requiresHumanApproval=true` 的 task 完成后进入 `paused`，下游 task 不会自动开始。
+- [x] 前端在关联 assistant 消息下方展示 Approval Card，卡片包含任务标题、摘要、关联 Artifact、确认/驳回按钮。
+- [x] 点击确认后 task/checkpoint 变为 `approved`，下游依赖任务被释放。
+- [x] 点击驳回后 ChatInput 自动带入当前 Artifact/代码引用，用户可直接输入修改意见。
+- [x] 不通过标准：审批只是前端静态按钮，没有持久化 checkpoint；或驳回后丢失 Artifact 上下文。
 
 ---
 
@@ -316,3 +318,4 @@ ChatInput
 > **版本历史**
 > - v1.0 (2026-06-03): 旧版审批断点，依赖 Artifact Drawer。
 > - v2.0 (2026-06-06): 移除 Drawer 依赖，改为消息级 ArtifactCard + 页面级弹窗 + ChatInput 引用回流。
+> - v2.1 (2026-06-06): 同步 ApprovalCheckpoint 实现基线与验收状态。

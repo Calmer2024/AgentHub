@@ -2,9 +2,11 @@
 
 **版本**: v1.0
 **创建日期**: 2026-06-06
-**状态**: Draft
+**状态**: 验收通过
 **关联 ADR/PRD**: [ADR-0008](../../adr/0008-revised-development-strategy.md)、[ADR-0009](../../adr/0009-project-workspace-model.md)、[ADR-0010](../../adr/0010-message-level-artifact-experience.md)、[PRD-02](../../PRD/02-Orchestrator_Engine.md)、[PRD-05](../../PRD/05-End_to_End_Product_Flow.md)
 **依赖模块**: Phase 6 CLI Runtime、Phase 6 Artifact Bridge、Phase 3 Orchestrator DAG
+
+> 2026-06-06 实现同步：本模块已落地 `runs`、`run_tasks`、`run_processes` 持久化表，接入单聊和群聊 CLI 流，新增 runs API 与前端 `RuntimeControlStrip`。本轮人工验收发现的“停止后没有明确中止提示、输入框仍锁死、其它会话被占用”已修复：点击停止会立即 abort 当前 SSE、本地回退 run/message 状态、追加可见运行控制消息并释放输入框；后端取消会终止进程/会话活跃进程并持久化 cancelled 状态。
 
 ---
 
@@ -16,11 +18,11 @@
 
 **成功标准**（可证伪）：
 
-- [ ] 每次 `/api/sessions/{id}/chat` 创建一个 `run` 记录，至少包含 `runId/sessionId/status/startedAt/currentMessageId`。
-- [ ] 单聊真实 CLI 进程启动后，`run.status=running`，前端显示运行控制条和取消按钮。
-- [ ] 用户点击取消后，后端调用 `cli_process_manager.terminate_session(sessionId)` 或按 `processId` 终止进程；最终状态为 `cancelled`。
-- [ ] 取消操作幂等：重复点击不会报错，不会产生多个失败 toast。
-- [ ] 不通过标准：只隐藏前端流式状态但后端 CLI 进程仍在运行；或取消后输入框仍被锁死。
+- [x] 每次 `/api/sessions/{id}/chat` 创建一个 `run` 记录，至少包含 `runId/sessionId/status/startedAt/currentMessageId`。
+- [x] 单聊真实 CLI 进程启动后，`run.status=running`，前端显示运行控制条和取消按钮。
+- [x] 用户点击取消后，后端调用 `cli_process_manager.terminate_session(sessionId)` 或按 `processId` 终止进程；最终状态为 `cancelled`。
+- [x] 取消操作幂等：重复点击不会报错，不会产生多个失败 toast。
+- [x] 不通过标准：只隐藏前端流式状态但后端 CLI 进程仍在运行；或取消后输入框仍被锁死。
 
 ---
 
@@ -354,3 +356,4 @@ stores/
 
 > **版本历史**
 > - v1.0 (2026-06-06): 初始版本。
+> - v1.1 (2026-06-06): 同步实现基线与取消回退验收修复。

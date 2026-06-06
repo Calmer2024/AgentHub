@@ -1,7 +1,15 @@
 import { useCallback } from "react";
 import { useChatStore, type CollabSnapshot } from "../stores/chatStore";
 import { useSessionStore } from "../stores/sessionStore";
-import { createChatStream, fetchArtifacts, fetchMessages, summarizeSession } from "../api/client";
+import {
+  checkSystemHealth,
+  createChatStream,
+  fetchApprovals,
+  fetchArtifacts,
+  fetchMessages,
+  fetchRuns,
+  summarizeSession,
+} from "../api/client";
 import type { Message, CollabTask, DAGPhase, PhaseChangeEvent, AgentStartEvent, Artifact } from "../types";
 
 function emptyCollab(): CollabSnapshot {
@@ -56,6 +64,13 @@ export function useSendMessage() {
     setMessagesForSession,
     setArtifactsForSession,
     upsertArtifact,
+    setRunsForSession,
+    upsertRun,
+    upsertTask,
+    setApprovalsForSession,
+    upsertApproval,
+    setSystemHealth,
+    setHealthBlockingError,
     setStreamingError,
     setActiveProgress,
     addInteractivePrompt,
@@ -63,6 +78,8 @@ export function useSendMessage() {
     clearRuntimeNotices,
     startStreamRun,
     finishStreamRun,
+    setActiveRunId,
+    setActiveStreamAbort,
     getCollab,
     saveCollab,
     setReplyTarget,
@@ -72,8 +89,8 @@ export function useSendMessage() {
   return useCallback(async (content: string, mentions: string[]) => {
     if (!currentSessionId) return;
     const collabKey = currentSessionId;
-    const runId = `run-${currentSessionId}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    const isCurrentRun = () => useChatStore.getState().activeRunId === runId
+    const streamKey = `stream-${currentSessionId}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const isCurrentRun = () => useChatStore.getState().activeStreamKey === streamKey
       && useChatStore.getState().currentSessionId === currentSessionId;
     setStreamingError(null);
     clearRuntimeNotices();
@@ -81,6 +98,23 @@ export function useSendMessage() {
 
     const currentSession = sessions.find((s) => s.id === currentSessionId);
     const currentMode = currentSession?.mode ?? "single";
+    try {
+      const health = await checkSystemHealth({
+        projectId: currentSession?.projectId ?? null,
+        sessionId: currentSessionId,
+        agentId: currentMode === "single" ? currentSession?.agentConfigId ?? null : null,
+      });
+      setSystemHealth(health);
+      if (health.blockingReasons.length > 0) {
+        const message = health.blockingReasons.join("；");
+        setHealthBlockingError(message);
+        setStreamingError(`环境体检阻断：${message}`);
+        return;
+      }
+      setHealthBlockingError(null);
+    } catch {
+      setHealthBlockingError(null);
+    }
     const shouldSummarizeTitle = shouldAutoSummarizeTitle(
       currentSession?.title ?? "",
       currentMode,
@@ -114,7 +148,7 @@ export function useSendMessage() {
         createdAt: new Date().toISOString(),
       });
     }
-    startStreamRun(runId);
+    startStreamRun(streamKey);
 
     const agentPlaceholders = new Map<string, string>();
     const messagePlaceholders = new Map<string, string>();
@@ -161,7 +195,7 @@ export function useSendMessage() {
       });
     };
 
-    createChatStream(currentSessionId, content, mentions, {
+    const abortStream = createChatStream(currentSessionId, content, mentions, {
       onToken: (token) => {
         if (!isCurrentRun()) return;
         if (currentMode === "group") {
@@ -173,7 +207,7 @@ export function useSendMessage() {
       },
       onDone: (messageId, error) => {
         if (!isCurrentRun()) return;
-        finishStreamRun(runId);
+        finishStreamRun(streamKey);
         setActiveProgress(null);
         if (error) {
           setStreamingError(error === "Stream ended unexpectedly"
@@ -182,14 +216,20 @@ export function useSendMessage() {
         }
         if (messageId) ensureSingleAssistantId(messageId);
         fetchMessages(currentSessionId).then((messages) => {
-          if (useChatStore.getState().latestRunId !== runId) return;
+          if (useChatStore.getState().latestRunId !== streamKey) return;
           setMessagesForSession(currentSessionId, messages);
-        });
+          });
         fetchArtifacts(currentSessionId)
           .then((artifacts) => {
-            if (useChatStore.getState().latestRunId !== runId) return;
+            if (useChatStore.getState().latestRunId !== streamKey) return;
             setArtifactsForSession(currentSessionId, artifacts);
           })
+          .catch(() => {});
+        fetchRuns(currentSessionId)
+          .then((runs) => setRunsForSession(currentSessionId, runs))
+          .catch(() => {});
+        fetchApprovals(currentSessionId)
+          .then((approvals) => setApprovalsForSession(currentSessionId, approvals))
           .catch(() => {});
         if (shouldSummarizeTitle) {
           summarizeSession(currentSessionId)
@@ -208,6 +248,27 @@ export function useSendMessage() {
       onInteractivePrompt: (prompt) => {
         if (!isCurrentRun()) return;
         addInteractivePrompt(prompt);
+      },
+      onRunStarted: (run) => {
+        if (!isCurrentRun()) return;
+        setActiveRunId(run.id);
+        upsertRun(run);
+      },
+      onRunStatusChanged: (run) => {
+        if (!isCurrentRun()) return;
+        upsertRun(run);
+      },
+      onTaskStatusChanged: (task) => {
+        if (!isCurrentRun()) return;
+        upsertTask(task);
+      },
+      onApprovalCreated: (approval) => {
+        if (!isCurrentRun()) return;
+        upsertApproval(approval);
+      },
+      onApprovalStatusChanged: (approval) => {
+        if (!isCurrentRun()) return;
+        upsertApproval(approval);
       },
       onTraceDelta: (messageId, item, meta) => {
         if (!isCurrentRun()) return;
@@ -365,14 +426,17 @@ export function useSendMessage() {
         if (localId) appendAgentStreamingToken(localId, agentName, token);
       },
     }, undefined, parentMessageId);
+    setActiveStreamAbort(abortStream);
 
   }, [
     currentSessionId, agents, sessions, updateSession, appendMessage, appendStreamingToken,
     appendAgentStreamingToken, bindMessageId, appendExecutionTraceItem, upsertArtifact,
     finalizeExecutionTrace, setArtifactsForSession, setMessagesForSession, setStreamingError,
     setActiveProgress, addInteractivePrompt, updateMessage, clearRuntimeNotices,
+    setRunsForSession, upsertRun, upsertTask, setApprovalsForSession, upsertApproval,
+    setSystemHealth, setHealthBlockingError,
     appendStreamingTokenToMessage, startStreamRun, finishStreamRun,
-    getCollab, saveCollab, replyTarget, setReplyTarget,
+    setActiveRunId, setActiveStreamAbort, getCollab, saveCollab, replyTarget, setReplyTarget,
   ]);
 }
 

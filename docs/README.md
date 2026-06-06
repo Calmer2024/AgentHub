@@ -32,7 +32,7 @@ docs/
 **产品交付阶段**：P1 先做桌面版（Web UI + 本地无头服务器 → 本机文件系统 + 本机 CLI Agent），P2 再做 SaaS 云版（云端沙箱 + 一键部署）。详见 PRD-00 第 9 节。
 
 ### 我想了解项目现在的状态
-→ 看 [CONTEXT.md](../CONTEXT.md) 的 Phase 表格；当前 Phase 6 进度看 [specs/phase6/README.md](specs/phase6/README.md) 与 [dev-logs/phase6-dev-log.md](dev-logs/phase6-dev-log.md)。历史 Phase 3 审计见 [audit/phase3-audit-report.md](audit/phase3-audit-report.md)。
+→ 看 [CONTEXT.md](../CONTEXT.md) 的 Phase 表格；Phase 6 进度看 [specs/phase6/README.md](specs/phase6/README.md) 与 [dev-logs/phase6-dev-log.md](dev-logs/phase6-dev-log.md)，Phase 7A-7C 看 [deliverables/phase7-runtime-control/](deliverables/phase7-runtime-control/)。历史 Phase 3 审计见 [audit/phase3-audit-report.md](audit/phase3-audit-report.md)。
 
 ### 我要了解 Phase 6 当前进度
 → 进入 [specs/phase6/](specs/phase6/) 目录。先读 README.md 获取总览；[00-workspace-runtime.md](specs/phase6/00-workspace-runtime.md) 已验收，CLI Adapter 交付快照见 [deliverables/phase6-cli-adapter/](deliverables/phase6-cli-adapter/)，Artifact Bridge 验收快照见 [deliverables/phase6-artifact-bridge/](deliverables/phase6-artifact-bridge/)。
@@ -93,7 +93,7 @@ docs/
 | [phase4/](specs/phase4/) | 消息交互闭环 | ✅ | Reply/Regenerate/Pin + FTS5 搜索 |
 | [phase5/](specs/phase5/) | 产物工作台能力 | ✅ | 对已有 Artifact 做版本链 + Diff + 在线编辑；上游入口由 Phase 6/7 补齐 |
 | [phase6/](specs/phase6/) | Workspace Runtime + CLI 适配器 + 产物入口桥接 | ✅ | 6A Workspace Runtime、6B-6E CLI Adapter 与 6F Artifact Bridge 核心闭环均已验收；Phase 7 继续运行可控性/审批/环境体检 |
-| [phase7/](specs/phase7/) | 任务可控性 + 审批 + 环境体检 + 演示闭环 | 📋 | run/task 取消与恢复、审批卡片、环境体检、真实 cc 演示与 UX 加固 |
+| [phase7/](specs/phase7/) | 任务可控性 + 审批 + 环境体检 + 演示闭环 | 🚧 | 7A-7C run/task 取消与恢复、审批卡片、环境体检已验收；7D 继续真实 cc 演示与 UX 加固 |
 
 ### deliverables/ — 阶段性交付快照
 
@@ -103,6 +103,7 @@ docs/
 |------|------|
 | [phase6-cli-adapter/](deliverables/phase6-cli-adapter/) | CLI Adapter 架构与实现原理、用户/开发者使用指南、阶段开发日志 |
 | [phase6-artifact-bridge/](deliverables/phase6-artifact-bridge/) | Artifact Bridge 验收快照：消息级产物卡片、文件编辑器、代码引用、版本管理与真实服务验收 |
+| [phase7-runtime-control/](deliverables/phase7-runtime-control/) | Phase 7A-7C 验收快照：运行控制、审批卡片、环境体检与取消回退修复 |
 | [planning/](specs/planning/) | 历史规划 | 📦 | 旧的 Phase 3 模块化计划 (已被 ADR-0008 取代) |
 
 每个 Phase 目录下都有独立的 `README.md`，包含验收标准清单和子模块索引。
@@ -122,6 +123,7 @@ docs/
 | [phase5-dev-log.md](dev-logs/phase5-dev-log.md) | Phase 5: 产物版本链、Diff、在线编辑、架构优化、真实 HTTP 验收 |
 | [phase6-dev-log.md](dev-logs/phase6-dev-log.md) | Phase 6A: Project-first workspace runtime；Phase 6B-6E: 真实本机 CLI Agent；6F: Artifact Bridge、消息级产物卡片、文件编辑器与版本管理 |
 | [phase6-cli-adapter-dev-log.md](dev-logs/phase6-cli-adapter-dev-log.md) | Phase 6 CLI Adapter 专项交接日志：真实 CLI 验证、Codex 中转修复、执行轨迹 UI 与剩余工作 |
+| [phase7-dev-log.md](dev-logs/phase7-dev-log.md) | Phase 7A-7C: run/task/process 运行控制、审批 checkpoint、环境体检和取消回退验收修复 |
 
 ### audit/ — 审计报告
 

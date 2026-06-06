@@ -7,11 +7,14 @@ import {
   deleteProject,
   deleteSession,
   fetchAgents,
+  fetchApprovals,
   fetchArtifacts,
   fetchMessages,
   fetchProjects,
+  fetchRuns,
   fetchSessionMembers,
   fetchSessions,
+  fetchSystemHealth,
   pickProjectFolder,
   renameSession,
   summarizeSession,
@@ -30,6 +33,10 @@ export function useWorkspaceRuntime() {
     setMessagesForSession,
     setArtifacts,
     setArtifactsForSession,
+    setApprovalsForSession,
+    setRunsForSession,
+    clearRuntimeState,
+    setSystemHealth,
     setStreamingError,
     clearCollab,
   } = useChatStore();
@@ -55,8 +62,7 @@ export function useWorkspaceRuntime() {
     ws.on("message.completed", (data) => {
       const eventSessionId = typeof data.sessionId === "string" ? data.sessionId : currentSessionId;
       if (eventSessionId !== currentSessionId) return;
-      const activeRunId = useChatStore.getState().activeRunId;
-      if (activeRunId?.includes(`run-${eventSessionId}-`)) return;
+      if (useChatStore.getState().isStreaming) return;
       fetchMessages(eventSessionId).then((messages) => setMessagesForSession(eventSessionId, messages));
       fetchArtifacts(eventSessionId)
         .then((artifacts) => setArtifactsForSession(eventSessionId, artifacts))
@@ -78,12 +84,19 @@ export function useWorkspaceRuntime() {
     updateSession,
   ]);
 
+  useEffect(() => {
+    fetchSystemHealth({ projectId: currentProjectId, sessionId: currentSessionId })
+      .then(setSystemHealth)
+      .catch(() => setSystemHealth(null));
+  }, [currentProjectId, currentSessionId, setSystemHealth]);
+
   const loadSessionsForProject = useCallback(async (projectId: string | null) => {
     if (!projectId) {
       setSessions([]);
       setCurrentSessionId(null);
       setMessages([]);
       setArtifacts([]);
+      clearRuntimeState();
       return;
     }
     try {
@@ -104,9 +117,20 @@ export function useWorkspaceRuntime() {
           } catch {
             setArtifactsForSession(first.id, []);
           }
+          try {
+            setRunsForSession(first.id, await fetchRuns(first.id));
+          } catch {
+            setRunsForSession(first.id, []);
+          }
+          try {
+            setApprovalsForSession(first.id, await fetchApprovals(first.id));
+          } catch {
+            setApprovalsForSession(first.id, []);
+          }
         } else {
           setMessages([]);
           setArtifacts([]);
+          clearRuntimeState();
         }
       }
     } catch {
@@ -116,9 +140,12 @@ export function useWorkspaceRuntime() {
     currentSessionId,
     setArtifacts,
     setArtifactsForSession,
+    clearRuntimeState,
     setCurrentSessionId,
     setMessages,
     setMessagesForSession,
+    setApprovalsForSession,
+    setRunsForSession,
     setSessions,
   ]);
 
@@ -153,6 +180,16 @@ export function useWorkspaceRuntime() {
     try {
       setArtifactsForSession(id, await fetchArtifacts(id));
     } catch { /* ignore */ }
+    try {
+      setRunsForSession(id, await fetchRuns(id));
+    } catch {
+      setRunsForSession(id, []);
+    }
+    try {
+      setApprovalsForSession(id, await fetchApprovals(id));
+    } catch {
+      setApprovalsForSession(id, []);
+    }
 
     const sess = sessions.find((s) => s.id === id);
     if (sess?.mode !== "group") {
@@ -176,6 +213,7 @@ export function useWorkspaceRuntime() {
     setCurrentSessionId(null);
     setMessages([]);
     setArtifacts([]);
+    clearRuntimeState();
     setStreamingError(null);
   };
 
@@ -189,6 +227,7 @@ export function useWorkspaceRuntime() {
       setCurrentSessionId(null);
       setMessages([]);
       setArtifacts([]);
+      clearRuntimeState();
       setSidebarTab("sessions");
     } finally {
       setCreatingProject(false);
@@ -229,6 +268,7 @@ export function useWorkspaceRuntime() {
       setCurrentSessionId(null);
       setMessages([]);
       setArtifacts([]);
+      clearRuntimeState();
     }
   };
 
@@ -248,6 +288,7 @@ export function useWorkspaceRuntime() {
       setCurrentSessionId(null);
       setMessages([]);
       setArtifacts([]);
+      clearRuntimeState();
       setStreamingError(null);
     }
   };
@@ -260,6 +301,8 @@ export function useWorkspaceRuntime() {
     setCurrentSessionId(s.id);
     setMessages([]);
     setArtifacts([]);
+    setRunsForSession(s.id, []);
+    setApprovalsForSession(s.id, []);
     setStreamingError(null);
   };
 
@@ -270,6 +313,8 @@ export function useWorkspaceRuntime() {
     setCurrentSessionId(s.id);
     setMessages([]);
     setArtifacts([]);
+    setRunsForSession(s.id, []);
+    setApprovalsForSession(s.id, []);
     setStreamingError(null);
     clearCollab(s.id);
   };
@@ -281,6 +326,7 @@ export function useWorkspaceRuntime() {
       setCurrentSessionId(null);
       setMessages([]);
       setArtifacts([]);
+      clearRuntimeState();
     }
     clearCollab(id);
   };

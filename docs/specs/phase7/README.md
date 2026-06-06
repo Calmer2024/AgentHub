@@ -2,7 +2,7 @@
 
 **版本**: v3.0
 **创建日期**: 2026-06-06
-**状态**: Draft
+**状态**: In Progress — 7A/7B/7C 实现基线已验收，7D 待演示加固
 **关联 ADR/PRD**: [ADR-0008](../../adr/0008-revised-development-strategy.md)、[ADR-0009](../../adr/0009-project-workspace-model.md)、[ADR-0010](../../adr/0010-message-level-artifact-experience.md)、[PRD-02](../../PRD/02-Orchestrator_Engine.md)、[PRD-03](../../PRD/03-User_Experience.md)、[PRD-05](../../PRD/05-End_to_End_Product_Flow.md)、[PRD-06](../../PRD/06-MVP_Local_Workspace_Delivery.md)
 **依赖模块**: Phase 4 消息交互闭环、Phase 5 Artifact 版本/编辑、Phase 6 Workspace Runtime + CLI Adapter + Artifact Bridge
 
@@ -23,9 +23,9 @@ Phase 7 的目标是把 Phase 1-6 已有的聊天、真实 CLI 执行、workspac
 
 **成功标准**（可证伪）：
 
-- [ ] 用户能在一次真实 CLI 任务运行中看到当前 run/task 状态，并能取消正在运行的 CLI 进程。
-- [ ] 需要人工确认的任务能生成 Approval Card；确认后继续，驳回后回到对话修订，并携带 Artifact/代码引用上下文。
-- [ ] `/api/system/health` 能返回 CLI Agent、Node/Python、workspace、系统模型、活跃进程的统一健康状态；前端在创建/发送关键路径前给出阻断或降级提示。
+- [x] 用户能在一次真实 CLI 任务运行中看到当前 run/task 状态，并能取消正在运行的 CLI 进程。
+- [x] 需要人工确认的任务能生成 Approval Card；确认后继续，驳回后回到对话修订，并携带 Artifact/代码引用上下文。
+- [x] `/api/system/health` 能返回 CLI Agent、Node/Python、workspace、系统模型、活跃进程的统一健康状态；前端在创建/发送关键路径前给出阻断或降级提示。
 - [ ] MVP 演示脚本跑通：Project 绑定 workspace → 与 Claude Code 真实对话 → 生成消息级 Artifact → 编辑/引用/版本管理 → 审批继续 → 中枢总结。
 - [ ] 不通过标准：重新引入独立产物工作台、右侧 Artifact Drawer，或只做静态 UI 而不接真实 API/事件/持久化状态。
 
@@ -74,10 +74,12 @@ Project workspace
 
 | 模块 | Spec 文档 | 状态 | 核心交付 |
 |------|----------|------|---------|
-| **7A: 运行任务可控性** | [01-runtime-task-control.md](01-runtime-task-control.md) | Draft | 持久化 run/task 状态、取消运行、进程清理、前端运行控制条 |
-| **7B: 人工审批断点** | [02-approval-checkpoints.md](02-approval-checkpoints.md) | Draft | ApprovalCheckpoint 数据模型、确认/驳回 API、聊天流 Approval Card、Artifact/代码引用回流 |
-| **7C: 环境体检** | [03-environment-health.md](03-environment-health.md) | Draft | `/api/system/health`、CLI/Node/Python/workspace/DeepSeek/进程状态、HealthCheckCard |
+| **7A: 运行任务可控性** | [01-runtime-task-control.md](01-runtime-task-control.md) | ✅ 验收通过 | 持久化 run/task/process 状态、取消运行、进程清理、前端运行控制条 |
+| **7B: 人工审批断点** | [02-approval-checkpoints.md](02-approval-checkpoints.md) | ✅ 验收通过 | ApprovalCheckpoint 数据模型、确认/驳回 API、聊天流 Approval Card、Artifact/代码引用回流 |
+| **7C: 环境体检** | [03-environment-health.md](03-environment-health.md) | ✅ 验收通过 | `/api/system/health`、CLI/Node/Python/workspace/DeepSeek/进程状态、HealthCheckCard 与发送前 guard |
 | **7D: 演示与 UX 加固** | [04-mvp-demo-ux-hardening.md](04-mvp-demo-ux-hardening.md) | Draft | Store 拆分、P0/P1 UX 清零、真实 cc 演示脚本、自动化验收矩阵 |
+
+2026-06-06 验收记录：7A/7B/7C 已完成实现基线并通过本轮人工验收。验收中发现的“停止输出后无明确中止提示、输入框仍显示 AI 正在回复、其它会话被全局占用”问题已修复：前端点击停止后立即 abort 当前流、本地标记 run/message 为 cancelled、追加可见“本次运行已中止成功”系统消息并解锁输入框；后端取消也会持久化 cancelled metadata 和运行控制消息。
 
 ---
 
@@ -183,3 +185,4 @@ Project workspace
 - v1.0 (2026-06-03): 旧版 Phase 7，围绕 Artifact Drawer、审批、环境体检、Store 收尾。
 - v2.0 (2026-06-05): 补充 Phase 6F 后的 Artifact Bridge 下游预期。
 - v3.0 (2026-06-06): 删除陈旧 Drawer/产物工作台方向，按当前实现基线重构为运行可控性、审批、环境体检、演示加固四个模块。
+- v3.1 (2026-06-06): 同步 7A/7B/7C 实现基线与人工验收结果，7D 保持后续演示加固范围。

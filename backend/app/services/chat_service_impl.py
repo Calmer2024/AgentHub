@@ -15,6 +15,7 @@ from .message_service_sqlalchemy import (
     SqlAlchemyMessageService,
     build_reply_reference_metadata,
 )
+from .run_service import RunService, run_to_read, task_to_read
 from .single_cli_chat_stream import SingleCliChatStream
 
 class ChatServiceImpl:
@@ -67,6 +68,29 @@ class ChatServiceImpl:
         ))
         await self.db.commit()
 
+        run_service = RunService(self.db, event_bus=self.event_bus)
+        run_mode = "orchestrated" if session.mode == "group" else "single"
+        approval_required = _approval_requested(content)
+        run = await run_service.create_run(
+            session,
+            mode=run_mode,
+            metadata={
+                "userMessageId": user_msg_id,
+                "requiresHumanApproval": approval_required,
+            },
+        )
+        yield self._sse({
+            "type": "run.started",
+            "run": run_to_read(run).model_dump(by_alias=True, mode="json"),
+            "runId": run.id,
+            "sessionId": session_id,
+            "mode": run_mode,
+            "messageId": None,
+            "startedAt": run.started_at.isoformat() if run.started_at else "",
+            "token": "",
+            "done": False,
+        })
+
         # 取历史消息
         history, pinned_ids = await self._messages.history_for_session(session_id)
 
@@ -74,19 +98,53 @@ class ChatServiceImpl:
         if session.mode == "group":
             async for ev in self._group_chat(
                 session_id, content, mentions, history, pinned_ids, session, chain_config,
+                run_id=run.id,
+                approval_required=approval_required,
             ):
                 yield ev
             return
 
-        async for ev in self._single_stream.send(session_id, history, pinned_ids, session):
+        task = await run_service.create_task(
+            run,
+            agent_id=session.agent_config_id,
+            name="primary",
+            role="executor",
+            phase=0,
+            metadata={
+                "requiresHumanApproval": approval_required,
+                "approvalTitle": "确认本轮产出",
+            },
+        )
+        yield self._sse({
+            "type": "task.status_changed",
+            "runId": run.id,
+            "taskId": task.id,
+            "sessionId": session_id,
+            "status": task.status,
+            "task": task_to_read(task).model_dump(by_alias=True, mode="json"),
+            "token": "",
+            "done": False,
+        })
+
+        async for ev in self._single_stream.send(
+            session_id,
+            history,
+            pinned_ids,
+            session,
+            run_id=run.id,
+            task_id=task.id,
+        ):
             yield ev
 
     # ---- 群聊 ----
 
     async def _group_chat(self, session_id, content, mentions, history, pinned_ids, session,
-                          chain_config=None):
+                          chain_config=None, run_id: str | None = None,
+                          approval_required: bool = False):
         async for ev in self._group_stream.send(
             session_id, content, mentions, history, pinned_ids, session, chain_config,
+            run_id=run_id,
+            approval_required=approval_required,
         ):
             yield ev
 
@@ -99,3 +157,18 @@ class ChatServiceImpl:
     @staticmethod
     def _err(msg: str) -> str:
         return f"data: {json.dumps({'type': 'error', 'token': '', 'done': True, 'error': msg}, ensure_ascii=False)}\n\n"
+
+
+def _approval_requested(content: str) -> bool:
+    lowered = content.lower()
+    markers = (
+        "requireshumanapproval",
+        "human approval",
+        "人工确认",
+        "人工审批",
+        "需要审批",
+        "审批后",
+        "确认继续",
+        "审核后",
+    )
+    return any(marker in lowered for marker in markers)

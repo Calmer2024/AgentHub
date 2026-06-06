@@ -75,7 +75,7 @@ AgentHub/
 
 ## 已经做完了什么？
 
-项目按 Phase 1-7 推进，目前 Phase 1-6 核心闭环已完成并通过验收；Phase 7 继续推进运行任务可控性、审批卡片、环境体检和 MVP 演示闭环。
+项目按 Phase 1-7 推进，目前 Phase 1-6 核心闭环已完成并通过验收；Phase 7A-7C 的运行任务可控性、审批卡片和环境体检也已通过本轮验收，Phase 7D 继续推进 MVP 演示和 UX 加固。
 
 ### Phase 1：单聊全链路 ✅
 
@@ -136,7 +136,7 @@ Phase 3 聚焦多 Agent 协作基础设施与 Orchestrator 深化。
 
 ---
 
-## 接下来要做什么？（Phase 7）
+## 接下来要做什么？（Phase 7D）
 
 ### Phase 6：Workspace Runtime + CLI Agent 适配器 + 产物入口桥接 ✅
 
@@ -145,12 +145,12 @@ Phase 3 聚焦多 Agent 协作基础设施与 Orchestrator 深化。
 - CLI 输出、消息代码块和 workspace diff 已由 ArtifactOutputBridge 转为真实 Artifact，并在对应消息下方以 ArtifactCard 展示。
 - 文件编辑器、代码片段引用、Artifact 版本管理和会话文件入口已通过本轮验收。
 
-### Phase 7：任务可控性 + 审批 + 环境体检 + 演示闭环
+### Phase 7：任务可控性 + 审批 + 环境体检 + 演示闭环 🚧
 
-- 运行任务可控性：run/task 状态持久化、取消真实 CLI 进程、刷新后恢复运行状态
-- Human-in-the-loop 审批卡片：确认继续、驳回并携带 Artifact/代码引用回到 ChatInput
-- 统一环境体检：CLI、Node/Python、workspace、DeepSeek 系统模型、活跃进程状态
-- 跑通 workspace 绑定 → 输入任务 → Agent 输出消息级 Artifact → 编辑/引用/版本管理 → 审批继续 → 中枢总结的真实 cc 演示脚本
+- ✅ 运行任务可控性：run/task/process 状态持久化、取消真实 CLI 进程、停止后明确提示并解锁输入框。
+- ✅ Human-in-the-loop 审批卡片：确认继续、驳回并携带 Artifact/代码引用回到 ChatInput。
+- ✅ 统一环境体检：CLI、Node/Python、workspace、DeepSeek 系统模型、活跃进程状态，发送前可阻断不可执行环境。
+- 🚧 Phase 7D：跑通 workspace 绑定 → 输入任务 → Agent 输出消息级 Artifact → 编辑/引用/版本管理 → 审批继续 → 中枢总结的真实 cc 演示脚本，并补截图审计。
 
 ---
 
@@ -191,6 +191,10 @@ API 路由层 (FastAPI)
 | `session_members` | 群聊成员关联表 |
 | `agent_configs` | CLI Agent 配置（名称、备注、executable、init_args、非敏感 env vars） |
 | `artifacts` | 产物（代码、网页预览等，支持版本链） |
+| `runs` | Phase 7 运行记录（单聊/群聊一次执行的状态） |
+| `run_tasks` | Phase 7 run 下的 Agent/task 状态 |
+| `run_processes` | Phase 7 CLI 进程与 run/task 的绑定 |
+| `approval_checkpoints` | Phase 7 人工审批断点 |
 | `messages_fts` | FTS5 全文搜索虚拟表 |
 
 ---
@@ -297,6 +301,7 @@ python e2e/full_ui_audit.py
 | **Phase 4 Spec** | `docs/specs/phase4/README.md` | 消息交互闭环的权威规格与验收记录 |
 | **Phase 5 Spec** | `docs/specs/phase5/README.md` | 产物工作台能力完成记录与未打通边界 |
 | **Phase 6 Spec** | `docs/specs/phase6/README.md` | Workspace Runtime、CLI Adapter、Artifact Bridge 核心闭环验收记录 |
+| **Phase 7 交付快照** | `docs/deliverables/phase7-runtime-control/README.md` | 运行控制、审批卡片、环境体检实现与验收记录 |
 | **Docs Index** | `docs/README.md` | 查看所有文档入口 |
 
 ### 按需查阅

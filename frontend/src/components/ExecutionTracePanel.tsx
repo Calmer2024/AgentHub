@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import {
   AlertCircle, CheckCircle2, ChevronDown, ChevronRight,
   Clock3, Code2, FileCode2, FolderOpen, Hammer, Info, Play,
-  Search, SquareActivity, Terminal, TriangleAlert,
+  Search, SquareActivity, Terminal, TriangleAlert, XCircle,
 } from "lucide-react";
 import type { ExecutionTrace, ExecutionTraceItem } from "../types";
 
@@ -56,6 +56,7 @@ export function ExecutionTracePanel({ trace, className = "" }: Props) {
   const [manualOpen, setManualOpen] = useState<boolean | null>(null);
   const isRunning = trace?.status === "running";
   const isError = trace?.status === "error";
+  const isCancelled = trace?.status === "cancelled";
   const open = manualOpen ?? isRunning;
   const latest = items[items.length - 1];
   const current = isRunning ? activeTraceItem(items) ?? latest : latest;
@@ -71,16 +72,21 @@ export function ExecutionTracePanel({ trace, className = "" }: Props) {
     if (!open || !isRunning || items.length === 0) return;
     const container = traceScrollRef.current;
     if (!container) return;
-    container.scrollTo({ top: container.scrollHeight });
+    if (typeof container.scrollTo === "function") {
+      container.scrollTo({ top: container.scrollHeight });
+    } else {
+      container.scrollTop = container.scrollHeight;
+    }
   }, [items.length, isRunning, open]);
 
   const stats = useMemo(() => traceStats(items), [items]);
   const summary = useMemo(() => {
     if (!trace) return "";
     if (isRunning) return itemTitle(current) || "正在执行";
+    if (isCancelled) return "本次运行已中止";
     if (isError) return itemTitle(latest) || "执行遇到错误";
     return `${items.length} 步，${stats.toolCount} 次工具调用，${stats.commandCount} 条命令`;
-  }, [current, isError, isRunning, items.length, latest, stats.commandCount, stats.toolCount, trace]);
+  }, [current, isCancelled, isError, isRunning, items.length, latest, stats.commandCount, stats.toolCount, trace]);
 
   if (!trace || items.length === 0) return null;
 
@@ -339,12 +345,14 @@ function statusIcon(status: ExecutionTrace["status"]) {
   const props = { size: 14, "aria-hidden": true };
   if (status === "running") return <Clock3 {...props} className="animate-pulse" />;
   if (status === "error") return <AlertCircle {...props} />;
+  if (status === "cancelled") return <XCircle {...props} />;
   return <CheckCircle2 {...props} />;
 }
 
 function statusFrame(status: ExecutionTrace["status"]) {
   if (status === "running") return "border-sky-300/30 bg-sky-300/10 text-sky-100";
   if (status === "error") return "border-rose-300/35 bg-rose-300/10 text-rose-100";
+  if (status === "cancelled") return "border-amber-300/35 bg-amber-300/10 text-amber-100";
   return "border-emerald-300/30 bg-emerald-300/10 text-emerald-100";
 }
 
@@ -360,6 +368,7 @@ function statusLabel(status: string) {
     running: "进行中",
     completed: "已完成",
     success: "已完成",
+    cancelled: "已中止",
     failed: "失败",
     error: "失败",
   }[status] ?? status;
@@ -371,6 +380,9 @@ function statusBadgeStyle(status: string, level: string) {
   }
   if (status === "completed" || status === "success") {
     return "border-emerald-300/20 bg-emerald-300/10 text-emerald-100";
+  }
+  if (status === "cancelled") {
+    return "border-amber-300/25 bg-amber-300/10 text-amber-100";
   }
   return "border-sky-300/20 bg-sky-300/10 text-sky-100";
 }

@@ -3,17 +3,24 @@ import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { Info, Loader2, Pin } from "lucide-react";
-import type { AgentConfig, Artifact, Message, ReplyReference } from "../types";
+import type {
+  AgentConfig, ApprovalCheckpoint, Artifact, Message, ReplyReference, RunRead, TaskRead,
+} from "../types";
 import { MessageActions } from "./MessageActions";
 import { ReplyPreview } from "./ReplyPreview";
 import { ExecutionTracePanel } from "./ExecutionTracePanel";
 import { AgentAvatar } from "./AgentAvatar";
 import { MessageArtifactStrip } from "./MessageArtifactStrip";
+import { RuntimeControlStrip } from "./RuntimeControlStrip";
+import { ApprovalCard } from "./ApprovalCard";
 
 interface Props {
   message: Message;
   isStreaming: boolean;
   artifacts?: Artifact[];
+  run?: RunRead | null;
+  tasks?: TaskRead[];
+  approvals?: ApprovalCheckpoint[];
   agent?: AgentConfig | null;
   parentMessage?: Message | null;
   highlighted?: boolean;
@@ -23,6 +30,12 @@ interface Props {
   onCopy: (content: string) => void;
   onJumpToMessage: (messageId: string) => void;
   onArtifactsChanged?: () => void;
+  onCancelRun?: (runId: string) => void;
+  cancellingRunId?: string | null;
+  onApprove?: (approval: ApprovalCheckpoint) => void;
+  onReject?: (approval: ApprovalCheckpoint) => void;
+  onOpenApprovalArtifact?: (artifact: Artifact) => void;
+  busyApprovalId?: string | null;
 }
 
 const ROLE_LABELS: Record<string, string> = {
@@ -90,8 +103,10 @@ function StreamingStatus() {
 }
 
 export function MessageBubble({
-  message, isStreaming, artifacts = [], agent, parentMessage, highlighted = false,
+  message, isStreaming, artifacts = [], run = null, tasks = [], approvals = [],
+  agent, parentMessage, highlighted = false,
   onReply, onRegenerate, onTogglePin, onCopy, onJumpToMessage, onArtifactsChanged,
+  onCancelRun, cancellingRunId, onApprove, onReject, onOpenApprovalArtifact, busyApprovalId,
 }: Props) {
   const isUser = message.role === "user";
   const isEmpty = message.content === "";
@@ -131,6 +146,8 @@ export function MessageBubble({
   const avatarName = isUser
     ? "用户"
     : message.agentName ?? message.sourceName ?? "AI";
+  const relatedApprovals = approvals.filter((approval) => approval.messageId === message.id);
+  const artifactById = new Map(artifacts.map((artifact) => [artifact.id, artifact]));
 
   return (
     <div className={`group relative mb-4 flex scroll-mt-6 items-end gap-2.5 transition ${
@@ -242,6 +259,14 @@ export function MessageBubble({
         )}
         {showStreamingStatus && <StreamingStatus />}
         {!isUser && (
+          <RuntimeControlStrip
+            run={run}
+            tasks={tasks}
+            onCancel={(runId) => onCancelRun?.(runId)}
+            cancelling={cancellingRunId === run?.id}
+          />
+        )}
+        {!isUser && (
           <ExecutionTracePanel trace={message.metadata?.executionTrace} />
         )}
         {!isUser && (
@@ -251,6 +276,17 @@ export function MessageBubble({
             onChanged={onArtifactsChanged}
           />
         )}
+        {!isUser && relatedApprovals.map((approval) => (
+          <ApprovalCard
+            key={approval.id}
+            approval={approval}
+            artifact={approval.artifactId ? artifactById.get(approval.artifactId) ?? null : null}
+            busy={busyApprovalId === approval.id}
+            onApprove={(item) => onApprove?.(item)}
+            onReject={(item) => onReject?.(item)}
+            onOpenArtifact={(artifact) => onOpenApprovalArtifact?.(artifact)}
+          />
+        ))}
         </div>
       </div>
     </div>

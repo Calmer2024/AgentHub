@@ -5,11 +5,23 @@ import { MessageBubble } from "./MessageBubble";
 import { ChatInput } from "./ChatInput";
 import { CollaborationPanel } from "./CollaborationPanel";
 import { SearchPanel } from "./SearchPanel";
-import { replyToInteractivePrompt } from "../api/client";
+import {
+  approveCheckpoint,
+  cancelRun,
+  fetchApprovals,
+  fetchArtifacts,
+  fetchMessages,
+  fetchRuns,
+  fetchSystemHealth,
+  rejectCheckpoint,
+  replyToInteractivePrompt,
+} from "../api/client";
 import { useChatStore } from "../stores/chatStore";
 import { InteractivePromptCard } from "./InteractivePromptCard";
 import { AgentAvatar } from "./AgentAvatar";
 import { SessionArtifactManager } from "./SessionArtifactManager";
+import { HealthCheckCard } from "./HealthCheckCard";
+import { ArtifactReviewModal } from "./ArtifactReviewModal";
 
 interface Props {
   messages: Message[];
@@ -57,8 +69,28 @@ export function ChatWindow({
   const autoScrollUserSignatureRef = useRef<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [artifactManagerOpen, setArtifactManagerOpen] = useState(false);
+  const [reviewArtifact, setReviewArtifact] = useState<Artifact | null>(null);
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
-  const { interactivePrompts, removeInteractivePrompt, setStreamingError } = useChatStore();
+  const [cancellingRunId, setCancellingRunId] = useState<string | null>(null);
+  const [busyApprovalId, setBusyApprovalId] = useState<string | null>(null);
+  const [healthLoading, setHealthLoading] = useState(false);
+  const {
+    interactivePrompts,
+    removeInteractivePrompt,
+    runs,
+    tasksByRun,
+    approvals,
+    systemHealth,
+    setApprovalsForSession,
+    setArtifactsForSession,
+    setMessagesForSession,
+    setRunsForSession,
+    setSystemHealth,
+    setStreamingError,
+    setReplyTarget,
+    setCodeReference,
+    cancelRunLocally,
+  } = useChatStore();
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
@@ -77,6 +109,105 @@ export function ChatWindow({
     agents.forEach((agent) => map.set(agent.name, agent));
     return map;
   }, [agents]);
+  const artifactById = useMemo(() => new Map(artifacts.map((artifact) => [artifact.id, artifact])), [artifacts]);
+  const latestRunByMessageId = useMemo(() => {
+    const map = new Map<string, typeof runs[number]>();
+    runs.forEach((run) => {
+      if (!run.currentMessageId) return;
+      const existing = map.get(run.currentMessageId);
+      if (!existing || Date.parse(run.updatedAt) > Date.parse(existing.updatedAt)) {
+        map.set(run.currentMessageId, run);
+      }
+    });
+    return map;
+  }, [runs]);
+
+  const refreshRuntime = async () => {
+    try {
+      setMessagesForSession(currentSessionId, await fetchMessages(currentSessionId));
+    } catch { /* 保留已有消息 */ }
+    try {
+      setArtifactsForSession(currentSessionId, await fetchArtifacts(currentSessionId));
+    } catch { /* 保留已有产物 */ }
+    try {
+      setRunsForSession(currentSessionId, await fetchRuns(currentSessionId));
+    } catch { /* 保留已有运行状态 */ }
+    try {
+      setApprovalsForSession(currentSessionId, await fetchApprovals(currentSessionId));
+    } catch { /* 保留已有审批状态 */ }
+  };
+
+  const refreshHealth = async () => {
+    setHealthLoading(true);
+    try {
+      setSystemHealth(await fetchSystemHealth({ sessionId: currentSessionId }));
+    } catch {
+      setSystemHealth(null);
+      setStreamingError("环境体检暂不可用，请稍后重试");
+    } finally {
+      setHealthLoading(false);
+    }
+  };
+
+  const handleCancelRun = async (runId: string) => {
+    setCancellingRunId(runId);
+    const reason = "用户在界面中停止运行";
+    cancelRunLocally(runId, reason);
+    try {
+      await cancelRun(runId, reason);
+      await refreshRuntime();
+    } catch {
+      setStreamingError("本地输出已停止，但后端取消运行失败，请稍后刷新状态");
+    } finally {
+      setCancellingRunId(null);
+    }
+  };
+
+  const handleApprove = async (approvalId: string) => {
+    setBusyApprovalId(approvalId);
+    try {
+      await approveCheckpoint(approvalId);
+      await refreshRuntime();
+    } catch {
+      setStreamingError("审批确认失败，请刷新后重试");
+    } finally {
+      setBusyApprovalId(null);
+    }
+  };
+
+  const handleReject = async (approvalId: string) => {
+    const approval = approvals.find((item) => item.id === approvalId);
+    if (!approval) return;
+    const reason = window.prompt("请输入修改原因");
+    if (!reason?.trim()) return;
+    setBusyApprovalId(approvalId);
+    try {
+      const artifact = approval.artifactId ? artifactById.get(approval.artifactId) : null;
+      const codeReference = artifact ? {
+        artifactId: artifact.id,
+        projectId: artifact.projectId ?? null,
+        filePath: artifact.filePath ?? null,
+        title: artifact.title,
+        language: artifact.type === "code_diff" ? "diff" : "text",
+        content: artifact.content.slice(0, 4000),
+      } : null;
+      await rejectCheckpoint(approvalId, {
+        reason: reason.trim(),
+        artifactId: approval.artifactId ?? undefined,
+        artifactVersion: approval.artifactVersion ?? undefined,
+        codeReference,
+      });
+      if (codeReference) setCodeReference(codeReference);
+      const sourceMessage = approval.messageId ? messageById.get(approval.messageId) : null;
+      if (sourceMessage) setReplyTarget(sourceMessage);
+      window.dispatchEvent(new Event("agenthub:focus-chat-input"));
+      await refreshRuntime();
+    } catch {
+      setStreamingError("审批驳回失败，请刷新后重试");
+    } finally {
+      setBusyApprovalId(null);
+    }
+  };
 
   useEffect(() => {
     const userMessages = messages.filter((message) => message.role === "user");
@@ -139,6 +270,14 @@ export function ChatWindow({
           )}
         </div>
         <div className="flex items-center gap-3">
+          <div className="hidden w-40 sm:block">
+            <HealthCheckCard
+              health={systemHealth}
+              loading={healthLoading}
+              compact
+              onRefresh={() => void refreshHealth()}
+            />
+          </div>
           <button
             type="button"
             onClick={() => setArtifactManagerOpen(true)}
@@ -240,12 +379,16 @@ export function ChatWindow({
           ) : (
             messages.map((msg) => {
               const prompts = interactivePrompts.filter((prompt) => prompt.messageId === msg.id);
+              const messageRun = latestRunByMessageId.get(msg.id) ?? null;
               return (
                 <div key={msg.id} ref={(el) => { messageRefs.current[msg.id] = el; }}>
                   <MessageBubble
                     message={msg}
                     isStreaming={isStreaming}
                     artifacts={artifacts}
+                    run={messageRun}
+                    tasks={messageRun ? tasksByRun[messageRun.id] ?? [] : []}
+                    approvals={approvals}
                     agent={msg.agentName ? agentByName.get(msg.agentName) ?? null : null}
                     parentMessage={msg.parentMessageId ? messageById.get(msg.parentMessageId) ?? null : null}
                     highlighted={highlightedMessageId === msg.id}
@@ -255,6 +398,12 @@ export function ChatWindow({
                     onCopy={(content) => navigator.clipboard?.writeText(content)}
                     onJumpToMessage={jumpToMessage}
                     onArtifactsChanged={onArtifactsChanged}
+                    onCancelRun={(runId) => void handleCancelRun(runId)}
+                    cancellingRunId={cancellingRunId}
+                    onApprove={(approval) => void handleApprove(approval.id)}
+                    onReject={(approval) => void handleReject(approval.id)}
+                    onOpenApprovalArtifact={setReviewArtifact}
+                    busyApprovalId={busyApprovalId}
                   />
                   {prompts.length > 0 && (
                     <div className="mb-4 ml-3 max-w-[min(82%,860px)] space-y-2">
@@ -310,6 +459,11 @@ export function ChatWindow({
         open={artifactManagerOpen}
         artifacts={artifacts}
         onClose={() => setArtifactManagerOpen(false)}
+        onChanged={onArtifactsChanged}
+      />
+      <ArtifactReviewModal
+        artifact={reviewArtifact}
+        onClose={() => setReviewArtifact(null)}
         onChanged={onArtifactsChanged}
       />
 
