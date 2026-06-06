@@ -78,6 +78,7 @@ Project workspace
 | **7B: 人工审批断点** | [02-approval-checkpoints.md](02-approval-checkpoints.md) | ✅ 验收通过 | ApprovalCheckpoint 数据模型、确认/驳回 API、聊天流 Approval Card、Artifact/代码引用回流 |
 | **7C: 环境体检** | [03-environment-health.md](03-environment-health.md) | ✅ 验收通过 | `/api/system/health`、CLI/Node/Python/workspace/DeepSeek/进程状态、HealthCheckCard 与发送前 guard |
 | **7D: 演示与 UX 加固** | [04-mvp-demo-ux-hardening.md](04-mvp-demo-ux-hardening.md) | Draft | Store 拆分、P0/P1 UX 清零、真实 cc 演示脚本、自动化验收矩阵 |
+| **7E: 上下文包与缓存策略** | [05-context-pack-and-cache-strategy.md](05-context-pack-and-cache-strategy.md) | Draft | 记录每轮新 CLI 进程 + 手动拼 prompt 的上下文/缓存风险，提出 Context Pack、Project Memory、Task Package 与 Engine Resume 探测路线 |
 
 2026-06-06 验收记录：7A/7B/7C 已完成实现基线并通过本轮人工验收。验收中发现的“停止输出后无明确中止提示、输入框仍显示 AI 正在回复、其它会话被全局占用”问题已修复：前端点击停止后立即 abort 当前流、本地标记 run/message 为 cancelled、追加可见“本次运行已中止成功”系统消息并解锁输入框；后端取消也会持久化 cancelled metadata 和运行控制消息。
 
@@ -186,3 +187,4 @@ Project workspace
 - v2.0 (2026-06-05): 补充 Phase 6F 后的 Artifact Bridge 下游预期。
 - v3.0 (2026-06-06): 删除陈旧 Drawer/产物工作台方向，按当前实现基线重构为运行可控性、审批、环境体检、演示加固四个模块。
 - v3.1 (2026-06-06): 同步 7A/7B/7C 实现基线与人工验收结果，7D 保持后续演示加固范围。
+- v3.2 (2026-06-07): 新增 7E 上下文包与缓存策略，记录真实 CLI Agent 每轮新进程执行导致的上下文爆炸与缓存不可控风险。

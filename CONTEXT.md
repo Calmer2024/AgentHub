@@ -86,7 +86,7 @@
 | **Phase 4** | 消息交互闭环 | ✅ | Reply / Regenerate / Pin、FTS5 全文搜索、Reply/Pin prompt 注入 |
 | **Phase 5** | 产物工作台能力 | ✅ | 版本链 + Diff + 在线编辑（Tool Calling）；上游产物生成入口由 Phase 6/7 补齐 |
 | **Phase 6** | Workspace Runtime + CLI 适配器 + Agent Profile + 产物入口桥接 | ✅ | 6A Workspace Runtime、6B-6E CLI Adapter、6F Artifact Bridge 与 Agent = Engine + Skills 建模均已落地；Orchestrator Plan-first 真实执行已阶段性通过 |
-| **Phase 7** | 任务可控性 + 审批 + 环境体检 + 演示闭环 | 🚧 | 7A-7C 运行取消/恢复、审批卡片、环境体检已验收；7D 继续真实 CLI Agent 调度演示、UX 加固与中断/重试优化 |
+| **Phase 7** | 任务可控性 + 审批 + 环境体检 + 演示闭环 | 🚧 | 7A-7C 运行取消/恢复、审批卡片、环境体检已验收；7D 继续真实 CLI Agent 调度演示、UX 加固与中断/重试优化；7E 记录上下文包与缓存策略改造方向 |
 
 Phase 4-7 采用**功能板块制**：每板块独立完整交付。板块间按用户可感知价值排序。详见 [ADR-0008](docs/adr/0008-revised-development-strategy.md)。
 
@@ -163,7 +163,7 @@ Phase 4-7 采用**功能板块制**：每板块独立完整交付。板块间按
 | Phase 4 | [specs/phase4/](docs/specs/phase4/) | [README](docs/specs/phase4/README.md) + 消息操作 + 搜索 |
 | Phase 5 | [specs/phase5/](docs/specs/phase5/) | [README](docs/specs/phase5/README.md) + [版本/Diff](docs/specs/phase5/01-artifact-versioning.md) + [在线编辑](docs/specs/phase5/02-artifact-editing.md) |
 | Phase 6 | [specs/phase6/](docs/specs/phase6/) | [README](docs/specs/phase6/README.md) + [Workspace Runtime](docs/specs/phase6/00-workspace-runtime.md) + [CLI 适配器](docs/specs/phase6/01-cli-adapter.md) + [产物桥接](docs/specs/phase6/02-artifact-output-bridge.md) + [Agent Profile](docs/specs/phase6/03-agent-engine-skill-profile.md) |
-| Phase 7 | [specs/phase7/](docs/specs/phase7/) | [README](docs/specs/phase7/README.md) + [交付快照](docs/deliverables/phase7-runtime-control/README.md) + 运行可控性 + 审批 + 环境体检 + 演示加固 |
+| Phase 7 | [specs/phase7/](docs/specs/phase7/) | [README](docs/specs/phase7/README.md) + [交付快照](docs/deliverables/phase7-runtime-control/README.md) + 运行可控性 + 审批 + 环境体检 + 演示加固 + [上下文包与缓存策略](docs/specs/phase7/05-context-pack-and-cache-strategy.md) |
 | 模板 | [SPEC_TEMPLATE.md](docs/specs/SPEC_TEMPLATE.md) | 新建模块 Spec 的标准模板 |
 | 历史 | [specs/planning/](docs/specs/planning/) | 旧规划文档（参考） |
 
