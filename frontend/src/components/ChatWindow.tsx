@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Files, Search, X } from "lucide-react";
-import type { Message, AgentConfig, CollabTask, ChainStep, DAGPhase, Artifact } from "../types";
+import type { Message, AgentConfig, CollabTask, ChainStep, DAGPhase, Artifact, ApprovalCheckpoint, TaskRead } from "../types";
 import { MessageBubble } from "./MessageBubble";
 import { ChatInput } from "./ChatInput";
 import { CollaborationPanel } from "./CollaborationPanel";
@@ -57,6 +57,11 @@ const INTENT_LABELS: Record<string, string> = {
   general_qa: "通用问答",
 };
 
+const ACTIVE_RUN_STATUSES = new Set(["queued", "running", "pausing", "cancelling"]);
+const EMPTY_TASKS: TaskRead[] = [];
+const EMPTY_ARTIFACTS: Artifact[] = [];
+const EMPTY_APPROVALS: ApprovalCheckpoint[] = [];
+
 export function ChatWindow({
   messages, artifacts, isStreaming, streamingError,
   currentAgent, currentSessionId, agents, mode, routeAgents, orchestratorIntent, planSummary, mentionableAgents,
@@ -74,23 +79,21 @@ export function ChatWindow({
   const [cancellingRunId, setCancellingRunId] = useState<string | null>(null);
   const [busyApprovalId, setBusyApprovalId] = useState<string | null>(null);
   const [healthLoading, setHealthLoading] = useState(false);
-  const {
-    interactivePrompts,
-    removeInteractivePrompt,
-    runs,
-    tasksByRun,
-    approvals,
-    systemHealth,
-    setApprovalsForSession,
-    setArtifactsForSession,
-    setMessagesForSession,
-    setRunsForSession,
-    setSystemHealth,
-    setStreamingError,
-    setReplyTarget,
-    setCodeReference,
-    cancelRunLocally,
-  } = useChatStore();
+  const interactivePrompts = useChatStore((state) => state.interactivePrompts);
+  const removeInteractivePrompt = useChatStore((state) => state.removeInteractivePrompt);
+  const runs = useChatStore((state) => state.runs);
+  const tasksByRun = useChatStore((state) => state.tasksByRun);
+  const approvals = useChatStore((state) => state.approvals);
+  const systemHealth = useChatStore((state) => state.systemHealth);
+  const setApprovalsForSession = useChatStore((state) => state.setApprovalsForSession);
+  const setArtifactsForSession = useChatStore((state) => state.setArtifactsForSession);
+  const setMessagesForSession = useChatStore((state) => state.setMessagesForSession);
+  const setRunsForSession = useChatStore((state) => state.setRunsForSession);
+  const setSystemHealth = useChatStore((state) => state.setSystemHealth);
+  const setStreamingError = useChatStore((state) => state.setStreamingError);
+  const setReplyTarget = useChatStore((state) => state.setReplyTarget);
+  const setCodeReference = useChatStore((state) => state.setCodeReference);
+  const cancelRunLocally = useChatStore((state) => state.cancelRunLocally);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
@@ -103,6 +106,24 @@ export function ChatWindow({
   }, []);
 
   const isGroup = mode === "group";
+  const sessionPrompts = useMemo(
+    () => interactivePrompts.filter((prompt) => prompt.sessionId === currentSessionId),
+    [currentSessionId, interactivePrompts],
+  );
+  const promptsByMessageId = useMemo(() => {
+    const map = new Map<string, typeof sessionPrompts>();
+    sessionPrompts.forEach((prompt) => {
+      const list = map.get(prompt.messageId) ?? [];
+      list.push(prompt);
+      map.set(prompt.messageId, list);
+    });
+    return map;
+  }, [sessionPrompts]);
+  const messageIds = useMemo(() => new Set(messages.map((message) => message.id)), [messages]);
+  const detachedPrompts = useMemo(
+    () => sessionPrompts.filter((prompt) => !messageIds.has(prompt.messageId)),
+    [messageIds, sessionPrompts],
+  );
   const messageById = useMemo(() => new Map(messages.map((m) => [m.id, m])), [messages]);
   const agentByName = useMemo(() => {
     const map = new Map<string, AgentConfig>();
@@ -110,6 +131,25 @@ export function ChatWindow({
     return map;
   }, [agents]);
   const artifactById = useMemo(() => new Map(artifacts.map((artifact) => [artifact.id, artifact])), [artifacts]);
+  const artifactsByMessageId = useMemo(() => {
+    const map = new Map<string, Artifact[]>();
+    artifacts.forEach((artifact) => {
+      const list = map.get(artifact.messageId) ?? [];
+      list.push(artifact);
+      map.set(artifact.messageId, list);
+    });
+    return map;
+  }, [artifacts]);
+  const approvalsByMessageId = useMemo(() => {
+    const map = new Map<string, ApprovalCheckpoint[]>();
+    approvals.forEach((approval) => {
+      if (!approval.messageId) return;
+      const list = map.get(approval.messageId) ?? [];
+      list.push(approval);
+      map.set(approval.messageId, list);
+    });
+    return map;
+  }, [approvals]);
   const latestRunByMessageId = useMemo(() => {
     const map = new Map<string, typeof runs[number]>();
     runs.forEach((run) => {
@@ -121,8 +161,12 @@ export function ChatWindow({
     });
     return map;
   }, [runs]);
+  const hasActiveRun = useMemo(() => runs.some((run) => ACTIVE_RUN_STATUSES.has(run.status)), [runs]);
+  const headerStatus = isStreaming || hasActiveRun
+    ? "对方正在输入"
+    : isGroup ? "多人 Agent 协作" : currentAgent?.cliTool ?? "CLI Agent";
 
-  const refreshRuntime = async () => {
+  const refreshRuntime = useCallback(async () => {
     try {
       setMessagesForSession(currentSessionId, await fetchMessages(currentSessionId));
     } catch { /* 保留已有消息 */ }
@@ -135,21 +179,27 @@ export function ChatWindow({
     try {
       setApprovalsForSession(currentSessionId, await fetchApprovals(currentSessionId));
     } catch { /* 保留已有审批状态 */ }
-  };
+  }, [
+    currentSessionId,
+    setApprovalsForSession,
+    setArtifactsForSession,
+    setMessagesForSession,
+    setRunsForSession,
+  ]);
 
-  const refreshHealth = async () => {
+  const refreshHealth = useCallback(async () => {
     setHealthLoading(true);
     try {
       setSystemHealth(await fetchSystemHealth({ sessionId: currentSessionId }));
     } catch {
       setSystemHealth(null);
-      setStreamingError("环境体检暂不可用，请稍后重试");
+      setStreamingError("环境体检暂不可用，请稍后重试", currentSessionId);
     } finally {
       setHealthLoading(false);
     }
-  };
+  }, [currentSessionId, setStreamingError, setSystemHealth]);
 
-  const handleCancelRun = async (runId: string) => {
+  const handleCancelRun = useCallback(async (runId: string) => {
     setCancellingRunId(runId);
     const reason = "用户在界面中停止运行";
     cancelRunLocally(runId, reason);
@@ -157,25 +207,25 @@ export function ChatWindow({
       await cancelRun(runId, reason);
       await refreshRuntime();
     } catch {
-      setStreamingError("本地输出已停止，但后端取消运行失败，请稍后刷新状态");
+      setStreamingError("本地输出已停止，但后端取消运行失败，请稍后刷新状态", currentSessionId);
     } finally {
       setCancellingRunId(null);
     }
-  };
+  }, [cancelRunLocally, refreshRuntime, setStreamingError]);
 
-  const handleApprove = async (approvalId: string) => {
+  const handleApprove = useCallback(async (approvalId: string) => {
     setBusyApprovalId(approvalId);
     try {
       await approveCheckpoint(approvalId);
       await refreshRuntime();
     } catch {
-      setStreamingError("审批确认失败，请刷新后重试");
+      setStreamingError("审批确认失败，请刷新后重试", currentSessionId);
     } finally {
       setBusyApprovalId(null);
     }
-  };
+  }, [refreshRuntime, setStreamingError]);
 
-  const handleReject = async (approvalId: string) => {
+  const handleReject = useCallback(async (approvalId: string) => {
     const approval = approvals.find((item) => item.id === approvalId);
     if (!approval) return;
     const reason = window.prompt("请输入修改原因");
@@ -203,11 +253,35 @@ export function ChatWindow({
       window.dispatchEvent(new Event("agenthub:focus-chat-input"));
       await refreshRuntime();
     } catch {
-      setStreamingError("审批驳回失败，请刷新后重试");
+      setStreamingError("审批驳回失败，请刷新后重试", currentSessionId);
     } finally {
       setBusyApprovalId(null);
     }
-  };
+  }, [
+    approvals,
+    artifactById,
+    messageById,
+    refreshRuntime,
+    setCodeReference,
+    setReplyTarget,
+    setStreamingError,
+  ]);
+
+  const copyContent = useCallback((content: string) => {
+    void navigator.clipboard?.writeText(content);
+  }, []);
+
+  const cancelMessageRun = useCallback((runId: string) => {
+    void handleCancelRun(runId);
+  }, [handleCancelRun]);
+
+  const approveMessageCheckpoint = useCallback((approval: ApprovalCheckpoint) => {
+    void handleApprove(approval.id);
+  }, [handleApprove]);
+
+  const rejectMessageCheckpoint = useCallback((approval: ApprovalCheckpoint) => {
+    void handleReject(approval.id);
+  }, [handleReject]);
 
   useEffect(() => {
     const userMessages = messages.filter((message) => message.role === "user");
@@ -232,13 +306,13 @@ export function ChatWindow({
     });
   }, [currentSessionId, messages]);
 
-  const jumpToMessage = (messageId: string) => {
+  const jumpToMessage = useCallback((messageId: string) => {
     const el = messageRefs.current[messageId];
     if (!el) return;
     el.scrollIntoView({ behavior: "smooth", block: "center" });
     setHighlightedMessageId(messageId);
     window.setTimeout(() => setHighlightedMessageId((id) => (id === messageId ? null : id)), 2000);
-  };
+  }, []);
 
   return (
     <div className="relative flex-1 h-full min-h-0 flex flex-col overflow-hidden bg-[#0f141a] text-[#ececf1]">
@@ -256,18 +330,9 @@ export function ChatWindow({
               {isGroup ? "群聊" : currentAgent?.name ?? "未选择 Agent"}
             </h1>
             <p className="mt-0.5 truncate text-xs text-[#9aa5b1]">
-              {isStreaming ? "正在输入" : isGroup ? "多人 Agent 协作" : currentAgent?.cliTool ?? "CLI Agent"}
+              {headerStatus}
             </p>
           </div>
-          {isStreaming && (
-            <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1 text-xs text-[#d8d8df]">
-              <span className="relative flex h-2 w-2">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#ececf1] opacity-50" />
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-[#ececf1]" />
-              </span>
-              Agent 正在回答
-            </span>
-          )}
         </div>
         <div className="flex items-center gap-3">
           <div className="hidden w-40 sm:block">
@@ -378,30 +443,31 @@ export function ChatWindow({
             </div>
           ) : (
             messages.map((msg) => {
-              const prompts = interactivePrompts.filter((prompt) => prompt.messageId === msg.id);
+              const prompts = promptsByMessageId.get(msg.id) ?? [];
               const messageRun = latestRunByMessageId.get(msg.id) ?? null;
+              const relatedApprovals = approvalsByMessageId.get(msg.id) ?? EMPTY_APPROVALS;
               return (
                 <div key={msg.id} ref={(el) => { messageRefs.current[msg.id] = el; }}>
                   <MessageBubble
                     message={msg}
-                    isStreaming={isStreaming}
-                    artifacts={artifacts}
+                    relatedArtifacts={artifactsByMessageId.get(msg.id) ?? EMPTY_ARTIFACTS}
                     run={messageRun}
-                    tasks={messageRun ? tasksByRun[messageRun.id] ?? [] : []}
-                    approvals={approvals}
+                    tasks={messageRun ? tasksByRun[messageRun.id] ?? EMPTY_TASKS : EMPTY_TASKS}
+                    relatedApprovals={relatedApprovals}
+                    artifactById={relatedApprovals.length > 0 ? artifactById : undefined}
                     agent={msg.agentName ? agentByName.get(msg.agentName) ?? null : null}
                     parentMessage={msg.parentMessageId ? messageById.get(msg.parentMessageId) ?? null : null}
                     highlighted={highlightedMessageId === msg.id}
                     onReply={onReply}
                     onRegenerate={onRegenerate}
                     onTogglePin={onTogglePin}
-                    onCopy={(content) => navigator.clipboard?.writeText(content)}
+                    onCopy={copyContent}
                     onJumpToMessage={jumpToMessage}
                     onArtifactsChanged={onArtifactsChanged}
-                    onCancelRun={(runId) => void handleCancelRun(runId)}
+                    onCancelRun={cancelMessageRun}
                     cancellingRunId={cancellingRunId}
-                    onApprove={(approval) => void handleApprove(approval.id)}
-                    onReject={(approval) => void handleReject(approval.id)}
+                    onApprove={approveMessageCheckpoint}
+                    onReject={rejectMessageCheckpoint}
                     onOpenApprovalArtifact={setReviewArtifact}
                     busyApprovalId={busyApprovalId}
                   />
@@ -416,7 +482,7 @@ export function ChatWindow({
                               await replyToInteractivePrompt(prompt.sessionId, prompt.processId, reply);
                               removeInteractivePrompt(prompt.processId);
                             } catch {
-                              setStreamingError("确认回复失败，CLI 进程可能已经退出");
+                              setStreamingError("确认回复失败，CLI 进程可能已经退出", currentSessionId);
                             }
                           }}
                         />
@@ -430,9 +496,9 @@ export function ChatWindow({
         </div>
       </div>
 
-      {interactivePrompts.some((prompt) => !messages.some((msg) => msg.id === prompt.messageId)) && (
+      {detachedPrompts.length > 0 && (
         <div className="mx-6 mt-3 space-y-2">
-          {interactivePrompts.filter((prompt) => !messages.some((msg) => msg.id === prompt.messageId)).map((prompt) => (
+          {detachedPrompts.map((prompt) => (
             <InteractivePromptCard
               key={prompt.processId}
               content={prompt.content}
@@ -441,7 +507,7 @@ export function ChatWindow({
                   await replyToInteractivePrompt(prompt.sessionId, prompt.processId, reply);
                   removeInteractivePrompt(prompt.processId);
                 } catch {
-                  setStreamingError("确认回复失败，CLI 进程可能已经退出");
+                  setStreamingError("确认回复失败，CLI 进程可能已经退出", currentSessionId);
                 }
               }}
             />
@@ -468,7 +534,14 @@ export function ChatWindow({
       />
 
       {/* Chat input */}
-      <ChatInput onSubmit={onSend} disabled={isStreaming || (!isGroup && !currentAgent)} mentionableAgents={isGroup ? mentionableAgents : agents} />
+      <ChatInput
+        onSubmit={onSend}
+        disabled={isStreaming || hasActiveRun || (!isGroup && !currentAgent)}
+        busy={isStreaming || hasActiveRun}
+        mentionableAgents={isGroup ? mentionableAgents : agents}
+      />
     </div>
   );
 }
+
+export const MemoChatWindow = memo(ChatWindow);

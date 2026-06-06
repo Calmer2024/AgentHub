@@ -1,15 +1,16 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   FolderOpen,
   MessageCircle,
   MoreHorizontal,
   Pencil,
-  Search,
   Trash2,
   Users,
 } from "lucide-react";
-import type { Session, AgentConfig, Project } from "../types";
+import type { Session, AgentConfig, Project, RunStatus } from "../types";
 import { AgentAvatar } from "./AgentAvatar";
+import { formatChinaDateTime } from "../utils/time";
+import { useChatStore } from "../stores/chatStore";
 
 interface Props {
   project: Project | null;
@@ -21,15 +22,17 @@ interface Props {
   onNewGroupSession: () => void;
   onDeleteSession: (id: string) => void;
   onRenameSession: (id: string, title: string) => void;
-  onSummarizeSession?: (id: string) => void;
 }
 
-export function SessionList({ project, sessions, currentSessionId, agents, onSelectSession, onNewSession, onNewGroupSession, onDeleteSession, onRenameSession, onSummarizeSession }: Props) {
+export function SessionList({ project, sessions, currentSessionId, agents, onSelectSession, onNewSession, onNewGroupSession, onDeleteSession, onRenameSession }: Props) {
   const [creating, setCreating] = useState(false);
   const [agentPickerOpen, setAgentPickerOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [renameTitle, setRenameTitle] = useState("");
+  const runtimeBySession = useChatStore((state) => state.runtimeBySession);
+  const runsBySession = useChatStore((state) => state.runsBySession);
+  const agentById = useMemo(() => new Map(agents.map((agent) => [agent.id, agent])), [agents]);
 
   const handleCreate = async (agentId?: string) => {
     setCreating(true);
@@ -44,7 +47,7 @@ export function SessionList({ project, sessions, currentSessionId, agents, onSel
     if (session.mode === "group") {
       return { label: "群聊", agent: null };
     }
-    const agent = agents.find((a) => a.id === session.agentConfigId) ?? null;
+    const agent = session.agentConfigId ? agentById.get(session.agentConfigId) ?? null : null;
     return { label: agent?.name ?? "私聊", agent };
   };
 
@@ -122,7 +125,7 @@ export function SessionList({ project, sessions, currentSessionId, agents, onSel
         {!project ? (
           <div className="flex flex-col items-center justify-center py-12 text-[#74747d]">
             <FolderOpen size={44} strokeWidth={1.5} className="mb-3" />
-            <p className="text-sm">选择或创建 Project</p>
+            <p className="text-sm">选择或创建项目</p>
           </div>
         ) : sessions.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-[#74747d]">
@@ -133,6 +136,7 @@ export function SessionList({ project, sessions, currentSessionId, agents, onSel
         ) : (
           sessions.map((session) => {
             const info = getSessionInfo(session);
+            const running = isSessionRunning(session.id, runtimeBySession, runsBySession);
             return (
             <div key={session.id} className="relative group mb-1">
               <button
@@ -164,10 +168,15 @@ export function SessionList({ project, sessions, currentSessionId, agents, onSel
                       </div>
                       <div className="mt-0.5 flex items-center justify-between gap-2">
                         <p className="truncate text-xs text-[#9aa5b1]">
-                          {info.label}
+                          {running ? "对方正在输入" : info.label}
                         </p>
                         <p className="shrink-0 text-[11px] text-[#74747d]">
-                          {new Date(session.updatedAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                          {formatChinaDateTime(session.updatedAt, {
+                            month: "numeric",
+                            day: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
                         </p>
                       </div>
                     </div>
@@ -189,13 +198,6 @@ export function SessionList({ project, sessions, currentSessionId, agents, onSel
                     <Pencil size={14} />
                     重命名
                   </button>
-                  {onSummarizeSession && (
-                    <button onClick={() => { onSummarizeSession(session.id); setMenuOpen(null); }}
-                      className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm text-[#ececf1] hover:bg-white/[0.08]">
-                      <Search size={14} />
-                      重新总结
-                    </button>
-                  )}
                   <button onClick={() => { onDeleteSession(session.id); setMenuOpen(null); }}
                     className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm text-red-300 hover:bg-red-500/15">
                     <Trash2 size={14} />
@@ -209,4 +211,15 @@ export function SessionList({ project, sessions, currentSessionId, agents, onSel
       </div>
     </div>
   );
+}
+
+const ACTIVE_RUN_STATUSES = new Set<RunStatus>(["queued", "running", "pausing", "cancelling"]);
+
+function isSessionRunning(
+  sessionId: string,
+  runtimeBySession: ReturnType<typeof useChatStore.getState>["runtimeBySession"],
+  runsBySession: ReturnType<typeof useChatStore.getState>["runsBySession"],
+) {
+  if (runtimeBySession[sessionId]?.isStreaming) return true;
+  return (runsBySession[sessionId] ?? []).some((run) => ACTIVE_RUN_STATUSES.has(run.status));
 }

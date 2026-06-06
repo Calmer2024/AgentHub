@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
@@ -14,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..agents.cli_runtime import cli_process_manager
+from ..core.timezone import china_now_iso
 from ..models import AgentConfig, Project, Session as DBSession, SessionMember
 from .cli_agent_registry import CliAgentRegistry
 from .codex_local_config_service import CodexLocalConfigService
@@ -232,17 +232,17 @@ class SystemHealthService:
         if not project_id:
             return SystemHealthItem(
                 key="workspace.path",
-                label="Project workspace",
+                label="项目工作区",
                 status="missing",
                 severity="blocking",
-                detail="未选择 Project，无法绑定 workspace",
+                detail="未选择项目，无法绑定 workspace",
                 action=SystemHealthAction(label="打开项目设置", target="project_settings"),
             )
         project = await self.db.get(Project, project_id)
         if not project or project.status == "archived":
             return SystemHealthItem(
                 key="workspace.path",
-                label="Project workspace",
+                label="项目工作区",
                 status="missing",
                 severity="blocking",
                 detail="项目不存在或已归档",
@@ -252,7 +252,7 @@ class SystemHealthService:
         if not path.exists() or not path.is_dir():
             return SystemHealthItem(
                 key="workspace.path",
-                label="Project workspace",
+                label="项目工作区",
                 status="missing",
                 severity="blocking",
                 detail="项目目录不存在",
@@ -262,7 +262,7 @@ class SystemHealthService:
         if not os.access(path, os.R_OK | os.W_OK):
             return SystemHealthItem(
                 key="workspace.path",
-                label="Project workspace",
+                label="项目工作区",
                 status="error",
                 severity="blocking",
                 detail="项目目录不可读写，Agent 无法保存文件",
@@ -271,7 +271,7 @@ class SystemHealthService:
             )
         return SystemHealthItem(
             key="workspace.path",
-            label="Project workspace",
+            label="项目工作区",
             status="ok",
             severity="info",
             detail="项目目录可读写",
@@ -308,4 +308,4 @@ class SystemHealthService:
 
 
 def _utc_iso() -> str:
-    return datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+    return china_now_iso()

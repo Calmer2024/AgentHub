@@ -304,7 +304,5 @@ class TestGroupSession:
         assert task_started["dag"]["phases"][1]["mode"] == "parallel"
         assert any(e["phase"] == 1 and e["status"] == "running" for e in phase_events)
         assert any(e["phase"] == 2 and e["status"] == "completed" for e in phase_events)
-        assert "orchestrator.summary_started" in summary_events
-        assert "orchestrator.summary_delta" in summary_events
-        assert "orchestrator.summary_completed" in summary_events
+        assert summary_events == []
         assert token_with_role

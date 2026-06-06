@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
 from typing import Any
+
+from ..core.timezone import china_now_iso
 
 MAX_TRACE_ITEMS = 300
 MAX_TRACE_TEXT_CHARS = 1200
@@ -12,7 +13,7 @@ MAX_TRACE_RAW_CHARS = 4000
 
 
 def utc_iso() -> str:
-    return datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+    return china_now_iso()
 
 
 class ExecutionTraceBuilder:

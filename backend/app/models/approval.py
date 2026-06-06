@@ -1,12 +1,12 @@
-from datetime import datetime, timezone
 
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text
 
 from ..database import Base
+from ..core.timezone import china_now
 
 
 def _utcnow():
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    return china_now()
 
 
 class ApprovalCheckpoint(Base):

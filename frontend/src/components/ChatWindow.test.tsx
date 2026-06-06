@@ -52,6 +52,13 @@ function resetStore() {
     approvals: [],
     systemHealth: null,
     healthBlockingError: null,
+    messagesBySession: {},
+    artifactsBySession: {},
+    runsBySession: {},
+    approvalsBySession: {},
+    runtimeBySession: {},
+    streamingErrorBySession: {},
+    activeStreamsByKey: {},
     collabSnapshots: {},
   });
 }
@@ -150,24 +157,38 @@ describe("ChatWindow runtime cancel", () => {
     resetStore();
     useChatStore.setState({
       messages: [runningMessage()],
+      messagesBySession: { "s-cancel": [runningMessage()] },
       runs: [runningRun],
+      runsBySession: { "s-cancel": [runningRun] },
       tasksByRun: { "run-cancel": [runningTask] },
       isStreaming: true,
       activeStreamKey: "stream-cancel",
       activeRunId: "run-cancel",
       activeStreamAbort: abort,
       activeProgress: "running",
+      activeStreamsByKey: {
+        "stream-cancel": { sessionId: "s-cancel", abort },
+      },
+      runtimeBySession: {
+        "s-cancel": {
+          isStreaming: true,
+          activeStreamKey: "stream-cancel",
+          activeRunId: "run-cancel",
+          activeStreamAbort: abort,
+          activeProgress: "running",
+        },
+      },
     });
 
     render(<Harness />);
 
-    expect(screen.getByText("Agent 正在回答")).toBeInTheDocument();
-    expect(screen.getByPlaceholderText("AI 正在回复...")).toBeDisabled();
+    expect(screen.getByText("对方正在输入")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("当前对话正在输出...")).toBeDisabled();
 
     fireEvent.click(screen.getByRole("button", { name: "停止本次运行" }));
 
     await waitFor(() => {
-      expect(screen.queryByText("Agent 正在回答")).not.toBeInTheDocument();
+      expect(screen.queryByText("对方正在输入")).not.toBeInTheDocument();
     });
     expect(abort).toHaveBeenCalledTimes(1);
     expect(screen.getByPlaceholderText("输入消息，@ 提及 Agent")).toBeEnabled();

@@ -8,10 +8,11 @@ import { AgentAvatar } from "./AgentAvatar";
 interface Props {
   onSubmit: (content: string, mentions: string[]) => void;
   disabled?: boolean;
+  busy?: boolean;
   mentionableAgents: AgentConfig[];
 }
 
-export function ChatInput({ onSubmit, disabled, mentionableAgents }: Props) {
+export function ChatInput({ onSubmit, disabled, busy, mentionableAgents }: Props) {
   const [content, setContent] = useState("");
   const [showMentions, setShowMentions] = useState(false);
   const [mentionFilter, setMentionFilter] = useState("");
@@ -19,7 +20,10 @@ export function ChatInput({ onSubmit, disabled, mentionableAgents }: Props) {
   const [mentionPos, setMentionPos] = useState(0);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const { replyTarget, setReplyTarget, codeReference, setCodeReference } = useChatStore();
+  const replyTarget = useChatStore((state) => state.replyTarget);
+  const setReplyTarget = useChatStore((state) => state.setReplyTarget);
+  const codeReference = useChatStore((state) => state.codeReference);
+  const setCodeReference = useChatStore((state) => state.setCodeReference);
 
   useEffect(() => {
     if (showMentions && listRef.current) {
@@ -195,7 +199,7 @@ export function ChatInput({ onSubmit, disabled, mentionableAgents }: Props) {
           onChange={(e) => handleInput(e.target.value)}
           onKeyDown={handleKeyDown}
           disabled={disabled}
-          placeholder={disabled ? "AI 正在回复..." : "输入消息，@ 提及 Agent"}
+          placeholder={busy ? "当前对话正在输出..." : disabled ? "请选择可用 Agent" : "输入消息，@ 提及 Agent"}
           rows={1}
           className="max-h-36 min-h-[42px] flex-1 resize-none bg-transparent px-3 py-2.5 text-sm leading-6 text-[#ececf1] placeholder:text-[#8f8f98] focus:outline-none"
         />

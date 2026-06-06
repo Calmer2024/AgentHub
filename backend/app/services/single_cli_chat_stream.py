@@ -7,11 +7,11 @@ the assistant message.
 
 import json
 import uuid
-from datetime import datetime, timezone
 from typing import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.timezone import china_now
 from ..domain.context_manager import ContextManager, PromptAssemblyInput
 from ..models import AgentConfig, Message as DBMessage, Session as DBSession
 from ..agents.cli_trace import trace_text
@@ -635,7 +635,7 @@ class SingleCliChatStream:
             source_name=agent.name,
             metadata_json=json.dumps(metadata, ensure_ascii=False),
         ))
-        session.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        session.updated_at = china_now()
         await self.db.commit()
 
     @staticmethod

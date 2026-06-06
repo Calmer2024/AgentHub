@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..agents.cli_runtime import cli_process_manager
+from ..core.timezone import china_now
 from ..models import Message, Run, RunProcess, RunTask, Session as DBSession
 from .runtime_schemas import ProcessRead, RunRead, TaskRead
 
@@ -413,7 +413,7 @@ def _json(value: object) -> str:
 
 
 def _utcnow():
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    return china_now()
 
 
 def _str_or_none(value: object) -> str | None:

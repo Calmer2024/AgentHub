@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import { useChatStore } from "./chatStore";
 import { useSessionStore } from "./sessionStore";
 import type { AgentConfig, Artifact } from "../types";
@@ -10,7 +10,42 @@ const mockAgent: AgentConfig = {
   isActive: true, createdAt: "", updatedAt: "",
 };
 
+function resetChatStore() {
+  useChatStore.setState({
+    currentSessionId: null,
+    messages: [],
+    artifacts: [],
+    isStreaming: false,
+    activeStreamKey: null,
+    activeRunId: null,
+    activeStreamAbort: null,
+    latestRunId: null,
+    streamingError: null,
+    replyTarget: null,
+    codeReference: null,
+    activeProgress: null,
+    interactivePrompts: [],
+    runs: [],
+    tasksByRun: {},
+    approvals: [],
+    systemHealth: null,
+    healthBlockingError: null,
+    messagesBySession: {},
+    artifactsBySession: {},
+    runsBySession: {},
+    approvalsBySession: {},
+    runtimeBySession: {},
+    streamingErrorBySession: {},
+    activeStreamsByKey: {},
+    collabSnapshots: {},
+  });
+}
+
 describe("Chat Store (split)", () => {
+  afterEach(() => {
+    resetChatStore();
+  });
+
   it("chatStore 初始状态 messages 为空数组", () => {
     expect(useChatStore.getState().messages).toEqual([]);
   });
@@ -21,8 +56,21 @@ describe("Chat Store (split)", () => {
 
   it("chatStore appendStreamingToken", () => {
     useChatStore.setState({
+      currentSessionId: "s",
       messages: [{ id: "1", sessionId: "s", role: "assistant", content: "Hi", agentName: null, createdAt: "" }],
+      messagesBySession: {
+        s: [{ id: "1", sessionId: "s", role: "assistant", content: "Hi", agentName: null, createdAt: "" }],
+      },
       isStreaming: true,
+      runtimeBySession: {
+        s: {
+          isStreaming: true,
+          activeStreamKey: "stream-s",
+          activeRunId: null,
+          activeStreamAbort: null,
+          activeProgress: null,
+        },
+      },
     });
     useChatStore.getState().appendStreamingToken(" there");
     expect(useChatStore.getState().messages[0].content).toBe("Hi there");
@@ -30,10 +78,17 @@ describe("Chat Store (split)", () => {
 
   it("chatStore 可把流式 token 固定写入指定消息，避免写到最后一个气泡", () => {
     useChatStore.setState({
+      currentSessionId: "s",
       messages: [
         { id: "target", sessionId: "s", role: "assistant", content: "A", agentName: null, createdAt: "" },
         { id: "latest", sessionId: "s", role: "assistant", content: "B", agentName: null, createdAt: "" },
       ],
+      messagesBySession: {
+        s: [
+          { id: "target", sessionId: "s", role: "assistant", content: "A", agentName: null, createdAt: "" },
+          { id: "latest", sessionId: "s", role: "assistant", content: "B", agentName: null, createdAt: "" },
+        ],
+      },
       isStreaming: true,
     });
 
@@ -86,11 +141,12 @@ describe("Chat Store (split)", () => {
   });
 
   it("chatStore 只允许当前 run 结束 streaming", () => {
-    useChatStore.getState().startStreamRun("run-new");
+    useChatStore.setState({ currentSessionId: "s-run" });
+    useChatStore.getState().startStreamRun("s-run", "run-new");
     useChatStore.getState().finishStreamRun("run-old");
 
     expect(useChatStore.getState().isStreaming).toBe(true);
-    expect(useChatStore.getState().activeRunId).toBe("run-new");
+    expect(useChatStore.getState().activeStreamKey).toBe("run-new");
     expect(useChatStore.getState().latestRunId).toBe("run-new");
 
     useChatStore.getState().finishStreamRun("run-new");
@@ -102,9 +158,17 @@ describe("Chat Store (split)", () => {
 
   it("chatStore 取消当前流会 abort SSE 并解除全局输入占用", () => {
     const abort = vi.fn();
-    useChatStore.getState().startStreamRun("run-cancel");
-    useChatStore.getState().setActiveStreamAbort(abort);
-    useChatStore.setState({ activeProgress: "running" });
+    useChatStore.setState({ currentSessionId: "s-cancel" });
+    useChatStore.getState().startStreamRun("s-cancel", "run-cancel", abort);
+    useChatStore.setState({
+      activeProgress: "running",
+      runtimeBySession: {
+        "s-cancel": {
+          ...useChatStore.getState().getSessionRuntime("s-cancel"),
+          activeProgress: "running",
+        },
+      },
+    });
 
     useChatStore.getState().cancelActiveStream();
 
@@ -113,6 +177,101 @@ describe("Chat Store (split)", () => {
     expect(useChatStore.getState().activeRunId).toBeNull();
     expect(useChatStore.getState().activeStreamKey).toBeNull();
     expect(useChatStore.getState().activeProgress).toBeNull();
+  });
+
+  it("chatStore 切换会话时保留后台会话 streaming runtime", () => {
+    const abort = vi.fn();
+    useChatStore.setState({
+      currentSessionId: "s-bg",
+      messagesBySession: {
+        "s-bg": [{ id: "m-bg", sessionId: "s-bg", role: "assistant", content: "", agentName: null, createdAt: "" }],
+      },
+      messages: [{ id: "m-bg", sessionId: "s-bg", role: "assistant", content: "", agentName: null, createdAt: "" }],
+    });
+    useChatStore.getState().startStreamRun("s-bg", "stream-bg", abort);
+
+    useChatStore.getState().setCurrentSessionId("s-front");
+    useChatStore.getState().setMessagesForSession("s-front", []);
+
+    expect(useChatStore.getState().isStreaming).toBe(false);
+    expect(useChatStore.getState().isSessionStreaming("s-bg")).toBe(true);
+
+    useChatStore.getState().appendStreamingTokenToSessionMessage("s-bg", "m-bg", "后台输出");
+    expect(useChatStore.getState().messages).toEqual([]);
+
+    useChatStore.getState().setCurrentSessionId("s-bg");
+    expect(useChatStore.getState().isStreaming).toBe(true);
+    expect(useChatStore.getState().activeStreamAbort).toBe(abort);
+    expect(useChatStore.getState().messages[0].content).toBe("后台输出");
+  });
+
+  it("chatStore 允许多个不同会话同时保留独立 streaming runtime", () => {
+    const abortA = vi.fn();
+    const abortB = vi.fn();
+    useChatStore.setState({
+      currentSessionId: "s-a",
+      messagesBySession: {
+        "s-a": [{ id: "m-a", sessionId: "s-a", role: "assistant", content: "", agentName: null, createdAt: "" }],
+        "s-b": [{ id: "m-b", sessionId: "s-b", role: "assistant", content: "", agentName: null, createdAt: "" }],
+      },
+      messages: [{ id: "m-a", sessionId: "s-a", role: "assistant", content: "", agentName: null, createdAt: "" }],
+    });
+
+    useChatStore.getState().startStreamRun("s-a", "stream-a", abortA);
+    useChatStore.getState().startStreamRun("s-b", "stream-b", abortB);
+
+    expect(useChatStore.getState().isSessionStreaming("s-a")).toBe(true);
+    expect(useChatStore.getState().isSessionStreaming("s-b")).toBe(true);
+    expect(Object.keys(useChatStore.getState().activeStreamsByKey).sort()).toEqual(["stream-a", "stream-b"]);
+
+    useChatStore.getState().appendStreamingTokenToSessionMessage("s-b", "m-b", "B");
+    expect(useChatStore.getState().messages[0].content).toBe("");
+
+    useChatStore.getState().setCurrentSessionId("s-b");
+    expect(useChatStore.getState().messages[0].content).toBe("B");
+    expect(useChatStore.getState().activeStreamAbort).toBe(abortB);
+  });
+
+  it("chatStore hydrate 时不会覆盖隐藏会话里正在输出的本地气泡", () => {
+    useChatStore.setState({
+      currentSessionId: "s-front",
+      messages: [],
+      messagesBySession: {
+        "s-bg": [{
+          id: "local-ai-bg",
+          sessionId: "s-bg",
+          role: "assistant",
+          content: "半截回复",
+          agentName: null,
+          createdAt: "",
+        }],
+      },
+      runtimeBySession: {
+        "s-bg": {
+          isStreaming: true,
+          activeStreamKey: "stream-bg",
+          activeRunId: "run-bg",
+          activeStreamAbort: null,
+          activeProgress: null,
+        },
+      },
+      runsBySession: {
+        "s-bg": [{
+          id: "run-bg",
+          sessionId: "s-bg",
+          mode: "single",
+          status: "running",
+          currentMessageId: "local-ai-bg",
+          startedAt: "2026-06-06T00:00:00.000",
+          updatedAt: "2026-06-06T00:00:00.000",
+        }],
+      },
+    });
+
+    useChatStore.getState().setMessagesForSession("s-bg", []);
+
+    expect(useChatStore.getState().messagesBySession["s-bg"][0].content).toBe("半截回复");
+    expect(useChatStore.getState().messages).toEqual([]);
   });
 
   it("chatStore 本地中止 run 时同步回退消息、任务和执行轨迹", () => {
@@ -124,6 +283,9 @@ describe("Chat Store (split)", () => {
       activeStreamAbort: abort,
       isStreaming: true,
       activeProgress: "running",
+      activeStreamsByKey: {
+        "stream-cancel": { sessionId: "s-cancel", abort },
+      },
       messages: [{
         id: "m-cancel",
         sessionId: "s-cancel",
@@ -153,6 +315,37 @@ describe("Chat Store (split)", () => {
           },
         },
       }],
+      messagesBySession: {
+        "s-cancel": [{
+          id: "m-cancel",
+          sessionId: "s-cancel",
+          role: "assistant",
+          content: "working",
+          agentName: "测试 Agent",
+          createdAt: "",
+          metadata: {
+            runId: "run-cancel",
+            executionTrace: {
+              status: "running",
+              agentName: "测试 Agent",
+              cliTool: "claude_code",
+              startedAt: "2026-06-06T00:00:00.000Z",
+              completedAt: null,
+              processId: "proc-1",
+              exitCode: null,
+              items: [{
+                id: "trace-1",
+                kind: "process",
+                text: "正在执行",
+                source: "system",
+                chunkType: "process",
+                processId: "proc-1",
+                timestamp: "2026-06-06T00:00:00.000Z",
+              }],
+            },
+          },
+        }],
+      },
       runs: [{
         id: "run-cancel",
         sessionId: "s-cancel",
@@ -162,6 +355,26 @@ describe("Chat Store (split)", () => {
         startedAt: "2026-06-06T00:00:00.000Z",
         updatedAt: "2026-06-06T00:00:00.000Z",
       }],
+      runsBySession: {
+        "s-cancel": [{
+          id: "run-cancel",
+          sessionId: "s-cancel",
+          mode: "single",
+          status: "running",
+          currentMessageId: "m-cancel",
+          startedAt: "2026-06-06T00:00:00.000Z",
+          updatedAt: "2026-06-06T00:00:00.000Z",
+        }],
+      },
+      runtimeBySession: {
+        "s-cancel": {
+          isStreaming: true,
+          activeStreamKey: "stream-cancel",
+          activeRunId: "run-cancel",
+          activeStreamAbort: abort,
+          activeProgress: "running",
+        },
+      },
       tasksByRun: {
         "run-cancel": [{
           id: "task-cancel",

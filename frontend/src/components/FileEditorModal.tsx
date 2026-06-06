@@ -58,7 +58,7 @@ export function FileEditorModal({
   onSaved,
 }: Props) {
   const editorRef = useRef<ReactCodeMirrorRef | null>(null);
-  const { setCodeReference } = useChatStore();
+  const setCodeReference = useChatStore((state) => state.setCodeReference);
   const [content, setContent] = useState(initialContent ?? artifact?.content ?? "");
   const [original, setOriginal] = useState(initialContent ?? artifact?.content ?? "");
   const [loading, setLoading] = useState(false);

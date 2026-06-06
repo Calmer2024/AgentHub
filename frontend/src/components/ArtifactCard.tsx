@@ -1,7 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import type { Artifact, ArtifactDiff, ArtifactVersion } from "../types";
 import {
   createProjectPreview,
@@ -530,14 +528,9 @@ function ArtifactFullPreview({
   }
 
   return (
-    <SyntaxHighlighter
-      language="text"
-      style={oneDark}
-      customStyle={{ borderRadius: "0.375rem", minHeight: "20rem", margin: 0 }}
-      wrapLongLines
-    >
-      {content}
-    </SyntaxHighlighter>
+    <pre className="min-h-80 overflow-auto rounded-md bg-[#0d1117] p-3 text-xs leading-5 text-[#d6deeb]">
+      <code>{content}</code>
+    </pre>
   );
 }
 

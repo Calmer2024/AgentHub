@@ -7,10 +7,9 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import Session as DBSession, AgentConfig, SessionMember, Message, Project
+from ..models import Session as DBSession, AgentConfig, SessionMember, Project
 from .schemas import SessionCreate, SessionRead, SessionUpdate, MemberRead
 from .project_service import ProjectService
-from .system_llm import SystemLLMUnavailableError, system_llm
 
 
 class SessionNotFoundError(Exception):
@@ -123,43 +122,6 @@ class SessionService:
 
     async def get_workspace_path(self, session_id: str) -> str:
         return await ProjectService(self.db).get_workspace_path_for_session(session_id)
-
-    async def generate_title(self, session_id: str) -> str:
-        result = await self.db.execute(
-            select(Message)
-            .where(Message.session_id == session_id)
-            .order_by(Message.created_at.desc())
-            .limit(3)
-        )
-        msgs = list(result.scalars().all())
-        if not msgs:
-            raise ValueError("无消息可总结")
-
-        session = await self.db.get(DBSession, session_id)
-        if not session:
-            raise ValueError("会话不存在")
-
-        history = [{"role": m.role, "content": m.content} for m in reversed(msgs)]
-        history.append({
-            "role": "user",
-            "content": "请用不超过10个字总结以上对话内容，只输出总结文本。",
-        })
-
-        title = ""
-        try:
-            stream = system_llm.chat_stream(
-                messages=history,
-                system_prompt="你是一个标题生成器。",
-            )
-            async for token in stream:
-                title += token
-        except SystemLLMUnavailableError as exc:
-            raise ValueError(str(exc))
-
-        session.title = title.strip()[:20] or "新对话"
-        await self.db.commit()
-        await self.db.refresh(session)
-        return session.title
 
     async def _resolve_project_id(self, project_id: str | None) -> str:
         if project_id:

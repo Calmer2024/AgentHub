@@ -6,10 +6,10 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from ..core.timezone import china_now_iso
 
 EXCLUDED_NAMES = {".agenthub", ".git", "node_modules", "__pycache__", ".pytest_cache"}
 MAX_FILE_READ_BYTES = 10 * 1024 * 1024
@@ -98,7 +98,7 @@ def sanitize_dir_name(name: str) -> str:
 
 
 def utc_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    return china_now_iso()
 
 
 def _to_posix(path: Path) -> str:

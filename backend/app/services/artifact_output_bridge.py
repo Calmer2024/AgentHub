@@ -6,12 +6,12 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.timezone import china_now_iso
 from ..event_bus.event_types import EventType
 from ..models import Artifact, Message, Project, Session as DBSession
 from .artifact_service import ArtifactDetection, ArtifactService
@@ -531,7 +531,7 @@ def _merge_scan_metadata(
         "createdCount": len(created),
         "candidateCount": len(candidates),
         "skippedCount": len(skipped),
-        "completedAt": datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
+        "completedAt": china_now_iso(),
     }
     if candidates:
         metadata["artifactCandidates"] = [candidate.to_metadata() for candidate in candidates]

@@ -17,34 +17,40 @@ import {
   fetchSystemHealth,
   pickProjectFolder,
   renameSession,
-  summarizeSession,
   updateProject,
 } from "../api/client";
 import { WSClient } from "../api/wsClient";
 import { useChatStore } from "../stores/chatStore";
 import { useSessionStore } from "../stores/sessionStore";
 import type { AgentConfig, ProjectCreateInput } from "../types";
+import { chinaNowIso, formatChinaDateTime } from "../utils/time";
 
 export function useWorkspaceRuntime() {
-  const {
-    currentSessionId,
-    setCurrentSessionId,
-    setMessages,
-    setMessagesForSession,
-    setArtifacts,
-    setArtifactsForSession,
-    setApprovalsForSession,
-    setRunsForSession,
-    clearRuntimeState,
-    setSystemHealth,
-    setStreamingError,
-    clearCollab,
-  } = useChatStore();
-  const {
-    projects, currentProjectId, sessions, agents, sidebarTab,
-    setProjects, setCurrentProjectId,
-    setSessions, setAgents, setSidebarTab, updateSession,
-  } = useSessionStore();
+  const currentSessionId = useChatStore((state) => state.currentSessionId);
+  const setCurrentSessionId = useChatStore((state) => state.setCurrentSessionId);
+  const setMessages = useChatStore((state) => state.setMessages);
+  const setMessagesForSession = useChatStore((state) => state.setMessagesForSession);
+  const setArtifacts = useChatStore((state) => state.setArtifacts);
+  const setArtifactsForSession = useChatStore((state) => state.setArtifactsForSession);
+  const setApprovalsForSession = useChatStore((state) => state.setApprovalsForSession);
+  const setRunsForSession = useChatStore((state) => state.setRunsForSession);
+  const clearRuntimeState = useChatStore((state) => state.clearRuntimeState);
+  const setSystemHealth = useChatStore((state) => state.setSystemHealth);
+  const setStreamingError = useChatStore((state) => state.setStreamingError);
+  const clearCollab = useChatStore((state) => state.clearCollab);
+  const resetSessionView = useChatStore((state) => state.resetSessionView);
+  const clearSessionCache = useChatStore((state) => state.clearSessionCache);
+  const projects = useSessionStore((state) => state.projects);
+  const currentProjectId = useSessionStore((state) => state.currentProjectId);
+  const sessions = useSessionStore((state) => state.sessions);
+  const agents = useSessionStore((state) => state.agents);
+  const sidebarTab = useSessionStore((state) => state.sidebarTab);
+  const setProjects = useSessionStore((state) => state.setProjects);
+  const setCurrentProjectId = useSessionStore((state) => state.setCurrentProjectId);
+  const setSessions = useSessionStore((state) => state.setSessions);
+  const setAgents = useSessionStore((state) => state.setAgents);
+  const setSidebarTab = useSessionStore((state) => state.setSidebarTab);
+  const updateSession = useSessionStore((state) => state.updateSession);
 
   const wsRef = useRef<WSClient | null>(null);
   const [sessionMembers, setSessionMembers] = useState<AgentConfig[]>([]);
@@ -62,7 +68,7 @@ export function useWorkspaceRuntime() {
     ws.on("message.completed", (data) => {
       const eventSessionId = typeof data.sessionId === "string" ? data.sessionId : currentSessionId;
       if (eventSessionId !== currentSessionId) return;
-      if (useChatStore.getState().isStreaming) return;
+      if (useChatStore.getState().isSessionStreaming(eventSessionId)) return;
       fetchMessages(eventSessionId).then((messages) => setMessagesForSession(eventSessionId, messages));
       fetchArtifacts(eventSessionId)
         .then((artifacts) => setArtifactsForSession(eventSessionId, artifacts))
@@ -90,62 +96,62 @@ export function useWorkspaceRuntime() {
       .catch(() => setSystemHealth(null));
   }, [currentProjectId, currentSessionId, setSystemHealth]);
 
+  const hydrateSession = useCallback(async (id: string) => {
+    const [messages, artifacts, runs, approvals] = await Promise.allSettled([
+      fetchMessages(id),
+      fetchArtifacts(id),
+      fetchRuns(id),
+      fetchApprovals(id),
+    ]);
+    if (messages.status === "fulfilled") setMessagesForSession(id, messages.value);
+    if (artifacts.status === "fulfilled") setArtifactsForSession(id, artifacts.value);
+    if (runs.status === "fulfilled") setRunsForSession(id, runs.value);
+    if (approvals.status === "fulfilled") setApprovalsForSession(id, approvals.value);
+    if (messages.status === "rejected") setMessagesForSession(id, []);
+    if (artifacts.status === "rejected") setArtifactsForSession(id, []);
+    if (runs.status === "rejected") setRunsForSession(id, []);
+    if (approvals.status === "rejected") setApprovalsForSession(id, []);
+  }, [
+    setApprovalsForSession,
+    setArtifactsForSession,
+    setMessagesForSession,
+    setRunsForSession,
+  ]);
+
   const loadSessionsForProject = useCallback(async (projectId: string | null) => {
     if (!projectId) {
       setSessions([]);
       setCurrentSessionId(null);
       setMessages([]);
       setArtifacts([]);
-      clearRuntimeState();
+      resetSessionView(null);
       return;
     }
     try {
       const loaded = await fetchSessions(projectId);
       setSessions(loaded);
-      const currentStillVisible = loaded.some((session) => session.id === currentSessionId);
+      const activeSessionId = useChatStore.getState().currentSessionId;
+      const currentStillVisible = loaded.some((session) => session.id === activeSessionId);
       if (!currentStillVisible) {
         const first = loaded[0] ?? null;
         setCurrentSessionId(first?.id ?? null);
         if (first) {
-          try {
-            setMessagesForSession(first.id, await fetchMessages(first.id));
-          } catch {
-            setMessagesForSession(first.id, []);
-          }
-          try {
-            setArtifactsForSession(first.id, await fetchArtifacts(first.id));
-          } catch {
-            setArtifactsForSession(first.id, []);
-          }
-          try {
-            setRunsForSession(first.id, await fetchRuns(first.id));
-          } catch {
-            setRunsForSession(first.id, []);
-          }
-          try {
-            setApprovalsForSession(first.id, await fetchApprovals(first.id));
-          } catch {
-            setApprovalsForSession(first.id, []);
-          }
+          await hydrateSession(first.id);
         } else {
           setMessages([]);
           setArtifacts([]);
-          clearRuntimeState();
+          resetSessionView(null);
         }
       }
     } catch {
       setSessions([]);
     }
   }, [
-    currentSessionId,
     setArtifacts,
-    setArtifactsForSession,
-    clearRuntimeState,
+    hydrateSession,
+    resetSessionView,
     setCurrentSessionId,
     setMessages,
-    setMessagesForSession,
-    setApprovalsForSession,
-    setRunsForSession,
     setSessions,
   ]);
 
@@ -170,26 +176,10 @@ export function useWorkspaceRuntime() {
   useEffect(() => { loadSessionsForProject(currentProjectId); }, [currentProjectId, loadSessionsForProject]);
 
   const handleSelectSession = async (id: string) => {
+    if (id === useChatStore.getState().currentSessionId) return;
     setCurrentSessionId(id);
-    setMessages([]);
-    setArtifacts([]);
-    setStreamingError(null);
-    try {
-      setMessagesForSession(id, await fetchMessages(id));
-    } catch { /* ignore */ }
-    try {
-      setArtifactsForSession(id, await fetchArtifacts(id));
-    } catch { /* ignore */ }
-    try {
-      setRunsForSession(id, await fetchRuns(id));
-    } catch {
-      setRunsForSession(id, []);
-    }
-    try {
-      setApprovalsForSession(id, await fetchApprovals(id));
-    } catch {
-      setApprovalsForSession(id, []);
-    }
+    setStreamingError(null, id);
+    void hydrateSession(id);
 
     const sess = sessions.find((s) => s.id === id);
     if (sess?.mode !== "group") {
@@ -213,7 +203,7 @@ export function useWorkspaceRuntime() {
     setCurrentSessionId(null);
     setMessages([]);
     setArtifacts([]);
-    clearRuntimeState();
+    resetSessionView(null);
     setStreamingError(null);
   };
 
@@ -227,7 +217,7 @@ export function useWorkspaceRuntime() {
       setCurrentSessionId(null);
       setMessages([]);
       setArtifacts([]);
-      clearRuntimeState();
+      resetSessionView(null);
       setSidebarTab("sessions");
     } finally {
       setCreatingProject(false);
@@ -235,7 +225,7 @@ export function useWorkspaceRuntime() {
   };
 
   const handleCreateBlankProject = async (inputName?: string) => {
-    const name = inputName?.trim() || `项目 ${new Date().toLocaleString("zh-CN", {
+    const name = inputName?.trim() || `项目 ${formatChinaDateTime(chinaNowIso(), {
       month: "2-digit",
       day: "2-digit",
       hour: "2-digit",
@@ -268,7 +258,7 @@ export function useWorkspaceRuntime() {
       setCurrentSessionId(null);
       setMessages([]);
       setArtifacts([]);
-      clearRuntimeState();
+      resetSessionView(null);
     }
   };
 
@@ -288,7 +278,7 @@ export function useWorkspaceRuntime() {
       setCurrentSessionId(null);
       setMessages([]);
       setArtifacts([]);
-      clearRuntimeState();
+      resetSessionView(null);
       setStreamingError(null);
     }
   };
@@ -299,11 +289,12 @@ export function useWorkspaceRuntime() {
     const s = await createSession(agent?.name, agentId, currentProjectId);
     setSessions([s, ...sessions]);
     setCurrentSessionId(s.id);
-    setMessages([]);
-    setArtifacts([]);
+    resetSessionView(s.id);
+    setMessagesForSession(s.id, []);
+    setArtifactsForSession(s.id, []);
     setRunsForSession(s.id, []);
     setApprovalsForSession(s.id, []);
-    setStreamingError(null);
+    setStreamingError(null, s.id);
   };
 
   const handleCreateGroup = async (title: string, selectedIds: string[]) => {
@@ -311,11 +302,12 @@ export function useWorkspaceRuntime() {
     const s = await createGroupSession(title || "群聊", selectedIds, currentProjectId);
     setSessions([s, ...sessions]);
     setCurrentSessionId(s.id);
-    setMessages([]);
-    setArtifacts([]);
+    resetSessionView(s.id);
+    setMessagesForSession(s.id, []);
+    setArtifactsForSession(s.id, []);
     setRunsForSession(s.id, []);
     setApprovalsForSession(s.id, []);
-    setStreamingError(null);
+    setStreamingError(null, s.id);
     clearCollab(s.id);
   };
 
@@ -326,17 +318,14 @@ export function useWorkspaceRuntime() {
       setCurrentSessionId(null);
       setMessages([]);
       setArtifacts([]);
-      clearRuntimeState();
+      clearRuntimeState(id);
     }
+    clearSessionCache(id);
     clearCollab(id);
   };
 
   const handleRenameSession = async (id: string, title: string) => {
     updateSession(await renameSession(id, title));
-  };
-
-  const handleSummarizeSession = async (id: string) => {
-    updateSession(await summarizeSession(id));
   };
 
   const currentSession = sessions.find((s) => s.id === currentSessionId);
@@ -369,6 +358,5 @@ export function useWorkspaceRuntime() {
     handleCreateGroup,
     handleDeleteSession,
     handleRenameSession,
-    handleSummarizeSession,
   };
 }

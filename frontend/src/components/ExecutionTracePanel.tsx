@@ -6,6 +6,7 @@ import {
   Search, SquareActivity, Terminal, TriangleAlert, XCircle,
 } from "lucide-react";
 import type { ExecutionTrace, ExecutionTraceItem } from "../types";
+import { formatChinaTime } from "../utils/time";
 
 interface Props {
   trace?: ExecutionTrace | null;
@@ -357,9 +358,7 @@ function statusFrame(status: ExecutionTrace["status"]) {
 }
 
 function formatTime(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return formatChinaTime(value, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
 function statusLabel(status: string) {

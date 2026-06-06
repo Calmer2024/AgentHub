@@ -1,11 +1,11 @@
-from datetime import datetime, timezone
 from sqlalchemy import Column, String, DateTime, ForeignKey
 
 from ..database import Base
+from ..core.timezone import china_now
 
 
 def _utcnow():
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    return china_now()
 
 
 class SessionMember(Base):

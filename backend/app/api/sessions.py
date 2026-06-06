@@ -66,16 +66,3 @@ async def delete_session(session_id: str, db: AsyncSession = Depends(get_db)):
     if not ok:
         raise HTTPException(status_code=404, detail="session not found")
     return {"ok": True}
-
-
-@router.post("/{session_id}/summarize", response_model=SessionRead)
-async def summarize_session(session_id: str, db: AsyncSession = Depends(get_db)):
-    svc = _svc(db)
-    session = await svc.get_session(session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="session not found")
-    try:
-        title = await svc.generate_title(session_id)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    return await svc.get_session(session_id)

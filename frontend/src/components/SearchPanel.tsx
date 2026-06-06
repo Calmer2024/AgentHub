@@ -3,6 +3,7 @@ import { Loader2, Search, X } from "lucide-react";
 import { searchMessages } from "../api/client";
 import type { Message } from "../types";
 import { AgentAvatar } from "./AgentAvatar";
+import { formatChinaDateTime } from "../utils/time";
 
 interface Props {
   sessionId: string;
@@ -149,10 +150,7 @@ function splitHighlight(text: string): Array<{ text: string; marked: boolean }> 
 }
 
 function formatTime(value: string): string {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleString("zh-CN", {
+  return formatChinaDateTime(value, {
     month: "numeric",
     day: "numeric",
     hour: "2-digit",

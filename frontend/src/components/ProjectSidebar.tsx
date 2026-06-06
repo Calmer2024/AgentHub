@@ -124,7 +124,10 @@ export function ProjectSidebar({
 
       <div className="border-t border-white/[0.08] px-3 py-3">
         <div className="mb-2 flex items-center justify-between text-sm text-[#8f8f98]">
-          <span>好友</span>
+          <span className="inline-flex items-center gap-2">
+            <Bot size={15} />
+            好友
+          </span>
           <IconButton
             icon={Plus}
             title="添加 CLI Agent"
@@ -147,7 +150,7 @@ export function ProjectSidebar({
                     }}
                     disabled={!currentProjectId}
                     className="min-w-0 flex-1 text-left disabled:cursor-not-allowed disabled:opacity-45"
-                    title={currentProjectId ? "发起对话" : "请先选择 Project"}
+                    title={currentProjectId ? "发起对话" : "请先选择项目"}
                   >
                     <span className="block truncate text-sm font-medium">{agent.name}</span>
                     <span className="mt-0.5 block truncate text-xs text-[#74747d]">
@@ -203,7 +206,7 @@ export function ProjectSidebar({
         <div className="mb-2 flex items-center justify-between text-sm text-[#8f8f98]">
           <span className="inline-flex items-center gap-2">
             <FolderOpen size={15} />
-            Workspace
+            项目
           </span>
           <div className="relative" ref={menuRef}>
             <IconButton

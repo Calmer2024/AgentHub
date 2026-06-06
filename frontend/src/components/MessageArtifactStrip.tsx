@@ -5,6 +5,7 @@ import { ArtifactCard } from "./ArtifactCard";
 interface Props {
   message: Message;
   artifacts: Artifact[];
+  relatedArtifacts?: Artifact[];
   onChanged?: () => void;
 }
 
@@ -28,8 +29,8 @@ function candidateCount(message: Message): number {
   return Array.isArray(candidates) ? candidates.length : 0;
 }
 
-export function MessageArtifactStrip({ message, artifacts, onChanged }: Props) {
-  const related = artifacts.filter((artifact) => artifact.messageId === message.id);
+export function MessageArtifactStrip({ message, artifacts, relatedArtifacts, onChanged }: Props) {
+  const related = relatedArtifacts ?? artifacts.filter((artifact) => artifact.messageId === message.id);
   const status = bridgeStatus(message);
   const lowConfidenceCount = candidateCount(message);
 

@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.timezone import china_now
 from ..models import ApprovalCheckpoint, Artifact, Message, RunTask
 from .run_service import RunService
 from .runtime_schemas import ApprovalCheckpointRead
@@ -270,4 +270,4 @@ def _loads(raw: str | None) -> dict:
 
 
 def _utcnow():
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    return china_now()

@@ -11,6 +11,7 @@ import type {
   RunRead, TaskRead, ApprovalCheckpoint, SystemHealthRead, CodeReference,
 } from "../types";
 import { parseDagPhases, parseTasks } from "./orchestratorEvents";
+import { chinaNowIso } from "../utils/time";
 
 const API_BASE = "/api";
 
@@ -248,11 +249,6 @@ export async function renameSession(sessionId: string, title: string): Promise<S
 export async function fetchSessionMembers(sessionId: string): Promise<Array<{ agentConfigId: string; agentName: string }>> {
   const res = await fetch(`${API_BASE}/sessions/${sessionId}/members`);
   if (!res.ok) return [];
-  return res.json();
-}
-
-export async function summarizeSession(sessionId: string): Promise<Session> {
-  const res = await fetch(`${API_BASE}/sessions/${sessionId}/summarize`, { method: "POST" });
   return res.json();
 }
 
@@ -645,7 +641,7 @@ export function createChatStream(
                   source: "cli",
                   chunkType: data.chunkType,
                   processId: data.processId ?? null,
-                  timestamp: trace.timestamp ?? new Date().toISOString(),
+                  timestamp: trace.timestamp ?? chinaNowIso(),
                 }, {
                   agentName: data.agentName,
                   processId: data.processId,
@@ -664,7 +660,7 @@ export function createChatStream(
                   source: "system",
                   chunkType: "process",
                   processId: data.processId ?? null,
-                  timestamp: new Date().toISOString(),
+                  timestamp: chinaNowIso(),
                 }, {
                   agentName: data.agentName,
                   processId: data.processId,
@@ -888,7 +884,7 @@ function normalizeArtifactEvent(data: Record<string, unknown>): Artifact | null 
     filePath: typeof raw.filePath === "string" ? raw.filePath : null,
     previewId: typeof raw.previewId === "string" ? raw.previewId : null,
     source: typeof raw.source === "string" ? raw.source : null,
-    createdAt: typeof raw.createdAt === "string" ? raw.createdAt : new Date().toISOString(),
+    createdAt: typeof raw.createdAt === "string" ? raw.createdAt : chinaNowIso(),
   };
 }
 
@@ -905,8 +901,8 @@ function normalizeRun(raw: unknown): RunRead | null {
     mode: typeof data.mode === "string" ? data.mode : "single",
     status,
     currentMessageId: typeof data.currentMessageId === "string" ? data.currentMessageId : null,
-    startedAt: typeof data.startedAt === "string" ? data.startedAt : new Date().toISOString(),
-    updatedAt: typeof data.updatedAt === "string" ? data.updatedAt : new Date().toISOString(),
+    startedAt: typeof data.startedAt === "string" ? data.startedAt : chinaNowIso(),
+    updatedAt: typeof data.updatedAt === "string" ? data.updatedAt : chinaNowIso(),
     completedAt: typeof data.completedAt === "string" ? data.completedAt : null,
     cancelReason: typeof data.cancelReason === "string" ? data.cancelReason : null,
     metadata: isRecord(data.metadata) ? data.metadata : null,
@@ -959,7 +955,7 @@ function normalizeApproval(raw: unknown): ApprovalCheckpoint | null {
     summary: typeof data.summary === "string" ? data.summary : "",
     status,
     reason: typeof data.reason === "string" ? data.reason : null,
-    createdAt: typeof data.createdAt === "string" ? data.createdAt : new Date().toISOString(),
+    createdAt: typeof data.createdAt === "string" ? data.createdAt : chinaNowIso(),
     decidedAt: typeof data.decidedAt === "string" ? data.decidedAt : null,
     metadata: isRecord(data.metadata) ? data.metadata : null,
   };
