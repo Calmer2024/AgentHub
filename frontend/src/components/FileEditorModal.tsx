@@ -93,7 +93,7 @@ export function FileEditorModal({
           if (!alive) return;
           setContent(fallback);
           setOriginal(fallback);
-          setError("无法读取 workspace 文件，已显示产物快照");
+          setError("无法读取工作区文件，已显示产物快照");
         })
         .finally(() => {
           if (alive) setLoading(false);
@@ -183,7 +183,7 @@ export function FileEditorModal({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[1100] flex items-center justify-center bg-black/55 p-3 backdrop-blur-sm md:p-6"
+      className="agenthub-backdrop fixed inset-0 z-[1100] flex items-center justify-center p-3 md:p-6"
       role="dialog"
       aria-modal="true"
       aria-label={`编辑文件：${label}`}
@@ -205,7 +205,7 @@ export function FileEditorModal({
           </div>
           <div className="flex items-center gap-2">
             {saved && (
-              <span className="inline-flex h-8 items-center gap-1.5 rounded-md border border-emerald-400/25 bg-emerald-400/10 px-2 text-xs text-emerald-200">
+              <span className="agenthub-status-success inline-flex h-8 items-center gap-1.5 rounded-full border px-2 text-xs">
                 <Check size={14} aria-hidden="true" />
                 已保存
               </span>
@@ -214,8 +214,7 @@ export function FileEditorModal({
               type="button"
               onClick={save}
               disabled={saving || loading || !dirty}
-              className="inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-sm font-medium text-white transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50"
-              style={{ background: "var(--ah-accent-strong)" }}
+              className="agenthub-primary-button inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50"
             >
               {saving ? <Loader2 size={14} className="animate-spin" aria-hidden="true" /> : <Save size={14} aria-hidden="true" />}
               保存
@@ -233,7 +232,7 @@ export function FileEditorModal({
         </div>
 
         {error && (
-          <div className="border-b border-amber-400/20 bg-amber-400/10 px-4 py-2 text-xs text-amber-100">
+          <div className="agenthub-status-warning border-b px-4 py-2 text-xs">
             {error}
           </div>
         )}
@@ -262,7 +261,7 @@ export function FileEditorModal({
           )}
           <div className="agenthub-card flex h-full min-h-0 overflow-hidden rounded-md border shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] focus-within:border-[color:var(--ah-accent)] focus-within:ring-2 focus-within:ring-[color:var(--ah-accent-soft)]">
             <div className="agenthub-sidebar agenthub-faint hidden w-11 shrink-0 border-r pt-3 text-center font-mono text-[10px] md:block">
-              IDE
+              编辑器
             </div>
             <Suspense
               fallback={(
@@ -293,9 +292,9 @@ export function FileEditorModal({
           </span>
           <span className="flex min-w-0 items-center gap-3 truncate font-mono">
             <span>{language.toUpperCase()}</span>
-            <span>Ln {cursor.line}, Col {cursor.column}</span>
-            <span>{stats.chars} chars</span>
-            {dirty && <span className="text-amber-200">modified</span>}
+            <span>第 {cursor.line} 行，第 {cursor.column} 列</span>
+            <span>{stats.chars} 字符</span>
+            {dirty && <span className="text-[color:var(--ah-warning)]">已修改</span>}
           </span>
         </div>
       </div>

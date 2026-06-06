@@ -1,6 +1,6 @@
 /** CollaborationView — 独立多 Agent 协作面板。
 
-替换当前的并行多气泡模式，展示每个 Agent 的:
+替换当前的并行多气泡模式，展示每个智能体的:
   - 角色标签 (planner/executor/reviewer/researcher/synthesizer/critic)
   - 思考/计划/工具调用过程
   - 实时状态指示
@@ -51,10 +51,10 @@ const ROLE_ICONS: Record<string, LucideIcon> = {
 };
 
 const STATUS_CONFIG = {
-  pending: { color: "bg-gray-300", text: "text-gray-400", label: "等待中" },
-  running: { color: "bg-blue-500 animate-pulse", text: "text-blue-600", label: "进行中" },
-  completed: { color: "bg-green-500", text: "text-green-600", label: "已完成" },
-  error: { color: "bg-red-500", text: "text-red-600", label: "失败" },
+  pending: { color: "bg-[color:var(--ah-faint)]", text: "agenthub-muted", label: "等待中" },
+  running: { color: "bg-[color:var(--ah-text-strong)] animate-pulse", text: "agenthub-strong", label: "进行中" },
+  completed: { color: "bg-[color:var(--ah-text-strong)]", text: "agenthub-strong", label: "已完成" },
+  error: { color: "bg-[color:var(--ah-danger)]", text: "text-[color:var(--ah-danger)]", label: "失败" },
 };
 
 export function CollaborationView({
@@ -79,18 +79,18 @@ export function CollaborationView({
     : "协作中";
 
   return (
-    <div className="mx-6 my-3 border border-indigo-200 rounded-xl overflow-hidden bg-white shadow-sm">
+    <div className="agenthub-card mx-6 my-3 overflow-hidden rounded-2xl border">
       {/* 面板头部 */}
       <button
         onClick={() => setCollapsed(!collapsed)}
-        className="w-full flex items-center justify-between px-4 py-3 bg-indigo-50 hover:bg-indigo-100 transition-colors text-left"
+        className="w-full flex items-center justify-between px-4 py-3 transition-colors text-left hover:bg-[color:var(--ah-accent-soft)]"
       >
         <div className="flex items-center gap-2">
           {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
-          <span className="text-xs font-semibold text-indigo-700">
-            {isChain ? "链式协作" : "协作任务"} · {intentLabel} · {tasks.length} 个 Agent
+          <span className="agenthub-strong text-xs font-semibold">
+            {isChain ? "链式协作" : "协作任务"} · {intentLabel} · {tasks.length} 个智能体
           </span>
-          <span className={`text-xs ${isCompleted ? "text-green-600" : "text-indigo-500"}`}>
+          <span className={`text-xs ${isCompleted ? "agenthub-strong" : "agenthub-muted"}`}>
             {isCompleted
               ? completedSummary ?? `${doneCount}/${tasks.length} 完成`
               : `${doneCount}/${tasks.length} 完成`}
@@ -115,14 +115,14 @@ export function CollaborationView({
 
       {/* 展开内容 */}
       {!collapsed && (
-        <div className="px-4 py-3 space-y-3 border-t border-indigo-100">
+        <div className="space-y-3 border-t px-4 py-3" style={{ borderColor: "var(--ah-border)" }}>
           {isChain && (
-            <p className="text-xs text-gray-400">
+            <p className="agenthub-muted text-xs">
               链式执行顺序: {chainSteps.map((s, i) => (
                 <span key={i}>
-                  {i > 0 && <ArrowRight size={12} className="mx-1 inline-block text-gray-300" />}
-                  <span className="font-medium text-gray-500">@{s.agent}</span>
-                  <span className="text-gray-400">({ROLE_LABELS[s.role] ?? s.role})</span>
+                  {i > 0 && <ArrowRight size={12} className="agenthub-faint mx-1 inline-block" />}
+                  <span className="agenthub-strong font-medium">@{s.agent}</span>
+                  <span className="agenthub-muted">({ROLE_LABELS[s.role] ?? s.role})</span>
                 </span>
               ))}
             </p>
@@ -133,23 +133,23 @@ export function CollaborationView({
             const config = STATUS_CONFIG[status];
             const RoleIcon = ROLE_ICONS[t.role] ?? Bot;
             return (
-              <div key={i} className="flex items-start gap-3 p-2 rounded-lg bg-gray-50">
+              <div key={i} className="agenthub-soft flex items-start gap-3 rounded-xl border p-2">
                 {/* 状态圆点 */}
                 <span className={`mt-1.5 w-2 h-2 rounded-full flex-shrink-0 ${config.color}`} />
 
-                {/* Agent 信息 */}
+                {/* 智能体信息 */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5 mb-0.5">
-                    <RoleIcon size={13} className="shrink-0 text-gray-500" />
-                    <span className="text-xs font-semibold text-gray-800">@{t.agent}</span>
-                    <span className="text-xs px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-600 font-medium">
+                    <RoleIcon size={13} className="agenthub-muted shrink-0" />
+                    <span className="agenthub-strong text-xs font-semibold">@{t.agent}</span>
+                    <span className="agenthub-status rounded px-1.5 py-0.5 text-xs font-medium">
                       {ROLE_LABELS[t.role] ?? t.role}
                     </span>
                     <span className={`text-xs ${config.text}`}>{config.label}</span>
                   </div>
-                  <p className="text-xs text-gray-500">{t.name}</p>
+                  <p className="agenthub-muted text-xs">{t.name}</p>
                   {t.summary && (
-                    <p className="text-xs text-gray-400 mt-0.5 truncate max-w-md">{t.summary}</p>
+                    <p className="agenthub-faint mt-0.5 max-w-md truncate text-xs">{t.summary}</p>
                   )}
                 </div>
               </div>
@@ -158,7 +158,7 @@ export function CollaborationView({
 
           {/* 最终结果 */}
           {isCompleted && children && (
-            <div className="pt-2 border-t border-gray-100">
+            <div className="border-t pt-2" style={{ borderColor: "var(--ah-border)" }}>
               {children}
             </div>
           )}

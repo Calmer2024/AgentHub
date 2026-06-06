@@ -1,5 +1,7 @@
 import type { Message, ReplyReference } from "../types";
 import { Quote, X } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 interface Props {
   message: Message | ReplyReference | null;
@@ -47,8 +49,10 @@ export function ReplyPreview({ message, compact = false, onClear, onJump }: Prop
           </button>
         )}
       </div>
-      <div className="agenthub-muted mt-1 max-h-10 overflow-hidden break-words">
-        {content || "..."}
+      <div className="agenthub-reply-markdown mt-1 max-h-16 overflow-hidden break-words">
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+          {content || "..."}
+        </ReactMarkdown>
       </div>
     </div>
   );

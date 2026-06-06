@@ -69,7 +69,7 @@ export function SessionArtifactManager({ open, artifacts, onClose, onChanged }: 
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[1050] flex items-center justify-center bg-black/50 p-3 backdrop-blur-sm md:p-6"
+      className="agenthub-backdrop fixed inset-0 z-[1050] flex items-center justify-center p-3 md:p-6"
       role="dialog"
       aria-modal="true"
       aria-label="会话文件与产物"
@@ -102,7 +102,7 @@ export function SessionArtifactManager({ open, artifacts, onClose, onChanged }: 
         <div className="grid min-h-0 flex-1 overflow-hidden lg:grid-cols-[320px_minmax(0,1fr)]">
           <aside className="agenthub-sidebar flex min-h-0 flex-col border-b lg:border-b-0 lg:border-r">
             <div className="border-b p-3" style={{ borderColor: "var(--ah-border)" }}>
-              <label className="agenthub-composer flex h-9 items-center gap-2 rounded-md border px-2.5 text-sm focus-within:border-[color:var(--ah-accent)]">
+              <label className="agenthub-composer agenthub-focus-ring flex h-9 items-center gap-2 rounded-full border px-2.5 text-sm">
                 <Search size={14} className="agenthub-muted" aria-hidden="true" />
                 <input
                   value={query}

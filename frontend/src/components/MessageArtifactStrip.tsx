@@ -36,7 +36,7 @@ export function MessageArtifactStrip({ message, artifacts, relatedArtifacts, onC
 
   if (status === "scanning" && related.length === 0) {
     return (
-      <div className="mt-3 inline-flex h-7 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.06] px-2.5 text-xs text-zinc-300">
+      <div className="agenthub-status mt-3 inline-flex h-7 items-center gap-2 rounded-full px-2.5 text-xs">
         <Loader2 size={13} className="animate-spin" aria-hidden="true" />
         <span>分析产物中</span>
       </div>
@@ -45,7 +45,7 @@ export function MessageArtifactStrip({ message, artifacts, relatedArtifacts, onC
 
   if (status === "failed" && related.length === 0) {
     return (
-      <div className="mt-3 inline-flex h-7 items-center gap-2 rounded-lg border border-amber-300/30 bg-amber-300/10 px-2.5 text-xs text-amber-100">
+      <div className="agenthub-status-warning mt-3 inline-flex h-7 items-center gap-2 rounded-full border px-2.5 text-xs">
         <AlertTriangle size={13} aria-hidden="true" />
         <span>产物分析失败</span>
       </div>
@@ -54,7 +54,7 @@ export function MessageArtifactStrip({ message, artifacts, relatedArtifacts, onC
 
   if (related.length === 0 && lowConfidenceCount > 0) {
     return (
-      <div className="mt-3 text-xs text-zinc-400">
+      <div className="agenthub-muted mt-3 text-xs">
         有 {lowConfidenceCount} 个低置信产物候选
       </div>
     );
@@ -64,12 +64,12 @@ export function MessageArtifactStrip({ message, artifacts, relatedArtifacts, onC
 
   return (
     <div className="mt-3 space-y-2">
-      <div className="flex items-center gap-2 text-[11px] font-medium text-zinc-400">
+      <div className="agenthub-muted flex items-center gap-2 text-[11px] font-medium">
         <span className="inline-flex items-center gap-1.5">
           {iconFor(related[0].type)}
           本轮产物
         </span>
-        <span className="h-px flex-1 bg-white/10" />
+        <span className="h-px flex-1 bg-[color:var(--ah-border)]" />
         <span>{related.length} 个</span>
       </div>
       <div className="grid gap-2">

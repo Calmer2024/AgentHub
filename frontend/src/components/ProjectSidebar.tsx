@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Archive,
-  Bot,
   Moon,
   Folder,
   FolderOpen,
@@ -12,6 +11,7 @@ import {
   Settings,
   Sun,
   Trash2,
+  Users,
   type LucideIcon,
 } from "lucide-react";
 import type { AgentConfig, Project } from "../types";
@@ -125,27 +125,31 @@ export function ProjectSidebar({
           active={activePanel === "sessions"}
           onClick={() => onOpenPanel("sessions")}
         />
-        <NavButton icon={Bot} label="添加 Agent" onClick={onCreateAgent} />
+        <NavButton icon={Users} label="添加好友" onClick={onCreateAgent} />
       </div>
 
       <div className="border-t px-3 py-3" style={{ borderColor: "var(--ah-border)" }}>
         <div className="agenthub-muted mb-2 flex items-center justify-between text-sm">
           <span className="inline-flex items-center gap-2">
-            <Bot size={15} />
+            <Users size={15} />
             好友
           </span>
           <IconButton
             icon={Plus}
-            title="添加 CLI Agent"
+            title="添加命令行智能体"
             disabled={false}
             onClick={onCreateAgent}
           />
         </div>
         <div className="space-y-1">
           {activeAgents.length === 0 ? (
-            <div className="agenthub-faint px-2 py-2 text-xs">暂无可用 Agent</div>
+            <div className="agenthub-faint px-2 py-2 text-xs">暂无可用智能体</div>
           ) : activeAgents.map((agent) => (
-            <div key={agent.id} className="relative" ref={agentMenuOpen === agent.id ? agentMenuRef : undefined}>
+            <div
+              key={agent.id}
+              className={`relative ${agentMenuOpen === agent.id ? "z-40" : ""}`}
+              ref={agentMenuOpen === agent.id ? agentMenuRef : undefined}
+            >
               <div className="agenthub-nav-idle w-full rounded-2xl px-2 py-2 text-left transition">
                 <div className="flex items-center gap-3">
                   <AgentAvatar agent={agent} size="sm" />
@@ -167,15 +171,15 @@ export function ProjectSidebar({
                     type="button"
                     onClick={() => setAgentMenuOpen((value) => (value === agent.id ? null : agent.id))}
                     className="agenthub-icon-button inline-flex h-7 w-7 items-center justify-center rounded-full"
-                    title="Agent 操作"
-                    aria-label="Agent 操作"
+                    title="智能体操作"
+                    aria-label="智能体操作"
                   >
                     <MoreHorizontal size={15} />
                   </button>
                 </div>
               </div>
               {agentMenuOpen === agent.id && (
-                <div className="agenthub-menu absolute right-1 top-10 z-30 w-38 rounded-2xl border p-1">
+                <div className="agenthub-menu absolute right-1 top-10 z-50 w-38 rounded-2xl border p-1">
                   <MenuItem
                     icon={MessageCircle}
                     label="发起对话"
@@ -246,7 +250,11 @@ export function ProjectSidebar({
           const selected = currentProjectId === project.id && activePanel === "sessions";
           const isRenaming = renamingProjectId === project.id;
           return (
-            <div key={project.id} className="group relative" ref={projectMenuOpen === project.id ? projectMenuRef : undefined}>
+            <div
+              key={project.id}
+              className={`group relative ${projectMenuOpen === project.id ? "z-40" : ""}`}
+              ref={projectMenuOpen === project.id ? projectMenuRef : undefined}
+            >
               <button
                 type="button"
                 onClick={() => { onSelectProject(project.id); onOpenPanel("sessions"); }}
@@ -255,7 +263,7 @@ export function ProjectSidebar({
                 }`}
               >
                 <div className="flex items-center gap-2">
-                  <span className="agenthub-soft flex h-8 w-8 shrink-0 items-center justify-center rounded-full border agenthub-muted">
+                  <span className="agenthub-project-icon agenthub-soft flex h-8 w-8 shrink-0 items-center justify-center rounded-full border agenthub-muted">
                     <Folder size={15} />
                   </span>
                   <span className="min-w-0 flex-1">
@@ -275,7 +283,7 @@ export function ProjectSidebar({
                     ) : (
                       <>
                         <span className="block truncate text-sm font-medium">{project.name}</span>
-                        <span className="agenthub-faint mt-0.5 block truncate text-xs">{project.status}</span>
+                        <span className="agenthub-faint mt-0.5 block truncate text-xs">{projectStatusLabel(project.status)}</span>
                       </>
                     )}
                   </span>
@@ -294,7 +302,7 @@ export function ProjectSidebar({
                 <MoreHorizontal size={15} />
               </button>
               {projectMenuOpen === project.id && (
-                <div className="agenthub-menu absolute right-1 top-10 z-30 w-44 rounded-2xl border p-1">
+                <div className="agenthub-menu absolute right-1 top-10 z-50 w-44 rounded-2xl border p-1">
                   <MenuItem
                     icon={Pencil}
                     label="重命名"
@@ -329,7 +337,7 @@ export function ProjectSidebar({
       </div>
 
       {createModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 backdrop-blur-sm">
+        <div className="agenthub-backdrop fixed inset-0 z-50 flex items-center justify-center px-4">
           <div
             role="dialog"
             aria-modal="true"
@@ -371,8 +379,7 @@ export function ProjectSidebar({
                 type="button"
                 onClick={() => void submitCreateProject()}
                 disabled={!createName.trim() || creating}
-                className="h-10 rounded-full px-5 text-sm font-medium text-white transition active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50"
-                style={{ background: "var(--ah-accent-strong)" }}
+                className="agenthub-primary-button h-10 rounded-full px-5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50"
               >
                 创建
               </button>
@@ -413,6 +420,16 @@ function ThemeToggle({
       </button>
     </div>
   );
+}
+
+function projectStatusLabel(status: Project["status"]) {
+  return {
+    creating: "创建中",
+    ready: "就绪",
+    building: "构建中",
+    error: "异常",
+    archived: "已归档",
+  }[status];
 }
 
 function NavButton({
@@ -481,7 +498,7 @@ function MenuItem({
       type="button"
       onClick={onClick}
       className={`flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition ${
-        danger ? "text-[color:var(--ah-danger)] hover:bg-red-500/15" : "agenthub-nav-idle"
+        danger ? "text-[color:var(--ah-danger)] hover:bg-[color:var(--ah-danger-soft)]" : "agenthub-nav-idle"
       }`}
     >
       {Icon && <Icon size={15} className="agenthub-muted shrink-0" />}

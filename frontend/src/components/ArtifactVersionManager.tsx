@@ -77,7 +77,7 @@ export function ArtifactVersionManager({ artifact, open, onClose, onChanged }: P
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[1100] flex items-center justify-center bg-black/55 p-3 backdrop-blur-sm md:p-6"
+      className="agenthub-backdrop fixed inset-0 z-[1100] flex items-center justify-center p-3 md:p-6"
       role="dialog"
       aria-modal="true"
       aria-label={`版本管理：${artifact.title || artifact.filePath || "产物"}`}
@@ -120,7 +120,7 @@ export function ArtifactVersionManager({ artifact, open, onClose, onChanged }: P
         </div>
 
         {error && (
-          <div className="border-b border-amber-400/20 bg-amber-400/10 px-4 py-2 text-xs text-amber-100">
+          <div className="agenthub-status-warning border-b px-4 py-2 text-xs">
             {error}
           </div>
         )}
@@ -159,7 +159,7 @@ export function ArtifactVersionManager({ artifact, open, onClose, onChanged }: P
                           {isLatest ? "当前版本" : version.createdAt || "历史版本"}
                         </span>
                       </span>
-                      {active && <CheckCircle2 size={14} className="text-sky-200" aria-hidden="true" />}
+                      {active && <CheckCircle2 size={14} className="agenthub-muted" aria-hidden="true" />}
                     </button>
                   );
                 })}
@@ -176,8 +176,7 @@ export function ArtifactVersionManager({ artifact, open, onClose, onChanged }: P
                 type="button"
                 disabled={!selected || selected.version === latest?.version || restoring}
                 onClick={() => selected && restore(selected.version)}
-                className="inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-sm font-medium text-white hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50"
-                style={{ background: "var(--ah-accent-strong)" }}
+                className="agenthub-primary-button inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {restoring ? <Loader2 size={14} className="animate-spin" aria-hidden="true" /> : <RotateCcw size={14} aria-hidden="true" />}
                 跳转到此版本

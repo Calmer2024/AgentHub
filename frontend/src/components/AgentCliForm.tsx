@@ -165,27 +165,27 @@ export function AgentCliForm({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-3 py-4 backdrop-blur-sm">
+    <div className="agenthub-backdrop fixed inset-0 z-50 flex items-center justify-center px-3 py-4">
       <form
         onSubmit={handleSubmit}
-        className="flex max-h-[92dvh] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-white/10 bg-[#1f2024] text-[#ececf1] shadow-2xl"
+        className="agenthub-modal flex max-h-[92dvh] w-full max-w-3xl flex-col overflow-hidden rounded-3xl border"
       >
-        <div className="flex items-center justify-between gap-4 border-b border-white/10 px-5 py-4">
+        <div className="agenthub-header flex items-center justify-between gap-4 border-b px-5 py-4">
           <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#3a6ff7]/15 text-[#9bb7ff]">
+            <div className="agenthub-status-info flex h-10 w-10 shrink-0 items-center justify-center rounded-full border">
               <Bot size={20} />
             </div>
             <div className="min-w-0">
-              <h2 className="truncate text-base font-semibold text-white">
-                {initial ? "Agent 设置" : "添加 CLI Agent"}
+              <h2 className="agenthub-strong truncate text-base font-semibold">
+                {initial ? "智能体设置" : "添加命令行智能体"}
               </h2>
-              <p className="truncate text-xs text-[#8f8f98]">本机 CLI 好友连接与运行参数</p>
+              <p className="agenthub-muted truncate text-xs">本机命令行智能体连接与运行参数</p>
             </div>
           </div>
           <button
             type="button"
             onClick={onCancel}
-            className="flex h-9 w-9 items-center justify-center rounded-lg text-[#a8abb2] hover:bg-white/[0.08] hover:text-white"
+            className="agenthub-icon-button flex h-9 w-9 items-center justify-center rounded-full"
             aria-label="关闭设置"
             title="关闭设置"
           >
@@ -195,8 +195,8 @@ export function AgentCliForm({
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
           <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
-            <ConfigSection icon={Settings2} title="基础信息" description="选择 CLI 类型与用户可见名称">
-              <FieldLabel label="CLI 类型">
+            <ConfigSection icon={Settings2} title="基础信息" description="选择命令行类型与用户可见名称">
+              <FieldLabel label="命令行类型">
                 <select value={cliTool} onChange={(event) => selectTool(event.target.value as CliTool)} className={inputClass}>
                   <option value="claude_code">Claude Code</option>
                   <option value="codex">Codex</option>
@@ -211,14 +211,14 @@ export function AgentCliForm({
                 <input
                   value={note}
                   onChange={(event) => setNote(event.target.value)}
-                  placeholder="仅用于区分本机 CLI 配置"
+                  placeholder="仅用于区分本机命令行配置"
                   className={inputClass}
                 />
               </FieldLabel>
             </ConfigSection>
 
-            <ConfigSection icon={Terminal} title="启动命令" description="AgentHub 会在项目工作区里启动这个 CLI">
-              <FieldLabel label="Executable">
+            <ConfigSection icon={Terminal} title="启动命令" description="AgentHub 会在项目工作区里启动这个命令行工具">
+              <FieldLabel label="可执行命令">
                 <div className="flex gap-2">
                   <input
                     value={executable}
@@ -230,7 +230,7 @@ export function AgentCliForm({
                     type="button"
                     onClick={handleCheck}
                     disabled={checking || !executable.trim()}
-                    className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-lg border border-white/10 px-3 text-sm text-[#d8d8df] hover:bg-white/[0.08] disabled:opacity-50"
+                    className="agenthub-icon-button inline-flex h-10 shrink-0 items-center gap-1.5 rounded-full px-3 text-sm disabled:opacity-50"
                   >
                     {checking ? <Loader2 size={15} className="animate-spin" /> : <Play size={15} />}
                     检测
@@ -253,13 +253,13 @@ export function AgentCliForm({
 
             {cliTool === "codex" && (
               <div className="lg:col-span-2">
-                <ConfigSection icon={Network} title="Codex 模型连接" description="支持官方 OpenAI API 与 OpenAI 兼容中转 API">
+                <ConfigSection icon={Network} title="Codex 模型连接" description="支持官方 OpenAI API 与 OpenAI 兼容中转服务">
                   <div className="flex flex-wrap items-center gap-2">
                     <StatusBadge ready={Boolean(codexReady)} label={codexReady ? "连接可用" : "需要配置"} />
-                    {codexApiKeySet && <SmallBadge icon={ShieldCheck} label="API Key 已保存" />}
+                    {codexApiKeySet && <SmallBadge icon={ShieldCheck} label="密钥已保存" />}
                   </div>
                   {codexStatus && (
-                    <div className="rounded-lg border border-white/10 bg-black/15 px-3 py-2 text-xs leading-5 text-[#b7bbc4]">
+                    <div className="agenthub-soft rounded-2xl border px-3 py-2 text-xs leading-5">
                       {codexStatus}
                     </div>
                   )}
@@ -282,7 +282,7 @@ export function AgentCliForm({
                         className={inputClass}
                       />
                     </FieldLabel>
-                    <FieldLabel label="Base URL">
+                    <FieldLabel label="服务地址">
                       <input
                         value={codexBaseUrl}
                         onChange={(event) => setCodexBaseUrl(event.target.value)}
@@ -290,9 +290,9 @@ export function AgentCliForm({
                         className={inputClass}
                       />
                     </FieldLabel>
-                    <FieldLabel label={codexConnection === "proxy" ? "中转 API Key" : "OpenAI API Key"}>
+                    <FieldLabel label={codexConnection === "proxy" ? "中转服务密钥" : "OpenAI 密钥"}>
                       <div className="relative">
-                        <KeyRound size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#74747d]" />
+                        <KeyRound size={15} className="agenthub-faint pointer-events-none absolute left-3 top-1/2 -translate-y-1/2" />
                         <input
                           value={codexApiKey}
                           onChange={(event) => setCodexApiKey(event.target.value)}
@@ -302,7 +302,7 @@ export function AgentCliForm({
                         />
                       </div>
                     </FieldLabel>
-                    <FieldLabel label="Provider ID">
+                    <FieldLabel label="提供方标识">
                       <input value={codexProviderId} onChange={(event) => setCodexProviderId(event.target.value)} className={inputClass} />
                     </FieldLabel>
                     <FieldLabel label="Provider 名称">
@@ -310,17 +310,17 @@ export function AgentCliForm({
                     </FieldLabel>
                   </div>
                   {codexConnection === "official" && (
-                    <label className="flex items-center gap-2 rounded-lg border border-white/10 bg-[#25262a] px-3 py-2 text-xs text-[#d8d8df]">
+                    <label className="agenthub-soft flex items-center gap-2 rounded-2xl border px-3 py-2 text-xs">
                       <input
                         type="checkbox"
                         checked={codexUseChatgptAuth}
                         onChange={(event) => setCodexUseChatgptAuth(event.target.checked)}
-                        className="h-4 w-4 accent-[#3a6ff7]"
+                        className="h-4 w-4 accent-[color:var(--ah-accent-strong)]"
                       />
                       使用本机 Codex 登录态
                     </label>
                   )}
-                  <div className="flex items-start gap-2 rounded-lg border border-[#3a6ff7]/20 bg-[#3a6ff7]/10 px-3 py-2 text-xs leading-5 text-[#b9caff]">
+                  <div className="agenthub-status-info flex items-start gap-2 rounded-2xl border px-3 py-2 text-xs leading-5">
                     <ServerCog size={15} className="mt-0.5 shrink-0" />
                     <span>
                       保存后 AgentHub 会把凭据写入本机 Codex .env，并让 Codex 通过本机凭据读取器按需读取；不会存进 Agent 配置。
@@ -331,7 +331,7 @@ export function AgentCliForm({
             )}
 
             <div className="lg:col-span-2">
-              <ConfigSection icon={SlidersHorizontal} title="高级环境变量" description="仅用于非密钥类 CLI 覆盖，API Key 会被过滤">
+              <ConfigSection icon={SlidersHorizontal} title="高级环境变量" description="仅用于非密钥类命令行覆盖，密钥会被过滤">
                 <textarea
                   value={envText}
                   onChange={(event) => setEnvText(event.target.value)}
@@ -344,27 +344,27 @@ export function AgentCliForm({
           </div>
         </div>
 
-        <div className="flex flex-col gap-3 border-t border-white/10 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="agenthub-header flex flex-col gap-3 border-t px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
           {formError ? (
-            <div className="flex items-center gap-2 text-xs leading-5 text-red-300">
+            <div className="flex items-center gap-2 text-xs leading-5 text-[color:var(--ah-danger)]">
               <AlertCircle size={15} />
               {formError}
             </div>
           ) : (
-            <div className="text-xs text-[#74747d]">更改会在下次启动 CLI 进程时生效</div>
+            <div className="agenthub-faint text-xs">更改会在下次启动 CLI 进程时生效</div>
           )}
           <div className="flex gap-2">
             <button
               type="button"
               onClick={onCancel}
-              className="rounded-lg border border-white/10 px-4 py-2 text-sm text-[#d8d8df] hover:bg-white/[0.08]"
+              className="agenthub-icon-button rounded-full px-4 py-2 text-sm"
             >
               取消
             </button>
             <button
               type="submit"
               disabled={saving || !name.trim()}
-              className="inline-flex items-center gap-2 rounded-lg bg-[#ececf1] px-4 py-2 text-sm font-medium text-[#171717] hover:bg-white disabled:opacity-50"
+              className="agenthub-primary-button inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium disabled:opacity-50"
             >
               {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
               保存
@@ -402,7 +402,7 @@ function normalizeCodexBaseUrl(value: string, mode: string) {
   return `${trimmed}/v1`;
 }
 
-const inputClass = "w-full rounded-lg border border-white/10 bg-[#25262a] px-3 py-2 text-sm text-[#ececf1] outline-none transition focus:border-[#6f93ff]/70 focus:ring-2 focus:ring-[#3a6ff7]/25 placeholder:text-[#666a73]";
+const inputClass = "agenthub-composer agenthub-textarea agenthub-focus-ring w-full rounded-2xl border px-3 py-2 text-sm placeholder:text-[color:var(--ah-faint)]";
 
 function ConfigSection({
   icon: Icon,
@@ -416,14 +416,14 @@ function ConfigSection({
   children: ReactNode;
 }) {
   return (
-    <section className="space-y-3 rounded-lg border border-white/10 bg-[#202126] p-4">
+    <section className="agenthub-card space-y-3 rounded-3xl border p-4">
       <div className="flex items-start gap-3">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/[0.06] text-[#c9d5ff]">
+        <div className="agenthub-soft flex h-8 w-8 shrink-0 items-center justify-center rounded-full border">
           <Icon size={17} />
         </div>
         <div>
-          <h3 className="text-sm font-semibold text-white">{title}</h3>
-          <p className="mt-0.5 text-xs leading-5 text-[#8f8f98]">{description}</p>
+          <h3 className="agenthub-strong text-sm font-semibold">{title}</h3>
+          <p className="agenthub-muted mt-0.5 text-xs leading-5">{description}</p>
         </div>
       </div>
       <div className="space-y-3">{children}</div>
@@ -434,7 +434,7 @@ function ConfigSection({
 function FieldLabel({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="block space-y-1.5">
-      <span className="text-xs font-medium text-[#aeb3bd]">{label}</span>
+      <span className="agenthub-muted text-xs font-medium">{label}</span>
       {children}
     </label>
   );
@@ -442,8 +442,8 @@ function FieldLabel({ label, children }: { label: string; children: ReactNode })
 
 function StatusBadge({ ready, label }: { ready: boolean; label: string }) {
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs ${
-      ready ? "bg-emerald-400/15 text-emerald-200" : "bg-amber-400/15 text-amber-200"
+    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs ${
+      ready ? "agenthub-status-success" : "agenthub-status-warning"
     }`}>
       {ready ? <CheckCircle2 size={14} /> : <AlertCircle size={14} />}
       {label}
@@ -453,7 +453,7 @@ function StatusBadge({ ready, label }: { ready: boolean; label: string }) {
 
 function SmallBadge({ icon: Icon, label }: { icon: LucideIcon; label: string }) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full bg-white/[0.06] px-2.5 py-1 text-xs text-[#cfd4df]">
+    <span className="agenthub-status inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs">
       <Icon size={14} />
       {label}
     </span>
@@ -462,7 +462,7 @@ function SmallBadge({ icon: Icon, label }: { icon: LucideIcon; label: string }) 
 
 function StatusLine({ ok, text }: { ok: boolean; text: string }) {
   return (
-    <div className={`flex items-center gap-2 text-xs ${ok ? "text-emerald-200" : "text-amber-200"}`}>
+    <div className={`flex items-center gap-2 text-xs ${ok ? "text-[color:var(--ah-success)]" : "text-[color:var(--ah-warning)]"}`}>
       {ok ? <CheckCircle2 size={14} /> : <CircleDot size={14} />}
       {text}
     </div>

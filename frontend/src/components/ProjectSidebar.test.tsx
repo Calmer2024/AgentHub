@@ -67,7 +67,7 @@ describe("ProjectSidebar", () => {
     expect(onPickExistingFolder).toHaveBeenCalled();
   });
 
-  it("好友设置按钮直接打开 Agent 设置弹窗", () => {
+  it("智能体设置按钮直接打开设置弹窗", () => {
     const onEditAgent = vi.fn();
     const agent: AgentConfig = {
       id: "a1",
@@ -87,7 +87,7 @@ describe("ProjectSidebar", () => {
 
     renderSidebar({ agents: [agent], onEditAgent });
 
-    fireEvent.click(screen.getByTitle("Agent 操作"));
+    fireEvent.click(screen.getByTitle("智能体操作"));
     fireEvent.click(screen.getByText("设置"));
 
     expect(onEditAgent).toHaveBeenCalledWith("a1");

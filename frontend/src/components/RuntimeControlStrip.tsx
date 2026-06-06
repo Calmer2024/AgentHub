@@ -50,7 +50,7 @@ export function RuntimeControlStrip({ run, tasks = [], onCancel, cancelling }: P
   return (
     <div className="agenthub-soft mt-3 flex min-h-9 items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs">
       <span className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${
-        run.status === "failed" ? "text-rose-200" : run.status === "completed" ? "text-emerald-200" : "text-sky-200"
+        run.status === "failed" ? "text-[color:var(--ah-danger)]" : "agenthub-muted"
       }`}>
         {statusIcon(run.status)}
       </span>
@@ -68,7 +68,8 @@ export function RuntimeControlStrip({ run, tasks = [], onCancel, cancelling }: P
           type="button"
           onClick={() => onCancel(run.id)}
           disabled={cancelling}
-          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-rose-300/25 text-rose-100 transition hover:bg-rose-300/10 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-[color:var(--ah-danger)] transition hover:bg-[color:var(--ah-danger-soft)] disabled:cursor-not-allowed disabled:opacity-50"
+          style={{ borderColor: "color-mix(in srgb, var(--ah-danger) 35%, transparent)" }}
           aria-label="停止本次运行"
           title="停止本次运行"
         >

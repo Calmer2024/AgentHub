@@ -62,7 +62,7 @@ export function SearchPanel({ sessionId, open, onClose, onJump }: Props) {
               <X size={16} />
             </button>
           </div>
-          <div className="agenthub-composer flex min-w-0 flex-1 items-center gap-2 rounded-full border px-3 py-2 focus-within:border-[color:var(--ah-accent)] focus-within:ring-2 focus-within:ring-[color:var(--ah-accent-soft)]">
+          <div className="agenthub-composer agenthub-focus-ring flex min-w-0 flex-1 items-center gap-2 rounded-full border px-3 py-2">
             <Search size={15} className="agenthub-muted shrink-0" />
             <input
               autoFocus={open}
@@ -81,7 +81,7 @@ export function SearchPanel({ sessionId, open, onClose, onJump }: Props) {
               搜索中
             </div>
           )}
-          {error && <div className="px-3 py-4 text-sm text-red-300">{error}</div>}
+          {error && <div className="px-3 py-4 text-sm text-[color:var(--ah-danger)]">{error}</div>}
           {showEmpty && <div className="agenthub-muted px-3 py-4 text-sm">未找到匹配消息</div>}
           {!query.trim() && (
             <div className="agenthub-muted px-3 py-4 text-sm">输入关键词搜索历史消息</div>
@@ -95,7 +95,7 @@ export function SearchPanel({ sessionId, open, onClose, onJump }: Props) {
                   onJump(message.sessionId, message.id);
                   onClose();
                 }}
-                className="agenthub-soft flex w-full gap-3 rounded-2xl border p-3 text-left transition hover:border-[color:var(--ah-accent)] active:translate-y-px"
+                className="agenthub-soft flex w-full gap-3 rounded-2xl border p-3 text-left transition hover:border-[color:var(--ah-border-hover)] active:translate-y-px"
               >
                 <AgentAvatar
                   kind={message.role === "user" ? "user" : "agent"}
@@ -124,7 +124,7 @@ function Highlight({ text }: { text: string }) {
     <p className="max-h-16 overflow-hidden text-sm leading-5">
       {parts.map((part, idx) => (
         part.marked
-          ? <mark key={idx} className="rounded bg-sky-300/25 px-0.5 text-sky-100">{part.text}</mark>
+          ? <mark key={idx} className="rounded bg-[color:var(--ah-highlight-bg)] px-0.5 text-[color:var(--ah-highlight-text)]">{part.text}</mark>
           : <span key={idx}>{part.text}</span>
       ))}
     </p>

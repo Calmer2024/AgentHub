@@ -23,12 +23,12 @@ describe("ChatInput", () => {
     });
 
     render(<ChatInput onSubmit={onSubmit} mentionableAgents={[]} />);
-    fireEvent.change(screen.getByPlaceholderText("输入消息，@ 提及 Agent"), {
+    fireEvent.change(screen.getByPlaceholderText("输入消息，@ 提及智能体"), {
       target: { value: "请把这里改成 2" },
     });
     fireEvent.click(screen.getByRole("button", { name: "发送" }));
 
-    expect(onSubmit).toHaveBeenCalledWith(expect.stringContaining("[Code reference: src/app.ts:2-3]"), []);
+    expect(onSubmit).toHaveBeenCalledWith(expect.stringContaining("[代码引用：src/app.ts:2-3]"), []);
     expect(onSubmit.mock.calls[0][0]).toContain("```tsx\nconst value = 1;\n```");
     expect(onSubmit.mock.calls[0][0]).toContain("请把这里改成 2");
     expect(useChatStore.getState().codeReference).toBeNull();
