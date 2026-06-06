@@ -110,19 +110,34 @@ export function OrchestratorDebugPanel({ agents, onAgentsChanged }: Props) {
     }
   };
 
-  const lookupExecution = async () => {
-    if (!executionId.trim()) return;
-    setLoading("execution");
-    setError(null);
+  const refreshExecution = async (id: string, showLoading = false) => {
+    if (!id.trim()) return null;
+    if (showLoading) setLoading("execution");
+    if (showLoading) setError(null);
     try {
-      setExecution(await fetchOrchestratorExecution(executionId.trim()));
+      const result = await fetchOrchestratorExecution(id.trim());
+      setExecution(result);
+      return result;
     } catch (err) {
       setExecution(null);
-      setError(err instanceof Error ? err.message : "查询执行状态失败");
+      if (showLoading) setError(err instanceof Error ? err.message : "查询执行状态失败");
+      return null;
     } finally {
-      setLoading(null);
+      if (showLoading) setLoading(null);
     }
   };
+
+  const lookupExecution = async () => {
+    await refreshExecution(executionId, true);
+  };
+
+  useEffect(() => {
+    if (!execution || !["pending", "running"].includes(execution.status)) return;
+    const timer = window.setInterval(() => {
+      void refreshExecution(execution.executionId);
+    }, 600);
+    return () => window.clearInterval(timer);
+  }, [execution?.executionId, execution?.status]);
 
   const copyPrompt = async () => {
     if (!bridgeInput) return;
@@ -325,7 +340,7 @@ export function OrchestratorDebugPanel({ agents, onAgentsChanged }: Props) {
             <div>
               <h3 className="text-sm font-semibold text-[#30362f]">执行状态查询</h3>
               <p className="mt-1 text-xs leading-5 text-[#697166]">
-                输入批准计划后返回的 exec_xxx，查看模拟 Scheduler 的 DAG 推进结果。
+                输入批准计划后返回的 exec_xxx，查看模拟 Scheduler 的 DAG 推进结果；运行中会自动刷新。
               </p>
             </div>
             <div className="flex gap-2">
@@ -344,7 +359,7 @@ export function OrchestratorDebugPanel({ agents, onAgentsChanged }: Props) {
                 {loading === "execution" ? "查询中..." : "查询"}
               </button>
             </div>
-            {execution && <ExecutionStatusCard execution={execution} />}
+            {execution && <ExecutionStatusCard execution={execution} autoRefreshing={["pending", "running"].includes(execution.status)} />}
           </section>
 
           {error && (
@@ -371,7 +386,13 @@ export function OrchestratorDebugPanel({ agents, onAgentsChanged }: Props) {
   );
 }
 
-function ExecutionStatusCard({ execution }: { execution: OrchestratorExecution }) {
+function ExecutionStatusCard({
+  execution,
+  autoRefreshing,
+}: {
+  execution: OrchestratorExecution;
+  autoRefreshing: boolean;
+}) {
   return (
     <div className="space-y-3 border border-[#ecece4] bg-[#fbfbf7] p-3">
       <div className="flex items-start justify-between gap-3">
@@ -379,7 +400,10 @@ function ExecutionStatusCard({ execution }: { execution: OrchestratorExecution }
           <p className="font-mono text-[11px] text-[#6f766d]">{execution.executionId}</p>
           <p className="mt-1 text-sm font-semibold text-[#1f2421]">{execution.planId}</p>
         </div>
-        <ExecutionStatusBadge status={execution.status} />
+        <div className="flex shrink-0 items-center gap-2">
+          {autoRefreshing && <span className="text-[11px] text-[#49624a]">自动刷新中</span>}
+          <ExecutionStatusBadge status={execution.status} />
+        </div>
       </div>
 
       <div className="grid gap-2 text-[11px] text-[#697166] sm:grid-cols-2">
