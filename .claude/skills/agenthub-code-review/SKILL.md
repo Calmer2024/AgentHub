@@ -33,6 +33,7 @@ description: AgentHub 项目标准代码审查流程。当用户完成模块开�
 - [ ] 空状态：有引导文案（不是空白区域）？
 - [ ] 错误态：中文错误信息 + 操作入口（重试/返回）？
 - [ ] 流式过程中：输入框禁用 + 发送按钮禁用 + 打字指示器可见？
+- [ ] IM 交互：会话置顶/归档/未读/免打扰/转发/多选是否有真实状态反馈、刷新恢复和错误态？
 
 ### 5. Spec 覆盖检查
 - [ ] 正常流程是否完全实现？
@@ -45,6 +46,7 @@ description: AgentHub 项目标准代码审查流程。当用户完成模块开�
 - [ ] 每个异常场景是否有测试？
 - [ ] 测试能否独立运行（不依赖外部服务、Mock 了 Agent API）？
 - [ ] SSE 相关代码是否有 JSON 合法性回归测试？
+- [ ] 会话 IM 状态变更是否覆盖 API/Service/前端组件测试？
 
 ### 7. Git 提交规范检查（对照 docs/GIT_PROTOCOL.md）
 - [ ] Commit 粒度合理吗（一件事，一个 commit）？
@@ -57,6 +59,12 @@ description: AgentHub 项目标准代码审查流程。当用户完成模块开�
 审查完成后，输出报告：
 
 ```
+
+## Phase 7D 审计 (2026-06-07)
+
+- 引用仍有效：`CLAUDE.md`、`docs/TEST_PROTOCOL.md`、`docs/GIT_PROTOCOL.md`、`docs/testing/UX_TEST_SPEC.md` 均存在。
+- 审查清单已补 IM 体验项：会话置顶/归档/未读/免打扰/转发/多选不能只检查 UI 展示，必须验证 API、持久化和刷新恢复。
+- 后续审查 Phase 7D 相关代码时，需额外检查右键菜单 portal 层级、明亮主题纯白辅色、输入框外层透明和执行过程全屏弹窗。
 ## Code Review Report
 - 模块: [名称]
 - 审查人: AI (agenthub-code-review)

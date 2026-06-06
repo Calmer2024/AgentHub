@@ -61,7 +61,7 @@ cd frontend && npx vitest run
 - 持续从真实 Claude Code、Codex、OpenCode 输出中补充 parser fixture，尤其是命令、文件路径和工具参数细节。
 - 为长时间运行的 CLI 进程补充前端显式取消/终止入口。
 - 建立可重复的真实 CLI smoke 清单，记录 CLI 版本、认证模式、workspace 文件断言和失败日志。
-- Phase 7 继续处理 Artifact Drawer、审批卡片、环境体检和旧 orchestrator 术语残留。
+- Phase 7 继续处理审批卡片、环境体检、运行控制、IM 基线和旧 orchestrator 术语残留；P1 Artifact 体验已由 ADR-0010 收敛为消息级卡片 + 页面级弹窗，不恢复右侧 Drawer。
 
 ## 5. 交接入口
 

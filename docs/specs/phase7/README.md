@@ -1,8 +1,8 @@
 # Phase 7: 任务可控性 + 审批 + 环境体检 + 演示闭环
 
-**版本**: v3.0
+**版本**: v3.3
 **创建日期**: 2026-06-06
-**状态**: In Progress — 7A/7B/7C 实现基线已验收，7D 待演示加固
+**状态**: v1.0 Baseline — 7A/7B/7C 已验收，7D IM 基线与 v1.0 UI 加固已实现；真实 cc 完整自动化演示脚本待沉淀
 **关联 ADR/PRD**: [ADR-0008](../../adr/0008-revised-development-strategy.md)、[ADR-0009](../../adr/0009-project-workspace-model.md)、[ADR-0010](../../adr/0010-message-level-artifact-experience.md)、[PRD-02](../../PRD/02-Orchestrator_Engine.md)、[PRD-03](../../PRD/03-User_Experience.md)、[PRD-05](../../PRD/05-End_to_End_Product_Flow.md)、[PRD-06](../../PRD/06-MVP_Local_Workspace_Delivery.md)
 **依赖模块**: Phase 4 消息交互闭环、Phase 5 Artifact 版本/编辑、Phase 6 Workspace Runtime + CLI Adapter + Artifact Bridge
 
@@ -14,11 +14,12 @@
 
 Phase 7 的目标是把 Phase 1-6 已有的聊天、真实 CLI 执行、workspace 文件变更、消息级 Artifact 卡片、文件编辑器、代码引用和版本管理，推进到可答辩、可演示、可中断、可恢复的产品闭环。
 
-当前仍缺的不是“产物展示入口”，而是四类体验闭环能力：
+当前仍缺的不是“产物展示入口”，而是五类体验闭环能力：
 
 - 运行中的任务可被用户理解、取消、恢复；
 - Orchestrator/Agent 的关键节点可暂停等待用户审批；
 - 本机 CLI、运行时、workspace、系统模型状态可提前体检；
+- 会话列表与消息操作达到 IM 软件的 v1.0 基线，而不是只停留在开发工具式列表；
 - 真实 Claude Code 等 CLI 服务路径可被稳定脚本化验收。
 
 **成功标准**（可证伪）：
@@ -26,6 +27,8 @@ Phase 7 的目标是把 Phase 1-6 已有的聊天、真实 CLI 执行、workspac
 - [x] 用户能在一次真实 CLI 任务运行中看到当前 run/task 状态，并能取消正在运行的 CLI 进程。
 - [x] 需要人工确认的任务能生成 Approval Card；确认后继续，驳回后回到对话修订，并携带 Artifact/代码引用上下文。
 - [x] `/api/system/health` 能返回 CLI Agent、Node/Python、workspace、系统模型、活跃进程的统一健康状态；前端在创建/发送关键路径前给出阻断或降级提示。
+- [x] 会话列表支持搜索、置顶、归档箱、未读数、免打扰、最近活跃排序；消息支持右键菜单、转发、多选、完整时间戳。
+- [x] 明亮主题辅色收敛为纯白，输入框外层透明，项目/聊天栏形成圆角卡片层级，执行过程支持全屏查看。
 - [ ] MVP 演示脚本跑通：Project 绑定 workspace → 与 Claude Code 真实对话 → 生成消息级 Artifact → 编辑/引用/版本管理 → 审批继续 → 中枢总结。
 - [ ] 不通过标准：重新引入独立产物工作台、右侧 Artifact Drawer，或只做静态 UI 而不接真实 API/事件/持久化状态。
 
@@ -77,10 +80,12 @@ Project workspace
 | **7A: 运行任务可控性** | [01-runtime-task-control.md](01-runtime-task-control.md) | ✅ 验收通过 | 持久化 run/task/process 状态、取消运行、进程清理、前端运行控制条 |
 | **7B: 人工审批断点** | [02-approval-checkpoints.md](02-approval-checkpoints.md) | ✅ 验收通过 | ApprovalCheckpoint 数据模型、确认/驳回 API、聊天流 Approval Card、Artifact/代码引用回流 |
 | **7C: 环境体检** | [03-environment-health.md](03-environment-health.md) | ✅ 验收通过 | `/api/system/health`、CLI/Node/Python/workspace/DeepSeek/进程状态、HealthCheckCard 与发送前 guard |
-| **7D: 演示与 UX 加固** | [04-mvp-demo-ux-hardening.md](04-mvp-demo-ux-hardening.md) | Draft | Store 拆分、P0/P1 UX 清零、真实 cc 演示脚本、自动化验收矩阵 |
+| **7D: IM 体验、演示与 UX 加固** | [04-mvp-demo-ux-hardening.md](04-mvp-demo-ux-hardening.md) | 🚧 IM 基线已实现 | 会话置顶/归档/未读/免打扰/转发/多选、右键菜单、明亮主题纯白与圆角布局、执行过程全屏；真实 cc 脚本待补 |
 | **7E: 上下文包与缓存策略** | [05-context-pack-and-cache-strategy.md](05-context-pack-and-cache-strategy.md) | Draft | 记录每轮新 CLI 进程 + 手动拼 prompt 的上下文/缓存风险，提出 Context Pack、Project Memory、Task Package 与 Engine Resume 探测路线 |
 
 2026-06-06 验收记录：7A/7B/7C 已完成实现基线并通过本轮人工验收。验收中发现的“停止输出后无明确中止提示、输入框仍显示 AI 正在回复、其它会话被全局占用”问题已修复：前端点击停止后立即 abort 当前流、本地标记 run/message 为 cancelled、追加可见“本次运行已中止成功”系统消息并解锁输入框；后端取消也会持久化 cancelled metadata 和运行控制消息。
+
+2026-06-07 7D 实现记录：会话列表补齐 IM 基线，包括搜索、置顶分组、归档箱、未读数、免打扰和最近活跃排序；消息气泡改为右键菜单，支持引用、重新生成、Pin、复制、转发和多选；转发通过真实 API 创建目标会话消息并保留来源快照；明亮主题辅色收敛为纯白，输入框外层透明，执行过程可全屏查看。交付快照见 [phase7-im-hardening](../../deliverables/phase7-im-hardening/README.md)。
 
 ---
 
@@ -138,8 +143,11 @@ Project workspace
 | AC-P7-06 | 审批驳回后 ChatInput 自动带上 Artifact/代码引用，用户可直接描述修改意见 | 7B |
 | AC-P7-07 | `/api/system/health` 返回 overall + items + blockingReasons，且不暴露任何密钥值 | 7C |
 | AC-P7-08 | CLI 缺失或 workspace 不可写时，创建/发送关键路径显示明确阻断提示 | 7C |
-| AC-P7-09 | 真实 cc 演示脚本可在本机服务完整跑通并生成验收日志 | 7D |
-| AC-P7-10 | 全量回归：backend pytest、frontend tsc/vitest、E2E smoke 均通过 | 7D |
+| AC-P7-09 | 会话列表置顶、归档箱、未读、免打扰、搜索、最近活跃排序均持久化并可刷新恢复 | 7D |
+| AC-P7-10 | 消息右键菜单支持引用/重新生成/Pin/复制/转发/多选，且 Reply/Pin 仍影响 Agent 上下文 | 7D |
+| AC-P7-11 | 执行过程可全屏查看，弹窗不被聊天容器裁剪 | 7D |
+| AC-P7-12 | 真实 cc 演示脚本可在本机服务完整跑通并生成验收日志 | 7D |
+| AC-P7-13 | 全量回归：backend pytest、frontend tsc/vitest、E2E smoke 均通过 | 7D |
 
 ---
 
@@ -187,4 +195,6 @@ Project workspace
 - v2.0 (2026-06-05): 补充 Phase 6F 后的 Artifact Bridge 下游预期。
 - v3.0 (2026-06-06): 删除陈旧 Drawer/产物工作台方向，按当前实现基线重构为运行可控性、审批、环境体检、演示加固四个模块。
 - v3.1 (2026-06-06): 同步 7A/7B/7C 实现基线与人工验收结果，7D 保持后续演示加固范围。
-- v3.2 (2026-06-07): 新增 7E 上下文包与缓存策略，记录真实 CLI Agent 每轮新进程执行导致的上下文爆炸与缓存不可控风险。
+- v3.2 (2026-06-07): 同步 7D IM 基线、明亮主题/布局加固、消息右键菜单、转发/多选、执行过程全屏和交付快照入口。
+- v3.3 (2026-06-07): 同步 v1.0.0 发布摘要入口，明确真实 cc 完整自动化演示脚本仍为后续增强项。
+- v3.4 (2026-06-07): 新增 7E 上下文包与缓存策略，记录真实 CLI Agent 每轮新进程执行导致的上下文爆炸与缓存不可控风险。

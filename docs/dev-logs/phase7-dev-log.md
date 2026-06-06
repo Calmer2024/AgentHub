@@ -1,8 +1,8 @@
 # Phase 7 Dev Log
 
-**日期**: 2026-06-06
-**阶段**: Phase 7A-7C
-**状态**: 7A 运行任务可控性、7B 人工审批断点、7C 环境体检实现基线已通过本轮人工验收；并完成一轮对话 UX、并行运行与前端性能修复
+**日期**: 2026-06-06 ~ 2026-06-07
+**阶段**: Phase 7A-7D
+**状态**: 7A 运行任务可控性、7B 人工审批断点、7C 环境体检实现基线已通过人工验收；7D 已完成 IM 基线、明亮主题与 v1.0 UI 加固，真实 Claude Code E2E 脚本仍待沉淀
 
 ---
 
@@ -53,13 +53,36 @@
 - 不同会话可各自保留独立 stream/run/abort，后台会话继续运行；会话列表会显示“对方正在输入”提示。
 - 优化会话切换性能：移除普通会话切换时的重复 reset，避免 `loadSessionsForProject` 因 `currentSessionId` 变化反复拉取；消息气泡改为接收预索引后的 artifacts/approvals；移除聊天/产物预览中的同步 `react-syntax-highlighter`，主包从约 1.13 MB 降至约 499 KB。
 
+## 2.2 7D IM 体验与 v1.0 UI 加固
+
+2026-06-07 继续实现 IM 软件增强项和明亮主题收敛：
+
+- 会话列表补齐搜索、置顶、归档箱、最近活跃排序、未读数和免打扰；置顶会话进入独立分组，归档对话进入顶部归档入口。
+- 后端扩展 `sessions` 表：`is_pinned`、`archived_at`、`unread_count`、`last_read_at`、`is_muted`，并新增迁移 018/019。
+- `SessionService` 新增 `mark_read()`、`forward_messages()` 和 pin/archive/mute 更新语义；`GET /api/sessions` 默认隐藏归档会话，支持 `includeArchived`。
+- 消息右键菜单成为主要操作入口，支持引用回复、重新生成、Pin、复制、转发、多选，并通过 portal 解决遮挡和层级问题。
+- 转发不做前端假状态：`POST /api/sessions/forward` 会在目标会话创建真实 user 消息，并保存 `forwardSource` 快照。
+- 消息气泡底部显示完整中国时区时间戳；Agent 名称标签去掉绿点与下边框，改为独立颜色和加粗文本。
+- 明亮主题辅色从浅蓝收敛为纯白；项目栏/聊天栏按飞书式大圆角容器包裹小圆角栏；输入框外层保持透明并悬浮。
+- 文件区域取消局部圆角卡片包裹，改为覆盖工作区；diff/code block/Artifact 卡片保留少量辅助色以增强可读性。
+- `ExecutionTracePanel` 新增全屏查看弹窗，复用执行时间线和状态统计。
+
+本轮文档补充：
+
+- `docs/deliverables/phase7-im-hardening/README.md`
+- `docs/deliverables/phase7-im-hardening/implementation-snapshot.md`
+- `docs/deliverables/phase7-im-hardening/acceptance-log.md`
+- `docs/specs/phase7/04-mvp-demo-ux-hardening.md`
+
 ## 3. 关键决策
 
 - run/task/process 属于运行时控制层，不放进 ArtifactService，也不只保存在前端 streaming boolean。
 - 取消必须是“用户可见状态变更 + 进程终止 + 输入框释放”的完整闭环。
 - 审批卡片继续采用消息级 Artifact 心智，不恢复右侧 Drawer 或独立产物工作台。
 - 环境体检是当前本机状态快照，不写入数据库；任何敏感配置只返回布尔或状态摘要。
-- Phase 7D 继续处理演示脚本、UI 截图审计和 Store 进一步按领域拆分，不阻塞 7A-7C 验收结论。
+- Phase 7D 的 IM 能力必须尽量落到真实 API/数据库状态，不能只做前端装饰；Reply/Pin 继续保留真实 Agent 上下文注入。
+- 明亮主题的辅色基线改为纯白，彩色只保留在读者需要区分信息层级的可视化卡片中。
+- Phase 7D 真实 cc 演示脚本、UI 截图审计和 Store 进一步按领域拆分仍是 v1.0 后续风险项，不阻塞已完成的 IM 基线说明。
 
 ## 4. 验证状态
 
@@ -82,6 +105,18 @@
   - 不同会话可同时保留独立 streaming runtime。
 - `backend/test_api/test_group_chat.py`
   - 群聊仍保留 route/task/agent events 和消息落库，但不再产生中枢总结事件或总结消息。
+- `backend/test_api/test_sessions.py`
+  - 免打扰、标记已读、消息转发 API。
+- `backend/test_unit/test_session_service.py`
+  - 归档默认隐藏、置顶排序、取消归档、免打扰/已读、转发创建真实消息与来源快照。
+- `backend/test_api/test_migrations.py`
+  - 会话 IM 状态字段迁移存在性。
+- `frontend/src/components/SessionList.test.tsx`
+  - 置顶分组、未读/免打扰、归档箱、取消归档。
+- `frontend/src/components/MessageActions.test.tsx`
+  - 右键菜单、转发和多选入口。
+- `frontend/src/components/MessageBubble.test.tsx`
+  - 气泡右键菜单、多选控件、完整时间戳和 Agent 名称样式。
 
 本轮验证命令：
 
@@ -89,6 +124,13 @@
 cd frontend; npx vitest run; npm run build
 cd backend; pytest test_api/test_phase7_runtime.py test_api/test_group_chat.py
 cd backend; pytest test_unit/test_orchestrator_summarizer.py
+```
+
+7D 回归建议命令：
+
+```powershell
+cd backend; python -m pytest test_unit/ test_api/ -q
+cd frontend; npx tsc --noEmit; npx vitest run; npm run build
 ```
 
 ## 5. 交接入口
@@ -105,5 +147,11 @@ cd backend; pytest test_unit/test_orchestrator_summarizer.py
 - `frontend/src/components/HealthCheckCard.tsx`
 - `frontend/src/stores/chatStore.ts`
 - `docs/deliverables/phase7-runtime-control/README.md`
+- `frontend/src/components/SessionList.tsx`
+- `frontend/src/components/MessageActions.tsx`
+- `frontend/src/components/MessageBubble.tsx`
+- `frontend/src/components/ExecutionTracePanel.tsx`
+- `backend/app/services/session_service.py`
+- `docs/deliverables/phase7-im-hardening/README.md`
 
-Phase 7D 的下一步是把真实 Claude Code 演示脚本、截图审计和完整回归矩阵补齐。
+Phase 7D 的下一步是把真实 Claude Code 演示脚本、截图审计和完整回归矩阵补齐，并继续评估是否将会话 IM 状态从现有 runtime hook 中拆入独立 store。

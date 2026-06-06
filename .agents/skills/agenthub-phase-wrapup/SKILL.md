@@ -13,8 +13,8 @@ description: AgentHub 阶段收尾标准流程。当用户说"阶段验收通过
 
 ### 1.1 全量文档扫描
 - 读取 `docs/` 下所有 `.md` 文件
-- 读取 `.Codex/skills/` 下所有 skill 文件
-- 读取项目根目录 `AGENTS.md`、`CONTEXT.md`
+- 读取 `.agents/skills/` 下所有 skill 文件；若 `.claude/skills/` 存在同名镜像，也要同步审计
+- 读取项目根目录 `AGENTS.md`、`CLAUDE.md`、`CONTEXT.md`
 - 读取 `.trae/rules/` 下的规则文件
 
 ### 1.2 交叉引用分析
@@ -87,7 +87,7 @@ description: AgentHub 阶段收尾标准流程。当用户说"阶段验收通过
 
 ### 3.1 审计现有 Skills
 
-检查 `.Codex/skills/` 下的每个 skill：
+检查 `.agents/skills/` 下的每个 skill；若 `.claude/skills/` 存在同名镜像，也要同步检查：
 - 是否引用了仍存在的文件？
 - 检查清单是否覆盖了新协议的要求？
 - 流程步骤是否仍然有效？
@@ -163,3 +163,9 @@ description: AgentHub 阶段收尾标准流程。当用户说"阶段验收通过
 - 新 Skill: [列表] (如果无: 本阶段无可沉淀资产)
 - 新 Rule: [列表] (如果无: 本阶段无可沉淀规则)
 ```
+
+## Phase 7D 审计 (2026-06-07)
+
+- 引用修复：全量文档扫描对象从不存在的 `.Codex/skills/` 修正为当前 `.agents/skills/`，并注明 `.claude/skills/` 为镜像审计对象。
+- 阶段收尾本轮新增文档入口：`docs/deliverables/phase7-im-hardening/`。
+- 暂不新建 Skill/Rule：本轮 IM 能力属于 Phase 7D 规格内实现，现有 module-dev / code-review / qa-audit / phase-wrapup 四个 Skill 已能覆盖；后续若多次重复做“IM 真实服务截图审计”，再考虑单独沉淀。

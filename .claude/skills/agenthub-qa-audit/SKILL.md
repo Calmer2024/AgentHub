@@ -114,6 +114,7 @@ uvicorn app.main:app --host 127.0.0.1 --port 8000
 - [ ] EventBus 启动无错误
 - [ ] `GET /api/agents` 返回 Claude Code / Codex / OpenCode CLI 好友
 - [ ] `GET /api/settings` 返回 `systemModel.provider=deepseek`
+- [ ] `GET /api/sessions?includeArchived=true` 返回会话 IM 状态字段（isPinned/archivedAt/unreadCount/isMuted）
 
 **2.2 前端启动检查**
 
@@ -207,6 +208,9 @@ npx vite --host 127.0.0.1 --port 5173
 - [ ] CollaborationView: 折叠/展开正常，状态圆点颜色正确
 - [ ] Orchestrator 横幅: 意图标签显示、Agent 名称 tag 显示
 - [ ] 群聊创建: 2-5 个 Agent 可选，无链式开关（自动触发）
+- [ ] 会话列表: 置顶分组、归档箱、未读徽标、免打扰、搜索、最近活跃排序可见且刷新后保持
+- [ ] 消息右键菜单: 引用/重新生成/Pin/复制/转发/多选菜单不被滚动容器裁剪
+- [ ] 执行过程全屏: 可打开、滚动、关闭，无遮挡
 
 **4.2 前端控制台扫描**
 
@@ -325,3 +329,9 @@ netstat -ano | findstr ":5173"
 - [UX_TEST_SPEC.md](../../docs/testing/UX_TEST_SPEC.md) — 6 状态模型、体验三定律
 - [CLAUDE.md](../../CLAUDE.md) — 项目规则（自动化优先、禁止项）
 - [CONTEXT.md](../../CONTEXT.md) — 领域术语定义
+
+## Phase 7D 审计 (2026-06-07)
+
+- 引用仍有效：`docs/TEST_PROTOCOL.md`、`docs/testing/UX_TEST_SPEC.md`、`CLAUDE.md`、`CONTEXT.md` 均存在。
+- 审计清单已补 Phase 7D IM 主链路：会话置顶/归档/未读/免打扰、消息右键菜单、转发/多选、执行过程全屏。
+- 真实服务验收需额外检查明亮主题纯白辅色、输入框外层透明、文件视图全屏布局和归档菜单层级遮挡问题。

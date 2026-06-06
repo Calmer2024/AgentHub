@@ -25,7 +25,7 @@
 本期 PRD 对初期的项目技术方案进行了重大修正。AgentHub 不再是一个简单的“调用大模型 API 并手动拼接 Prompt 的聊天室”。相反，它将作为一层强大的**调度壳 (Orchestration Shell)**，底层直接对接并封装市面上真正具备独立执行能力的 CLI Agent 工具（如 Anthropic 官方的 Claude Code 命令行工具，或开源的 OpenCode 等）。通过提供统一的 UI/UX 层和多进程管理层，彻底释放“自主 Agent”在真实文件系统上编写、调试代码的潜力。
 
 **闭环补充**：
-本 PRD 以启动文档为源头，必须覆盖 IM 聊天、多 Agent 协作、Orchestrator、Artifact 预览编辑、AI 协作交付物等课题要求。端到端完成定义见 [05-End_to_End_Product_Flow.md](./05-End_to_End_Product_Flow.md)：用户输入任务后，系统必须能经过 Project 创建/绑定 workspace、Orchestrator/Agent 执行、Artifact Card、Artifact Drawer、局部编辑、版本化和审批继续。MVP 默认采用 [06-MVP_Local_Workspace_Delivery.md](./06-MVP_Local_Workspace_Delivery.md) 定义的本机 workspace；SaaS 版采用 [07-SaaS_Cloud_Workspace_Delivery.md](./07-SaaS_Cloud_Workspace_Delivery.md) 定义的云端 workspace。
+本 PRD 以启动文档为源头，必须覆盖 IM 聊天、多 Agent 协作、Orchestrator、Artifact 预览编辑、AI 协作交付物等课题要求。端到端完成定义见 [05-End_to_End_Product_Flow.md](./05-End_to_End_Product_Flow.md)：用户输入任务后，系统必须能经过 Project 创建/绑定 workspace、Orchestrator/Agent 执行、消息级 Artifact Card、页面级预览/编辑、局部编辑、版本化和审批继续。MVP 默认采用 [06-MVP_Local_Workspace_Delivery.md](./06-MVP_Local_Workspace_Delivery.md) 定义的本机 workspace；SaaS 版采用 [07-SaaS_Cloud_Workspace_Delivery.md](./07-SaaS_Cloud_Workspace_Delivery.md) 定义的云端 workspace。
 
 ---
 
@@ -57,7 +57,7 @@
 AgentHub 的愿景是成为**人类工程师管理 AI 团队的第一工作台**。
 
 ### 4.1 核心价值一：化繁为简的三栏动态工作区 (Dynamic Workspace)
-AgentHub 摒弃了传统的死板界面。无产物时，它是一个极其克制、沉浸式的聊天工具（左侧导航 + 中间宽幅聊天框）；当底层 Agent 完成实质性工作（如生成网页、修改大批量代码）时，右侧会智能滑出**“产物工作台（Artifact Drawer）”**。用户在左边下指令，右边看结果，真正实现所见即所得。
+AgentHub 摒弃了传统的死板界面。无产物时，它是一个极其克制、沉浸式的聊天工具（左侧导航 + 会话列表 + 聊天框）；当底层 Agent 完成实质性工作（如生成网页、修改大批量代码）时，聊天消息下方会出现**消息级 Artifact Card**。用户通过页面级预览/编辑弹窗查看结果、编辑代码和管理版本，真正实现所见即所得。
 
 ### 4.2 核心价值二：降维打击的 CLI Agent 封装 (CLI-as-a-Service)
 AgentHub 承认并尊重专业工具的价值。平台不再自己手搓劣质的代码生成循环，而是将 Claude Code 等终端“接入”网页中。
@@ -97,8 +97,8 @@ Orchestrator（协调器）本身是一个由顶级大模型驱动的纯决策�
     定义：包含 3 个及以上拆解子任务的会话，最终能完整跑通并产出最终 Artifact 的比例。预期目标：> 75%。
 2.  **人工干预频率 (Human Intervention Rate per Task)**：
     定义：在一个连贯的长任务流中，用户主动修改任务编排或紧急打断运行的次数。这衡量了 Orchestrator 拆解任务的合理性。
-3.  **产物抽屉打开率 (Artifact Drawer Open Rate)**：
-    定义：生成了 Artifact 资产卡片后，用户点击展开右侧预览抽屉的比例。预期目标：> 90%，证明产物内联渲染是绝对的刚需。
+3.  **产物卡片打开率 (Artifact Card Open Rate)**：
+    定义：生成了 Artifact 资产卡片后，用户点击打开页面级预览/编辑弹窗的比例。预期目标：> 90%，证明产物内联渲染是绝对的刚需。
 4.  **CLI 进程异常崩溃率 (CLI Process Crash Rate)**：
     定义：后端 `subprocess` 因处理特殊字符、内存溢出或死锁导致的非正常退出比例。预期目标：< 2%。
 5.  **端到端 Artifact 闭环率 (Artifact Loop Completion Rate)**：
@@ -113,7 +113,7 @@ Orchestrator（协调器）本身是一个由顶级大模型驱动的纯决策�
 在有限的研发资源下，明确什么**不做**比做什么更重要。
 
 1.  **不做重度 Web IDE**：
-    右侧的产物抽屉在展示代码时，主要是只读的 Monaco Editor Diff 视图。**坚决不实现**类似 VS Code 的强交互式编辑（如局部拖拽生成、右键重构等）。代码的增删改查唯一入口，永远是通过左侧主聊天框用自然语言驱动 Agent 去改。
+    页面级 Artifact 预览/编辑弹窗在展示代码时，主要承担预览、Diff、版本管理和受控编辑。**坚决不实现**类似 VS Code 的强交互式编辑（如局部拖拽生成、右键重构等）。代码的增删改查主入口，永远是通过聊天框用自然语言驱动 Agent 去改。
 2.  **P1 不做云端沙箱，P2 再做**：
     P1（桌面版）阶段，CLI Agent 进程直接针对本地磁盘的指定 Workspace 进行读写操作，默认信任宿主机环境。P2（SaaS 云版）阶段引入云端容器沙箱隔离，实现多租户安全与一键部署到云端 URL。
 3.  **不做去中心化的多 Agent 互聊 (Swarm)**：

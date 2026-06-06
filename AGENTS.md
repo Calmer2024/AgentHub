@@ -147,13 +147,13 @@ Debug 不是"让 bug 消失"，而是"让系统更正确"：
 |----|---------|---------|------|
 | **Rules** | `AGENTS.md`、`.trae/rules/project_rules.md` | 每次 AI 对话 | 技术栈锁定、架构约束、代码规则、禁止事项 |
 | **Spec** | `docs/specs/phaseN/` | 按功能开发 | 定义要构建什么、输入输出、行为、验收标准、非目标 |
-| **Skill** | `.Codex/skills/*.md` | 按需调用（`/skill-name`） | 标准化开发流程、代码审查清单 |
+| **Skill** | `.agents/skills/*.md`（`.claude/skills/` 保留镜像） | 按需调用 | 标准化开发流程、代码审查清单 |
 
 ---
 
 ## 阶段感知
 
-当前处于 **Phase 6（Workspace Runtime + CLI Adapter + Artifact Bridge）— 进行中**。Phase 6A Workspace Runtime 已完成并通过人工验收：Project 实体、workspace 绑定、系统目录选择器、文件树/Diff/静态预览、Session→workspace 查询已落地。下一步从 Phase 6B-6F（CLI Adapter + Artifact Bridge）继续；Phase 7（UX 闭环）仍计划中。
+当前处于 **Phase 7（任务可控性 + 审批 + 环境体检 + IM 体验 + 演示闭环）— v1.0 baseline 发布**。Phase 6 Workspace Runtime、CLI Adapter、Artifact Bridge 已完成并通过验收；Phase 7A-7C 的运行取消/恢复、审批卡片、环境体检已验收；Phase 7D 的会话置顶/归档/未读/免打扰/转发/多选、消息右键菜单、明亮主题与圆角布局、执行过程全屏已实现。真实 Claude Code 完整自动化演示脚本、截图审计和 Store 领域拆分继续作为后续增强项沉淀。
 
 完整 Phase 状态表见 [CONTEXT.md §开发阶段](CONTEXT.md)。
 

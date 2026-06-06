@@ -47,6 +47,7 @@ backend/.agenthub-backend-*.log
 frontend/.agenthub-frontend-*.log
 backend/.uvicorn-dev.*.log
 frontend/.vite-dev.*.log
+.tmp/
 
 # Local temporary files
 .tmp-test/

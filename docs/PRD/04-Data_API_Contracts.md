@@ -122,7 +122,7 @@ CREATE TABLE artifacts (
 - 会话产物列表默认只展示版本链头节点，即每条链的最新版本。
 - `parent_artifact_id` 用于版本追溯，不能用于表达多个文件之间的包含关系。
 - workspace 产物必须记录 `project_id`；`file_path` 只能保存 Project workspace 内相对路径。
-- Artifact 创建后必须发布 `artifact.created` 事件，前端据此刷新聊天卡片和 Drawer。
+- Artifact 创建后必须发布 `artifact.created` 事件，前端据此刷新聊天流消息级卡片和页面级预览/编辑入口。
 
 ---
 
@@ -164,17 +164,17 @@ CREATE TABLE artifacts (
         ```
 
 ### 3.3 产物与资源组 (Artifacts Group)
-为右侧的产物抽屉提供渲染物料。
+为消息级 Artifact Card 和页面级预览/编辑弹窗提供渲染物料。
 
 *   **`GET /api/artifacts/{artifact_id}/content`**
-    *   **业务逻辑**：当前端右侧抽屉打开时，获取产物的具体内容（如 HTML 源码，或 Markdown 长文）。
+    *   **业务逻辑**：当前端页面级 Artifact 弹窗打开时，获取产物的具体内容（如 HTML 源码，或 Markdown 长文）。
     *   **注意**：如果是 `full_project` 级别的修改，此接口返回的应该是文件树结构 (Tree) 和 Diff patch 数组，供 Monaco Editor 渲染。
 
 *   **`GET /api/artifacts/{artifact_id}/versions`**
     *   **业务逻辑**：返回该 Artifact 版本链的所有版本，用于版本下拉和历史回溯。
 
 *   **`GET /api/artifacts/{artifact_id}/diff?v1=&v2=`**
-    *   **业务逻辑**：返回两个版本之间的 diff，供 Drawer 的 Diff 模式渲染。
+    *   **业务逻辑**：返回两个版本之间的 diff，供页面级版本/Diff 弹窗渲染。
 
 *   **`POST /api/artifacts/{artifact_id}/edit`**
     *   **业务逻辑**：用户选中代码片段并描述修改意图后，后端通过支持 tool calling 的 Agent 或上下文注入生成编辑结果。
@@ -243,10 +243,10 @@ MVP 本机 workspace 的权威执行规格见 [PRD-06](./06-MVP_Local_Workspace_
 | `agent.output` | Adapter / AgentExecutor | ChatService, SSE/WebSocket | 普通文本流 |
 | `project.created` | ProjectService | Chat UI, HealthCheck | Project 与 workspace 目录已创建或绑定 |
 | `workspace.diff_ready` | WorkspaceService | ArtifactDetectionService | 文件变更已计算完成 |
-| `preview.ready` | PreviewService | Artifact Drawer | 预览 URL 已可用 |
+| `preview.ready` | PreviewService | Artifact 预览弹窗 | 预览 URL 已可用 |
 | `artifact.detected` | API/CLI Adapter, Orchestrator | ArtifactService | 发现可落库产物 |
 | `artifact.created` | ArtifactService | WebSocket, Chat UI | 追加 Artifact Card、刷新产物列表 |
-| `artifact.version_created` | ArtifactService | Artifact Drawer | 刷新版本链并切到新版本 |
+| `artifact.version_created` | ArtifactService | Artifact 版本弹窗 | 刷新版本链并切到新版本 |
 | `task.status_changed` | Orchestrator | CollaborationPanel, ApprovalCard | 展示任务状态 |
 | `interactive_prompt` | CLI Adapter | InteractivePromptCard | CLI y/n 等交互拦截 |
 
