@@ -19,7 +19,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import AsyncSessionLocal
 from ..domain.orchestrator_plan import normalize_plan, validate_plan
 from ..models import AgentConfig, Message as DBMessage, Session as DBSession
+from ..agents.cli_trace import trace_text
 from .cli_agent_service import CliAgentService
+from .execution_trace import ExecutionTraceBuilder, merge_trace_metadata
 from .session_service import SessionService
 from .streaming_text import iter_stream_pieces
 
@@ -98,6 +100,16 @@ class CliTaskRunner:
         raw_output = ""
         process_id = ""
         exit_code = None
+        metadata: dict[str, Any] = {
+            "agentType": agent.agent_type or "cli_wrapper",
+            "cliTool": agent.cli_tool or "custom",
+            "workspacePath": workspace_path,
+        }
+        trace = ExecutionTraceBuilder(
+            agent_name=agent.name,
+            cli_tool=agent.cli_tool or "custom",
+            workspace_path=workspace_path,
+        )
         async for event in CliAgentService().stream(
             agent=agent,
             session_id=execution["sessionId"],
@@ -107,6 +119,16 @@ class CliTaskRunner:
         ):
             process_id = event.process_id or process_id
             if event.type == "agent.process.started":
+                metadata["processId"] = process_id
+                trace.set_process(process_id)
+                item = trace.add(
+                    kind="process",
+                    text=trace_text(event.trace or {}, f"正在启动 {agent.name}"),
+                    process_id=process_id,
+                    trace=event.trace,
+                )
+                if item:
+                    await self._broadcast_trace(execution, task, agent, message_id, process_id, item)
                 await _broadcast_ws(execution["sessionId"], {
                     "type": "agent.process.started",
                     "sessionId": execution["sessionId"],
@@ -127,6 +149,23 @@ class CliTaskRunner:
                 raw_output += event.chunk
                 if event.chunk_type in {"text", "artifact_signal"}:
                     visible += event.chunk
+                if event.chunk_type != "text":
+                    if event.chunk_type == "artifact_signal":
+                        kind = "artifact"
+                    elif event.chunk_type == "error":
+                        kind = "error"
+                    else:
+                        kind = "progress"
+                    item = trace.add(
+                        kind=kind,
+                        text=event.chunk,
+                        source="cli",
+                        chunk_type=event.chunk_type,
+                        process_id=process_id,
+                        trace=event.trace,
+                    )
+                    if item:
+                        await self._broadcast_trace(execution, task, agent, message_id, process_id, item)
                 if event.chunk_type == "text":
                     for token in iter_stream_pieces(event.chunk):
                         await _broadcast_ws(execution["sessionId"], {
@@ -149,6 +188,17 @@ class CliTaskRunner:
 
             if event.type == "agent.process.completed":
                 exit_code = event.exit_code
+                metadata["exitCode"] = exit_code
+                status = "completed" if exit_code in (0, None) else "error"
+                item = trace.add(
+                    kind="process",
+                    text=trace_text(event.trace or {}, f"{agent.name} 已结束"),
+                    process_id=process_id,
+                    trace=event.trace,
+                )
+                trace.complete(status=status, exit_code=exit_code)
+                if item:
+                    await self._broadcast_trace(execution, task, agent, message_id, process_id, item)
                 await _broadcast_ws(execution["sessionId"], {
                     "type": "agent.process.completed",
                     "sessionId": execution["sessionId"],
@@ -167,13 +217,60 @@ class CliTaskRunner:
                 continue
 
             if event.type in {"agent.process.timeout", "error"}:
+                error = event.error or f"{agent.name} 执行失败"
+                item = trace.add(
+                    kind="error",
+                    text=error,
+                    process_id=process_id,
+                    trace=event.trace,
+                )
+                trace.complete(status="error", exit_code=exit_code)
+                metadata["error"] = error
+                if item:
+                    await self._broadcast_trace(execution, task, agent, message_id, process_id, item)
+                await self._persist_visible_message(
+                    execution,
+                    task,
+                    agent,
+                    message_id,
+                    visible.strip() or f"CLI Agent 执行失败：{error}",
+                    merge_trace_metadata(metadata, trace),
+                )
+                await _broadcast_ws(execution["sessionId"], {
+                    "type": "message.completed",
+                    "sessionId": execution["sessionId"],
+                    "messageId": message_id,
+                })
                 raise RuntimeError(event.error or f"{agent.name} 执行失败")
 
         if exit_code not in (0, None):
-            raise RuntimeError(f"{agent.name} 执行失败，exitCode={exit_code}")
+            error = f"{agent.name} 执行失败，exitCode={exit_code}"
+            trace.complete(status="error", exit_code=exit_code)
+            metadata["error"] = error
+            await self._persist_visible_message(
+                execution,
+                task,
+                agent,
+                message_id,
+                visible.strip() or f"CLI Agent 执行失败：{error}",
+                merge_trace_metadata(metadata, trace),
+            )
+            await _broadcast_ws(execution["sessionId"], {
+                "type": "message.completed",
+                "sessionId": execution["sessionId"],
+                "messageId": message_id,
+            })
+            raise RuntimeError(error)
 
         content = visible.strip() or raw_output.strip() or f"{task['taskId']} 已完成，但没有可见输出。"
-        await self._persist_visible_message(execution, task, agent, message_id, content)
+        await self._persist_visible_message(
+            execution,
+            task,
+            agent,
+            message_id,
+            content,
+            merge_trace_metadata(metadata, trace),
+        )
         await _broadcast_ws(execution["sessionId"], {
             "type": "message.completed",
             "sessionId": execution["sessionId"],
@@ -188,6 +285,7 @@ class CliTaskRunner:
         agent: AgentConfig,
         message_id: str,
         content: str,
+        extra_metadata: dict[str, Any] | None = None,
     ) -> None:
         metadata = {
             "orchestratorTaskMessage": {
@@ -199,6 +297,8 @@ class CliTaskRunner:
                 "upstreamResults": task.get("upstreamResults") or [],
             }
         }
+        if extra_metadata:
+            metadata.update(extra_metadata)
         async with self._session_factory() as db:
             session = await db.get(DBSession, execution["sessionId"])
             db.add(DBMessage(
@@ -216,6 +316,32 @@ class CliTaskRunner:
             if session:
                 session.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
             await db.commit()
+
+    async def _broadcast_trace(
+        self,
+        execution: dict[str, Any],
+        task: dict[str, Any],
+        agent: AgentConfig,
+        message_id: str,
+        process_id: str,
+        item: dict[str, Any],
+    ) -> None:
+        await _broadcast_ws(execution["sessionId"], {
+            "type": "agent.trace.delta",
+            "sessionId": execution["sessionId"],
+            "agentId": agent.id,
+            "agentName": agent.name,
+            "cliTool": agent.cli_tool or "custom",
+            "messageId": message_id,
+            "processId": process_id,
+            "callKey": _call_key(agent.id, task),
+            "role": "executor",
+            "phase": task.get("phase"),
+            "task": task["title"],
+            "item": item,
+            "token": "",
+            "done": False,
+        })
 
     @staticmethod
     def _task_prompt(

@@ -175,6 +175,11 @@ export function MessageBubble({
             {typeof message.phase === "number" && (
               <span className="ml-2 text-slate-400">Phase {message.phase}</span>
             )}
+            {message.taskName && (
+              <span className="ml-2 inline-block max-w-full truncate align-bottom text-slate-400">
+                {message.taskName}
+              </span>
+            )}
           </div>
         )}
         <div className="px-4 py-3">

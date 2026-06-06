@@ -50,18 +50,20 @@ def _ensure_fixture_cli() -> Path:
     script.write_text(
         "import os, sys\n"
         "data = os.read(sys.stdin.fileno(), 65536).decode('utf-8', errors='replace')\n"
-        "sys.stdout.write('真实任务输出：已根据调度任务完成执行。')\n"
-        "sys.stdout.flush()\n",
+        "sys.stdout.buffer.write('真实任务输出：已根据调度任务完成执行。'.encode('utf-8'))\n"
+        "sys.stdout.buffer.flush()\n",
         encoding="utf-8",
     )
     return script
 
 
 async def _seed_session_with_agents(db_session):
+    workspace_path = Path(__file__).resolve().parents[1] / ".test-workspaces" / str(uuid.uuid4())
+    workspace_path.mkdir(parents=True, exist_ok=True)
     project = Project(
         id=str(uuid.uuid4()),
         name="调度执行测试项目",
-        workspace_path=str(Path(__file__).resolve().parents[1] / ".test-workspaces" / str(uuid.uuid4())),
+        workspace_path=str(workspace_path),
         status="ready",
     )
     frontend = _agent("agent_frontend_exec", "前端专家", "frontend_engineer")
@@ -137,7 +139,7 @@ async def test_execute_plan_starts_async_scheduler_then_completes(test_client, d
 
     completed = await _wait_execution_completed(test_client, data["executionId"])
     assert completed["executionId"] == data["executionId"]
-    assert completed["status"] == "completed"
+    assert completed["status"] == "completed", completed["events"][-1]
     assert completed["completedAt"] is not None
     assert [task["status"] for task in completed["tasks"]] == ["completed", "completed"]
     assert completed["tasks"][0]["runnerType"] == "cli"
@@ -181,7 +183,12 @@ async def test_execute_plan_starts_async_scheduler_then_completes(test_client, d
 
     visible_messages = (await test_client.get(f"/api/sessions/{session_id}/messages")).json()
     assert not any(message["contentType"] == "orchestrator_task_result" for message in visible_messages)
-    assert any(message["id"] == completed["tasks"][0]["visibleMessageId"] for message in visible_messages)
+    visible = next(
+        message for message in visible_messages
+        if message["id"] == completed["tasks"][0]["visibleMessageId"]
+    )
+    assert visible["metadata"]["executionTrace"]["status"] == "completed"
+    assert visible["metadata"]["orchestratorTaskMessage"]["taskId"] == "T1"
 
 
 @pytest.mark.asyncio
@@ -228,7 +235,7 @@ async def test_execute_plan_simulates_parallel_ready_tasks(test_client, db_sessi
     assert data["status"] == "running"
 
     data = await _wait_execution_completed(test_client, data["executionId"])
-    assert data["status"] == "completed"
+    assert data["status"] == "completed", data["events"][-1]
     batch_events = [event for event in data["events"] if event["type"] == "scheduler_batch_running"]
     assert batch_events[0]["taskIds"] == ["T1", "T2"]
     assert batch_events[1]["taskIds"] == ["T3"]

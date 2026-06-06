@@ -20,7 +20,7 @@ import {
 import { WSClient } from "../api/wsClient";
 import { useChatStore } from "../stores/chatStore";
 import { useSessionStore } from "../stores/sessionStore";
-import type { AgentConfig, ProjectCreateInput } from "../types";
+import type { AgentConfig, ExecutionTraceItem, ProjectCreateInput } from "../types";
 
 export function useWorkspaceRuntime() {
   const {
@@ -32,6 +32,7 @@ export function useWorkspaceRuntime() {
     setArtifactsForSession,
     setStreamingError,
     appendAgentStreamingToken,
+    appendExecutionTraceItem,
     ensureAgentMessage,
     finalizeExecutionTrace,
     clearCollab,
@@ -88,6 +89,18 @@ export function useWorkspaceRuntime() {
       if (!messageId || !token || eventSessionId !== currentSessionId) return;
       appendAgentStreamingToken(messageId, agentName, token);
     });
+    ws.on("agent.trace.delta", (data) => {
+      const eventSessionId = typeof data.sessionId === "string" ? data.sessionId : currentSessionId;
+      const messageId = typeof data.messageId === "string" ? data.messageId : "";
+      if (!messageId || eventSessionId !== currentSessionId) return;
+      const item = data.item;
+      if (!item || typeof item !== "object") return;
+      appendExecutionTraceItem(messageId, item as ExecutionTraceItem, {
+        agentName: typeof data.agentName === "string" ? data.agentName : undefined,
+        cliTool: typeof data.cliTool === "string" ? data.cliTool : undefined,
+        processId: typeof data.processId === "string" ? data.processId : undefined,
+      });
+    });
     ws.on("agent.process.completed", (data) => {
       const eventSessionId = typeof data.sessionId === "string" ? data.sessionId : currentSessionId;
       const messageId = typeof data.messageId === "string" ? data.messageId : "";
@@ -112,6 +125,7 @@ export function useWorkspaceRuntime() {
     setArtifactsForSession,
     setMessagesForSession,
     appendAgentStreamingToken,
+    appendExecutionTraceItem,
     ensureAgentMessage,
     finalizeExecutionTrace,
     updateSession,
