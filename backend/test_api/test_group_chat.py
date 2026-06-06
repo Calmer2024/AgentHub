@@ -490,6 +490,15 @@ class TestGroupSession:
 
         async def fake_stream(self, **kwargs):
             prompts.append(kwargs["messages"][-1]["content"])
+            if len(prompts) > len(outputs):
+                yield CliEvent(
+                    "agent.output",
+                    "proc-task",
+                    chunk="真实任务输出：群聊任务已完成。",
+                    chunk_type="text",
+                )
+                yield CliEvent("agent.process.completed", "proc-task", exit_code=0)
+                return
             payload = outputs[len(prompts) - 1]
             yield CliEvent(
                 "agent.output",
@@ -537,10 +546,14 @@ class TestGroupSession:
         completed = await wait_execution_completed(test_client, execution_event["executionId"])
         assert completed["status"] == "completed"
         assert completed["tasks"][0]["resultMessageId"]
+        assert completed["tasks"][0]["runnerType"] == "cli"
+        assert completed["tasks"][0]["visibleMessageId"]
 
         messages = (await test_client.get(f"/api/sessions/{sid}/messages")).json()
         assert not any(message["contentType"] == "orchestrator_task_result" for message in messages)
+        assert any(message["id"] == completed["tasks"][0]["visibleMessageId"] for message in messages)
         approval = messages[-1]
+        approval = next(message for message in messages if message["metadata"] and "orchestratorAction" in message["metadata"])
         assert approval["metadata"]["orchestratorAction"]["action"] == "approve_plan"
         assert approval["metadata"]["orchestratorExecution"]["status"] == "running"
 

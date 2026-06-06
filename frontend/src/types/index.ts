@@ -485,6 +485,8 @@ export interface OrchestratorExecutionTask {
   completedAt?: string | null;
   updatedAt?: string | null;
   summary?: string | null;
+  runnerType?: "mock" | "cli" | string;
+  visibleMessageId?: string | null;
   assignedAgentId?: string | null;
   assignedAgentName?: string | null;
   dependsOn: string[];

@@ -31,6 +31,9 @@ export function useWorkspaceRuntime() {
     setArtifacts,
     setArtifactsForSession,
     setStreamingError,
+    appendAgentStreamingToken,
+    ensureAgentMessage,
+    finalizeExecutionTrace,
     clearCollab,
   } = useChatStore();
   const {
@@ -62,6 +65,39 @@ export function useWorkspaceRuntime() {
         .then((artifacts) => setArtifactsForSession(eventSessionId, artifacts))
         .catch(() => {});
     });
+    ws.on("agent.start", (data) => {
+      const eventSessionId = typeof data.sessionId === "string" ? data.sessionId : currentSessionId;
+      const messageId = typeof data.messageId === "string" ? data.messageId : "";
+      const agentName = typeof data.agentName === "string" ? data.agentName : "Agent";
+      if (!messageId || eventSessionId !== currentSessionId) return;
+      ensureAgentMessage({
+        id: messageId,
+        sessionId: eventSessionId,
+        agentName,
+        agentId: typeof data.agentId === "string" ? data.agentId : null,
+        role: typeof data.role === "string" ? data.role : "executor",
+        phase: typeof data.phase === "number" ? data.phase : null,
+        task: typeof data.task === "string" ? data.task : null,
+      });
+    });
+    ws.on("agent.output", (data) => {
+      const eventSessionId = typeof data.sessionId === "string" ? data.sessionId : currentSessionId;
+      const messageId = typeof data.messageId === "string" ? data.messageId : "";
+      const agentName = typeof data.agentName === "string" ? data.agentName : "Agent";
+      const token = typeof data.token === "string" ? data.token : "";
+      if (!messageId || !token || eventSessionId !== currentSessionId) return;
+      appendAgentStreamingToken(messageId, agentName, token);
+    });
+    ws.on("agent.process.completed", (data) => {
+      const eventSessionId = typeof data.sessionId === "string" ? data.sessionId : currentSessionId;
+      const messageId = typeof data.messageId === "string" ? data.messageId : "";
+      if (!messageId || eventSessionId !== currentSessionId) return;
+      finalizeExecutionTrace(
+        messageId,
+        data.exitCode === 0 || data.exitCode == null ? "completed" : "error",
+        typeof data.exitCode === "number" ? data.exitCode : null,
+      );
+    });
     ws.on("agent.changed", (data) => {
       if (typeof data.agentConfigId !== "string") return;
       const sess = sessions.find((s) => s.id === currentSessionId);
@@ -75,6 +111,9 @@ export function useWorkspaceRuntime() {
     sessions,
     setArtifactsForSession,
     setMessagesForSession,
+    appendAgentStreamingToken,
+    ensureAgentMessage,
+    finalizeExecutionTrace,
     updateSession,
   ]);
 

@@ -119,7 +119,14 @@ function TaskRow({ task }: { task: OrchestratorExecutionTask }) {
             @{task.assignedAgentName ?? task.assignedAgentId ?? "未分配"} · 依赖：{task.dependsOn.length ? task.dependsOn.join(" / ") : "无"}
           </p>
         </div>
-        <TaskStatus status={task.status} />
+        <div className="flex shrink-0 items-center gap-2">
+          <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${
+            task.runnerType === "cli" ? "bg-indigo-50 text-indigo-700" : "bg-slate-100 text-slate-500"
+          }`}>
+            {task.runnerType ?? "mock"}
+          </span>
+          <TaskStatus status={task.status} />
+        </div>
       </div>
       {task.summary && (
         <p className="mt-2 rounded bg-emerald-50 px-2 py-1.5 text-[11px] leading-5 text-emerald-800">

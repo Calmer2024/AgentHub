@@ -1,5 +1,6 @@
 import json
 import asyncio
+import sys
 import uuid
 from pathlib import Path
 
@@ -7,6 +8,8 @@ import pytest
 from sqlalchemy import select
 
 from app.models import AgentConfig, Message, Project, Session
+
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
 
 async def _wait_execution_completed(test_client, execution_id: str, attempts: int = 20) -> dict:
@@ -23,6 +26,7 @@ async def _wait_execution_completed(test_client, execution_id: str, attempts: in
 
 
 def _agent(agent_id: str, name: str, primary_skill: str) -> AgentConfig:
+    cli = _ensure_fixture_cli()
     return AgentConfig(
         id=agent_id,
         name=name,
@@ -30,14 +34,27 @@ def _agent(agent_id: str, name: str, primary_skill: str) -> AgentConfig:
         system_prompt="",
         agent_type="cli_wrapper",
         cli_tool="custom",
-        executable="fixture-agent",
-        init_args="[]",
+        executable=sys.executable,
+        init_args=json.dumps([str(cli)]),
         env_vars="{}",
         primary_skill=primary_skill,
         auxiliary_skills=json.dumps(["workspace_editing"], ensure_ascii=False),
         context_policy="workspace_coding",
         is_active=True,
     )
+
+
+def _ensure_fixture_cli() -> Path:
+    script = BACKEND_ROOT / ".test-bin" / "orchestrator_task_fixture.py"
+    script.parent.mkdir(parents=True, exist_ok=True)
+    script.write_text(
+        "import os, sys\n"
+        "data = os.read(sys.stdin.fileno(), 65536).decode('utf-8', errors='replace')\n"
+        "sys.stdout.write('真实任务输出：已根据调度任务完成执行。')\n"
+        "sys.stdout.flush()\n",
+        encoding="utf-8",
+    )
+    return script
 
 
 async def _seed_session_with_agents(db_session):
@@ -123,9 +140,10 @@ async def test_execute_plan_starts_async_scheduler_then_completes(test_client, d
     assert completed["status"] == "completed"
     assert completed["completedAt"] is not None
     assert [task["status"] for task in completed["tasks"]] == ["completed", "completed"]
-    assert completed["tasks"][0]["summary"] == (
-        "T1 已完成：模拟执行 后端专家 / required_skills=backend_engineer"
-    )
+    assert completed["tasks"][0]["runnerType"] == "cli"
+    assert completed["tasks"][0]["visibleMessageId"]
+    assert "真实任务输出" in completed["tasks"][0]["summary"]
+    assert completed["tasks"][1]["runnerType"] == "mock"
     assert all(task["resultMessageId"] for task in completed["tasks"])
     assert completed["tasks"][0]["upstreamResults"] == []
     assert completed["tasks"][1]["upstreamResults"] == [{
@@ -153,6 +171,8 @@ async def test_execute_plan_starts_async_scheduler_then_completes(test_client, d
     assert result["planId"] == "plan_exec_001"
     assert result["taskId"] == "T1"
     assert result["assignedAgentId"] == "agent_backend_exec"
+    assert result["runnerType"] == "cli"
+    assert result["visibleMessageId"] == completed["tasks"][0]["visibleMessageId"]
     second_metadata = json.loads(task_messages[1].metadata_json)
     second_result = second_metadata["orchestratorTaskResult"]
     assert second_result["taskId"] == "T2"
@@ -161,6 +181,7 @@ async def test_execute_plan_starts_async_scheduler_then_completes(test_client, d
 
     visible_messages = (await test_client.get(f"/api/sessions/{session_id}/messages")).json()
     assert not any(message["contentType"] == "orchestrator_task_result" for message in visible_messages)
+    assert any(message["id"] == completed["tasks"][0]["visibleMessageId"] for message in visible_messages)
 
 
 @pytest.mark.asyncio
@@ -214,6 +235,7 @@ async def test_execute_plan_simulates_parallel_ready_tasks(test_client, db_sessi
     started_events = [event for event in data["events"] if event["type"] == "task_started"]
     assert [event["taskId"] for event in started_events[:2]] == ["T1", "T2"]
     assert [task["status"] for task in data["tasks"]] == ["completed", "completed", "completed"]
+    assert [task["runnerType"] for task in data["tasks"]] == ["cli", "mock", "mock"]
     t3 = next(task for task in data["tasks"] if task["taskId"] == "T3")
     assert [item["taskId"] for item in t3["upstreamResults"]] == ["T1", "T2"]
 

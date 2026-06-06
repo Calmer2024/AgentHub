@@ -18,7 +18,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import AsyncSessionLocal
 from ..domain.orchestrator_plan import normalize_plan, validate_plan
-from ..models import Message as DBMessage
+from ..models import AgentConfig, Message as DBMessage, Session as DBSession
+from .cli_agent_service import CliAgentService
+from .session_service import SessionService
+from .streaming_text import iter_stream_pieces
 
 
 class PlanExecutionError(ValueError):
@@ -54,6 +57,194 @@ class MockTaskRunner:
         return f"{task['taskId']} 已完成：模拟执行 {agent} / required_skills={skills}"
 
 
+class CliTaskRunner:
+    def __init__(self, session_factory: Callable[[], AsyncSession]):
+        self._session_factory = session_factory
+
+    async def run(
+        self,
+        task: dict[str, Any],
+        execution: dict[str, Any],
+        upstream_results: list[dict[str, Any]],
+    ) -> str:
+        agent_id = task.get("assignedAgentId")
+        if not agent_id:
+            raise RuntimeError(f"{task['taskId']} 缺少 assignedAgentId")
+
+        async with self._session_factory() as db:
+            agent = await db.get(AgentConfig, agent_id)
+            session = await db.get(DBSession, execution["sessionId"])
+            if not agent or not agent.is_active:
+                raise RuntimeError(f"{task['taskId']} 分配的 Agent 不存在或未启用: {agent_id}")
+            if not session:
+                raise RuntimeError(f"Session 不存在: {execution['sessionId']}")
+            workspace_path = await SessionService(db).get_workspace_path(execution["sessionId"])
+
+        message_id = f"msg_agent_{uuid.uuid4().hex[:12]}"
+        task["visibleMessageId"] = message_id
+        await _broadcast_ws(execution["sessionId"], {
+            "type": "agent.start",
+            "sessionId": execution["sessionId"],
+            "agentId": agent.id,
+            "agentName": agent.name,
+            "messageId": message_id,
+            "role": "executor",
+            "phase": task.get("phase"),
+            "task": task["title"],
+            "callKey": _call_key(agent.id, task),
+        })
+
+        visible = ""
+        raw_output = ""
+        process_id = ""
+        exit_code = None
+        async for event in CliAgentService().stream(
+            agent=agent,
+            session_id=execution["sessionId"],
+            workspace_path=workspace_path,
+            messages=[{"role": "user", "content": self._task_prompt(execution, task, upstream_results)}],
+            system_prompt=agent.system_prompt or "",
+        ):
+            process_id = event.process_id or process_id
+            if event.type == "agent.process.started":
+                await _broadcast_ws(execution["sessionId"], {
+                    "type": "agent.process.started",
+                    "sessionId": execution["sessionId"],
+                    "agentId": agent.id,
+                    "agentName": agent.name,
+                    "messageId": message_id,
+                    "processId": process_id,
+                    "callKey": _call_key(agent.id, task),
+                    "role": "executor",
+                    "phase": task.get("phase"),
+                    "task": task["title"],
+                    "token": "",
+                    "done": False,
+                })
+                continue
+
+            if event.type == "agent.output":
+                raw_output += event.chunk
+                if event.chunk_type in {"text", "artifact_signal"}:
+                    visible += event.chunk
+                if event.chunk_type == "text":
+                    for token in iter_stream_pieces(event.chunk):
+                        await _broadcast_ws(execution["sessionId"], {
+                            "type": "agent.output",
+                            "sessionId": execution["sessionId"],
+                            "agentId": agent.id,
+                            "agentName": agent.name,
+                            "messageId": message_id,
+                            "processId": process_id,
+                            "callKey": _call_key(agent.id, task),
+                            "role": "executor",
+                            "phase": task.get("phase"),
+                            "task": task["title"],
+                            "chunk": token,
+                            "chunkType": "text",
+                            "token": token,
+                            "done": False,
+                        })
+                continue
+
+            if event.type == "agent.process.completed":
+                exit_code = event.exit_code
+                await _broadcast_ws(execution["sessionId"], {
+                    "type": "agent.process.completed",
+                    "sessionId": execution["sessionId"],
+                    "agentId": agent.id,
+                    "agentName": agent.name,
+                    "messageId": message_id,
+                    "processId": process_id,
+                    "callKey": _call_key(agent.id, task),
+                    "role": "executor",
+                    "phase": task.get("phase"),
+                    "task": task["title"],
+                    "exitCode": exit_code,
+                    "token": "",
+                    "done": False,
+                })
+                continue
+
+            if event.type in {"agent.process.timeout", "error"}:
+                raise RuntimeError(event.error or f"{agent.name} 执行失败")
+
+        if exit_code not in (0, None):
+            raise RuntimeError(f"{agent.name} 执行失败，exitCode={exit_code}")
+
+        content = visible.strip() or raw_output.strip() or f"{task['taskId']} 已完成，但没有可见输出。"
+        await self._persist_visible_message(execution, task, agent, message_id, content)
+        await _broadcast_ws(execution["sessionId"], {
+            "type": "message.completed",
+            "sessionId": execution["sessionId"],
+            "messageId": message_id,
+        })
+        return _summary_text(content)
+
+    async def _persist_visible_message(
+        self,
+        execution: dict[str, Any],
+        task: dict[str, Any],
+        agent: AgentConfig,
+        message_id: str,
+        content: str,
+    ) -> None:
+        metadata = {
+            "orchestratorTaskMessage": {
+                "executionId": execution["executionId"],
+                "planId": execution["planId"],
+                "taskId": task["taskId"],
+                "title": task["title"],
+                "runnerType": "cli",
+                "upstreamResults": task.get("upstreamResults") or [],
+            }
+        }
+        async with self._session_factory() as db:
+            session = await db.get(DBSession, execution["sessionId"])
+            db.add(DBMessage(
+                id=message_id,
+                session_id=execution["sessionId"],
+                role="assistant",
+                content=content,
+                content_type="text",
+                agent_name=agent.name,
+                source_type="agent",
+                source_id=agent.id,
+                source_name=agent.name,
+                metadata_json=json.dumps(metadata, ensure_ascii=False),
+            ))
+            if session:
+                session.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            await db.commit()
+
+    @staticmethod
+    def _task_prompt(
+        execution: dict[str, Any],
+        task: dict[str, Any],
+        upstream_results: list[dict[str, Any]],
+    ) -> str:
+        plan = execution.get("plan") or {}
+        upstream = "\n".join(
+            f"- {item.get('taskId')}: {item.get('summary') or ''}"
+            for item in upstream_results
+        ) or "- 无"
+        return (
+            "你正在作为 AgentHub 调度任务中的专家 Agent 执行一个 DAG 节点。\n"
+            "请完成当前任务，输出可以直接给用户阅读和给下游任务复用的结果。\n\n"
+            f"Plan ID: {execution.get('planId')}\n"
+            f"当前任务 ID: {task.get('taskId')}\n"
+            f"当前任务标题: {task.get('title')}\n"
+            f"当前任务目标: {task.get('goal')}\n"
+            f"所需能力: {', '.join(task.get('requiredSkills') or []) or '未声明'}\n"
+            f"期望输出: {', '.join(task.get('expectedOutputs') or []) or '未声明'}\n"
+            f"验收标准: {', '.join(task.get('acceptanceCriteria') or []) or '未声明'}\n\n"
+            "上游任务结果:\n"
+            f"{upstream}\n\n"
+            "完整计划 JSON:\n"
+            f"{json.dumps(plan, ensure_ascii=False, indent=2)}"
+        )
+
+
 class OrchestratorExecutionRegistry:
     def __init__(
         self,
@@ -63,6 +254,7 @@ class OrchestratorExecutionRegistry:
         self._executions: dict[str, dict[str, Any]] = {}
         self._task_runner = task_runner or MockTaskRunner()
         self._session_factory = session_factory or AsyncSessionLocal
+        self._cli_runner = CliTaskRunner(self._session_factory)
 
     def create_execution(
         self,
@@ -171,7 +363,11 @@ class OrchestratorExecutionRegistry:
             for task_id in ready:
                 task = task_by_id[task_id]
                 task["upstreamResults"] = self._upstream_results_for(task, task_by_id)
+                task["runnerType"] = self._runner_type_for(execution)
+                if task["runnerType"] == "cli":
+                    execution["cliTaskCount"] = int(execution.get("cliTaskCount") or 0) + 1
                 task["status"] = "running"
+                task["phase"] = phase
                 task["startedAt"] = running_at
                 task["updatedAt"] = running_at
                 execution["events"].append({
@@ -185,11 +381,7 @@ class OrchestratorExecutionRegistry:
 
             try:
                 summaries = await asyncio.gather(*[
-                    self._task_runner.run(
-                        task_by_id[task_id],
-                        execution,
-                        task_by_id[task_id].get("upstreamResults") or [],
-                    )
+                    self._run_task(task_by_id[task_id], execution)
                     for task_id in ready
                 ])
             except Exception as exc:
@@ -257,6 +449,8 @@ class OrchestratorExecutionRegistry:
                 "title": task["title"],
                 "status": task["status"],
                 "summary": summary,
+                "runnerType": task.get("runnerType") or "mock",
+                "visibleMessageId": task.get("visibleMessageId"),
                 "assignedAgentId": task.get("assignedAgentId"),
                 "assignedAgentName": task.get("assignedAgentName"),
                 "dependsOn": task.get("dependsOn") or [],
@@ -307,6 +501,8 @@ class OrchestratorExecutionRegistry:
             "updatedAt": None,
             "summary": None,
             "resultMessageId": None,
+            "visibleMessageId": None,
+            "runnerType": "mock",
             "upstreamResults": [],
             "assignedAgentId": task.get("assigned_agent_id"),
             "assignedAgentName": task.get("assigned_agent_name"),
@@ -317,6 +513,16 @@ class OrchestratorExecutionRegistry:
             "expectedOutputs": list(task.get("expected_outputs") or []),
             "acceptanceCriteria": list(task.get("acceptance_criteria") or []),
         }
+
+    async def _run_task(self, task: dict[str, Any], execution: dict[str, Any]) -> str:
+        runner = self._cli_runner if task.get("runnerType") == "cli" else self._task_runner
+        return await runner.run(task, execution, task.get("upstreamResults") or [])
+
+    @staticmethod
+    def _runner_type_for(execution: dict[str, Any]) -> str:
+        if int(execution.get("cliTaskCount") or 0) < int(execution.get("cliTaskLimit") or 1):
+            return "cli"
+        return "mock"
 
     @staticmethod
     def _now() -> str:
@@ -344,3 +550,22 @@ class OrchestratorExecutionRegistry:
 
 
 execution_registry = OrchestratorExecutionRegistry()
+
+
+def _call_key(agent_id: str, task: dict[str, Any]) -> str:
+    return f"{agent_id}:{task.get('phase') if task.get('phase') is not None else 0}:{task.get('taskId')}"
+
+
+def _summary_text(content: str, limit: int = 1200) -> str:
+    clean = content.strip()
+    if len(clean) <= limit:
+        return clean
+    return clean[:limit].rstrip() + "\n...(已截断，完整内容见 Agent 消息)"
+
+
+async def _broadcast_ws(session_id: str, payload: dict[str, Any]) -> None:
+    try:
+        from ..api.ws_manager import manager as ws_manager
+        await ws_manager.broadcast(session_id, payload)
+    except Exception:
+        pass

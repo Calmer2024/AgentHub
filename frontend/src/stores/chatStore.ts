@@ -61,6 +61,15 @@ interface ChatState {
   appendStreamingToken: (token: string) => void;
   appendStreamingTokenToMessage: (messageId: string, token: string) => void;
   appendAgentStreamingToken: (localId: string, agentName: string, token: string) => void;
+  ensureAgentMessage: (input: {
+    id: string;
+    sessionId: string;
+    agentName: string;
+    agentId?: string | null;
+    role?: string | null;
+    phase?: number | null;
+    task?: string | null;
+  }) => void;
   bindMessageId: (localId: string, serverId: string) => void;
   appendExecutionTraceItem: (
     messageId: string,
@@ -144,6 +153,31 @@ export const useChatStore = create<ChatState>((set, get) => ({
         msgs[idx] = { ...msgs[idx], content: msgs[idx].content + token, agentName };
       }
       return { messages: msgs };
+    }),
+  ensureAgentMessage: (input) =>
+    set((s) => {
+      if (s.currentSessionId !== input.sessionId) return {};
+      if (s.messages.some((message) => message.id === input.id)) return {};
+      return {
+        messages: [
+          ...s.messages,
+          {
+            id: input.id,
+            sessionId: input.sessionId,
+            role: "assistant",
+            content: "",
+            agentName: input.agentName,
+            sourceType: "agent",
+            sourceId: input.agentId ?? null,
+            sourceName: input.agentName,
+            agentRole: input.role ?? "executor",
+            phase: input.phase ?? null,
+            taskName: input.task ?? null,
+            isCollaborating: true,
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      };
     }),
   bindMessageId: (localId, serverId) =>
     set((s) => ({
