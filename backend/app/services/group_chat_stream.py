@@ -8,13 +8,15 @@ from typing import AsyncGenerator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import Session as DBSession, AgentConfig, SessionMember
+from ..core.timezone import china_now
+from ..models import Session as DBSession, AgentConfig, Message as DBMessage, SessionMember
 from ..domain.orchestrator_v2 import OrchestratorV2, PipelineRequest
 from ..domain.execution_planner import AgentCall, ChainConfig
 from .agent_executor import AgentExecutor
 from .approval_service import ApprovalService, approval_to_read
 from .project_service import ProjectService, ProjectNotFoundError
 from .run_service import RunService, task_to_read, run_to_read
+from .session_service import SessionService
 from .shared_context import SharedContext
 from .group_chat_finalizer import GroupChatFinalizer
 from .orchestrator_plan_chat import OrchestratorPlanChat
@@ -51,6 +53,7 @@ class GroupChatStream:
                     reason="该群聊没有可用的 Agent",
                 )
                 yield self._run_status_changed(run)
+            await self._persist_system_notice(session, session_id, "该群聊没有可用的 Agent")
             yield self._err("该群聊没有可用的 Agent")
             return
         try:
@@ -84,10 +87,16 @@ class GroupChatStream:
         if not mentions:
             orchestrator_agent = self._orchestrator(member_agents)
             if not orchestrator_agent:
+                message_id = await self._persist_system_notice(
+                    session,
+                    session_id,
+                    "群聊缺少 Orchestrator 调度器，无法处理无 @ 消息。请在群聊中加入调度器后重试。",
+                )
                 if run_id:
                     run = await RunService(self.db, event_bus=self.event_bus).mark_run_status(
                         run_id,
                         "failed",
+                        current_message_id=message_id,
                         reason="群聊缺少 Orchestrator 调度器",
                     )
                     yield self._run_status_changed(run)
@@ -367,7 +376,35 @@ class GroupChatStream:
                 AgentConfig.is_active == True,
             )
         )
-        return list(rows.scalars().all())
+        agents = list(rows.scalars().all())
+        if any((agent.primary_skill or "") == "orchestrator_planner" for agent in agents):
+            return agents
+        fallback = await self.db.execute(
+            select(AgentConfig).where(
+                AgentConfig.primary_skill == "orchestrator_planner",
+                AgentConfig.is_active == True,
+            ).limit(1)
+        )
+        orchestrator = fallback.scalars().first()
+        if orchestrator:
+            agents.append(orchestrator)
+        return agents
+
+    async def _persist_system_notice(self, session: DBSession, session_id: str, content: str) -> str:
+        message_id = f"msg_system_{uuid.uuid4().hex}"
+        self.db.add(DBMessage(
+            id=message_id,
+            session_id=session_id,
+            role="system",
+            content=content,
+            content_type="text",
+            source_type="system",
+            source_name="运行控制",
+        ))
+        session.updated_at = china_now()
+        SessionService.increment_unread(session, 1)
+        await self.db.commit()
+        return message_id
 
     async def _run_was_cancelled(self, run_id: str) -> bool:
         run = await RunService(self.db, event_bus=self.event_bus).get_run(run_id)

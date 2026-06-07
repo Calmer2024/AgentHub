@@ -382,6 +382,80 @@ class TestGroupSession:
         assert not any(m["sourceName"] == "调度器管家" for m in msgs)
         assert not any(m.get("contentType") == "orchestrator_summary" for m in msgs)
 
+    async def test_unmentioned_legacy_group_without_orchestrator_gets_default_steward(
+        self, test_client, test_agent, db_session, monkeypatch,
+    ):
+        """旧群聊缺少 Orchestrator 成员时，无 @ 也必须自动补管家并可见回复。"""
+        agent2 = make_test_cli_agent("A2")
+        orchestrator = make_test_cli_agent("Orchestrator 调度器")
+        orchestrator.primary_skill = "orchestrator_planner"
+        orchestrator.context_policy = "planning_only"
+        db_session.add_all([agent2, orchestrator])
+        await db_session.commit()
+
+        async def fake_stream(self, **kwargs):
+            agent = kwargs["agent"]
+            assert (agent.primary_skill or "") == "orchestrator_planner"
+            yield CliEvent(
+                "agent.output",
+                "proc-steward",
+                chunk=json.dumps({
+                    "route_type": "context_only",
+                    "reply": "已记录到群聊上下文，我不会启动执行。",
+                    "reason": "用户补充项目文档语言约束。",
+                    "selected_agent_ids": [],
+                    "task_brief": "记录所有文档使用中文",
+                    "confidence": 0.95,
+                    "requires_approval": False,
+                    "risk_level": "low",
+                }, ensure_ascii=False),
+                chunk_type="text",
+            )
+            yield CliEvent("agent.process.completed", "proc-steward", exit_code=0)
+
+        from app.services.cli_agent_service import CliAgentService
+        monkeypatch.setattr(CliAgentService, "stream", fake_stream)
+
+        res = await test_client.post("/api/sessions", json={
+            "mode": "group", "agentConfigIds": [test_agent.id, agent2.id],
+        })
+        sid = res.json()["id"]
+
+        from app.models import SessionMember
+        rows = await db_session.execute(
+            select(SessionMember).join(
+                AgentConfig, SessionMember.agent_config_id == AgentConfig.id,
+            ).where(
+                SessionMember.session_id == sid,
+                AgentConfig.primary_skill == "orchestrator_planner",
+            )
+        )
+        members = list(rows.scalars().all())
+        assert members
+        for member in members:
+            await db_session.delete(member)
+        await db_session.commit()
+
+        resp = await test_client.post(
+            f"/api/sessions/{sid}/chat",
+            json={"content": "你们记住，这个项目所有文档都用中文"},
+        )
+
+        event_types = []
+        async for line in resp.aiter_lines():
+            if not line.startswith("data: "):
+                continue
+            data = json.loads(line[6:])
+            event_types.append(data.get("type", ""))
+
+        assert "orchestrator.steward_decision" in event_types
+        messages = (await test_client.get(f"/api/sessions/{sid}/messages")).json()
+        assert len(messages) == 2
+        steward = messages[-1]
+        assert steward["agentName"] == "Orchestrator 调度器"
+        assert steward["content"] == "已记录到群聊上下文，我不会启动执行。"
+        assert steward["metadata"]["stewardDecision"]["routeType"] == "context_only"
+
     async def test_unmentioned_product_alignment_routes_to_product_manager(
         self, test_client, test_agent, db_session, monkeypatch,
     ):
