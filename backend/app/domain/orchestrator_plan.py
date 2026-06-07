@@ -88,8 +88,16 @@ def build_plan_followup_prompt(
         '  "target_plan_id": "上一版 plan_id",\n'
         '  "reason": "为什么判断用户是在批准执行"\n'
         "}\n\n"
+        "如果用户明确表示先不执行、放弃、取消、不再跟进或把这版计划挂起作废，请输出控制 JSON：\n"
+        "{\n"
+        '  "action": "discard_plan",\n'
+        '  "target_plan_id": "上一版 plan_id",\n'
+        '  "reason": "为什么判断用户是在放弃这版计划"\n'
+        "}\n\n"
         "如果用户提出修改、补充、删除、合并、重新分配等意见，请输出一份新的 draft plan JSON，"
         "结构仍必须符合 Plan JSON / DAG schema，不要输出 approve_plan。\n\n"
+        "如果用户只是开启了一个和上一版计划无关的新话题，也应输出 discard_plan，"
+        "让本轮对话退出上一版计划的待处理状态。\n\n"
         "计划约束：expected_outputs 只描述交付物类型、目录层级或建议位置；除非用户明确指定，"
         "不要精确到固定文件名。输出语言遵循用户输入语言；用户用中文时，计划内容也用中文。\n\n"
         "候选 Agent Profiles:\n"

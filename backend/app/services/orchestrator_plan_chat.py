@@ -227,19 +227,34 @@ class OrchestratorPlanChat:
 
         try:
             parsed = extract_json_object(parse_output)
-            if is_followup and parsed.get("action") == "approve_plan":
-                async for item in self._approve_latest_plan(
-                    session_id=session_id,
-                    message_id=message_id,
-                    agent=orchestrator_agent,
-                    plan=latest_plan,
-                    action=parsed,
-                    metadata=metadata,
-                    trace=trace,
-                    run_id=run_id,
-                ):
-                    yield item
-                return
+            if is_followup:
+                action = parsed.get("action")
+                if action == "approve_plan":
+                    async for item in self._approve_latest_plan(
+                        session_id=session_id,
+                        message_id=message_id,
+                        agent=orchestrator_agent,
+                        plan=latest_plan,
+                        action=parsed,
+                        metadata=metadata,
+                        trace=trace,
+                        run_id=run_id,
+                    ):
+                        yield item
+                    return
+                if action == "discard_plan":
+                    async for item in self._discard_latest_plan(
+                        session_id=session_id,
+                        message_id=message_id,
+                        agent=orchestrator_agent,
+                        plan=latest_plan,
+                        action=parsed,
+                        metadata=metadata,
+                        trace=trace,
+                        run_id=run_id,
+                    ):
+                        yield item
+                    return
             plan = normalize_plan(parsed)
             validation = validate_plan(plan, {str(agent["id"]) for agent in candidate_agents})
             if workspace_changes:
@@ -289,6 +304,16 @@ class OrchestratorPlanChat:
                 }
             }, trace),
         )
+        if is_followup and latest_plan:
+            previous_plan_id = str(latest_plan.get("plan_id") or "")
+            next_plan_id = str(plan.get("plan_id") or "")
+            if previous_plan_id and previous_plan_id != next_plan_id:
+                await self._mark_plan_status(
+                    session_id=session_id,
+                    plan_id=previous_plan_id,
+                    status="revised",
+                    action_message_id=message_id,
+                )
         if run_id:
             async for item in self._complete_planner_run(
                 run_id=run_id,
@@ -396,6 +421,12 @@ class OrchestratorPlanChat:
                 "orchestratorAssignmentFixups": assignment_fixups,
             }, trace),
         )
+        await self._mark_plan_status(
+            session_id=session_id,
+            plan_id=str(plan.get("plan_id") or execution["planId"]),
+            status="approved",
+            action_message_id=message_id,
+        )
         execution_registry.bind_control_message(execution["executionId"], message_id)
         execution_registry.start_execution(execution["executionId"])
         yield self._sse({
@@ -418,6 +449,77 @@ class OrchestratorPlanChat:
             "callKey": self._call_key(agent.id, "approve plan", 0),
             "chunk": content,
             "chunkType": "text",
+            "done": False,
+        })
+        yield self._sse({"token": "", "done": True, "messageId": message_id})
+
+    async def _discard_latest_plan(
+        self,
+        *,
+        session_id: str,
+        message_id: str,
+        agent: AgentConfig,
+        plan: dict,
+        action: dict,
+        metadata: dict,
+        trace: ExecutionTraceBuilder,
+        run_id: str | None = None,
+    ) -> AsyncGenerator[str, None]:
+        plan_id = str(action.get("target_plan_id") or plan.get("plan_id") or "")
+        reason = str(action.get("reason") or "用户决定不再跟进这版计划")
+        content = f"已放弃计划 {plan_id}。后续消息会重新交给调度器管家判断。"
+        await self._persist_orchestrator_message(
+            session_id=session_id,
+            message_id=message_id,
+            agent=agent,
+            content=content,
+            metadata=merge_trace_metadata({
+                **metadata,
+                "orchestratorAction": {
+                    **action,
+                    "action": "discard_plan",
+                    "target_plan_id": plan_id,
+                    "reason": reason,
+                },
+                "orchestratorPlanState": {
+                    "planId": plan_id,
+                    "status": "discarded",
+                    "reason": reason,
+                },
+            }, trace),
+        )
+        await self._mark_plan_status(
+            session_id=session_id,
+            plan_id=plan_id,
+            status="discarded",
+            action_message_id=message_id,
+        )
+        if run_id:
+            async for item in self._complete_planner_run(
+                run_id=run_id,
+                message_id=message_id,
+            ):
+                yield item
+        yield self._sse({
+            "type": "agent.output",
+            "agentId": agent.id,
+            "agentName": agent.name,
+            "token": content,
+            "messageId": message_id,
+            "role": "planner",
+            "phase": 0,
+            "task": "discard plan",
+            "callKey": self._call_key(agent.id, "discard plan", 0),
+            "chunk": content,
+            "chunkType": "text",
+            "done": False,
+        })
+        yield self._sse({
+            "type": "orchestrator.plan_discarded",
+            "planId": plan_id,
+            "reason": reason,
+            "messageId": message_id,
+            "token": "",
             "done": False,
         })
         yield self._sse({"token": "", "done": True, "messageId": message_id})
@@ -612,6 +714,7 @@ class OrchestratorPlanChat:
         return next_plan, fixups
 
     async def _latest_orchestrator_plan(self, session_id: str) -> dict | None:
+        terminal_plan_ids: set[str] = set()
         rows = await self.db.execute(
             select(DBMessage)
             .where(DBMessage.session_id == session_id, DBMessage.role == "assistant")
@@ -623,11 +726,21 @@ class OrchestratorPlanChat:
                 metadata = json.loads(message.metadata_json or "{}")
             except json.JSONDecodeError:
                 continue
+            action_meta = metadata.get("orchestratorAction")
+            if isinstance(action_meta, dict):
+                action = str(action_meta.get("action") or "")
+                target_plan_id = str(action_meta.get("target_plan_id") or action_meta.get("targetPlanId") or "")
+                if action in {"approve_plan", "discard_plan"} and target_plan_id:
+                    terminal_plan_ids.add(target_plan_id)
             plan_meta = metadata.get("orchestratorPlan")
             if not isinstance(plan_meta, dict):
                 continue
             plan = plan_meta.get("normalizedPlan")
             if isinstance(plan, dict):
+                plan_id = str(plan.get("plan_id") or "")
+                status = str(plan.get("status") or "draft")
+                if plan_id in terminal_plan_ids or status in {"approved", "discarded", "revised", "cancelled"}:
+                    return None
                 return plan
         return None
 
@@ -656,6 +769,42 @@ class OrchestratorPlanChat:
             metadata_json=json.dumps(metadata, ensure_ascii=False),
         ))
         await self.db.commit()
+
+    async def _mark_plan_status(
+        self,
+        *,
+        session_id: str,
+        plan_id: str,
+        status: str,
+        action_message_id: str,
+    ) -> None:
+        if not plan_id:
+            return
+        rows = await self.db.execute(
+            select(DBMessage)
+            .where(DBMessage.session_id == session_id, DBMessage.role == "assistant")
+            .order_by(DBMessage.created_at.desc(), DBMessage.id.desc())
+            .limit(30)
+        )
+        for message in rows.scalars().all():
+            try:
+                metadata = json.loads(message.metadata_json or "{}")
+            except json.JSONDecodeError:
+                continue
+            plan_meta = metadata.get("orchestratorPlan")
+            if not isinstance(plan_meta, dict):
+                continue
+            plan = plan_meta.get("normalizedPlan")
+            if not isinstance(plan, dict) or str(plan.get("plan_id") or "") != plan_id:
+                continue
+            plan["status"] = status
+            plan_meta["normalizedPlan"] = plan
+            plan_meta["status"] = status
+            plan_meta["resolvedByMessageId"] = action_message_id
+            metadata["orchestratorPlan"] = plan_meta
+            message.metadata_json = json.dumps(metadata, ensure_ascii=False)
+            await self.db.commit()
+            return
 
     def _plan_trace_delta(
         self,

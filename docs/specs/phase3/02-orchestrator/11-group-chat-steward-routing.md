@@ -168,7 +168,59 @@
 
 ---
 
-## 4. 调度器管家输出契约
+## 4. Plan-first 后续状态机
+
+只要会话存在“最新且未终结”的 draft plan，后续无 `@` 消息不再进入四档管家分流，而是直接交给 Orchestrator Agent 处理上一版计划的跟进意图。调度器必须输出结构化动作或新计划，后端不得用用户文本硬编码判断。
+
+```text
+idle
+  -> draft_pending        生成 draft plan
+
+draft_pending
+  -> approved            Orchestrator 输出 action=approve_plan，后端创建 execution
+  -> revised             Orchestrator 输出新 draft plan，旧 plan 标记 revised，新 plan 进入 draft_pending
+  -> discarded           Orchestrator 输出 action=discard_plan，旧 plan 关闭
+
+approved / revised / discarded
+  -> idle                不再拦截后续无 @ 消息；下一条无 @ 重新进入管家四档分流
+```
+
+状态含义：
+
+| 状态 | 含义 | 后续入口 |
+|------|------|----------|
+| `draft_pending` | 最新计划正在等待用户批准、修改或放弃 | 继续交给 Plan-first follow-up |
+| `approved` | 用户已批准，Scheduler 已按 DAG 执行或正在执行 | 退出 plan follow-up |
+| `revised` | 旧计划已被新计划取代 | 新计划成为唯一待处理计划 |
+| `discarded` | 用户放弃、取消或开启无关新话题，旧计划关闭 | 退出 plan follow-up |
+
+### 4.1 follow-up 输出契约
+
+批准计划：
+
+```json
+{
+  "action": "approve_plan",
+  "target_plan_id": "plan_xxx",
+  "reason": "为什么判断用户是在批准执行"
+}
+```
+
+放弃计划：
+
+```json
+{
+  "action": "discard_plan",
+  "target_plan_id": "plan_xxx",
+  "reason": "为什么判断用户是在放弃这版计划"
+}
+```
+
+修改计划：直接输出新的 draft plan JSON，结构仍符合 plan-only DAG 契约。后端会把旧 plan 标记为 `revised`，把新 plan 作为唯一待处理计划。
+
+---
+
+## 5. 调度器管家输出契约
 
 建议后端内部先引入一个轻量分类结果：
 
@@ -188,7 +240,7 @@
 
 ---
 
-## 5. 默认安全策略
+## 6. 默认安全策略
 
 当分类不确定时，优先选择更保守档位：
 
@@ -203,7 +255,7 @@
 
 ---
 
-## 6. 与 Context Pack 的关系
+## 7. 与 Context Pack 的关系
 
 调度器管家分类结果会影响 Context Pack 构建：
 
@@ -218,7 +270,7 @@
 
 ---
 
-## 7. 实现切片
+## 8. 实现切片
 
 ### Step 1：后端分类器
 
@@ -247,10 +299,12 @@
 - 验证 context_only 不产生普通 Agent 气泡；
 - 验证 single_agent 可停止、可刷新恢复；
 - 验证 mini_collab 只生成 draft plan，用户批准前不启动普通 Agent。
+- 验证 draft plan 后续 approve / revise / discard 都由 Orchestrator Agent 结构化输出驱动。
+- 验证 discarded 后下一条无 @ 消息重新进入管家四档分流。
 
 ---
 
-## 8. 非目标
+## 9. 非目标
 
 - 不要求调度器管家每次都调用真实 LLM；
 - 不要求不 @ 时一定生成 draft plan；
@@ -259,7 +313,7 @@
 
 ---
 
-## 9. 当前差距
+## 10. 当前差距
 
 当前代码仍是：
 

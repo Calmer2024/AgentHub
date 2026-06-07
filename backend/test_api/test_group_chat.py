@@ -1210,6 +1210,145 @@ class TestGroupSession:
         approval = next(message for message in messages if message["metadata"] and "orchestratorAction" in message["metadata"])
         assert approval["metadata"]["orchestratorAction"]["action"] == "approve_plan"
 
+    async def test_orchestrator_followup_discard_closes_pending_plan(
+        self, test_client, db_session, monkeypatch,
+    ):
+        """调度器判定用户放弃上一版 plan 后，后续无 @ 消息重新进入管家分流。"""
+        writer = make_test_cli_agent("文档专家")
+        writer.primary_skill = "technical_writer"
+        architect = make_test_cli_agent("架构师")
+        architect.primary_skill = "architect"
+        orchestrator = make_test_cli_agent("Orchestrator 调度器")
+        orchestrator.primary_skill = "orchestrator_planner"
+        orchestrator.context_policy = "planning_only"
+        db_session.add_all([writer, architect, orchestrator])
+        await db_session.commit()
+
+        prompts: list[str] = []
+
+        async def fake_stream(self, **kwargs):
+            agent = kwargs["agent"]
+            prompt = kwargs["messages"][-1]["content"]
+            prompts.append(prompt)
+            if (agent.primary_skill or "") == "orchestrator_planner":
+                if "上一版 draft plan" in prompt:
+                    yield CliEvent(
+                        "agent.output",
+                        "proc-discard",
+                        chunk=json.dumps({
+                            "action": "discard_plan",
+                            "target_plan_id": "plan_discard_001",
+                            "reason": "用户明确表示先不执行这版计划",
+                        }, ensure_ascii=False),
+                        chunk_type="text",
+                    )
+                    yield CliEvent("agent.process.completed", "proc-discard", exit_code=0)
+                    return
+                if "四档含义" in prompt:
+                    yield CliEvent(
+                        "agent.output",
+                        "proc-steward",
+                        chunk=json.dumps({
+                            "route_type": "context_only",
+                            "reply": "已记录到群聊上下文，我不会启动执行。",
+                            "reason": "用户补充新的背景约束。",
+                            "selected_agent_ids": [],
+                            "task_brief": "记录后续偏好",
+                            "confidence": 0.91,
+                            "requires_approval": False,
+                            "risk_level": "low",
+                        }, ensure_ascii=False),
+                        chunk_type="text",
+                    )
+                    yield CliEvent("agent.process.completed", "proc-steward", exit_code=0)
+                    return
+                yield CliEvent(
+                    "agent.output",
+                    "proc-plan",
+                    chunk=json.dumps({
+                        "plan_id": "plan_discard_001",
+                        "tasks": [
+                            {
+                                "task_id": "T1",
+                                "title": "编写 PRD",
+                                "goal": "输出 PRD",
+                                "required_skills": ["technical_writer"],
+                                "assigned_agent_id": writer.id,
+                                "assigned_agent_name": writer.name,
+                                "depends_on": [],
+                            },
+                            {
+                                "task_id": "T2",
+                                "title": "技术设计",
+                                "goal": "基于 PRD 输出设计",
+                                "required_skills": ["architect"],
+                                "assigned_agent_id": architect.id,
+                                "assigned_agent_name": architect.name,
+                                "depends_on": ["T1"],
+                            },
+                        ],
+                    }, ensure_ascii=False),
+                    chunk_type="text",
+                )
+                yield CliEvent("agent.process.completed", "proc-plan", exit_code=0)
+                return
+            yield CliEvent("agent.output", "proc-task", chunk="不应执行普通 Agent。", chunk_type="text")
+            yield CliEvent("agent.process.completed", "proc-task", exit_code=0)
+
+        from app.services.cli_agent_service import CliAgentService
+        monkeypatch.setattr(CliAgentService, "stream", fake_stream)
+
+        res = await test_client.post("/api/sessions", json={
+            "mode": "group",
+            "agentConfigIds": [writer.id, architect.id, orchestrator.id],
+        })
+        sid = res.json()["id"]
+
+        await test_client.post(
+            f"/api/sessions/{sid}/chat",
+            json={"content": "@Orchestrator 调度器 先写 PRD，再让架构师设计", "mentions": [orchestrator.id]},
+        )
+        discard_resp = await test_client.post(
+            f"/api/sessions/{sid}/chat",
+            json={"content": "这版先不走了，暂时取消这个计划。", "mentions": []},
+        )
+
+        discard_events = []
+        visible = ""
+        async for line in discard_resp.aiter_lines():
+            if not line.startswith("data: "):
+                continue
+            data = json.loads(line[6:])
+            discard_events.append(data.get("type", ""))
+            if data.get("agentName") == "Orchestrator 调度器":
+                visible += data.get("token", "")
+
+        assert "orchestrator.plan_execution_created" not in discard_events
+        assert "orchestrator.plan_discarded" in discard_events
+        assert "已放弃计划 plan_discard_001" in visible
+        assert any("上一版 draft plan" in prompt for prompt in prompts)
+
+        followup_resp = await test_client.post(
+            f"/api/sessions/{sid}/chat",
+            json={"content": "后面文档还是都用中文。", "mentions": []},
+        )
+        followup_events = []
+        async for line in followup_resp.aiter_lines():
+            if not line.startswith("data: "):
+                continue
+            data = json.loads(line[6:])
+            followup_events.append(data.get("type", ""))
+
+        assert "orchestrator.steward_decision" in followup_events
+        assert prompts[-1].count("四档含义") == 1
+        assert "上一版 draft plan" not in prompts[-1]
+
+        messages = (await test_client.get(f"/api/sessions/{sid}/messages")).json()
+        plan_message = next(message for message in messages if message["metadata"] and "orchestratorPlan" in message["metadata"])
+        assert plan_message["metadata"]["orchestratorPlan"]["normalizedPlan"]["status"] == "discarded"
+        action_message = next(message for message in messages if message["metadata"] and "orchestratorPlanState" in message["metadata"])
+        assert action_message["metadata"]["orchestratorPlanState"]["status"] == "discarded"
+
     async def test_orchestrator_approve_auto_assigns_missing_task_agent(
         self, test_client, test_agent, db_session, monkeypatch,
     ):
