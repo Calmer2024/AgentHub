@@ -267,7 +267,7 @@ class SkillRegistry:
 
 
 def default_skill_roots() -> list[Path]:
-    configured = settings.agenthub_skill_roots or os.environ.get("AGENTHUB_SKILL_ROOTS", "")
+    configured = os.environ.get("AGENTHUB_SKILL_ROOTS") or settings.agenthub_skill_roots
     roots: list[Path] = []
     for item in re.split(r"[;,]", configured):
         value = item.strip().strip('"')
@@ -279,7 +279,9 @@ def default_skill_roots() -> list[Path]:
 
 
 def load_filesystem_skills(roots: list[str | Path] | None = None) -> list[SkillDefinition]:
-    skill_roots = [Path(root).expanduser() for root in roots] if roots is not None else default_skill_roots()
+    skill_roots = [_resolve_skill_root(root) for root in roots] if roots is not None else [
+        _resolve_skill_root(root) for root in default_skill_roots()
+    ]
     skills: list[SkillDefinition] = []
     for root in skill_roots:
         if not root.exists() or not root.is_dir():
@@ -289,6 +291,14 @@ def load_filesystem_skills(roots: list[str | Path] | None = None) -> list[SkillD
             if skill:
                 skills.append(skill)
     return skills
+
+
+def _resolve_skill_root(root: str | Path) -> Path:
+    path = Path(root).expanduser()
+    if path.is_absolute() or path.exists():
+        return path
+    backend_relative = Path(__file__).resolve().parents[2] / path
+    return backend_relative if backend_relative.exists() else path
 
 
 def _load_skill_dir(skill_dir: Path) -> SkillDefinition | None:
