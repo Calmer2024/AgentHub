@@ -75,7 +75,10 @@ async def test_phase4_acceptance_single_and_group_flow(test_client, test_agent, 
     assert group.status_code == 201
     group_chat = await test_client.post(
         f"/api/sessions/{group.json()['id']}/chat",
-        json={"content": "Hello group"},
+        json={
+            "content": "Hello group",
+            "mentions": [test_agent.id, agent2.id],
+        },
     )
     assert group_chat.status_code == 200
     events = []

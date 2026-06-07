@@ -8,6 +8,7 @@ import { MessageBubble } from "./MessageBubble";
 import { ChatInput } from "./ChatInput";
 import { CollaborationPanel } from "./CollaborationPanel";
 import { SearchPanel } from "./SearchPanel";
+import { RuntimeControlStrip } from "./RuntimeControlStrip";
 import {
   approveCheckpoint,
   cancelRun,
@@ -42,6 +43,7 @@ interface Props {
   orchestratorIntent: string | null;
   planSummary: string | null;
   mentionableAgents: AgentConfig[];
+  mentionLoading?: boolean;
   // CollaborationView props (inline in message flow)
   collabTasks: CollabTask[];
   dagPhases: DAGPhase[];
@@ -73,6 +75,7 @@ export function ChatWindow({
   messages, artifacts, isStreaming, streamingError,
   hydrating = false,
   currentAgent, currentSessionId, sessions, agents, mode, routeAgents, orchestratorIntent, planSummary, mentionableAgents,
+  mentionLoading = false,
   collabTasks, dagPhases, collabCompleted, collabSummary, draftPlan,
   onSend, onDismissError, onReply, onRegenerate, onTogglePin, onArtifactsChanged,
 }: Props) {
@@ -176,11 +179,17 @@ export function ChatWindow({
     });
     return map;
   }, [runs]);
+  const activeRun = useMemo(() => {
+    const running = runs.find((run) => ACTIVE_RUN_STATUSES.has(run.status));
+    return running ?? null;
+  }, [runs]);
+  const activeRunTasks = activeRun ? tasksByRun[activeRun.id] ?? EMPTY_TASKS : EMPTY_TASKS;
   const hasActiveRun = useMemo(() => runs.some((run) => ACTIVE_RUN_STATUSES.has(run.status)), [runs]);
   const currentSession = useMemo(
     () => sessions.find((session) => session.id === currentSessionId) ?? null,
     [currentSessionId, sessions],
   );
+  const showCollabPanel = collabTasks.length > 0 || Boolean(draftPlan);
   const headerStatus = isStreaming || hasActiveRun
     ? "对方正在输入"
     : isGroup ? "多智能体协作" : currentAgent?.name ?? currentAgent?.cliTool ?? "命令行智能体";
@@ -490,7 +499,18 @@ export function ChatWindow({
       )}
 
       {/* CollaborationPanel — inline in natural flow, below route banner */}
-      {(collabTasks.length > 0 || draftPlan) && (
+      {isGroup && activeRun && !showCollabPanel && (
+        <div className="mx-6 mt-3">
+          <RuntimeControlStrip
+            run={activeRun}
+            tasks={activeRunTasks}
+            onCancel={cancelMessageRun}
+            cancelling={cancellingRunId === activeRun.id}
+          />
+        </div>
+      )}
+
+      {showCollabPanel && (
         <CollaborationPanel
           intent={orchestratorIntent}
           tasks={isPlanOnly ? [] : collabTasks}
@@ -498,6 +518,10 @@ export function ChatWindow({
           isCompleted={collabCompleted}
           completedSummary={collabSummary}
           draftPlan={draftPlan}
+          run={activeRun}
+          runtimeTasks={activeRunTasks}
+          onCancelRun={cancelMessageRun}
+          cancellingRunId={cancellingRunId}
         />
       )}
 
@@ -679,6 +703,7 @@ export function ChatWindow({
         disabled={isStreaming || hasActiveRun || (!isGroup && !currentAgent)}
         busy={isStreaming || hasActiveRun}
         mentionableAgents={isGroup ? mentionableAgents : agents}
+        mentionLoading={isGroup ? mentionLoading : false}
       />
     </div>
   );

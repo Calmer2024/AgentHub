@@ -26,13 +26,19 @@ class GroupChatFinalizer:
         agent_calls: dict[str, AgentCall], msg_ids: dict[str, str],
         agent_texts: dict[str, str], agent_errors: dict[str, str],
         agent_traces: dict[str, list[dict]] | None = None,
+        persisted_keys: set[str] | None = None,
     ) -> AsyncIterator[str]:
         agent_traces = agent_traces or {}
+        persisted_keys = persisted_keys or set()
+        remaining_texts = {
+            key: text for key, text in agent_texts.items()
+            if key not in persisted_keys
+        }
         if not agent_texts:
             yield self._all_failed(agent_names, agent_errors)
-        else:
+        elif remaining_texts:
             created_ids = self._add_agent_messages(
-                session_id, agent_names, agent_calls, msg_ids, agent_texts,
+                session_id, agent_names, agent_calls, msg_ids, remaining_texts,
                 agent_errors, agent_traces,
             )
             session.updated_at = china_now()
@@ -52,6 +58,40 @@ class GroupChatFinalizer:
             session_id,
             f"{completed_count} agents completed" if completed_count else "全部失败",
         )
+
+    async def persist_one(
+        self,
+        *,
+        session_id: str,
+        session,
+        key: str,
+        agent_names: dict[str, str],
+        agent_calls: dict[str, AgentCall],
+        msg_ids: dict[str, str],
+        text: str,
+        error: str | None,
+        trace_items: list[dict] | None = None,
+    ) -> AsyncIterator[str]:
+        """单个 Agent 完成后立即落库，降低中断造成的可见消息丢失。"""
+        message_id = msg_ids.get(key)
+        if not message_id or not text:
+            return
+        if await self.db.get(DBMessage, message_id):
+            return
+        created_ids = self._add_agent_messages(
+            session_id,
+            agent_names,
+            agent_calls,
+            msg_ids,
+            {key: text},
+            {key: error} if error else {},
+            {key: trace_items or []},
+        )
+        session.updated_at = china_now()
+        SessionService.increment_unread(session, len(created_ids))
+        await self.db.commit()
+        async for item in self._scan_agent_messages(session, created_ids):
+            yield item
 
     def _add_agent_messages(
         self, session_id, agent_names, agent_calls, msg_ids, agent_texts,

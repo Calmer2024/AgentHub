@@ -10,9 +10,10 @@ interface Props {
   disabled?: boolean;
   busy?: boolean;
   mentionableAgents: AgentConfig[];
+  mentionLoading?: boolean;
 }
 
-export function ChatInput({ onSubmit, disabled, busy, mentionableAgents }: Props) {
+export function ChatInput({ onSubmit, disabled, busy, mentionableAgents, mentionLoading = false }: Props) {
   const [content, setContent] = useState("");
   const [showMentions, setShowMentions] = useState(false);
   const [mentionFilter, setMentionFilter] = useState("");
@@ -28,7 +29,9 @@ export function ChatInput({ onSubmit, disabled, busy, mentionableAgents }: Props
   useEffect(() => {
     if (showMentions && listRef.current) {
       const active = listRef.current.children[mentionIndex] as HTMLElement | undefined;
-      active?.scrollIntoView({ block: "nearest" });
+      if (typeof active?.scrollIntoView === "function") {
+        active.scrollIntoView({ block: "nearest" });
+      }
     }
   }, [mentionIndex, showMentions]);
 
@@ -59,7 +62,7 @@ export function ChatInput({ onSubmit, disabled, busy, mentionableAgents }: Props
       setMentionFilter(atMatch[1]);
       setMentionPos(atMatch.index!);
       setMentionIndex(0);
-      setShowMentions(mentionableAgents.length > 0);
+      setShowMentions(true);
     } else {
       setShowMentions(false);
     }
@@ -147,7 +150,11 @@ export function ChatInput({ onSubmit, disabled, busy, mentionableAgents }: Props
     <form onSubmit={handleSubmit} className="agenthub-inputbar relative px-4 pb-4 pt-2">
       {showMentions && (
         <div ref={listRef} className="agenthub-menu absolute bottom-full left-4 z-40 mb-2 max-h-56 w-72 overflow-y-auto rounded-2xl border p-1.5">
-          {filteredAgents.length === 0 ? (
+          {mentionableAgents.length === 0 ? (
+            <div className="agenthub-muted px-3 py-2 text-xs">
+              {mentionLoading ? "正在加载可提及智能体..." : "暂无可提及智能体"}
+            </div>
+          ) : filteredAgents.length === 0 ? (
             <div className="agenthub-muted px-3 py-2 text-xs">无匹配智能体</div>
           ) : (
             filteredAgents.map((a, i) => (

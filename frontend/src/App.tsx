@@ -51,7 +51,8 @@ function App() {
 
   const {
     projects, currentProjectId, currentProject, sessions, agents, sidebarTab,
-    creatingProject, initialLoading, sessionsLoading, sessionHydrating, sessionMembers, currentAgent, currentMode,
+    creatingProject, initialLoading, sessionsLoading, sessionHydrating, sessionMembers, sessionMembersLoading,
+    currentAgent, currentMode,
     setSidebarTab, loadData,
     handleSelectProject, handleArchiveProject,
     handleRenameProject, handleDeleteProject,
@@ -199,6 +200,7 @@ function App() {
           routeAgents={routeAgents} orchestratorIntent={orchestratorIntent}
           planSummary={planSummary}
           mentionableAgents={currentMode === "group" ? sessionMembers : agents}
+          mentionLoading={currentMode === "group" ? sessionMembersLoading : false}
           collabTasks={collabTasks}
           dagPhases={dagPhases}
           chainSteps={chainSteps}

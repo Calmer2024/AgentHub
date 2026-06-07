@@ -1,6 +1,6 @@
 # 11: 群聊调度器管家路由
 
-**状态**: Draft
+**状态**: 已交付基线 / 已通过人工验收
 **创建日期**: 2026-06-07
 **关联**: [01-architecture.md](01-architecture.md)、[02-agent-selection.md](02-agent-selection.md)、[10-real-agent-execution](10-real-agent-execution/)、[Phase 7 Context Pack](../../phase7/05-context-pack-and-cache-strategy.md)
 
@@ -28,8 +28,9 @@
 
 | 用户输入 | 入口 | 目标行为 |
 |---------|------|----------|
-| `@调度器 ...` | Plan-first 调度器 | 生成 draft plan 或处理计划批准/修改 |
-| `@具体Agent ...` | 指定 Agent | 让被点名 Agent 直接回复/执行，必要时作为补充轮 |
+| `@调度器 ...` | Plan-first 调度器 | 生成 draft plan，或处理上一版计划的批准、修改、放弃 |
+| `@具体Agent ...` | 指定 Agent | 让被点名 Agent 直接回复/执行；多个普通 Agent 按 @ 顺序串行，并把前序产出注入后序 Agent |
+| 同时 `@调度器` 和其它 Agent | Plan-first 调度器 | 调度器优先接管，其它被 @ Agent 只作为候选、顺序或约束输入，不直接启动 |
 | 不 `@` | 调度器管家 | 先做轻量意图分流，再决定是否记录、单 Agent、多人小协作或生成计划 |
 
 核心原则：
@@ -38,6 +39,14 @@
 不 @ = 交给调度器管家判断
 不 @ ≠ 直接自动拉 Agent 执行
 ```
+
+多 @ 的责任边界：
+
+- 后端以请求体中的 `mentionIds` 作为显式 @ 的唯一权威来源；正文里的裸 `@名字` 只作为普通文本，不能用于兜底识别调度器或普通 Agent；
+- 前端必须在 `@` 输入时展示可选 Agent 列表，并在用户选择后提交结构化 `mentionIds`；如果群成员仍在加载，要给出可见 loading/空状态，不能让用户误以为 @ 功能失效；
+- 多个普通 Agent 被 @ 时，系统按用户 @ 顺序串行执行，后一个 Agent 能看到前一个 Agent 的完整产出摘要；
+- 只要 @ 列表中包含 Orchestrator 调度器，本轮就进入 Plan-first，不再把调度器当成普通执行 Agent；
+- 调度器生成的 plan 必须声明每个任务的输入、输出、依赖、验收标准和责任边界，避免上游 Agent 代做下游 Agent 的工作。
 
 ---
 
@@ -113,23 +122,24 @@
 行为：
 
 - 调度器选择 2-3 个 Agent；
-- 生成短任务包；
-- 可并行或短串行；
-- 不进入完整 DAG 审批；
-- 可生成一条简短中枢总结。
+- 不直接启动这些 Agent；
+- 转交 Plan-first 调度器生成一份小型 draft plan；
+- draft plan 复用完整 DAG 契约，必须声明每个节点的输入、输出、依赖、验收标准和责任边界；
+- 用户确认后才由 Scheduler 按 DAG 执行。
 
 约束：
 
 - 参与 Agent 数量默认不超过 3；
-- 默认不允许跨阶段长流程；
+- 计划任务数默认控制在 2-3 个；
+- 前序 Agent 只交付本节点产物与交接说明，不代做下游 Agent 的职责；
 - 如果需要设计、实现、测试、文档完整链路，升级到档位 D。
 
 验收：
 
-- 前端显示 2-3 个 Agent 气泡或短协作面板；
-- 不出现完整 draft plan 审批；
-- 任务完成后有简短总结；
-- Context Pack 中只注入必要摘要和文件引用，不注入完整群聊 transcript。
+- 用户批准前不出现普通 Agent 气泡；
+- 出现 draft plan 面板，且候选执行 Agent 优先来自管家选择的 2-3 个 Agent；
+- draft plan 中每个任务都带 `expected_outputs`、`acceptance_criteria` 和 `depends_on`；
+- 用户批准后才创建 execution，并可停止、刷新恢复。
 
 ### 3.4 档位 D：复杂任务生成计划
 
@@ -167,7 +177,59 @@
 
 ---
 
-## 4. 调度器管家输出契约
+## 4. Plan-first 后续状态机
+
+只要会话存在“最新且未终结”的 draft plan，后续无 `@` 消息不再进入四档管家分流，而是直接交给 Orchestrator Agent 处理上一版计划的跟进意图。调度器必须输出结构化动作或新计划，后端不得用用户文本硬编码判断。
+
+```text
+idle
+  -> draft_pending        生成 draft plan
+
+draft_pending
+  -> approved            Orchestrator 输出 action=approve_plan，后端创建 execution
+  -> revised             Orchestrator 输出新 draft plan，旧 plan 标记 revised，新 plan 进入 draft_pending
+  -> discarded           Orchestrator 输出 action=discard_plan，旧 plan 关闭
+
+approved / revised / discarded
+  -> idle                不再拦截后续无 @ 消息；下一条无 @ 重新进入管家四档分流
+```
+
+状态含义：
+
+| 状态 | 含义 | 后续入口 |
+|------|------|----------|
+| `draft_pending` | 最新计划正在等待用户批准、修改或放弃 | 继续交给 Plan-first follow-up |
+| `approved` | 用户已批准，Scheduler 已按 DAG 执行或正在执行 | 退出 plan follow-up |
+| `revised` | 旧计划已被新计划取代 | 新计划成为唯一待处理计划 |
+| `discarded` | 用户放弃、取消或开启无关新话题，旧计划关闭 | 退出 plan follow-up |
+
+### 4.1 follow-up 输出契约
+
+批准计划：
+
+```json
+{
+  "action": "approve_plan",
+  "target_plan_id": "plan_xxx",
+  "reason": "为什么判断用户是在批准执行"
+}
+```
+
+放弃计划：
+
+```json
+{
+  "action": "discard_plan",
+  "target_plan_id": "plan_xxx",
+  "reason": "为什么判断用户是在放弃这版计划"
+}
+```
+
+修改计划：直接输出新的 draft plan JSON，结构仍符合 plan-only DAG 契约。后端会把旧 plan 标记为 `revised`，把新 plan 作为唯一待处理计划。
+
+---
+
+## 5. 调度器管家输出契约
 
 建议后端内部先引入一个轻量分类结果：
 
@@ -187,7 +249,7 @@
 
 ---
 
-## 5. 默认安全策略
+## 6. 默认安全策略
 
 当分类不确定时，优先选择更保守档位：
 
@@ -202,7 +264,7 @@
 
 ---
 
-## 6. 与 Context Pack 的关系
+## 7. 与 Context Pack 的关系
 
 调度器管家分类结果会影响 Context Pack 构建：
 
@@ -210,27 +272,28 @@
 |------------|-------------------|
 | `context_only` | 更新 Project Memory，不构建 Agent 执行包 |
 | `single_agent` | 构建单 Agent 小任务包，只带最新用户消息、相关记忆和少量引用 |
-| `mini_collab` | 为每个 Agent 构建独立小任务包，上游默认摘要化 |
+| `mini_collab` | 构建小型 draft plan 生成包，候选 Agent 限定为管家选中的 2-3 个角色 |
 | `draft_plan` | 构建计划生成包，重点包含目标、约束、候选 Agent、验收要求 |
 
 这能避免“不 @”消息把完整群聊 transcript 直接灌给多个 Agent。
 
 ---
 
-## 7. 实现切片
+## 8. 实现切片
 
-### Step 1：后端分类器
+### Step 1：可见调度器管家
 
-- 新增 `GroupStewardRouter` 或等价服务；
+- 新增 `OrchestratorStewardChat`；
 - 输入：content、mentions、member_agents、session/project memory 摘要；
 - 输出：四档 route decision；
-- 先用规则 + Agent 技能标签实现，不必立即接 LLM。
+- 由真实 Orchestrator Agent 输出结构化 JSON，后端只解析 `route_type`、候选 Agent、任务摘要和风险信息，不用用户文本硬编码判断。
 
 ### Step 2：GroupChatStream 接入
 
 - `mentions` 为空时先走 steward router；
 - `context_only` 直接返回短确认；
-- `single_agent` / `mini_collab` 构造受限 `AgentCall`；
+- `single_agent` 构造受限 `AgentCall`；
+- `mini_collab` 转交 `OrchestratorPlanChat` 生成小型 draft plan；
 - `draft_plan` 转交 `OrchestratorPlanChat` 生成计划。
 
 ### Step 3：前端展示
@@ -243,11 +306,14 @@
 - 覆盖四档输入样例；
 - 验证复杂任务不会直接启动真实 Agent；
 - 验证 context_only 不产生普通 Agent 气泡；
-- 验证单 Agent 和 mini_collab 可停止、可刷新恢复。
+- 验证 single_agent 可停止、可刷新恢复；
+- 验证 mini_collab 只生成 draft plan，用户批准前不启动普通 Agent。
+- 验证 draft plan 后续 approve / revise / discard 都由 Orchestrator Agent 结构化输出驱动。
+- 验证 discarded 后下一条无 @ 消息重新进入管家四档分流。
 
 ---
 
-## 8. 非目标
+## 9. 非目标
 
 - 不要求调度器管家每次都调用真实 LLM；
 - 不要求不 @ 时一定生成 draft plan；
@@ -256,24 +322,31 @@
 
 ---
 
-## 9. 当前差距
+## 10. 当前已交付基线
 
-当前代码仍是：
-
-```text
-不 @
-  -> OrchestratorV2 自动 AgentSelector
-  -> ExecutionPlanner
-  -> AgentExecutor 可能直接启动真实 Agent
-```
-
-目标代码应变为：
+当前代码已变为：
 
 ```text
 不 @
-  -> 调度器管家 route decision
+  -> OrchestratorStewardChat 可见调度器回合
+  -> 真实 Orchestrator Agent 输出 route decision
   -> context_only / single_agent / mini_collab / draft_plan
-  -> 按档位执行或等待用户确认
+  -> 按档位记录、单 Agent 执行，或进入 Plan-first 等待确认
 ```
 
-该差距应作为下一阶段优先修复项。
+Plan-first 跟进已支持：
+
+```text
+draft_pending
+  -> approve_plan   创建 execution，Scheduler 按 DAG 异步推进
+  -> discard_plan   关闭旧 plan，下一条无 @ 重新进入管家分流
+  -> 新 draft plan   旧 plan 标记 revised，新 plan 成为唯一待处理计划
+```
+
+本轮人工验收认可的边界：
+
+- `context_only` 会产生 Orchestrator 调度器可见回复，不再出现“没人理我”的体验；
+- `mini_collab` 不直接启动多个 Agent，而是复用 Plan-first 小型 DAG；
+- 有待处理 draft plan 时，后续无 @ 的“允许执行/修改/取消/换话题”都交给 Orchestrator Agent 输出结构化动作；
+- 多个普通 @ 仍按 @ 顺序串行；多个 @ 中包含调度器时，调度器优先接管并生成/跟进 plan。
+- 显式 @ 已收敛为结构化 `mentionIds` 协议；手输正文里的 `@Orchestrator` 但未携带 `mentionIds` 时，按无 @ 管家分流处理。

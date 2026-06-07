@@ -87,7 +87,12 @@ class RunService:
         return task
 
     async def get_run(self, run_id: str) -> Run:
-        run = await self.db.get(Run, run_id)
+        result = await self.db.execute(
+            select(Run)
+            .where(Run.id == run_id)
+            .execution_options(populate_existing=True)
+        )
+        run = result.scalars().first()
         if not run:
             raise RunNotFoundError(run_id)
         return run

@@ -8,6 +8,7 @@ from typing import AsyncGenerator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.timezone import china_now
 from ..models import Session as DBSession, AgentConfig, Message as DBMessage, SessionMember
 from ..domain.orchestrator_v2 import OrchestratorV2, PipelineRequest
 from ..domain.execution_planner import AgentCall, ChainConfig
@@ -15,9 +16,11 @@ from .agent_executor import AgentExecutor
 from .approval_service import ApprovalService, approval_to_read
 from .project_service import ProjectService, ProjectNotFoundError
 from .run_service import RunService, task_to_read, run_to_read
+from .session_service import SessionService
 from .shared_context import SharedContext
 from .group_chat_finalizer import GroupChatFinalizer
 from .orchestrator_plan_chat import OrchestratorPlanChat
+from .orchestrator_steward_chat import OrchestratorStewardChat, StewardAgentDecision
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +37,7 @@ class GroupChatStream:
         self._executor = executor
         self._finalizer = GroupChatFinalizer(db, pipeline, event_bus=event_bus)
         self._plan_chat = OrchestratorPlanChat(db)
+        self._steward_chat = OrchestratorStewardChat(db, event_bus=event_bus)
 
     async def send(
         self, session_id: str, content: str, mentions: list[str] | None,
@@ -42,11 +46,26 @@ class GroupChatStream:
     ) -> AsyncGenerator[str, None]:
         member_agents = await self._member_agents(session_id)
         if not member_agents:
+            if run_id:
+                run = await RunService(self.db, event_bus=self.event_bus).mark_run_status(
+                    run_id,
+                    "failed",
+                    reason="该群聊没有可用的 Agent",
+                )
+                yield self._run_status_changed(run)
+            await self._persist_system_notice(session, session_id, "该群聊没有可用的 Agent")
             yield self._err("该群聊没有可用的 Agent")
             return
         try:
             workspace_path = await ProjectService(self.db).get_workspace_path_for_session(session_id)
         except ProjectNotFoundError:
+            if run_id:
+                run = await RunService(self.db, event_bus=self.event_bus).mark_run_status(
+                    run_id,
+                    "failed",
+                    reason="当前会话未绑定项目",
+                )
+                yield self._run_status_changed(run)
             yield self._err("当前会话未绑定项目，无法启动 CLI Agent")
             return
 
@@ -63,6 +82,116 @@ class GroupChatStream:
             ):
                 yield item
             return
+
+        steward_decision: StewardAgentDecision | None = None
+        if not mentions:
+            orchestrator_agent = self._orchestrator(member_agents)
+            if not orchestrator_agent:
+                message_id = await self._persist_system_notice(
+                    session,
+                    session_id,
+                    "群聊缺少 Orchestrator 调度器，无法处理无 @ 消息。请在群聊中加入调度器后重试。",
+                )
+                if run_id:
+                    run = await RunService(self.db, event_bus=self.event_bus).mark_run_status(
+                        run_id,
+                        "failed",
+                        current_message_id=message_id,
+                        reason="群聊缺少 Orchestrator 调度器",
+                    )
+                    yield self._run_status_changed(run)
+                yield self._err("群聊缺少 Orchestrator 调度器，无法处理无 @ 消息")
+                return
+            if await self._plan_chat.has_latest_orchestrator_plan(session_id):
+                async for item in self._plan_chat.send(
+                    session_id=session_id,
+                    content=content,
+                    history=history,
+                    workspace_path=workspace_path,
+                    orchestrator_agent=orchestrator_agent,
+                    member_agents=member_agents,
+                    run_id=run_id,
+                ):
+                    yield item
+                return
+            steward_message_id = ""
+            steward_error = None
+            async for item in self._steward_chat.stream(
+                session=session,
+                content=content,
+                history=history,
+                workspace_path=workspace_path,
+                orchestrator_agent=orchestrator_agent,
+                member_agents=member_agents,
+                run_id=run_id,
+            ):
+                steward_message_id = item.message_id
+                steward_error = item.error or steward_error
+                if item.decision:
+                    steward_decision = item.decision
+                    yield self._steward_decision_event(steward_decision)
+                yield item.sse
+            if run_id and await self._run_was_cancelled(run_id):
+                return
+            if steward_error:
+                if run_id:
+                    run = await RunService(self.db, event_bus=self.event_bus).mark_run_status(
+                        run_id,
+                        "failed",
+                        current_message_id=steward_message_id,
+                        reason=steward_error,
+                    )
+                    yield self._run_status_changed(run)
+                yield self._sse({"token": "", "done": True, "messageId": steward_message_id, "error": steward_error})
+                return
+            if steward_decision is None:
+                if run_id:
+                    run = await RunService(self.db, event_bus=self.event_bus).mark_run_status(
+                        run_id,
+                        "completed",
+                        current_message_id=steward_message_id,
+                    )
+                    yield self._run_status_changed(run)
+                yield self._sse({"token": "", "done": True, "messageId": steward_message_id})
+                return
+            if steward_decision.route_type == "context_only":
+                if run_id:
+                    run = await RunService(self.db, event_bus=self.event_bus).mark_run_status(
+                        run_id,
+                        "completed",
+                        current_message_id=steward_message_id,
+                    )
+                    yield self._run_status_changed(run)
+                yield self._sse({"token": "", "done": True, "messageId": steward_message_id})
+                return
+            if steward_decision.route_type in {"draft_plan", "mini_collab"}:
+                plan_member_agents = (
+                    steward_decision.selected_agents
+                    if steward_decision.route_type == "mini_collab" and steward_decision.selected_agents
+                    else member_agents
+                )
+                async for item in self._plan_chat.send(
+                    session_id=session_id,
+                    content=self._plan_content_for_steward_decision(content, steward_decision),
+                    history=history,
+                    workspace_path=workspace_path,
+                    orchestrator_agent=orchestrator_agent,
+                    member_agents=plan_member_agents,
+                    run_id=run_id,
+                ):
+                    yield item
+                return
+            if not steward_decision.selected_agents:
+                if run_id:
+                    run = await RunService(self.db, event_bus=self.event_bus).mark_run_status(
+                        run_id,
+                        "failed",
+                        reason="Orchestrator 调度器没有找到合适的 Agent",
+                    )
+                    yield self._run_status_changed(run)
+                yield self._err("Orchestrator 调度器没有找到合适的 Agent，请尝试 @ 指定 Agent")
+                return
+            mentions = [agent.id for agent in steward_decision.selected_agents]
 
         cc = None
         if chain_config:
@@ -81,9 +210,18 @@ class GroupChatStream:
             system_prompt="",
             context_budget=100_000,
             chain_config=cc,
-            supplemental=self._is_supplemental_turn(content, mentions),
+            supplemental=(
+                True if steward_decision else self._is_supplemental_turn(content, mentions)
+            ),
         ))
         if not result.agent_calls:
+            if run_id:
+                run = await RunService(self.db, event_bus=self.event_bus).mark_run_status(
+                    run_id,
+                    "failed",
+                    reason="没有合适的 Agent 处理此请求",
+                )
+                yield self._run_status_changed(run)
             yield self._err("没有合适的 Agent 处理此请求，请尝试 @ 指定 Agent")
             return
 
@@ -127,6 +265,7 @@ class GroupChatStream:
         agent_errors: dict[str, str] = {}
         agent_traces: dict[str, list[dict]] = {}
         seen_calls: set[str] = set()
+        persisted_calls: set[str] = set()
         shared_context = SharedContext(result.assembled_messages) \
             if result.execution_mode == "dag" else None
 
@@ -157,10 +296,29 @@ class GroupChatStream:
                 yield item
             if ev.event_type == "token" and ev.token and not ev.done:
                 agent_texts[self._event_key(ev)] = agent_texts.get(self._event_key(ev), "") + ev.token
+            if ev.done and ev.agent_id:
+                call_key = self._event_key(ev)
+                if ev.error:
+                    agent_errors[call_key] = ev.error
+                if call_key not in persisted_calls:
+                    async for item in self._finalizer.persist_one(
+                        session_id=session_id,
+                        session=session,
+                        key=call_key,
+                        agent_names=agent_names,
+                        agent_calls=agent_calls,
+                        msg_ids=msg_ids,
+                        text=agent_texts.get(call_key, ""),
+                        error=agent_errors.get(call_key),
+                        trace_items=agent_traces.get(call_key),
+                    ):
+                        yield item
+                    if agent_texts.get(call_key):
+                        persisted_calls.add(call_key)
 
         async for item in self._finalizer.finish(
             session_id, session, result, agent_names, agent_calls,
-            msg_ids, agent_texts, agent_errors, agent_traces,
+            msg_ids, agent_texts, agent_errors, agent_traces, persisted_calls,
         ):
             yield item
 
@@ -192,6 +350,23 @@ class GroupChatStream:
                 )
             yield self._run_status_changed(run)
 
+    def _steward_decision_event(self, decision: StewardAgentDecision) -> str:
+        return self._sse({
+            "type": "orchestrator.steward_decision",
+            "decision": decision.to_payload(),
+            "routeType": decision.route_type,
+            "confidence": decision.confidence,
+            "reason": decision.reason,
+            "selectedAgents": [
+                {"id": agent.id, "name": agent.name}
+                for agent in decision.selected_agents
+            ],
+            "taskBrief": decision.task_brief,
+            "riskLevel": decision.risk_level,
+            "token": "",
+            "done": False,
+        })
+
     async def _member_agents(self, session_id: str) -> list[AgentConfig]:
         rows = await self.db.execute(
             select(AgentConfig).join(
@@ -201,7 +376,39 @@ class GroupChatStream:
                 AgentConfig.is_active == True,
             )
         )
-        return list(rows.scalars().all())
+        agents = list(rows.scalars().all())
+        if any((agent.primary_skill or "") == "orchestrator_planner" for agent in agents):
+            return agents
+        fallback = await self.db.execute(
+            select(AgentConfig).where(
+                AgentConfig.primary_skill == "orchestrator_planner",
+                AgentConfig.is_active == True,
+            ).limit(1)
+        )
+        orchestrator = fallback.scalars().first()
+        if orchestrator:
+            agents.append(orchestrator)
+        return agents
+
+    async def _persist_system_notice(self, session: DBSession, session_id: str, content: str) -> str:
+        message_id = f"msg_system_{uuid.uuid4().hex}"
+        self.db.add(DBMessage(
+            id=message_id,
+            session_id=session_id,
+            role="system",
+            content=content,
+            content_type="text",
+            source_type="system",
+            source_name="运行控制",
+        ))
+        session.updated_at = china_now()
+        SessionService.increment_unread(session, 1)
+        await self.db.commit()
+        return message_id
+
+    async def _run_was_cancelled(self, run_id: str) -> bool:
+        run = await RunService(self.db, event_bus=self.event_bus).get_run(run_id)
+        return run.status in {"cancelling", "cancelled"}
 
     @staticmethod
     def _mentioned_orchestrator(
@@ -213,10 +420,12 @@ class GroupChatStream:
         for agent in agents:
             if agent.id in mention_ids and (agent.primary_skill or "") == "orchestrator_planner":
                 return agent
+        return None
+
+    @staticmethod
+    def _orchestrator(agents: list[AgentConfig]) -> AgentConfig | None:
         for agent in agents:
-            if (agent.primary_skill or "") != "orchestrator_planner":
-                continue
-            if f"@{agent.name}" in content or "@Orchestrator" in content:
+            if (agent.primary_skill or "") == "orchestrator_planner":
                 return agent
         return None
 
@@ -499,6 +708,24 @@ class GroupChatStream:
                 seen.add(call.agent.id)
                 result.append({"id": call.agent.id, "name": call.agent.name})
         return result
+
+    @staticmethod
+    def _plan_content_for_steward_decision(content: str, decision: StewardAgentDecision) -> str:
+        if decision.route_type != "mini_collab":
+            return content
+        selected = "、".join(f"@{agent.name}" for agent in decision.selected_agents) or "管家选择的 Agent"
+        task_brief = decision.task_brief.strip() or content.strip()
+        return (
+            f"{content.strip()}\n\n"
+            "[调度器管家预判]\n"
+            "route_type=mini_collab。不要直接启动多个 Agent 执行；请复用 plan-first DAG 契约，"
+            "生成一份小型 draft plan，等待用户确认后再由 Scheduler 执行。\n"
+            f"候选协作 Agent: {selected}\n"
+            f"任务摘要: {task_brief}\n"
+            "计划约束: 任务数量控制在 2-3 个；优先按上述 Agent 顺序和职责分配；"
+            "每个任务都要写清 goal、expected_outputs、acceptance_criteria 和 depends_on；"
+            "前序 Agent 只交付本节点产物与交接说明，不代做下游 Agent 的职责。"
+        )
 
     @staticmethod
     def _call_key(agent_id: str, task: str | None, phase: int | None) -> str:

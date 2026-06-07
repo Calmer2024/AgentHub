@@ -269,7 +269,7 @@ class SkillRegistry:
 
 
 def default_skill_roots() -> list[Path]:
-    configured = settings.agenthub_skill_roots or os.environ.get("AGENTHUB_SKILL_ROOTS", "")
+    configured = os.environ.get("AGENTHUB_SKILL_ROOTS") or settings.agenthub_skill_roots
     roots: list[Path] = []
     for item in re.split(r"[;,]", configured):
         value = item.strip().strip('"')

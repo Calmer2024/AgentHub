@@ -86,7 +86,7 @@
 | **Phase 4** | 消息交互闭环 | ✅ | Reply / Regenerate / Pin、FTS5 全文搜索、Reply/Pin prompt 注入 |
 | **Phase 5** | 产物工作台能力 | ✅ | 版本链 + Diff + 在线编辑（Tool Calling）；上游产物生成入口由 Phase 6/7 补齐 |
 | **Phase 6** | Workspace Runtime + CLI Engine + Agent Profile + 产物入口桥接 | ✅ | 6A Workspace Runtime、6B-6E CLI Adapter、6F Artifact Bridge 与 Agent = Engine + Skills 建模均已落地；Orchestrator Plan-first 真实执行已阶段性通过 |
-| **Phase 7** | 任务可控性 + 审批 + 环境体检 + IM 体验 + 演示闭环 | 🚧 | v1.0 本机 MVP 基线已覆盖运行控制、审批、体检、IM 会话基线和 UI 加固；7E 已记录上下文包与缓存策略改造方向；真实 cc 完整自动化演示脚本待沉淀 |
+| **Phase 7** | 任务可控性 + 审批 + 环境体检 + IM 体验 + 演示闭环 | 🚧 | v1.0 本机 MVP 基线已覆盖运行控制、审批、体检、IM 会话基线、UI 加固和群聊调度器管家路由；7E 已记录上下文包与缓存策略改造方向；真实 cc 完整自动化演示脚本待沉淀 |
 
 Phase 4-7 采用**功能板块制**：每板块独立完整交付。板块间按用户可感知价值排序。详见 [ADR-0008](docs/adr/0008-revised-development-strategy.md)。
 

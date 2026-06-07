@@ -74,7 +74,20 @@
 - `docs/deliverables/phase7-im-hardening/acceptance-log.md`
 - `docs/specs/phase7/04-mvp-demo-ux-hardening.md`
 
-## 2.3 7E CLI Engine Session 复用与适配器策略
+## 2.3 群聊调度器管家与 Plan-first 状态机收敛
+
+2026-06-07 继续修复群聊无 @ 和小型多 Agent 协作的责任边界：
+
+- 无 @ 群聊消息不再直接进入旧 OrchestratorV2 自动执行链路，而是先由可见的 Orchestrator 调度器 Agent 输出四档分流：`context_only`、`single_agent`、`mini_collab`、`draft_plan`。
+- `context_only` 会持久化调度器回复和 `stewardDecision` metadata，用户补充“所有文档都用中文”等约束时不再出现“没人理我”的空反馈。
+- `mini_collab` 复用 Plan-first DAG 契约，只生成小型 draft plan，用户批准前不启动多个普通 Agent。
+- 会话存在最新待处理 draft plan 时，后续无 @ 消息直接交给 Orchestrator Agent 做 follow-up，不再重新进入四档分流；批准、修改、放弃均由调度器结构化 JSON 驱动，后端不硬编码用户文本。
+- `approve_plan` 会创建 execution 并按 DAG 调度真实 CLI Agent；执行阶段补齐串行交接约束，前序 Agent 只交付本节点产物与交接说明，后序 Agent 基于依赖产物继续。
+- `discard_plan` 会把旧 plan 标记为 `discarded`，下一条无 @ 消息重新回到调度器管家分流。
+- 多个普通 @ 保留直接串行执行语义，并按用户 @ 顺序注入前序产出；只要 @ 列表包含 Orchestrator 调度器，本轮就进入 Plan-first，由调度器解释其它被 @ Agent 的候选关系和顺序。
+- 显式 @ 的权威来源收敛为请求体里的 `mentionIds`：前端输入 `@` 时即使群成员仍在加载，也会弹出可见提示并在选择 Agent 后提交结构化 mentions；后端不再根据正文里的裸 `@名字` 兜底识别调度器，避免手输文本误触发 Plan-first。
+
+## 2.4 7E CLI Engine Session 复用与适配器策略
 
 2026-06-07 针对“单 Agent 私聊没有充分利用底层 CLI 自己的会话/缓存能力”的问题，完成后端最小闭环，并反思上一轮把 Claude Code 特性写成公共布尔开关的设计过浅：
 
@@ -88,7 +101,7 @@
 - 群聊 DAG task 仍保持任务包隔离，避免不同任务共享隐式私聊记忆。
 - 自动化覆盖 Claude/Codex/OpenCode 参数规范化、session metadata 捕获、三家两轮单聊复用和迁移表存在性；真实 CLI E2E 仍需补脚本验收。
 
-## 2.4 7F Claude Code 常驻进程运行时
+## 2.5 7F Claude Code 常驻进程运行时
 
 2026-06-07 针对“仅靠 `--resume` 仍然是每轮短进程 invocation，不是真正长连接”的问题，完成运行时层重构：
 
@@ -109,8 +122,11 @@
 - Phase 7D 的 IM 能力必须尽量落到真实 API/数据库状态，不能只做前端装饰；Reply/Pin 继续保留真实 Agent 上下文注入。
 - 明亮主题的辅色基线改为纯白，彩色只保留在读者需要区分信息层级的可视化卡片中。
 - Engine resume 和 Session Process Runtime 是 Adapter 能力，不是 AgentHub 协作正确性的基础；单聊可用 Claude Code 自己的会话记忆和常驻进程，群聊仍优先依赖显式 task package、workspace 文件和可审计消息。
+- 群聊无 @ 的默认心智改为“发给调度器管家”，但不强约束每条消息都必须生成计划；能记录上下文或单 Agent 处理的轻量消息保持轻便。
+- 小型多 Agent 协作不再走临时执行链路，统一复用 Plan-first 的输入、输出、依赖和验收约束，避免职责越界。
+- Phase 7D-7F 真实 CLI 演示脚本、UI 截图审计、Context Pack Builder 和 Store 进一步按领域拆分仍是 v1.0 后续风险项，不阻塞已完成的 IM/Engine Session/Session Process/群聊调度器基线说明。
 
-### 2.4.1 Claude Code 物理常驻复核
+### 3.1 Claude Code 物理常驻复核
 
 2026-06-07 后续用本机 `claude.exe -p --verbose --input-format stream-json --output-format stream-json --session-id <uuid>` 做双 turn 探针：首轮写入 SDK user message JSONL，读取 `type=result` 后不关闭 stdin，再写第二轮 user message；同一进程产出第二个 `type=result`。据此恢复 Claude Code 会话级常驻能力：
 
@@ -118,7 +134,6 @@
 - 同一 AgentHub 私聊第二轮命中同一个 `processId`，`agent.process.started` metadata 标记 `persistentProcess=true/reused=true`，不再再次 spawn Claude Code。
 - 如果常驻进程已退出，下一轮会用已有 `engine_sessions.engine_session_id` 与 `--resume <session_id>` 拉起新进程，并标记 `recovered=true`。
 - Codex `mcp-server` 与 OpenCode `acp` 的 JSON-RPC 常驻运行时保持不变；三家 CLI 的常驻协议不同，但业务层统一通过 `cli_runtime_registry` 观察、回复和终止。
-- Phase 7D-7F 真实 CLI 演示脚本、UI 截图审计、Context Pack Builder 和 Store 进一步按领域拆分仍是 v1.0 后续风险项，不阻塞已完成的 IM/Engine Session/Session Process 基线说明。
 
 ## 4. 验证状态
 
@@ -141,6 +156,13 @@
   - 不同会话可同时保留独立 streaming runtime。
 - `backend/test_api/test_group_chat.py`
   - 群聊仍保留 route/task/agent events 和消息落库，但不再产生中枢总结事件或总结消息。
+  - 无 @ 轻量请求由可见 Orchestrator 调度器先做 steward 判断；
+  - context_only 消息持久化为调度器回复；
+  - 旧群聊缺少 Orchestrator 成员时自动恢复默认调度器；
+  - mini_collab 生成有边界的小型 draft plan，批准前不启动普通 Agent；
+  - draft plan 的无 @ 批准、放弃、修改均绕过 steward，交给 Plan-first follow-up；
+  - 多 Agent DAG 执行按任务依赖推进，文档专家和架构师等下游职责不会被上游 Agent 代做。
+  - 裸文本 `@Orchestrator` 但缺少 `mentionIds` 时按普通无 @ 管家分流处理，不硬编码识别为调度器提及。
 - `backend/test_api/test_sessions.py`
   - 免打扰、标记已读、消息转发 API。
 - `backend/test_unit/test_session_service.py`
@@ -175,6 +197,13 @@ cd backend; python -m pytest test_unit/test_cli_adapter_runtime.py -q
 cd backend; python -m pytest test_api/test_chat.py -q
 ```
 
+群聊调度器收敛后的轻量回归命令：
+
+```powershell
+cd backend; pytest test_api/test_group_chat.py -q
+cd frontend; npx vitest run src/api/client.test.ts src/hooks/useSendMessage.test.ts src/components/ChatInput.test.tsx
+```
+
 7D 回归建议命令：
 
 ```powershell
@@ -193,6 +222,8 @@ cd frontend; npx tsc --noEmit; npx vitest run; npm run build
 - `backend/app/services/system_health_service.py`
 - `backend/app/services/single_cli_chat_stream.py`
 - `backend/app/services/group_chat_stream.py`
+- `backend/app/services/orchestrator_steward_chat.py`
+- `backend/app/services/orchestrator_plan_chat.py`
 - `frontend/src/components/RuntimeControlStrip.tsx`
 - `frontend/src/components/ApprovalCard.tsx`
 - `frontend/src/components/HealthCheckCard.tsx`

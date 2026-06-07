@@ -104,6 +104,7 @@ export function useWorkspaceRuntime() {
   const memberRequestRef = useRef(0);
   const bootstrappedRef = useRef(false);
   const [sessionMembers, setSessionMembers] = useState<AgentConfig[]>([]);
+  const [sessionMembersLoading, setSessionMembersLoading] = useState(false);
   const [creatingProject, setCreatingProject] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [sessionsLoading, setSessionsLoading] = useState(false);
@@ -280,6 +281,35 @@ export function useWorkspaceRuntime() {
     setTasksForRun,
   ]);
 
+  const toMemberAgents = useCallback((members: Awaited<ReturnType<typeof fetchSessionMembers>>) => (
+    members.map((member) => ({
+      id: member.agentConfigId,
+      name: member.agentName,
+    } as AgentConfig))
+  ), []);
+
+  const loadMembersForSession = useCallback(async (id: string, mode?: string | null) => {
+    const memberRequestId = ++memberRequestRef.current;
+    if (mode !== "group") {
+      setSessionMembers([]);
+      setSessionMembersLoading(false);
+      return;
+    }
+    setSessionMembersLoading(true);
+    try {
+      const members = await fetchSessionMembers(id);
+      if (memberRequestId !== memberRequestRef.current || useChatStore.getState().currentSessionId !== id) return;
+      setSessionMembers(toMemberAgents(members));
+    } catch {
+      if (memberRequestId !== memberRequestRef.current) return;
+      setSessionMembers([]);
+    } finally {
+      if (memberRequestId === memberRequestRef.current && useChatStore.getState().currentSessionId === id) {
+        setSessionMembersLoading(false);
+      }
+    }
+  }, [toMemberAgents]);
+
   useEffect(() => {
     const refreshCancelledExecution = (event: Event) => {
       const detail = (event as CustomEvent<{ sessionId?: string }>).detail;
@@ -412,10 +442,19 @@ export function useWorkspaceRuntime() {
 
   useEffect(() => { loadData(); }, [loadData]);
   useEffect(() => { void loadSessionsForProject(currentProjectId); }, [currentProjectId, loadSessionsForProject]);
+  useEffect(() => {
+    if (!currentSessionId) {
+      memberRequestRef.current += 1;
+      setSessionMembers([]);
+      setSessionMembersLoading(false);
+      return;
+    }
+    const session = sessions.find((item) => item.id === currentSessionId);
+    void loadMembersForSession(currentSessionId, session?.mode ?? null);
+  }, [currentSessionId, sessions, loadMembersForSession]);
 
   const handleSelectSession = async (id: string) => {
     if (id === useChatStore.getState().currentSessionId) return;
-    const memberRequestId = ++memberRequestRef.current;
     setCurrentSessionId(id);
     setStreamingError(null, id);
     void hydrateSession(id);
@@ -426,21 +465,7 @@ export function useWorkspaceRuntime() {
       .catch(() => {});
 
     const sess = sessions.find((s) => s.id === id);
-    if (sess?.mode !== "group") {
-      setSessionMembers([]);
-      return;
-    }
-    try {
-      const members = await fetchSessionMembers(id);
-      if (memberRequestId !== memberRequestRef.current || useChatStore.getState().currentSessionId !== id) return;
-      setSessionMembers(members.map((m) => ({
-        id: m.agentConfigId,
-        name: m.agentName,
-      } as AgentConfig)));
-    } catch {
-      if (memberRequestId !== memberRequestRef.current) return;
-      setSessionMembers([]);
-    }
+    void loadMembersForSession(id, sess?.mode ?? null);
   };
 
   const handleSelectProject = (id: string) => {
@@ -559,6 +584,8 @@ export function useWorkspaceRuntime() {
     setRunsForSession(s.id, []);
     setApprovalsForSession(s.id, []);
     setStreamingError(null, s.id);
+    setSessionMembers([]);
+    setSessionMembersLoading(false);
   };
 
   const handleCreateGroup = async (title: string, selectedIds: string[]) => {
@@ -575,6 +602,8 @@ export function useWorkspaceRuntime() {
     setApprovalsForSession(s.id, []);
     setStreamingError(null, s.id);
     clearCollab(s.id);
+    setSessionMembers(agents.filter((agent) => selectedIds.includes(agent.id)));
+    setSessionMembersLoading(false);
   };
 
   const handleDeleteSession = async (id: string) => {
@@ -653,6 +682,7 @@ export function useWorkspaceRuntime() {
     sessionsLoading,
     sessionHydrating,
     sessionMembers,
+    sessionMembersLoading,
     currentAgent,
     currentMode,
     setSidebarTab,

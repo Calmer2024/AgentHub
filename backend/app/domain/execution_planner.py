@@ -3,12 +3,12 @@
 Domain 层纯逻辑，零框架依赖。
 
 模式决策优先级链:
-  1. supplemental=True → mode="single|parallel" (只补充被点名/缺失 Agent)
+  1. supplemental=True → mode="single|serial" (只补充被点名/缺失 Agent)
   2. chain_config 存在 → mode="chain"
   3. is_chain(content) AND agents >= 2 → mode="dag" (自动 DAG)
   4. is_complex(content) AND agents >= 2 → mode="dag" + decompose
   5. len(agents) == 1 → mode="single"
-  6. len(agents) >= 2 → mode="parallel" (all primary)
+  6. len(agents) >= 2 → mode="serial" (all primary)
 """
 
 from dataclasses import dataclass, field
@@ -47,7 +47,7 @@ class ChainConfig:
 @dataclass
 class ExecutionPlan:
     """执行计划。"""
-    mode: str                            # "single" | "parallel" | "chain" | "dag"
+    mode: str                            # "single" | "serial" | "chain" | "dag"
     calls: list[AgentCall]
     decomposer_used: bool = False
     chain_auto_triggered: bool = False   # 是否为自动触发的链式
@@ -112,7 +112,7 @@ class ExecutionPlanner:
         agents: list[AgentConfig], messages: list[dict],
     ) -> ExecutionPlan:
         return ExecutionPlan(
-            mode="single" if len(agents) == 1 else "parallel",
+            mode="single" if len(agents) == 1 else "serial",
             calls=[
                 AgentCall(agent=a, task="primary", role="executor",
                           input_messages=list(messages))
@@ -227,7 +227,7 @@ class ExecutionPlanner:
             DAGPhase(
                 phase=idx,
                 calls=phase_map[idx],
-                mode="parallel" if len(phase_map[idx]) > 1 else "serial",
+                mode="serial",
             )
             for idx in sorted(phase_map)
         ]
