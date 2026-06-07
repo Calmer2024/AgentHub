@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
   AlertCircle, CheckCircle2, ChevronDown, ChevronRight,
   Clock3, Code2, FileCode2, FolderOpen, Hammer, Info, Play,
@@ -27,6 +28,8 @@ const KIND_LABELS: Record<ExecutionTraceItem["kind"], string> = {
 
 const ACTION_LABELS: Record<string, string> = {
   start: "启动",
+  reuse: "复用",
+  recover: "恢复",
   complete: "完成",
   run: "执行",
   read: "读取",
@@ -81,6 +84,20 @@ export function ExecutionTracePanel({ trace, className = "" }: Props) {
     }
   }, [items.length, isRunning, open]);
 
+  useEffect(() => {
+    if (!fullscreenOpen || typeof document === "undefined") return;
+    const previousOverflow = document.body.style.overflow;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setFullscreenOpen(false);
+    };
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [fullscreenOpen]);
+
   const stats = useMemo(() => traceStats(items), [items]);
   const summary = useMemo(() => {
     if (!trace) return "";
@@ -92,9 +109,50 @@ export function ExecutionTracePanel({ trace, className = "" }: Props) {
 
   if (!trace || items.length === 0) return null;
 
+  const fullscreenDialog = fullscreenOpen && typeof document !== "undefined"
+    ? createPortal(
+      <div
+        className="agenthub-backdrop fixed inset-0 z-[1400] flex items-stretch justify-center p-2 md:p-4"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="execution-trace-fullscreen-title"
+        onClick={() => setFullscreenOpen(false)}
+      >
+        <div
+          className="agenthub-modal agenthub-modal-pop flex h-full w-full max-w-[1280px] flex-col overflow-hidden rounded-3xl border"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="flex min-w-0 items-center gap-3 border-b px-4 py-3" style={{ borderColor: "var(--ah-border)" }}>
+            <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border ${statusFrame(trace.status)}`}>
+              {statusIcon(trace.status)}
+            </span>
+            <div className="min-w-0 flex-1">
+              <h2 id="execution-trace-fullscreen-title" className="agenthub-strong truncate text-base font-semibold">执行过程</h2>
+              <p className="agenthub-muted mt-0.5 truncate text-xs">{summary}</p>
+            </div>
+            <TraceBadges items={items} />
+            <button
+              type="button"
+              onClick={() => setFullscreenOpen(false)}
+              className="agenthub-icon-button inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
+              aria-label="关闭执行过程全屏"
+              title="关闭"
+            >
+              <X size={16} />
+            </button>
+          </div>
+          <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden p-3 md:p-4">
+            <TraceTimeline items={items} isRunning={isRunning} />
+          </div>
+        </div>
+      </div>,
+      document.body,
+    )
+    : null;
+
   return (
-    <section className={`agenthub-card mt-3 overflow-hidden rounded-2xl border ${className}`}>
-      <div className="flex w-full items-center gap-3 px-3 py-2.5">
+    <section className={`agenthub-card mt-3 min-w-0 max-w-full overflow-hidden rounded-2xl border ${className}`}>
+      <div className="flex w-full min-w-0 items-center gap-3 px-3 py-2.5">
         <button
           type="button"
           onClick={() => setManualOpen(!open)}
@@ -108,7 +166,7 @@ export function ExecutionTracePanel({ trace, className = "" }: Props) {
             <span>执行过程</span>
             {trace.agentName && <span className="agenthub-faint font-normal">{trace.agentName}</span>}
             {isRunning && (
-              <span className="agenthub-status-info inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px]">
+            <span className="agenthub-status-info inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px]">
                 <SquareActivity size={10} className="animate-pulse" aria-hidden="true" />
                 运行中
               </span>
@@ -134,47 +192,20 @@ export function ExecutionTracePanel({ trace, className = "" }: Props) {
 
       {open && (
         <div className="border-t px-3 py-3" style={{ borderColor: "var(--ah-border)" }}>
-          <div ref={traceScrollRef} className="max-h-96 overflow-y-auto overscroll-contain pr-1">
+          <div ref={traceScrollRef} className="max-h-96 min-w-0 overflow-y-auto overflow-x-hidden overscroll-contain pr-1">
             <TraceTimeline items={items} isRunning={isRunning} />
           </div>
         </div>
       )}
 
-      {fullscreenOpen && (
-        <div className="agenthub-backdrop fixed inset-0 z-[1100] flex items-center justify-center p-4">
-          <div className="agenthub-modal agenthub-modal-pop h-[min(92dvh,900px)] w-[min(1120px,96vw)] overflow-hidden rounded-3xl border">
-            <div className="flex items-center gap-3 border-b px-4 py-3" style={{ borderColor: "var(--ah-border)" }}>
-              <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border ${statusFrame(trace.status)}`}>
-                {statusIcon(trace.status)}
-              </span>
-              <div className="min-w-0 flex-1">
-                <h2 className="agenthub-strong truncate text-base font-semibold">执行过程</h2>
-                <p className="agenthub-muted mt-0.5 truncate text-xs">{summary}</p>
-              </div>
-              <TraceBadges items={items} />
-              <button
-                type="button"
-                onClick={() => setFullscreenOpen(false)}
-                className="agenthub-icon-button inline-flex h-9 w-9 items-center justify-center rounded-full"
-                aria-label="关闭执行过程全屏"
-                title="关闭"
-              >
-                <X size={16} />
-              </button>
-            </div>
-            <div className="h-[calc(100%-65px)] overflow-y-auto p-4">
-              <TraceTimeline items={items} isRunning={isRunning} />
-            </div>
-          </div>
-        </div>
-      )}
+      {fullscreenDialog}
     </section>
   );
 }
 
 function TraceTimeline({ items, isRunning }: { items: ExecutionTraceItem[]; isRunning: boolean }) {
   return (
-    <ol className="relative space-y-2 before:absolute before:left-[14px] before:top-2 before:h-[calc(100%-1rem)] before:w-px before:bg-[color:var(--ah-border)]">
+    <ol className="relative min-w-0 space-y-2 before:absolute before:left-[14px] before:top-2 before:h-[calc(100%-1rem)] before:w-px before:bg-[color:var(--ah-border)]">
       {items.map((item, index) => (
         <TraceRow
           key={item.id}
@@ -228,13 +259,13 @@ function TraceRow({
   const output = item.output || item.stderr || null;
 
   return (
-    <li className="relative pl-8">
+    <li className="relative min-w-0 pl-8">
       <span className={`agenthub-card absolute left-0 top-1 flex h-7 w-7 items-center justify-center rounded-full border ${dotStyle(item, level)} ${
         isRunning ? "shadow-[0_0_0_4px_var(--ah-accent-soft)]" : ""
       }`}>
         {kindIcon(item)}
       </span>
-      <article className={`rounded-[10px] border px-3 py-2.5 ${LEVEL_STYLE[level] ?? LEVEL_STYLE.info} ${isLast ? "shadow-[0_0_0_1px_rgba(255,255,255,0.02)]" : ""}`}>
+      <article className={`min-w-0 max-w-full rounded-[10px] border px-3 py-2.5 ${LEVEL_STYLE[level] ?? LEVEL_STYLE.info} ${isLast ? "shadow-[0_0_0_1px_rgba(255,255,255,0.02)]" : ""}`}>
         <header className="flex min-w-0 items-start gap-2">
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-1.5">
@@ -270,7 +301,7 @@ function TraceRow({
         )}
 
         {item.command && (
-          <pre className="agenthub-code-surface mt-2 overflow-x-auto rounded-md border px-2.5 py-2 font-mono text-[11px] leading-5">
+          <pre className="agenthub-code-surface mt-2 max-h-36 w-full max-w-full overflow-auto rounded-md border px-2.5 py-2 font-mono text-[11px] leading-5">
             {item.command}
           </pre>
         )}

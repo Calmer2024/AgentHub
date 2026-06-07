@@ -71,6 +71,8 @@
   --ah-diff-hunk-bg: rgb(158 197 255 / 0.12);
   --ah-highlight-bg: rgb(255 255 255 / 0.12);
   --ah-highlight-text: #ffffff;
+  --ah-scrollbar-thumb: color-mix(in srgb, var(--ah-muted) 42%, transparent);
+  --ah-scrollbar-thumb-hover: color-mix(in srgb, var(--ah-text) 58%, transparent);
   --ah-shadow: 0 28px 70px rgb(0 0 0 / 0.38);
   --ah-card-radius: 22px;
   --ah-panel-radius: 26px;
@@ -144,6 +146,8 @@
   --ah-diff-hunk-bg: #ffffff;
   --ah-highlight-bg: #ffffff;
   --ah-highlight-text: #10131a;
+  --ah-scrollbar-thumb: rgb(218 223 231 / 0.58);
+  --ah-scrollbar-thumb-hover: rgb(199 206 218 / 0.72);
   --ah-nav-active-bg: #ffffff;
   --ah-nav-active-border: #e8e9ed;
   --ah-nav-active-shadow: 0 8px 18px rgb(24 34 50 / 0.08);
@@ -152,6 +156,14 @@
   --ah-left-cluster-border: #e8e9ed;
   --ah-left-cluster-shadow: 0 14px 34px rgb(24 34 50 / 0.08);
   --ah-nested-panel-bg: #ffffff;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
 }
 
 body {
@@ -213,15 +225,18 @@ body {
   transition: background 260ms ease, color 180ms ease;
   gap: 10px;
   padding: 10px;
+  overflow-x: hidden;
 }
 
 .agenthub-left-cluster {
   min-height: 0;
+  min-width: 0;
   gap: 10px;
 }
 
 .agenthub-session-nest {
   min-height: 0;
+  min-width: 0;
 }
 
 .agenthub-rail {
@@ -241,6 +256,7 @@ body {
 }
 
 .agenthub-chat {
+  min-width: 0;
   background: var(--ah-chat-bg);
   border: 1px solid var(--ah-border);
   border-radius: var(--ah-panel-radius);
@@ -298,6 +314,7 @@ body {
 }
 
 .agenthub-message-area {
+  overflow-x: hidden;
   background: var(--ah-chat-bg);
 }
 
@@ -422,6 +439,40 @@ body {
 
 .agenthub-nav-idle:hover {
   background: var(--ah-panel-muted);
+}
+
+.agenthub-expand-scroll {
+  min-width: 0;
+  overflow-x: hidden;
+}
+
+.agenthub-expand-scroll-open {
+  max-height: min(34dvh, 280px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+}
+
+.agenthub-expand-scroll-friends.agenthub-expand-scroll-open {
+  max-height: min(26dvh, 220px);
+}
+
+.agenthub-expand-scroll-projects.agenthub-expand-scroll-open {
+  max-height: min(34dvh, 300px);
+}
+
+.agenthub-expand-button {
+  color: color-mix(in srgb, var(--ah-muted) 64%, transparent);
+  font-weight: 400;
+}
+
+.agenthub-expand-button:hover {
+  background: var(--ah-panel-muted);
+  color: var(--ah-muted);
+}
+
+.agenthub-expand-count {
+  color: color-mix(in srgb, var(--ah-faint) 58%, transparent);
 }
 
 .agenthub-bubble-agent {
@@ -641,6 +692,7 @@ body {
 .agenthub-skeleton {
   background: linear-gradient(90deg, transparent, var(--ah-panel-muted), transparent);
   border-color: var(--ah-border);
+  animation: agenthub-slide-in 160ms ease-out both;
 }
 
 .agenthub-code-surface {
@@ -772,7 +824,7 @@ body {
 * {
   box-sizing: border-box;
   scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--ah-muted) 42%, transparent) transparent;
+  scrollbar-color: var(--ah-scrollbar-thumb) transparent;
 }
 
 *::-webkit-scrollbar {
@@ -788,11 +840,11 @@ body {
   min-height: 40px;
   border: 2px solid transparent;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--ah-muted) 42%, transparent) padding-box;
+  background: var(--ah-scrollbar-thumb) padding-box;
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background: color-mix(in srgb, var(--ah-text) 58%, transparent) padding-box;
+  background: var(--ah-scrollbar-thumb-hover) padding-box;
 }
 
 *::-webkit-scrollbar-corner {
@@ -804,6 +856,7 @@ body {
   font-size: 0.925rem;
   line-height: 1.72;
   overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .agent-markdown > :first-child {
@@ -889,8 +942,11 @@ body {
 
 .agent-markdown pre {
   margin: 0.85rem 0;
+  width: 100%;
   max-width: 100%;
-  overflow: auto;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: auto;
   border: 1px solid var(--ah-code-border);
   border-radius: 14px;
   background: var(--ah-code-bg);
@@ -900,11 +956,16 @@ body {
   border: 0;
   background: transparent;
   padding: 0;
+  white-space: pre;
+  overflow-wrap: normal;
+  word-break: normal;
 }
 
 .agent-markdown .agenthub-code-block {
   margin: 0.85rem 0;
+  width: 100%;
   max-width: 100%;
+  min-width: 0;
   overflow: auto;
   border: 1px solid var(--ah-code-border);
   border-radius: 18px;
@@ -925,6 +986,7 @@ body {
 
 .agent-markdown table {
   display: block;
+  width: 100%;
   max-width: 100%;
   margin: 0.85rem 0;
   overflow: auto;

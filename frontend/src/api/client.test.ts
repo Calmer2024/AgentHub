@@ -46,6 +46,57 @@ describe("createChatStream", () => {
     expect(onDone).toHaveBeenCalledWith(undefined, undefined);
   });
 
+  it("群聊完成后继续读取会话标题更新事件", async () => {
+    const onDone = vi.fn();
+    const onSessionTitleUpdated = vi.fn();
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(sseResponse([
+      JSON.stringify({ type: "orchestrator.task_completed", summary: "done" }),
+      JSON.stringify({
+        type: "session.title_updated",
+        sessionId: "s1",
+        session: {
+          id: "s1",
+          title: "登录页优化",
+          mode: "group",
+          projectId: "p1",
+          agentConfigId: null,
+          createdAt: "2026-06-07T12:00:00+08:00",
+          updatedAt: "2026-06-07T12:01:00+08:00",
+        },
+      }),
+    ]));
+
+    createChatStream("s1", "hello", [], {
+      onToken: vi.fn(),
+      onDone,
+      onTaskCompleted: vi.fn(),
+      onSessionTitleUpdated,
+    });
+
+    await vi.waitFor(() => expect(onSessionTitleUpdated).toHaveBeenCalled());
+    expect(onDone).toHaveBeenCalledTimes(1);
+    expect(onSessionTitleUpdated.mock.calls[0][0]).toMatchObject({
+      id: "s1",
+      title: "登录页优化",
+      mode: "group",
+    });
+  });
+
+  it("没有任务完成回调时也会把群聊完成视为正常结束", async () => {
+    const onDone = vi.fn();
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(sseResponse([
+      JSON.stringify({ type: "orchestrator.task_completed", summary: "done" }),
+    ]));
+
+    createChatStream("s1", "hello", [], {
+      onToken: vi.fn(),
+      onDone,
+    });
+
+    await vi.waitFor(() => expect(onDone).toHaveBeenCalled());
+    expect(onDone).toHaveBeenCalledWith(undefined, undefined);
+  });
+
   it("从 task_started 读取后端生成的分工解释", async () => {
     const onTaskStarted = vi.fn();
     vi.spyOn(globalThis, "fetch").mockResolvedValue(sseResponse([
@@ -194,6 +245,37 @@ describe("createChatStream", () => {
 
     await vi.waitFor(() => expect(onToken).toHaveBeenCalled());
     expect(onToken).toHaveBeenCalledWith("OpenCode visible text");
+  });
+
+  it("把原生 engine session resume 显示为恢复会话而不是常驻进程", async () => {
+    const onTraceDelta = vi.fn();
+    const onProgress = vi.fn();
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(sseResponse([
+      JSON.stringify({
+        type: "agent.process.started",
+        agentName: "Claude Code",
+        messageId: "m1",
+        callKey: "agent:m1",
+        processId: "proc-2",
+        persistentProcess: false,
+        engineSessionMode: "resume",
+      }),
+      JSON.stringify({ token: "", done: true, messageId: "m1" }),
+    ]));
+
+    createChatStream("s1", "hello", [], {
+      onToken: vi.fn(),
+      onDone: vi.fn(),
+      onTraceDelta,
+      onProgress,
+    });
+
+    await vi.waitFor(() => expect(onTraceDelta).toHaveBeenCalled());
+    expect(onTraceDelta.mock.calls[0][1]).toMatchObject({
+      title: "恢复 Claude Code 会话",
+      persistentProcess: false,
+    });
+    expect(onProgress).toHaveBeenCalledWith("恢复 Claude Code 会话...");
   });
 });
 

@@ -28,9 +28,38 @@ import { WSClient } from "../api/wsClient";
 import { useChatStore } from "../stores/chatStore";
 import { useSessionStore } from "../stores/sessionStore";
 import type {
-  AgentConfig, ApprovalCheckpoint, Artifact, ExecutionTraceItem, ProjectCreateInput, RunRead, TaskRead,
+  AgentConfig, ApprovalCheckpoint, Artifact, ExecutionTraceItem, ProjectCreateInput, RunRead, Session, TaskRead,
 } from "../types";
 import { chinaNowIso, formatChinaDateTime } from "../utils/time";
+
+function sortSessionsForDisplay(items: Session[]) {
+  return [...items].sort((a, b) => {
+    const pinnedDelta = Number(Boolean(b.isPinned)) - Number(Boolean(a.isPinned));
+    if (pinnedDelta !== 0) return pinnedDelta;
+    return Date.parse(b.updatedAt || "") - Date.parse(a.updatedAt || "");
+  });
+}
+
+function sessionFreshness(session: Session) {
+  const parsed = Date.parse(session.updatedAt || "");
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function mergeSessionsByFreshness(incoming: Session[], existing: Session[]) {
+  const byId = new Map<string, Session>();
+  incoming.forEach((session) => byId.set(session.id, session));
+  existing.forEach((local) => {
+    const current = byId.get(local.id);
+    if (!current || sessionFreshness(local) >= sessionFreshness(current)) {
+      byId.set(local.id, local);
+    }
+  });
+  return sortSessionsForDisplay([...byId.values()]);
+}
+
+const hasStoredProjectSessions = (projectId: string | null, cache: Record<string, Session[]>) => (
+  Boolean(projectId && Object.prototype.hasOwnProperty.call(cache, projectId))
+);
 
 export function useWorkspaceRuntime() {
   const currentSessionId = useChatStore((state) => state.currentSessionId);
@@ -73,10 +102,26 @@ export function useWorkspaceRuntime() {
   const projectRequestRef = useRef(0);
   const sessionRequestRef = useRef<Record<string, number>>({});
   const memberRequestRef = useRef(0);
+  const bootstrappedRef = useRef(false);
   const [sessionMembers, setSessionMembers] = useState<AgentConfig[]>([]);
   const [creatingProject, setCreatingProject] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [sessionHydrating, setSessionHydrating] = useState(false);
+
+  const replaceSessionEverywhere = useCallback((updated: Session, source = useSessionStore.getState().sessions) => {
+    const withoutUpdated = source.filter((session) => session.id !== updated.id);
+    const nextSessions = mergeSessionsByFreshness([updated, ...withoutUpdated], source);
+    if (updated.projectId) {
+      const cached = sessionsByProjectRef.current[updated.projectId] ?? source;
+      const withoutCachedUpdated = cached.filter((session) => session.id !== updated.id);
+      sessionsByProjectRef.current[updated.projectId] = mergeSessionsByFreshness(
+        [updated, ...withoutCachedUpdated],
+        cached,
+      );
+    }
+    setSessions(nextSessions);
+  }, [setSessions]);
 
   useEffect(() => {
     if (!currentSessionId) return;
@@ -95,6 +140,11 @@ export function useWorkspaceRuntime() {
       fetchArtifacts(eventSessionId)
         .then((artifacts) => setArtifactsForSession(eventSessionId, artifacts))
         .catch(() => {});
+    });
+    ws.on("session.title_updated", (data) => {
+      const session = normalizeSessionEvent(data.session);
+      if (!session) return;
+      replaceSessionEverywhere(session);
     });
     ws.on("run.status_changed", (data) => {
       const run = normalizeRunEvent(data.run);
@@ -188,6 +238,7 @@ export function useWorkspaceRuntime() {
     upsertRun,
     upsertTask,
     updateSession,
+    replaceSessionEverywhere,
   ]);
 
   useEffect(() => {
@@ -270,12 +321,16 @@ export function useWorkspaceRuntime() {
       if (requestId !== projectRequestRef.current || useSessionStore.getState().currentProjectId !== projectId) {
         return;
       }
-      sessionsByProjectRef.current[projectId] = loaded;
-      setSessions(loaded);
+      const merged = mergeSessionsByFreshness(
+        loaded,
+        sessionsByProjectRef.current[projectId] ?? useSessionStore.getState().sessions,
+      );
+      sessionsByProjectRef.current[projectId] = merged;
+      setSessions(merged);
       const activeSessionId = useChatStore.getState().currentSessionId;
-      const currentStillVisible = loaded.some((session) => session.id === activeSessionId);
+      const currentStillVisible = merged.some((session) => session.id === activeSessionId);
       if (!currentStillVisible) {
-        const first = loaded.find((session) => !session.archivedAt) ?? null;
+        const first = merged.find((session) => !session.archivedAt) ?? null;
         setCurrentSessionId(first?.id ?? null);
         if (first) {
           void hydrateSession(first.id);
@@ -302,6 +357,7 @@ export function useWorkspaceRuntime() {
   ]);
 
   const loadData = useCallback(async () => {
+    if (!bootstrappedRef.current) setInitialLoading(true);
     try {
       const [loadedProjects, loadedAgents] = await Promise.allSettled([
         fetchProjects(),
@@ -311,20 +367,51 @@ export function useWorkspaceRuntime() {
         setProjects(loadedProjects.value);
         const activeProjectId = useSessionStore.getState().currentProjectId;
         const nextProjectId = activeProjectId ?? loadedProjects.value[0]?.id ?? null;
-        if (nextProjectId !== activeProjectId) setCurrentProjectId(nextProjectId);
-        else if (activeProjectId) void loadSessionsForProject(activeProjectId);
+        const cached = hasStoredProjectSessions(nextProjectId, sessionsByProjectRef.current)
+          ? sessionsByProjectRef.current[nextProjectId as string]
+          : null;
+        if (cached && nextProjectId) {
+          setSessions(cached);
+          const activeSessionId = useChatStore.getState().currentSessionId;
+          const currentStillVisible = cached.some((session) => session.id === activeSessionId);
+          if (!currentStillVisible) {
+            const first = cached.find((session) => !session.archivedAt) ?? null;
+            setCurrentSessionId(first?.id ?? null);
+            if (first) {
+              resetSessionView(first.id);
+              void hydrateSession(first.id);
+            } else {
+              resetSessionView(null);
+            }
+          }
+          setSessionsLoading(false);
+        }
+        if (nextProjectId !== activeProjectId) {
+          setCurrentProjectId(nextProjectId);
+          setSessionsLoading(Boolean(nextProjectId && !cached));
+        } else if (activeProjectId && !cached && bootstrappedRef.current) {
+          void loadSessionsForProject(activeProjectId);
+        }
       }
       if (loadedAgents.status === "fulfilled") setAgents(loadedAgents.value);
     } catch { /* ignore bootstrap failures */ }
+    finally {
+      bootstrappedRef.current = true;
+      setInitialLoading(false);
+    }
   }, [
+    hydrateSession,
     loadSessionsForProject,
     setAgents,
     setCurrentProjectId,
+    setCurrentSessionId,
     setProjects,
+    setSessions,
+    resetSessionView,
   ]);
 
   useEffect(() => { loadData(); }, [loadData]);
-  useEffect(() => { loadSessionsForProject(currentProjectId); }, [currentProjectId, loadSessionsForProject]);
+  useEffect(() => { void loadSessionsForProject(currentProjectId); }, [currentProjectId, loadSessionsForProject]);
 
   const handleSelectSession = async (id: string) => {
     if (id === useChatStore.getState().currentSessionId) return;
@@ -334,13 +421,7 @@ export function useWorkspaceRuntime() {
     void hydrateSession(id);
     void markSessionRead(id)
       .then((updated) => {
-        updateSession(updated);
-        if (updated.projectId) {
-          const cached = sessionsByProjectRef.current[updated.projectId] ?? sessions;
-          sessionsByProjectRef.current[updated.projectId] = cached.map((session) => (
-            session.id === updated.id ? updated : session
-          ));
-        }
+        replaceSessionEverywhere(updated);
       })
       .catch(() => {});
 
@@ -513,37 +594,21 @@ export function useWorkspaceRuntime() {
 
   const handleRenameSession = async (id: string, title: string) => {
     const renamed = await renameSession(id, title);
-    updateSession(renamed);
-    if (renamed.projectId) {
-      const cached = sessionsByProjectRef.current[renamed.projectId] ?? sessions;
-      sessionsByProjectRef.current[renamed.projectId] = cached.map((session) => (
-        session.id === renamed.id ? renamed : session
-      ));
-    }
+    replaceSessionEverywhere(renamed);
   };
 
-  const sortSessions = (items: typeof sessions) => [...items].sort((a, b) => {
-    const pinnedDelta = Number(Boolean(b.isPinned)) - Number(Boolean(a.isPinned));
-    if (pinnedDelta !== 0) return pinnedDelta;
-    return Date.parse(b.updatedAt || "") - Date.parse(a.updatedAt || "");
-  });
-
   const replaceSessionInList = (updated: typeof sessions[number], source = sessions) => (
-    sortSessions(source.map((session) => session.id === updated.id ? updated : session))
+    sortSessionsForDisplay(source.map((session) => session.id === updated.id ? updated : session))
   );
 
   const handlePinSession = async (id: string, isPinned: boolean) => {
     const updated = await pinSession(id, isPinned);
-    const nextSessions = replaceSessionInList(updated);
-    if (updated.projectId) sessionsByProjectRef.current[updated.projectId] = nextSessions;
-    setSessions(nextSessions);
+    replaceSessionEverywhere(updated);
   };
 
   const handleMuteSession = async (id: string, isMuted: boolean) => {
     const updated = await muteSession(id, isMuted);
-    const nextSessions = replaceSessionInList(updated);
-    if (updated.projectId) sessionsByProjectRef.current[updated.projectId] = nextSessions;
-    setSessions(nextSessions);
+    replaceSessionEverywhere(updated);
   };
 
   const handleArchiveSession = async (id: string, archivedFlag = true) => {
@@ -584,6 +649,7 @@ export function useWorkspaceRuntime() {
     agents,
     sidebarTab,
     creatingProject,
+    initialLoading,
     sessionsLoading,
     sessionHydrating,
     sessionMembers,
@@ -681,6 +747,26 @@ function normalizeApprovalEvent(raw: unknown): ApprovalCheckpoint | null {
     createdAt: typeof data.createdAt === "string" ? data.createdAt : chinaNowIso(),
     decidedAt: typeof data.decidedAt === "string" ? data.decidedAt : null,
     metadata: isRecord(data.metadata) ? data.metadata : null,
+  };
+}
+
+function normalizeSessionEvent(raw: unknown): Session | null {
+  if (!raw || typeof raw !== "object") return null;
+  const data = raw as Record<string, unknown>;
+  if (typeof data.id !== "string" || typeof data.title !== "string") return null;
+  return {
+    id: data.id,
+    title: data.title,
+    projectId: typeof data.projectId === "string" ? data.projectId : null,
+    agentConfigId: typeof data.agentConfigId === "string" ? data.agentConfigId : null,
+    mode: data.mode === "group" ? "group" : "single",
+    isPinned: Boolean(data.isPinned),
+    archivedAt: typeof data.archivedAt === "string" ? data.archivedAt : null,
+    unreadCount: typeof data.unreadCount === "number" ? data.unreadCount : 0,
+    lastReadAt: typeof data.lastReadAt === "string" ? data.lastReadAt : null,
+    isMuted: Boolean(data.isMuted),
+    createdAt: typeof data.createdAt === "string" ? data.createdAt : chinaNowIso(),
+    updatedAt: typeof data.updatedAt === "string" ? data.updatedAt : chinaNowIso(),
   };
 }
 

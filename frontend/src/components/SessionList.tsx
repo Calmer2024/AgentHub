@@ -418,13 +418,13 @@ export function SessionList({
           <>
             {sessionGroups.archivedTotal > 0 && renderArchiveFolderButton()}
             {sessionGroups.pinned.length > 0 && (
-              <div className="agenthub-session-section-label px-2 pb-1 pt-1 text-[11px] font-semibold">
+              <div className="agenthub-session-section-label px-2 pb-1 pt-1 text-[11px] font-normal">
                 置顶
               </div>
             )}
             {sessionGroups.pinned.map((session) => renderSessionRow(session, "pinned"))}
             {sessionGroups.pinned.length > 0 && sessionGroups.regular.length > 0 && (
-              <div className="agenthub-session-section-label px-2 pb-1 pt-2 text-[11px] font-semibold">
+              <div className="agenthub-session-section-label px-2 pb-1 pt-2 text-[11px] font-normal">
                 最近对话
               </div>
             )}

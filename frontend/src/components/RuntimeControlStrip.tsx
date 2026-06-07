@@ -48,7 +48,7 @@ export function RuntimeControlStrip({ run, tasks = [], onCancel, cancelling }: P
     ?? tasks[0];
 
   return (
-    <div className="agenthub-soft mt-3 flex min-h-9 items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs">
+    <div className="agenthub-soft mt-3 flex min-h-9 min-w-0 max-w-full items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs">
       <span className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${
         run.status === "failed" ? "text-[color:var(--ah-danger)]" : "agenthub-muted"
       }`}>

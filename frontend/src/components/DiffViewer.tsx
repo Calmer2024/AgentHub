@@ -93,7 +93,7 @@ function gutterClasses(type: DiffLineType) {
 export function DiffViewer({ diff, compact = false, title }: Props) {
   if (!diff) {
     return (
-      <div className="agenthub-code-surface overflow-hidden rounded-2xl border">
+      <div className="agenthub-code-surface min-w-0 max-w-full overflow-hidden rounded-2xl border">
         <div className="px-3 py-4 text-xs text-[color:var(--ah-code-muted)]">选择两个版本查看差异</div>
       </div>
     );
@@ -106,9 +106,9 @@ export function DiffViewer({ diff, compact = false, title }: Props) {
   const hiddenRows = rows.length - visibleRows.length;
 
   return (
-    <div className="agenthub-code-surface overflow-hidden rounded-2xl border text-xs shadow-[0_18px_45px_rgba(0,0,0,0.18)]">
-      <div className="agenthub-code-header flex items-center justify-between gap-3 border-b px-3 py-2">
-        <div className="min-w-0 font-medium">
+    <div className="agenthub-code-surface min-w-0 max-w-full overflow-hidden rounded-2xl border text-xs shadow-[0_18px_45px_rgba(0,0,0,0.18)]">
+      <div className="agenthub-code-header flex min-w-0 items-center justify-between gap-3 border-b px-3 py-2">
+        <div className="min-w-0 truncate font-medium">
           {title ?? `v${diff.fromVersion} → v${diff.toVersion}`}
         </div>
         <div className="flex shrink-0 items-center gap-2 font-mono text-[11px]">

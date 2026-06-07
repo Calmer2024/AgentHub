@@ -32,15 +32,15 @@ export function ApprovalCard({
 }: Props) {
   const pending = approval.status === "pending_review";
   return (
-    <div className="agenthub-status-warning mt-3 overflow-hidden rounded-2xl border">
-      <div className="flex items-center gap-2 border-b px-3 py-2 text-xs font-medium" style={{ borderColor: "var(--ah-border)" }}>
+    <div className="agenthub-status-warning mt-3 min-w-0 max-w-full overflow-hidden rounded-2xl border">
+      <div className="flex min-w-0 items-center gap-2 border-b px-3 py-2 text-xs font-medium" style={{ borderColor: "var(--ah-border)" }}>
         {iconFor(approval.status)}
-        <span>{approval.title}</span>
-        <span className="agenthub-muted ml-auto text-[11px]">{labelFor(approval.status)}</span>
+        <span className="min-w-0 flex-1 truncate">{approval.title}</span>
+        <span className="agenthub-muted shrink-0 text-[11px]">{labelFor(approval.status)}</span>
       </div>
       <div className="space-y-3 px-3 py-3">
         {approval.summary && (
-          <p className="text-xs leading-relaxed">{approval.summary}</p>
+          <p className="break-words text-xs leading-relaxed">{approval.summary}</p>
         )}
         {artifact ? (
           <button
@@ -59,7 +59,7 @@ export function ApprovalCard({
             </span>
           </button>
         ) : (
-          <div className="agenthub-soft inline-flex items-center gap-2 rounded-md border px-2.5 py-2 text-xs agenthub-muted">
+          <div className="agenthub-soft inline-flex max-w-full items-center gap-2 rounded-md border px-2.5 py-2 text-xs agenthub-muted">
             <FileSearch size={14} aria-hidden="true" />
             <span>无关联产物，可基于摘要审批</span>
           </div>
@@ -86,7 +86,7 @@ export function ApprovalCard({
             </button>
           </div>
         ) : approval.reason ? (
-          <div className="agenthub-soft rounded-md border px-2.5 py-2 text-xs">
+          <div className="agenthub-soft break-words rounded-md border px-2.5 py-2 text-xs">
             {approval.reason}
           </div>
         ) : null}
