@@ -1,8 +1,8 @@
 # Phase 7 Dev Log
 
 **日期**: 2026-06-06 ~ 2026-06-07
-**阶段**: Phase 7A-7D
-**状态**: 7A 运行任务可控性、7B 人工审批断点、7C 环境体检实现基线已通过人工验收；7D 已完成 IM 基线、明亮主题与 v1.0 UI 加固，真实 Claude Code E2E 脚本仍待沉淀
+**阶段**: Phase 7A-7F
+**状态**: 7A 运行任务可控性、7B 人工审批断点、7C 环境体检实现基线已通过人工验收；7D 已完成 IM 基线、明亮主题与 v1.0 UI 加固；7E 已落地 Claude Code / Codex / OpenCode Engine Session Adapter 闭环；7F 已落地 Claude Code stdin JSONL 常驻进程与 Codex MCP / OpenCode ACP 常驻 RPC 基线，真实 CLI E2E 脚本仍待沉淀
 
 ---
 
@@ -74,6 +74,32 @@
 - `docs/deliverables/phase7-im-hardening/acceptance-log.md`
 - `docs/specs/phase7/04-mvp-demo-ux-hardening.md`
 
+## 2.3 7E CLI Engine Session 复用与适配器策略
+
+2026-06-07 针对“单 Agent 私聊没有充分利用底层 CLI 自己的会话/缓存能力”的问题，完成后端最小闭环，并反思上一轮把 Claude Code 特性写成公共布尔开关的设计过浅：
+
+- 新增 `engine_sessions` 表与 `EngineSession` 模型，显式保存 `session_id / agent_config_id / cli_tool / workspace_path / engine_session_id`。
+- `CliAgentAdapter` 新增 `EngineSessionResumePolicy`，由各 Adapter 声明自己的原生命令策略、首轮启动策略、session id 来源和是否支持调用方指定 ID；公共层只负责 invocation 决策、持久化与可观测性。
+- Claude Code 改为吃满原生 `--session-id <uuid>`：首轮由 AgentHub 分配稳定 UUID 并传入 Claude Code，后续通过 `engine_sessions -> claude --resume <session_id>` 复用。即使 Claude result 未返回 `session_id` metadata，成功完成后也会用 AgentHub 分配的 ID 兜底持久化；同时规范化 `claude -p --output-format stream-json` 参数，避免误带 `--no-session-persistence`。
+- Codex 使用 `thread/session JSON event -> engine_sessions -> codex exec resume <session_id> -`，并过滤只属于 `codex exec` 的参数，保留 config/json/审批类 resume 可用参数。
+- OpenCode 使用 `session JSON event -> engine_sessions -> opencode run --session <session_id>`，并清理旧的 `--continue / --session` 参数，避免 session id 被误当成用户 prompt。
+- 单聊第二轮起若存在 active engine session，则进入 resume 模式；此时不再重复灌完整 AgentHub transcript，只发送当前轮、引用和 Pin 等显式上下文，避免底层 CLI 已有会话记忆与 AgentHub 历史拼接重复。
+- 每条 Agent 消息 metadata 会记录 `engineSessionPolicy` 与 `engineSession`，便于审计某轮是否使用 CLI 原生会话能力、使用的策略和捕获来源。
+- 群聊 DAG task 仍保持任务包隔离，避免不同任务共享隐式私聊记忆。
+- 自动化覆盖 Claude/Codex/OpenCode 参数规范化、session metadata 捕获、三家两轮单聊复用和迁移表存在性；真实 CLI E2E 仍需补脚本验收。
+
+## 2.4 7F Claude Code 常驻进程运行时
+
+2026-06-07 针对“仅靠 `--resume` 仍然是每轮短进程 invocation，不是真正长连接”的问题，完成运行时层重构：
+
+- 新增 `CliSessionProcessRuntime`，专门管理一会话一常驻 CLI 子进程，维护 stdin/stdout/stderr pump、per-session turn lock、turn line buffer 和进程 snapshot。
+- `CliProcessManager` 回归短进程职责，只负责一次性 subprocess lifecycle；常驻进程状态不再混在短进程管理器内部。
+- 新增 `cli_runtime_registry` 作为上层统一门面，`reply/terminate/terminate_session/active_snapshots` 同时覆盖短进程和常驻进程；`RunService`、环境体检、交互回复 API、调度取消均改走该门面。
+- Claude Code Adapter 的常驻路径改为 `claude -p --output-format stream-json --input-format stream-json`，每轮 prompt 渲染为 Claude SDK user message JSONL，读取到 `type=result` 后产出 `agent.process.turn_completed`，进程继续保留。
+- 同一 AgentHub session 的并发 turn 通过 session lock 串行化，避免两个用户请求交错写入同一个 stdin；不同 AgentHub session 仍使用不同子进程，互不共享状态。
+- 如果常驻子进程已退出，下一轮会清理旧 handle、重启新进程并标记 `recovered=true`；当前不承诺恢复崩溃前未完成的半轮输出。
+- 新增 [06-cli-session-process-runtime.md](../specs/phase7/06-cli-session-process-runtime.md)，把常驻进程模式、取消、交互提示、恢复和非目标写成正式规格。
+
 ## 3. 关键决策
 
 - run/task/process 属于运行时控制层，不放进 ArtifactService，也不只保存在前端 streaming boolean。
@@ -82,7 +108,17 @@
 - 环境体检是当前本机状态快照，不写入数据库；任何敏感配置只返回布尔或状态摘要。
 - Phase 7D 的 IM 能力必须尽量落到真实 API/数据库状态，不能只做前端装饰；Reply/Pin 继续保留真实 Agent 上下文注入。
 - 明亮主题的辅色基线改为纯白，彩色只保留在读者需要区分信息层级的可视化卡片中。
-- Phase 7D 真实 cc 演示脚本、UI 截图审计和 Store 进一步按领域拆分仍是 v1.0 后续风险项，不阻塞已完成的 IM 基线说明。
+- Engine resume 和 Session Process Runtime 是 Adapter 能力，不是 AgentHub 协作正确性的基础；单聊可用 Claude Code 自己的会话记忆和常驻进程，群聊仍优先依赖显式 task package、workspace 文件和可审计消息。
+
+### 2.4.1 Claude Code 物理常驻复核
+
+2026-06-07 后续用本机 `claude.exe -p --verbose --input-format stream-json --output-format stream-json --session-id <uuid>` 做双 turn 探针：首轮写入 SDK user message JSONL，读取 `type=result` 后不关闭 stdin，再写第二轮 user message；同一进程产出第二个 `type=result`。据此恢复 Claude Code 会话级常驻能力：
+
+- Claude Code 使用 `--session-id <uuid>` 绑定底层原生 Engine session，同时由 `CliSessionProcessRuntime` 保持同一个 `claude -p` 进程。
+- 同一 AgentHub 私聊第二轮命中同一个 `processId`，`agent.process.started` metadata 标记 `persistentProcess=true/reused=true`，不再再次 spawn Claude Code。
+- 如果常驻进程已退出，下一轮会用已有 `engine_sessions.engine_session_id` 与 `--resume <session_id>` 拉起新进程，并标记 `recovered=true`。
+- Codex `mcp-server` 与 OpenCode `acp` 的 JSON-RPC 常驻运行时保持不变；三家 CLI 的常驻协议不同，但业务层统一通过 `cli_runtime_registry` 观察、回复和终止。
+- Phase 7D-7F 真实 CLI 演示脚本、UI 截图审计、Context Pack Builder 和 Store 进一步按领域拆分仍是 v1.0 后续风险项，不阻塞已完成的 IM/Engine Session/Session Process 基线说明。
 
 ## 4. 验证状态
 
@@ -117,6 +153,16 @@
   - 右键菜单、转发和多选入口。
 - `frontend/src/components/MessageBubble.test.tsx`
   - 气泡右键菜单、多选控件、完整时间戳和 Agent 名称样式。
+- `backend/test_unit/test_cli_adapter_runtime.py`
+  - Claude Code 参数规范化、首轮 `--session-id` 绑定、`--resume` 参数清理、`result.session_id` 元数据捕获；
+  - Codex `exec resume <session_id> -` 参数迁移、thread/session metadata 捕获；
+  - OpenCode `run --session <session_id>` 参数清理、session metadata 捕获；
+  - fixture subprocess 验证常驻进程同 session 复用、不同 session 隔离、子进程死亡后下一轮恢复、同 session 并发 turn 串行化、交互式 stdin 回写。
+- `backend/test_api/test_chat.py`
+  - Claude Code 首轮使用 AgentHub 分配的 `engine_session_id`，Codex / OpenCode 第一轮捕获 engine session，第二轮复用 `engine_session_id` 并只发送当前轮增量上下文。
+  - Claude Code 没有返回 result metadata 时，成功路径仍会持久化 AgentHub 分配的 session id 并进入第二轮 resume。
+- `backend/test_unit/test_migration_runner.py`
+  - `engine_sessions` 迁移表存在性。
 
 本轮验证命令：
 
@@ -124,6 +170,9 @@
 cd frontend; npx vitest run; npm run build
 cd backend; pytest test_api/test_phase7_runtime.py test_api/test_group_chat.py
 cd backend; pytest test_unit/test_orchestrator_summarizer.py
+cd backend; pytest test_unit/test_cli_adapter_runtime.py test_unit/test_migration_runner.py test_api/test_chat.py -q
+cd backend; python -m pytest test_unit/test_cli_adapter_runtime.py -q
+cd backend; python -m pytest test_api/test_chat.py -q
 ```
 
 7D 回归建议命令：
@@ -138,6 +187,8 @@ cd frontend; npx tsc --noEmit; npx vitest run; npm run build
 后续接手优先从这些文件开始：
 
 - `backend/app/services/run_service.py`
+- `backend/app/agents/cli_session_runtime.py`
+- `backend/app/agents/cli_runtime_registry.py`
 - `backend/app/services/approval_service.py`
 - `backend/app/services/system_health_service.py`
 - `backend/app/services/single_cli_chat_stream.py`
@@ -154,4 +205,4 @@ cd frontend; npx tsc --noEmit; npx vitest run; npm run build
 - `backend/app/services/session_service.py`
 - `docs/deliverables/phase7-im-hardening/README.md`
 
-Phase 7D 的下一步是把真实 Claude Code 演示脚本、截图审计和完整回归矩阵补齐，并继续评估是否将会话 IM 状态从现有 runtime hook 中拆入独立 store。
+Phase 7F 之后的下一步是把真实 Claude Code 演示脚本、截图审计和完整回归矩阵补齐，并继续推进 Context Pack Builder 与 Store 领域拆分；常驻进程真实长跑验收应单独记录。

@@ -184,7 +184,7 @@ interface InteractivePromptEvent {
 
 ### 5.0 核心概念
 
-**Engine ≠ Agent Profile**。本模块负责接入用户本机安装的实际 CLI 工具实例（如 `claude`、`codex`、`opencode`），它们是 Engine。用户真正看到和调度的是 Agent Profile，例如“前端专家 = Claude Code Engine + frontend_engineer Skill”。用户打开一个私聊对话时，后端会为该 Agent Profile 启动对应 Engine 的一个 CLI 进程。对话结束 = 该进程退出。不同对话之间的 CLI 进程互不共享状态。
+**Engine ≠ Agent Profile**。本模块负责接入用户本机安装的实际 CLI 工具实例（如 `claude`、`codex`、`opencode`），它们是 Engine。用户真正看到和调度的是 Agent Profile，例如“前端专家 = Claude Code Engine + frontend_engineer Skill”。用户打开一个私聊对话时，后端会为该 Agent Profile 启动对应 Engine 的 CLI 执行单元。执行单元生命周期由 Adapter 能力决定：短进程 Adapter 在本轮对话结束后退出；Claude Code 当前由 `CliSessionProcessRuntime` 维护一会话一常驻 stdin JSONL 进程，并通过 `--session-id` / 崩溃恢复时的 `--resume` 绑定同一个原生会话；Codex/OpenCode 当前由 `CliRpcSessionRuntime` 维护一会话一常驻 RPC 进程。不同 AgentHub 会话之间的 CLI 进程或 Engine session 互不共享状态。
 
 **好友列表**位于项目栏顶部（见 [00-workspace-runtime.md](00-workspace-runtime.md) §5.0 全局布局），展示已配置的 Agent Profile。每个 Agent Profile 显示：用户定义名称 + Engine + Skill 摘要 + 状态。
 

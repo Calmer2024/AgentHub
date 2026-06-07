@@ -70,7 +70,7 @@ AgentHub/
 | Phase 4 | 消息交互闭环（Reply/Regenerate/Pin/Search） | ✅ 已完成 |
 | Phase 5 | 产物工作台能力（版本链 + Diff + 在线编辑） | ✅ 已完成 |
 | Phase 6 | Workspace Runtime + CLI Agent 适配器 + 产物入口桥接 | ✅ 核心闭环验收通过 |
-| Phase 7 | 任务可控性 + 审批 + 环境体检 + IM 体验 + 演示闭环 | 🚧 7A-7C 验收通过，7D IM 基线与 UI 加固已实现，真实 cc 脚本待补 |
+| Phase 7 | 任务可控性 + 审批 + 环境体检 + IM 体验 + 演示闭环 | 🚧 7A-7D 验收基线已完成，7E Engine Session 已实现；7F 已接入 Claude Code stdin JSONL 常驻进程与 Codex/OpenCode 常驻 RPC，真实 CLI 脚本待补 |
 
 ### Phase 4 能力
 
@@ -91,7 +91,7 @@ AgentHub/
 | DeepSeek system model tool calling + 上下文降级 | ✅ |
 | ArtifactService 接入 EventBus (`artifact.created` / `artifact.version_created`) | ✅ |
 
-Phase 5 的边界也已经在文档中明确：它完成的是“对已有 Artifact 的工作台能力”。Phase 6 已补齐 Project-first workspace runtime、真实 CLI 执行和 Artifact Bridge：CLI 产物会以消息下方卡片出现，并可继续编辑、引用和版本管理。Phase 7 已完成运行取消/恢复、审批卡片、环境体检、IM 会话基线和 v1.0 UI 加固，后续继续补真实演示脚本和完整回归矩阵。
+Phase 5 的边界也已经在文档中明确：它完成的是“对已有 Artifact 的工作台能力”。Phase 6 已补齐 Project-first workspace runtime、真实 CLI 执行和 Artifact Bridge：CLI 产物会以消息下方卡片出现，并可继续编辑、引用和版本管理。Phase 7 已完成运行取消/恢复、审批卡片、环境体检、IM 会话基线、v1.0 UI 加固、Engine Session Adapter，以及 Claude Code / Codex / OpenCode 单聊一会话一常驻进程基线；后续继续补真实演示脚本和完整回归矩阵。
 
 ### Phase 6 能力
 
@@ -118,6 +118,9 @@ Phase 5 的边界也已经在文档中明确：它完成的是“对已有 Artif
 | 消息右键菜单、转发、多选、完整时间戳 | ✅ |
 | 明亮主题纯白辅色、圆角卡片布局、输入框外层透明 | ✅ |
 | 执行过程全屏查看 | ✅ |
+| Claude Code / Codex / OpenCode Engine Session Adapter | ✅ |
+| Claude Code 单聊一会话一常驻 stdin JSONL 进程 | ✅ |
+| Codex / OpenCode 单聊一会话一常驻 RPC 进程 | ✅ |
 | 真实 Claude Code 完整 E2E 演示脚本 | 🚧 |
 
 ## 测试
@@ -179,7 +182,7 @@ cd frontend && npx vitest run src/components/ChatWindow.test.tsx src/stores/chat
 | PRD/Spec 覆盖审计 | [docs/audit/prd-spec-coverage-audit.md](docs/audit/prd-spec-coverage-audit.md) |
 | Phase 5 产物工作台能力 | [docs/specs/phase5/README.md](docs/specs/phase5/README.md) |
 | Phase 6 Workspace + CLI + 产物入口桥接 | [docs/specs/phase6/README.md](docs/specs/phase6/README.md) |
-| Phase 7 MVP 演示闭环 | [docs/specs/phase7/README.md](docs/specs/phase7/README.md) |
+| Phase 7 MVP 演示闭环、Engine Session 与常驻进程 | [docs/specs/phase7/README.md](docs/specs/phase7/README.md) |
 | Phase 7 运行控制/审批/体检交付 | [docs/deliverables/phase7-runtime-control/README.md](docs/deliverables/phase7-runtime-control/README.md) |
 | Phase 7 IM 与 UI 加固交付 | [docs/deliverables/phase7-im-hardening/README.md](docs/deliverables/phase7-im-hardening/README.md) |
 | Orchestrator 设计 | [docs/specs/phase3/02-orchestrator/](docs/specs/phase3/02-orchestrator/) |

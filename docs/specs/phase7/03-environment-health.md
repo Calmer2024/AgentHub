@@ -138,7 +138,7 @@ interface SystemHealthRead {
 | `runtime.python` | 当前后端解释器或 `python --version` | 存在→ok；异常→error |
 | `workspace.path` | Project.workspace_path exists/is_dir/readable/writable | 不存在或不可写→blocking |
 | `system.deepseek` | `system_model_status()` | 未配置→warning，不阻断 CLI 对话 |
-| `process.active` | `cli_process_manager.active_snapshots(sessionId?)` | 有进程→info；异常残留→warning |
+| `process.active` | `cli_runtime_registry.active_snapshots(sessionId?)` | 有进程→info；异常残留→warning；同时覆盖短进程、Claude Code 会话级常驻 stdin JSONL 进程和 Codex/OpenCode 会话级常驻 RPC 进程 |
 
 ### 4.3 UX 六态覆盖
 
@@ -280,7 +280,7 @@ stores/
 | CodexLocalConfigService | status | 已就绪 |
 | ProjectService | project/workspace path | 已就绪 |
 | SystemLLMService | system_model_status | 已就绪 |
-| cli_process_manager | active_snapshots | 已就绪 |
+| cli_runtime_registry | active_snapshots | 已就绪，统一覆盖短进程、stdin JSONL 常驻进程和会话级常驻 RPC 进程 |
 
 ---
 
