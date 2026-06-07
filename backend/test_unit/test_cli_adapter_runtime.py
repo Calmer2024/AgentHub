@@ -1,4 +1,5 @@
 import asyncio
+import json
 import sys
 from pathlib import Path
 
@@ -6,7 +7,14 @@ import pytest
 
 from app.agents.cli_adapters import ClaudeCodeAdapter, CliAgentAdapter, CodexAdapter, OpenCodeAdapter
 from app.agents.cli_output_parser import CliOutputParser
-from app.agents.cli_runtime import CliProcessManager, PromptInterceptor, StreamSanitizer, cli_process_manager
+from app.agents.cli_rpc_session_runtime import (
+    CliRpcSessionConfig,
+    CliRpcSessionRuntime,
+    CliRpcTurnRequest,
+)
+from app.agents.cli_runtime import CliProcessManager, cli_process_manager
+from app.agents.cli_stream import PromptInterceptor, StreamSanitizer
+from app.agents.cli_session_runtime import CliSessionProcessConfig, CliSessionProcessRuntime
 from app.services.streaming_text import iter_stream_pieces
 from app.models import AgentConfig
 
@@ -94,6 +102,185 @@ def test_claude_build_prompt_preserves_agenthub_system_context():
     assert "[Primary Skill: grill-me]" in prompt
     assert "Agent Profile 身份" in prompt
     assert "User:\n哈喽，你是什么角色Agent？" in prompt
+
+
+def test_claude_invocation_normalizes_print_args_and_keeps_session_persistence():
+    adapter = ClaudeCodeAdapter()
+
+    args, stdin_prompt, close_stdin = adapter.prepare_invocation(
+        ["--no-session-persistence", "--output-format", "stream-json"],
+        "hello",
+    )
+
+    assert "-p" in args
+    assert "--verbose" in args
+    assert "--include-partial-messages" in args
+    assert "--no-session-persistence" not in args
+    assert args.count("--output-format") == 1
+    assert stdin_prompt == "hello"
+    assert close_stdin is True
+
+
+def test_claude_invocation_resumes_existing_engine_session():
+    adapter = ClaudeCodeAdapter()
+
+    args, _, _ = adapter.prepare_invocation(
+        ["-p", "--resume", "old-session", "--session-id", "old-id"],
+        "hello",
+        engine_session_id="engine-session-1",
+    )
+
+    assert "--resume" in args
+    assert args[args.index("--resume") + 1] == "engine-session-1"
+    assert "old-session" not in args
+    assert "--session-id" not in args
+    assert "-p" in args
+
+
+def test_claude_invocation_starts_with_agenthub_assigned_session_id():
+    adapter = ClaudeCodeAdapter()
+
+    args, stdin_prompt, close_stdin = adapter.prepare_invocation(
+        ["-p", "--resume", "old-session", "--session-id", "old-id"],
+        "hello",
+        engine_session_id="11111111-1111-4111-8111-111111111111",
+        engine_session_mode="start",
+    )
+
+    assert "--session-id" in args
+    assert args[args.index("--session-id") + 1] == "11111111-1111-4111-8111-111111111111"
+    assert "--resume" not in args
+    assert "old-session" not in args
+    assert "old-id" not in args
+    assert stdin_prompt == "hello"
+    assert close_stdin is True
+
+
+def test_claude_persistent_invocation_uses_streaming_input_jsonl():
+    adapter = ClaudeCodeAdapter()
+
+    assert adapter.supports_persistent_process is True
+    assert adapter.persistent_process_policy.protocol == "stdio_jsonl"
+
+    args, stdin_prompt = adapter.prepare_persistent_invocation(
+        [
+            "-p",
+            "--output-format",
+            "stream-json",
+            "--input-format",
+            "text",
+            "--session-id",
+            "old-id",
+        ],
+        "hello persistent",
+        engine_session_id="11111111-1111-4111-8111-111111111111",
+        engine_session_mode="start",
+    )
+    payload = json.loads(stdin_prompt)
+
+    assert "-p" in args
+    assert "--input-format" in args
+    assert args[args.index("--input-format") + 1] == "stream-json"
+    assert args.count("--input-format") == 1
+    assert "--output-format" in args
+    assert args[args.index("--output-format") + 1] == "stream-json"
+    assert "--session-id" in args
+    assert args[args.index("--session-id") + 1] == "11111111-1111-4111-8111-111111111111"
+    assert payload == {
+        "type": "user",
+        "message": {
+            "role": "user",
+            "content": [{"type": "text", "text": "hello persistent"}],
+        },
+    }
+    assert stdin_prompt.endswith("\n")
+
+
+def test_claude_persistent_turn_boundary_uses_result_event():
+    adapter = ClaudeCodeAdapter()
+
+    assert adapter.persistent_turn_completed('{"type":"assistant"}') is False
+    assert adapter.persistent_turn_completed('{"type":"result","session_id":"s1"}') is True
+    assert adapter.persistent_turn_completed("not json") is False
+
+
+def test_claude_invocation_resume_cleanup_preserves_following_flags():
+    adapter = ClaudeCodeAdapter()
+
+    args, _, _ = adapter.prepare_invocation(
+        ["-p", "--resume", "--verbose", "--continue"],
+        "hello",
+        engine_session_id="engine-session-1",
+    )
+
+    assert "--verbose" in args
+    assert "--continue" not in args
+    assert args[args.index("--resume") + 1] == "engine-session-1"
+
+
+def test_claude_result_captures_engine_session_metadata():
+    adapter = ClaudeCodeAdapter()
+
+    parsed = adapter.parse_json_event({
+        "type": "result",
+        "session_id": "engine-session-1",
+        "total_cost_usd": 0.01,
+        "duration_ms": 1234,
+        "num_turns": 2,
+    }, seen_text=True)
+
+    assert parsed[0].chunk_type == "metadata"
+    assert parsed[0].metadata["engineSessionId"] == "engine-session-1"
+    assert parsed[0].metadata["totalCostUsd"] == 0.01
+
+
+def test_codex_invocation_resumes_existing_engine_session():
+    adapter = CodexAdapter()
+
+    args, stdin_prompt, close_stdin = adapter.prepare_invocation(
+        [
+            "exec",
+            "-c",
+            'model="gpt-5.5"',
+            "--skip-git-repo-check",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "--color",
+            "never",
+            "--json",
+            "-",
+            "-C",
+            "D:/workspace",
+        ],
+        "hello codex",
+        engine_session_id="codex-session-1",
+    )
+
+    assert args[:2] == ["exec", "resume"]
+    assert args[-2:] == ["codex-session-1", "-"]
+    assert "--json" in args
+    assert "--skip-git-repo-check" in args
+    assert "--dangerously-bypass-approvals-and-sandbox" in args
+    assert "-c" in args
+    assert "--color" not in args
+    assert "never" not in args
+    assert "-C" not in args
+    assert "D:/workspace" not in args
+    assert stdin_prompt == "hello codex"
+    assert close_stdin is True
+
+
+def test_codex_thread_event_captures_engine_session_metadata():
+    adapter = CodexAdapter()
+
+    parsed = adapter.parse_json_event({
+        "type": "thread.started",
+        "thread_id": "codex-thread-1",
+    }, seen_text=False)
+
+    assert parsed[0].chunk_type == "metadata"
+    assert parsed[0].metadata["engineSessionId"] == "codex-thread-1"
+    assert parsed[0].metadata["engineSessionSource"] == "codex_thread.started"
+    assert parsed[0].metadata["cliTool"] == "codex"
 
 
 def test_claude_tool_result_has_structured_output_trace():
@@ -322,6 +509,55 @@ def test_opencode_invocation_keeps_explicit_message():
     assert "runtime prompt" not in args
 
 
+def test_opencode_invocation_resumes_existing_engine_session():
+    adapter = OpenCodeAdapter()
+    args, stdin_prompt, close_stdin = adapter.prepare_invocation(
+        [
+            "run",
+            "--continue",
+            "--session",
+            "old-session",
+            "--format",
+            "json",
+            "--dangerously-skip-permissions",
+        ],
+        "hello opencode",
+        engine_session_id="ses_new",
+    )
+
+    assert args[:3] == ["run", "--session", "ses_new"]
+    assert "--continue" not in args
+    assert "old-session" not in args
+    assert args[-1] == "hello opencode"
+    assert stdin_prompt == ""
+    assert close_stdin is True
+
+
+def test_opencode_session_event_captures_engine_session_metadata():
+    adapter = OpenCodeAdapter()
+
+    parsed = adapter.parse_json_event({
+        "type": "session.created",
+        "session": {"id": "ses_abc123"},
+    }, seen_text=False)
+
+    assert parsed[0].chunk_type == "metadata"
+    assert parsed[0].metadata["engineSessionId"] == "ses_abc123"
+    assert parsed[0].metadata["engineSessionSource"] == "opencode_session.created"
+    assert parsed[0].metadata["cliTool"] == "opencode"
+
+
+def test_opencode_acp_command_list_update_is_hidden():
+    adapter = OpenCodeAdapter()
+
+    parsed = adapter.parse_json_event({
+        "sessionUpdate": "available_commands_update",
+        "availableCommands": [{"name": "agenthub-module-dev"}],
+    }, seen_text=False)
+
+    assert parsed == []
+
+
 def test_opencode_renders_latest_user_request_as_direct_message():
     adapter = OpenCodeAdapter()
     prompt = adapter.render_prompt_messages([
@@ -354,6 +590,55 @@ def test_opencode_uses_latest_user_message_even_if_assistant_is_last():
 
     assert prompt == "Current task\n"
     assert "Stale assistant answer" not in prompt
+
+
+def test_codex_persistent_rpc_invocation_uses_mcp_server_tool_call():
+    adapter = CodexAdapter()
+
+    args, request = adapter.prepare_persistent_rpc_invocation(
+        [
+            "exec",
+            "-c",
+            'model="gpt-5"',
+            "--skip-git-repo-check",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "--json",
+            "-",
+        ],
+        "hello codex",
+        system_prompt="system note",
+        cwd="D:/workspace",
+    )
+
+    assert args == ["mcp-server", "-c", 'model="gpt-5"']
+    assert request.method == "tools/call"
+    assert request.params["name"] == "codex"
+    assert request.params["arguments"]["prompt"] == "hello codex"
+    assert request.params["arguments"]["cwd"] == "D:/workspace"
+    assert request.params["arguments"]["developer-instructions"] == "system note"
+    assert request.params["arguments"]["sandbox"] == "danger-full-access"
+    assert request.params["arguments"]["approval-policy"] == "never"
+    assert request.params["arguments"]["config"]["skip_git_repo_check"] is True
+    assert request.resume_method == "tools/call"
+    assert request.resume_params["name"] == "codex-reply"
+    assert request.native_session_param == "arguments.threadId"
+
+
+def test_opencode_persistent_rpc_invocation_uses_acp_prompt():
+    adapter = OpenCodeAdapter()
+
+    args, request = adapter.prepare_persistent_rpc_invocation(
+        ["run", "--pure", "--format", "json", "--dangerously-skip-permissions"],
+        "hello opencode\n",
+        cwd="D:/workspace",
+    )
+
+    assert args == ["acp", "--pure", "--cwd", "D:/workspace"]
+    assert request.method == "session/prompt"
+    assert request.params == {
+        "prompt": [{"type": "text", "text": "hello opencode"}],
+    }
+    assert request.native_session_param == "sessionId"
 
 
 def test_codex_proxy_settings_become_isolated_one_off_config_overrides():
@@ -659,6 +944,224 @@ async def test_custom_cli_adapter_keeps_stdin_for_interactive_reply(tmp_path):
     assert "confirmed" in output
 
 
+@pytest.mark.asyncio
+async def test_persistent_process_reuses_one_process_for_same_session(tmp_path):
+    script = _write_persistent_jsonl_script(tmp_path)
+    runtime = CliSessionProcessRuntime()
+    first = await _collect_persistent_turn(
+        runtime,
+        script,
+        tmp_path,
+        session_id="session-persistent",
+        prompt="first\n",
+    )
+    second = await _collect_persistent_turn(
+        runtime,
+        script,
+        tmp_path,
+        session_id="session-persistent",
+        prompt="second\n",
+    )
+
+    try:
+        first_started = first[0]
+        second_started = second[0]
+        assert first_started.event_type == "started"
+        assert second_started.event_type == "started"
+        assert first_started.process_id == second_started.process_id
+        assert second_started.reused is True
+        assert first[-1].event_type == "turn_completed"
+        assert second[-1].event_type == "turn_completed"
+        snapshots = runtime.active_snapshots("session-persistent")
+        assert len(snapshots) == 1
+        assert snapshots[0]["persistent"] is True
+        assert snapshots[0]["reused"] is True
+        assert snapshots[0]["recovered"] is False
+        assert snapshots[0]["turnActive"] is False
+    finally:
+        await runtime.terminate_session("session-persistent")
+
+
+@pytest.mark.asyncio
+async def test_persistent_process_isolated_by_session(tmp_path):
+    script = _write_persistent_jsonl_script(tmp_path)
+    runtime = CliSessionProcessRuntime()
+    first = await _collect_persistent_turn(
+        runtime,
+        script,
+        tmp_path,
+        session_id="session-a",
+        prompt="first\n",
+    )
+    second = await _collect_persistent_turn(
+        runtime,
+        script,
+        tmp_path,
+        session_id="session-b",
+        prompt="second\n",
+    )
+
+    try:
+        assert first[0].process_id != second[0].process_id
+        assert len(runtime.active_snapshots("session-a")) == 1
+        assert len(runtime.active_snapshots("session-b")) == 1
+    finally:
+        await runtime.terminate_session("session-a")
+        await runtime.terminate_session("session-b")
+
+
+@pytest.mark.asyncio
+async def test_persistent_process_recovers_after_child_exit(tmp_path):
+    script = _write_persistent_jsonl_script(tmp_path)
+    runtime = CliSessionProcessRuntime()
+    first = await _collect_persistent_turn(
+        runtime,
+        script,
+        tmp_path,
+        session_id="session-recover",
+        prompt="first\n",
+    )
+    old_process_id = first[0].process_id
+    old_handle = runtime._handles_by_process[old_process_id]
+    old_handle.process.kill()
+    await old_handle.process.wait()
+
+    second = await _collect_persistent_turn(
+        runtime,
+        script,
+        tmp_path,
+        session_id="session-recover",
+        prompt="second\n",
+    )
+
+    try:
+        assert second[0].event_type == "started"
+        assert second[0].process_id != old_process_id
+        assert second[0].recovered is True
+        assert second[-1].event_type == "turn_completed"
+        snapshots = runtime.active_snapshots("session-recover")
+        assert snapshots[0]["recovered"] is True
+    finally:
+        await runtime.terminate_session("session-recover")
+
+
+@pytest.mark.asyncio
+async def test_persistent_process_serializes_concurrent_turns_for_same_session(tmp_path):
+    script = _write_persistent_jsonl_script(tmp_path)
+    runtime = CliSessionProcessRuntime()
+
+    try:
+        first_task = asyncio.create_task(_collect_persistent_turn(
+            runtime,
+            script,
+            tmp_path,
+            session_id="session-concurrent",
+            prompt="first\n",
+        ))
+        await asyncio.sleep(0.05)
+        second_task = asyncio.create_task(_collect_persistent_turn(
+            runtime,
+            script,
+            tmp_path,
+            session_id="session-concurrent",
+            prompt="second\n",
+        ))
+        first, second = await asyncio.gather(first_task, second_task)
+
+        text = "\n".join(
+            chunk.text
+            for chunk in [*first, *second]
+            if chunk.text
+        )
+        assert first[0].process_id == second[0].process_id
+        assert "turn=1 first" in text
+        assert "turn=2 second" in text
+        assert first[-1].event_type == "turn_completed"
+        assert second[-1].event_type == "turn_completed"
+    finally:
+        await runtime.terminate_session("session-concurrent")
+
+
+@pytest.mark.asyncio
+async def test_rpc_session_runtime_reuses_codex_mcp_server_for_replies(tmp_path):
+    script = _write_fake_codex_mcp_server(tmp_path)
+    runtime = CliRpcSessionRuntime()
+    first = await _collect_rpc_turn(
+        runtime,
+        script,
+        tmp_path,
+        protocol="mcp",
+        session_id="session-rpc-codex",
+        cli_tool="codex",
+        request=_codex_rpc_turn_request("first"),
+    )
+    second = await _collect_rpc_turn(
+        runtime,
+        script,
+        tmp_path,
+        protocol="mcp",
+        session_id="session-rpc-codex",
+        cli_tool="codex",
+        request=_codex_rpc_turn_request("second"),
+    )
+
+    try:
+        assert first[0].event_type == "started"
+        assert second[0].event_type == "started"
+        assert first[0].process_id == second[0].process_id
+        assert second[0].reused is True
+        assert first[-1].event_type == "turn_completed"
+        assert second[-1].event_type == "turn_completed"
+        text = "".join(chunk.text for chunk in [*first, *second] if chunk.text)
+        assert "mcp:codex:first:thread=thread-1" in text
+        assert "mcp:codex-reply:second:thread=thread-1" in text
+        snapshots = runtime.active_snapshots("session-rpc-codex")
+        assert snapshots[0]["mode"] == "rpc_session"
+        assert snapshots[0]["protocol"] == "mcp"
+        assert snapshots[0]["nativeSessionId"] == "thread-1"
+    finally:
+        await runtime.terminate_session("session-rpc-codex")
+
+
+@pytest.mark.asyncio
+async def test_rpc_session_runtime_streams_opencode_acp_updates(tmp_path):
+    script = _write_fake_opencode_acp_server(tmp_path)
+    runtime = CliRpcSessionRuntime()
+    first = await _collect_rpc_turn(
+        runtime,
+        script,
+        tmp_path,
+        protocol="acp",
+        session_id="session-rpc-opencode",
+        cli_tool="opencode",
+        request=_opencode_rpc_turn_request("first"),
+    )
+    second = await _collect_rpc_turn(
+        runtime,
+        script,
+        tmp_path,
+        protocol="acp",
+        session_id="session-rpc-opencode",
+        cli_tool="opencode",
+        request=_opencode_rpc_turn_request("second"),
+    )
+
+    try:
+        assert first[0].process_id == second[0].process_id
+        assert second[0].reused is True
+        assert first[-1].event_type == "turn_completed"
+        assert second[-1].event_type == "turn_completed"
+        text = "".join(chunk.text for chunk in [*first, *second] if chunk.text)
+        assert "acp:ses_1:first" in text
+        assert "acp:ses_1:second" in text
+        snapshots = runtime.active_snapshots("session-rpc-opencode")
+        assert snapshots[0]["mode"] == "rpc_session"
+        assert snapshots[0]["protocol"] == "acp"
+        assert snapshots[0]["nativeSessionId"] == "ses_1"
+    finally:
+        await runtime.terminate_session("session-rpc-opencode")
+
+
 def _write_interactive_script(tmp_path: Path) -> Path:
     script = tmp_path / "interactive_cli.py"
     script.write_text(
@@ -670,6 +1173,191 @@ def _write_interactive_script(tmp_path: Path) -> Path:
         "reply = sys.stdin.readline().strip()\n"
         "sys.stdout.write('confirmed\\n' if reply == 'y' else 'denied\\n')\n"
         "sys.stdout.flush()\n",
+        encoding="utf-8",
+    )
+    return script
+
+
+async def _collect_persistent_turn(
+    runtime: CliSessionProcessRuntime,
+    script: Path,
+    tmp_path: Path,
+    *,
+    session_id: str,
+    prompt: str,
+):
+    events = []
+    async for chunk in runtime.stream_turn(
+        config=CliSessionProcessConfig(
+            session_id=session_id,
+            agent_id="agent-persistent",
+            executable=sys.executable,
+            args=[str(script)],
+            env_vars={},
+            cwd=str(tmp_path),
+        ),
+        prompt=prompt,
+        silence_timeout_seconds=5,
+        turn_completed=_is_result_line,
+    ):
+        events.append(chunk)
+    return events
+
+
+def _is_result_line(line: str) -> bool:
+    try:
+        data = json.loads(line)
+    except json.JSONDecodeError:
+        return False
+    return isinstance(data, dict) and data.get("type") == "result"
+
+
+def _write_persistent_jsonl_script(tmp_path: Path) -> Path:
+    script = tmp_path / "persistent_cli.py"
+    script.write_text(
+        "import json, os, sys\n"
+        "turn = 0\n"
+        "for line in sys.stdin:\n"
+        "    turn += 1\n"
+        "    text = line.strip()\n"
+        "    sys.stdout.write(json.dumps({\n"
+        "        'type': 'assistant',\n"
+        "        'message': {'content': [{'type': 'text', 'text': f'pid={os.getpid()} turn={turn} {text}'}]},\n"
+        "    }) + '\\n')\n"
+        "    sys.stdout.write(json.dumps({\n"
+        "        'type': 'result',\n"
+        "        'session_id': 'engine-session',\n"
+        "        'is_error': False,\n"
+        "    }) + '\\n')\n"
+        "    sys.stdout.flush()\n",
+        encoding="utf-8",
+    )
+    return script
+
+
+async def _collect_rpc_turn(
+    runtime: CliRpcSessionRuntime,
+    script: Path,
+    tmp_path: Path,
+    *,
+    protocol: str,
+    session_id: str,
+    cli_tool: str,
+    request: CliRpcTurnRequest,
+):
+    events = []
+    async for chunk in runtime.stream_turn(
+        config=CliRpcSessionConfig(
+            session_id=session_id,
+            agent_id=f"agent-{cli_tool}",
+            executable=sys.executable,
+            args=[str(script)],
+            env_vars={},
+            cwd=str(tmp_path),
+            protocol=protocol,
+            cli_tool=cli_tool,
+        ),
+        request=request,
+        silence_timeout_seconds=5,
+    ):
+        events.append(chunk)
+    return events
+
+
+def _codex_rpc_turn_request(prompt: str) -> CliRpcTurnRequest:
+    return CliRpcTurnRequest(
+        method="tools/call",
+        params={
+            "name": "codex",
+            "arguments": {"prompt": prompt},
+        },
+        resume_method="tools/call",
+        resume_params={
+            "name": "codex-reply",
+            "arguments": {"prompt": prompt},
+        },
+        native_session_param="arguments.threadId",
+    )
+
+
+def _opencode_rpc_turn_request(prompt: str) -> CliRpcTurnRequest:
+    return CliRpcTurnRequest(
+        method="session/prompt",
+        params={
+            "prompt": [{"type": "text", "text": prompt}],
+        },
+        native_session_param="sessionId",
+    )
+
+
+def _write_fake_codex_mcp_server(tmp_path: Path) -> Path:
+    script = tmp_path / "fake_codex_mcp.py"
+    script.write_text(
+        "import json, sys\n"
+        "thread_id = 'thread-1'\n"
+        "def write_message(message):\n"
+        "    sys.stdout.write(json.dumps(message, ensure_ascii=False) + '\\n')\n"
+        "    sys.stdout.flush()\n"
+        "for line in sys.stdin:\n"
+        "    if not line.strip():\n"
+        "        continue\n"
+        "    message = json.loads(line)\n"
+        "    if 'id' not in message:\n"
+        "        continue\n"
+        "    method = message.get('method')\n"
+        "    if method == 'initialize':\n"
+        "        write_message({'jsonrpc': '2.0', 'id': message['id'], 'result': {'protocolVersion': '2024-11-05', 'capabilities': {'tools': {}}, 'serverInfo': {'name': 'fake-codex', 'version': '1'}}})\n"
+        "        continue\n"
+        "    if method == 'tools/call':\n"
+        "        params = message.get('params') or {}\n"
+        "        name = params.get('name') or 'codex'\n"
+        "        args = params.get('arguments') or {}\n"
+        "        prompt = args.get('prompt') or ''\n"
+        "        current_thread = args.get('threadId') or thread_id\n"
+        "        content = f'mcp:{name}:{prompt}:thread={current_thread}'\n"
+        "        write_message({'jsonrpc': '2.0', 'id': message['id'], 'result': {'structuredContent': {'threadId': current_thread, 'content': content}, 'content': [{'type': 'text', 'text': content}]}})\n"
+        "        continue\n"
+        "    write_message({'jsonrpc': '2.0', 'id': message['id'], 'result': {}})\n",
+        encoding="utf-8",
+    )
+    return script
+
+
+def _write_fake_opencode_acp_server(tmp_path: Path) -> Path:
+    script = tmp_path / "fake_opencode_acp.py"
+    script.write_text(
+        "import json, sys\n"
+        "session_id = 'ses_1'\n"
+        "def write_message(message):\n"
+        "    sys.stdout.write(json.dumps(message, ensure_ascii=False) + '\\n')\n"
+        "    sys.stdout.flush()\n"
+        "def prompt_text(prompt):\n"
+        "    if isinstance(prompt, str):\n"
+        "        return prompt\n"
+        "    if isinstance(prompt, list):\n"
+        "        return ''.join(item.get('text', '') if isinstance(item, dict) else str(item) for item in prompt)\n"
+        "    return ''\n"
+        "for line in sys.stdin:\n"
+        "    if not line.strip():\n"
+        "        continue\n"
+        "    message = json.loads(line)\n"
+        "    if 'id' not in message:\n"
+        "        continue\n"
+        "    method = message.get('method')\n"
+        "    if method == 'initialize':\n"
+        "        write_message({'jsonrpc': '2.0', 'id': message['id'], 'result': {'protocolVersion': 1, 'serverCapabilities': {}}})\n"
+        "        continue\n"
+        "    if method == 'session/new':\n"
+        "        write_message({'jsonrpc': '2.0', 'id': message['id'], 'result': {'sessionId': session_id}})\n"
+        "        continue\n"
+        "    if method == 'session/prompt':\n"
+        "        params = message.get('params') or {}\n"
+        "        text = prompt_text(params.get('prompt'))\n"
+        "        sid = params.get('sessionId') or session_id\n"
+        "        write_message({'jsonrpc': '2.0', 'method': 'session/update', 'params': {'sessionId': sid, 'update': {'sessionUpdate': 'agent_message_chunk', 'content': {'type': 'text', 'text': f'acp:{sid}:{text}'}}}})\n"
+        "        write_message({'jsonrpc': '2.0', 'id': message['id'], 'result': {'stopReason': 'end_turn'}})\n"
+        "        continue\n"
+        "    write_message({'jsonrpc': '2.0', 'id': message['id'], 'result': {}})\n",
         encoding="utf-8",
     )
     return script

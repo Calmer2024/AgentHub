@@ -18,7 +18,7 @@ from typing import Any, Callable, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..agents.cli_runtime import cli_process_manager
+from ..agents.cli_runtime_registry import cli_runtime_registry
 from ..database import AsyncSessionLocal
 from ..domain.orchestrator_plan import normalize_plan, validate_plan
 from ..models import AgentConfig, Message as DBMessage, Session as DBSession
@@ -739,7 +739,7 @@ class OrchestratorExecutionRegistry:
             "timestamp": cancelled_at,
             "message": "用户请求停止当前调度执行。",
         })
-        terminated = await cli_process_manager.terminate_session(execution["sessionId"])
+        terminated = await cli_runtime_registry.terminate_session(execution["sessionId"])
         if execution.get("runId"):
             async with self._session_factory() as db:
                 await RunService(db).cancel_run(execution["runId"], "用户请求停止当前调度执行")

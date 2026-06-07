@@ -12,7 +12,8 @@ from ..models import Session as DBSession
 from ..services.chat_service_impl import ChatServiceImpl
 from ..services.schemas import ChatRequest, MessageRead
 from ..services.message_service_sqlalchemy import SqlAlchemyMessageService
-from ..agents.cli_runtime import CliProcessNotFound, cli_process_manager
+from ..agents.cli_runtime import CliProcessNotFound
+from ..agents.cli_runtime_registry import cli_runtime_registry
 
 router = APIRouter(prefix="", tags=["chat"])
 logger = logging.getLogger(__name__)
@@ -59,7 +60,7 @@ async def interactive_reply(session_id: str, data: InteractiveReplyRequest):
     if data.reply not in {"y", "n"}:
         raise HTTPException(status_code=400, detail="reply must be 'y' or 'n'")
     try:
-        await cli_process_manager.reply(data.processId, data.reply)
+        await cli_runtime_registry.reply(data.processId, data.reply)
     except CliProcessNotFound:
         raise HTTPException(status_code=404, detail="process not found")
     return {"status": "acknowledged"}

@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..agents.cli_runtime import cli_process_manager
+from ..agents.cli_runtime_registry import cli_runtime_registry
 from ..core.timezone import china_now_iso
 from ..models import AgentConfig, Project, Session as DBSession, SessionMember
 from .cli_agent_registry import CliAgentRegistry
@@ -295,7 +295,7 @@ class SystemHealthService:
         )
 
     def _process_item(self, session_id: str | None) -> SystemHealthItem:
-        snapshots = cli_process_manager.active_snapshots(session_id)
+        snapshots = cli_runtime_registry.active_snapshots(session_id)
         count = len(snapshots)
         return SystemHealthItem(
             key="process.active",

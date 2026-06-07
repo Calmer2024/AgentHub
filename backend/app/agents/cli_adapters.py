@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass
 from types import SimpleNamespace
-from typing import AsyncIterator
+from typing import AsyncIterator, cast
 from urllib.parse import urlsplit, urlunsplit
 
 from ..models import AgentConfig
@@ -23,6 +24,16 @@ from .cli_runtime import (
     CliExecutableNotFound,
     CliSubprocessNotSupported,
     cli_process_manager,
+)
+from .cli_rpc_session_runtime import (
+    CliRpcSessionConfig,
+    CliRpcTurnRequest,
+    RpcProtocol,
+    cli_rpc_session_runtime,
+)
+from .cli_session_runtime import (
+    CliSessionProcessConfig,
+    cli_session_process_runtime,
 )
 from .cli_stream import PromptInterceptor, StreamSanitizer
 from .cli_trace import (
@@ -43,6 +54,28 @@ from .cli_trace import (
 )
 
 
+@dataclass(frozen=True)
+class EngineSessionResumePolicy:
+    """Adapter 自己声明底层 CLI 的原生会话能力。"""
+
+    supported: bool = False
+    strategy: str = "stateless"
+    start_strategy: str = ""
+    id_source: str = ""
+    caller_assigned_id: bool = False
+
+
+@dataclass(frozen=True)
+class PersistentProcessPolicy:
+    """Adapter 声明是否能被 AgentHub 作为会话级常驻进程驱动。"""
+
+    supported: bool = False
+    strategy: str = "oneshot"
+    input_format: str = ""
+    output_format: str = ""
+    protocol: str = "stdio_jsonl"
+
+
 class CliAgentAdapter:
     cli_tool = "custom"
     display_name = "CLI Agent"
@@ -50,6 +83,16 @@ class CliAgentAdapter:
     close_stdin_after_prompt = False
     expects_json_lines = False
     stdin_mode = "pipe"
+    engine_session_resume_policy = EngineSessionResumePolicy()
+    persistent_process_policy = PersistentProcessPolicy()
+
+    @property
+    def supports_engine_session_resume(self) -> bool:
+        return self.engine_session_resume_policy.supported
+
+    @property
+    def supports_persistent_process(self) -> bool:
+        return self.persistent_process_policy.supported
 
     async def stream(
         self,
@@ -59,6 +102,8 @@ class CliAgentAdapter:
         cwd: str,
         user_prompt: str,
         system_prompt: str = "",
+        engine_session_id: str | None = None,
+        engine_session_mode: str = "resume",
         event_bus=None,
     ) -> AsyncIterator[CliEvent]:
         interceptor = PromptInterceptor()
@@ -68,7 +113,13 @@ class CliAgentAdapter:
         args = _json_list(agent.init_args)
         env_vars = _json_dict(agent.env_vars)
         prompt = self.build_prompt(system_prompt, user_prompt)
-        args, stdin_prompt, close_stdin = self.prepare_invocation(args, prompt)
+        args, stdin_prompt, close_stdin = self.prepare_invocation(
+            args,
+            prompt,
+            system_prompt=system_prompt,
+            engine_session_id=engine_session_id,
+            engine_session_mode=engine_session_mode,
+        )
 
         if not executable:
             yield CliEvent("error", "", error="当前 Agent 未配置 executable，无法启动 CLI。")
@@ -97,18 +148,21 @@ class CliAgentAdapter:
                             chunk.command,
                             chunk.cwd,
                             chunk.pid,
+                            persistent=chunk.persistent,
+                            engine_session_mode=engine_session_mode
+                            if engine_session_id else None,
+                            engine_session_id=engine_session_id,
                         ),
+                        metadata={
+                            "persistentProcess": False,
+                            "engineSessionMode": engine_session_mode,
+                            "engineSessionId": engine_session_id,
+                        } if engine_session_id else None,
                     )
                     continue
                 if chunk.event_type == "completed":
                     for parsed in parser.flush():
-                        yield CliEvent(
-                            "agent.output",
-                            chunk.process_id,
-                            chunk=parsed.text,
-                            chunk_type=parsed.chunk_type,
-                            trace=parsed.trace,
-                        )
+                        yield self._event_from_parsed(chunk.process_id, parsed)
                     yield CliEvent(
                         "agent.process.completed",
                         chunk.process_id,
@@ -135,13 +189,7 @@ class CliAgentAdapter:
                     continue
                 if chunk.stream == "stderr":
                     for parsed in parser.feed_stderr(clean):
-                        yield CliEvent(
-                            "agent.output",
-                            chunk.process_id,
-                            chunk=parsed.text,
-                            chunk_type=parsed.chunk_type,
-                            trace=parsed.trace,
-                        )
+                        yield self._event_from_parsed(chunk.process_id, parsed)
                     continue
                 prompt_text = interceptor.detect(clean)
                 if prompt_text:
@@ -153,13 +201,7 @@ class CliAgentAdapter:
                     )
                     continue
                 for parsed in parser.feed_stdout(clean):
-                    yield CliEvent(
-                        "agent.output",
-                        chunk.process_id,
-                        chunk=parsed.text,
-                        chunk_type=parsed.chunk_type,
-                        trace=parsed.trace,
-                    )
+                    yield self._event_from_parsed(chunk.process_id, parsed)
         except CliExecutableNotFound:
             yield CliEvent(
                 "error",
@@ -167,6 +209,300 @@ class CliAgentAdapter:
                 error=f"未找到 '{executable}' 命令。请安装 CLI 后重试。",
             )
 
+        except CliSubprocessNotSupported as exc:
+            yield CliEvent("error", "", error=str(exc))
+
+    async def stream_persistent_turn(
+        self,
+        *,
+        agent: AgentConfig,
+        session_id: str,
+        cwd: str,
+        user_prompt: str,
+        system_prompt: str = "",
+        engine_session_id: str | None = None,
+        engine_session_mode: str = "resume",
+        event_bus=None,
+    ) -> AsyncIterator[CliEvent]:
+        if not self.supports_persistent_process:
+            async for event in self.stream(
+                agent=agent,
+                session_id=session_id,
+                cwd=cwd,
+                user_prompt=user_prompt,
+                system_prompt=system_prompt,
+                engine_session_id=engine_session_id,
+                engine_session_mode=engine_session_mode,
+                event_bus=event_bus,
+            ):
+                yield event
+            return
+
+        interceptor = PromptInterceptor()
+        executable = agent.executable or DEFAULT_CLI_AGENTS.get(
+            self.cli_tool, {},
+        ).get("executable", "")
+        args = _json_list(agent.init_args)
+        env_vars = _json_dict(agent.env_vars)
+        prompt = self.build_prompt(system_prompt, user_prompt)
+
+        if not executable:
+            yield CliEvent("error", "", error="当前 Agent 未配置 executable，无法启动 CLI。")
+            return
+
+        if self.persistent_process_policy.protocol in {"mcp", "acp"}:
+            async for event in self._stream_rpc_persistent_turn(
+                agent=agent,
+                session_id=session_id,
+                executable=executable,
+                args=args,
+                env_vars=env_vars,
+                cwd=cwd,
+                prompt=prompt,
+                system_prompt=system_prompt,
+                engine_session_id=engine_session_id,
+                engine_session_mode=engine_session_mode,
+                event_bus=event_bus,
+            ):
+                yield event
+            return
+
+        args, stdin_prompt = self.prepare_persistent_invocation(
+            args,
+            prompt,
+            system_prompt=system_prompt,
+            engine_session_id=engine_session_id,
+            engine_session_mode=engine_session_mode,
+        )
+
+        parser = CliOutputParser(self)
+        try:
+            async for chunk in cli_session_process_runtime.stream_turn(
+                config=CliSessionProcessConfig(
+                    session_id=session_id,
+                    agent_id=agent.id,
+                    executable=executable,
+                    args=args,
+                    env_vars=env_vars,
+                    cwd=cwd,
+                    stdin_mode=self.stdin_mode,
+                ),
+                prompt=stdin_prompt,
+                event_bus=event_bus,
+                turn_completed=self.persistent_turn_completed,
+            ):
+                if chunk.event_type == "started":
+                    yield CliEvent(
+                        "agent.process.started",
+                        chunk.process_id,
+                        trace=process_start_trace(
+                            getattr(agent, "name", executable),
+                            chunk.command,
+                            chunk.cwd,
+                            chunk.pid,
+                            persistent=True,
+                            reused=chunk.reused,
+                            recovered=chunk.recovered,
+                        ),
+                        metadata={
+                            "persistentProcess": True,
+                            "reused": chunk.reused,
+                            "recovered": chunk.recovered,
+                            "engineSessionMode": engine_session_mode
+                            if engine_session_id else None,
+                            "engineSessionId": engine_session_id,
+                        },
+                    )
+                    continue
+                if chunk.event_type == "turn_completed":
+                    for parsed in parser.flush():
+                        yield self._event_from_parsed(chunk.process_id, parsed)
+                    yield CliEvent(
+                        "agent.process.turn_completed",
+                        chunk.process_id,
+                        exit_code=0,
+                        metadata={"persistentProcess": True},
+                    )
+                    continue
+                if chunk.event_type == "completed":
+                    for parsed in parser.flush():
+                        yield self._event_from_parsed(chunk.process_id, parsed)
+                    yield CliEvent(
+                        "agent.process.completed",
+                        chunk.process_id,
+                        exit_code=chunk.exit_code,
+                        trace=process_completed_trace(
+                            getattr(agent, "name", executable),
+                            chunk.exit_code,
+                        ),
+                        metadata={"persistentProcess": True},
+                    )
+                    continue
+                if chunk.event_type == "timeout":
+                    yield CliEvent(
+                        "agent.process.timeout",
+                        chunk.process_id,
+                        error=chunk.error,
+                        metadata={"persistentProcess": True},
+                    )
+                    continue
+                if chunk.event_type == "error":
+                    yield CliEvent("error", chunk.process_id, error=chunk.error)
+                    continue
+
+                clean = StreamSanitizer.clean(chunk.text)
+                if not clean:
+                    continue
+                if chunk.stream == "stderr":
+                    for parsed in parser.feed_stderr(clean):
+                        yield self._event_from_parsed(chunk.process_id, parsed)
+                    continue
+                prompt_text = interceptor.detect(clean)
+                if prompt_text:
+                    yield CliEvent(
+                        "interactive_prompt",
+                        chunk.process_id,
+                        chunk=prompt_text,
+                        trace=prompt_trace(prompt_text),
+                    )
+                    continue
+                for parsed in parser.feed_stdout(clean):
+                    yield self._event_from_parsed(chunk.process_id, parsed)
+        except CliExecutableNotFound:
+            yield CliEvent(
+                "error",
+                "",
+                error=f"未找到 '{executable}' 命令。请安装 CLI 后重试。",
+            )
+        except CliSubprocessNotSupported as exc:
+            yield CliEvent("error", "", error=str(exc))
+
+    async def _stream_rpc_persistent_turn(
+        self,
+        *,
+        agent: AgentConfig,
+        session_id: str,
+        executable: str,
+        args: list[str],
+        env_vars: dict[str, str],
+        cwd: str,
+        prompt: str,
+        system_prompt: str = "",
+        engine_session_id: str | None = None,
+        engine_session_mode: str = "resume",
+        event_bus=None,
+    ) -> AsyncIterator[CliEvent]:
+        try:
+            rpc_args, request = self.prepare_persistent_rpc_invocation(
+                args,
+                prompt,
+                system_prompt=system_prompt,
+                engine_session_id=engine_session_id,
+                engine_session_mode=engine_session_mode,
+                cwd=cwd,
+            )
+        except ValueError as exc:
+            yield CliEvent("error", "", error=str(exc))
+            return
+
+        parser = CliOutputParser(self)
+        protocol = self.persistent_process_policy.protocol
+        try:
+            async for chunk in cli_rpc_session_runtime.stream_turn(
+                config=CliRpcSessionConfig(
+                    session_id=session_id,
+                    agent_id=agent.id,
+                    executable=executable,
+                    args=rpc_args,
+                    env_vars=env_vars,
+                    cwd=cwd,
+                    protocol=cast(RpcProtocol, protocol),
+                    cli_tool=self.cli_tool,
+                ),
+                request=request,
+                event_bus=event_bus,
+            ):
+                if chunk.event_type == "started":
+                    yield CliEvent(
+                        "agent.process.started",
+                        chunk.process_id,
+                        trace=process_start_trace(
+                            getattr(agent, "name", executable),
+                            chunk.command,
+                            chunk.cwd,
+                            chunk.pid,
+                            persistent=True,
+                            reused=chunk.reused,
+                            recovered=chunk.recovered,
+                        ),
+                        metadata={
+                            "persistentProcess": True,
+                            "persistentProtocol": protocol,
+                            "reused": chunk.reused,
+                            "recovered": chunk.recovered,
+                        },
+                    )
+                    continue
+                if chunk.event_type == "turn_completed":
+                    for parsed in parser.flush():
+                        yield self._event_from_parsed(chunk.process_id, parsed)
+                    yield CliEvent(
+                        "agent.process.turn_completed",
+                        chunk.process_id,
+                        exit_code=0,
+                        metadata={
+                            "persistentProcess": True,
+                            "persistentProtocol": protocol,
+                        },
+                    )
+                    continue
+                if chunk.event_type == "completed":
+                    for parsed in parser.flush():
+                        yield self._event_from_parsed(chunk.process_id, parsed)
+                    yield CliEvent(
+                        "agent.process.completed",
+                        chunk.process_id,
+                        exit_code=chunk.exit_code,
+                        trace=process_completed_trace(
+                            getattr(agent, "name", executable),
+                            chunk.exit_code,
+                        ),
+                        metadata={
+                            "persistentProcess": True,
+                            "persistentProtocol": protocol,
+                        },
+                    )
+                    continue
+                if chunk.event_type == "timeout":
+                    yield CliEvent(
+                        "agent.process.timeout",
+                        chunk.process_id,
+                        error=chunk.error,
+                        metadata={
+                            "persistentProcess": True,
+                            "persistentProtocol": protocol,
+                        },
+                    )
+                    continue
+                if chunk.event_type == "error":
+                    yield CliEvent("error", chunk.process_id, error=chunk.error)
+                    continue
+
+                clean = StreamSanitizer.clean(chunk.text)
+                if not clean:
+                    continue
+                if chunk.stream == "stderr":
+                    for parsed in parser.feed_stderr(clean):
+                        yield self._event_from_parsed(chunk.process_id, parsed)
+                    continue
+                for parsed in parser.feed_stdout(clean):
+                    yield self._event_from_parsed(chunk.process_id, parsed)
+        except CliExecutableNotFound:
+            yield CliEvent(
+                "error",
+                "",
+                error=f"未找到 '{executable}' 命令。请安装 CLI 后重试。",
+            )
         except CliSubprocessNotSupported as exc:
             yield CliEvent("error", "", error=str(exc))
 
@@ -178,8 +514,59 @@ class CliAgentAdapter:
     def render_prompt_messages(self, messages: list[dict]) -> str:
         return render_transcript_prompt(messages)
 
-    def prepare_invocation(self, args: list[str], prompt: str) -> tuple[list[str], str, bool]:
+    def prepare_invocation(
+        self,
+        args: list[str],
+        prompt: str,
+        *,
+        system_prompt: str = "",
+        engine_session_id: str | None = None,
+        engine_session_mode: str = "resume",
+    ) -> tuple[list[str], str, bool]:
+        del system_prompt
+        del engine_session_id
+        del engine_session_mode
         return args, prompt, self.close_stdin_after_prompt
+
+    def prepare_persistent_invocation(
+        self,
+        args: list[str],
+        prompt: str,
+        *,
+        system_prompt: str = "",
+        engine_session_id: str | None = None,
+        engine_session_mode: str = "resume",
+    ) -> tuple[list[str], str]:
+        one_shot_args, stdin_prompt, _ = self.prepare_invocation(
+            args,
+            prompt,
+            system_prompt=system_prompt,
+            engine_session_id=engine_session_id,
+            engine_session_mode=engine_session_mode,
+        )
+        return one_shot_args, stdin_prompt
+
+    def prepare_persistent_rpc_invocation(
+        self,
+        args: list[str],
+        prompt: str,
+        *,
+        system_prompt: str = "",
+        engine_session_id: str | None = None,
+        engine_session_mode: str = "resume",
+        cwd: str = "",
+    ) -> tuple[list[str], CliRpcTurnRequest]:
+        del args
+        del prompt
+        del system_prompt
+        del engine_session_id
+        del engine_session_mode
+        del cwd
+        raise ValueError("当前 CLI Adapter 未实现 JSON-RPC 常驻进程协议")
+
+    def persistent_turn_completed(self, line: str) -> bool:
+        del line
+        return False
 
     def classify(self, chunk: str) -> str:
         stripped = chunk.strip()
@@ -220,6 +607,26 @@ class CliAgentAdapter:
         next_type = chunk_type or self.classify(text)
         return ParsedOutput(text, next_type, trace or self.trace_for_output(text, next_type))
 
+    @staticmethod
+    def _event_from_parsed(process_id: str, parsed: ParsedOutput) -> CliEvent:
+        if parsed.chunk_type == "metadata":
+            return CliEvent(
+                "agent.metadata",
+                process_id,
+                chunk="",
+                chunk_type=parsed.chunk_type,
+                trace=parsed.trace,
+                metadata=parsed.metadata,
+            )
+        return CliEvent(
+            "agent.output",
+            process_id,
+            chunk=parsed.text,
+            chunk_type=parsed.chunk_type,
+            trace=parsed.trace,
+            metadata=parsed.metadata,
+        )
+
     def trace_for_output(self, text: str, chunk_type: str) -> dict | None:
         if chunk_type == "text":
             return None
@@ -235,6 +642,19 @@ class ClaudeCodeAdapter(CliAgentAdapter):
     display_name = "Claude Code"
     close_stdin_after_prompt = True
     expects_json_lines = True
+    engine_session_resume_policy = EngineSessionResumePolicy(
+        supported=True,
+        strategy="claude --resume <session_id>",
+        start_strategy="claude --session-id <uuid>",
+        id_source="AgentHub assigned UUID / result.session_id",
+        caller_assigned_id=True,
+    )
+    persistent_process_policy = PersistentProcessPolicy(
+        supported=True,
+        strategy="claude -p --input-format stream-json --output-format stream-json --session-id/--resume",
+        input_format="stream-json",
+        output_format="stream-json",
+    )
     progress_patterns = (
         re.compile(r"^(?:⏺|⎿)\s+", re.M),
         re.compile(r"调用工具|正在读取|正在写入"),
@@ -253,6 +673,46 @@ class ClaudeCodeAdapter(CliAgentAdapter):
             f"{user_prompt.rstrip()}\n"
         )
 
+    def prepare_invocation(
+        self,
+        args: list[str],
+        prompt: str,
+        *,
+        system_prompt: str = "",
+        engine_session_id: str | None = None,
+        engine_session_mode: str = "resume",
+    ) -> tuple[list[str], str, bool]:
+        del system_prompt
+        normalized = _normalize_claude_print_args(args)
+        if engine_session_id:
+            session_flag = "--session-id" if engine_session_mode == "start" else "--resume"
+            normalized = [*_without_claude_session_args(normalized), session_flag, engine_session_id]
+        return normalized, prompt, self.close_stdin_after_prompt
+
+    def prepare_persistent_invocation(
+        self,
+        args: list[str],
+        prompt: str,
+        *,
+        system_prompt: str = "",
+        engine_session_id: str | None = None,
+        engine_session_mode: str = "resume",
+    ) -> tuple[list[str], str]:
+        del system_prompt
+        normalized = _normalize_claude_streaming_input_args(args)
+        if engine_session_id:
+            session_flag = "--session-id" if engine_session_mode == "start" else "--resume"
+            normalized = [*_without_claude_session_args(normalized), session_flag, engine_session_id]
+        return normalized, _claude_sdk_user_message(prompt)
+
+    @staticmethod
+    def persistent_turn_completed(line: str) -> bool:
+        try:
+            data = json.loads(line.strip())
+        except json.JSONDecodeError:
+            return False
+        return isinstance(data, dict) and data.get("type") == "result"
+
     def parse_json_event(self, data: object, seen_text: bool) -> list[ParsedOutput]:
         if not isinstance(data, dict):
             return super().parse_json_event(data, seen_text)
@@ -269,13 +729,16 @@ class ClaudeCodeAdapter(CliAgentAdapter):
             delta = data.get("delta")
             return self._delta_outputs(delta)
         if event_type == "result":
+            outputs = self._result_metadata_outputs(data)
             if data.get("is_error") is True:
                 text = first_string(data, ("result", "message", "error"))
-                return [ParsedOutput(text, "error", error_trace(text))] if text else []
+                if text:
+                    outputs.append(ParsedOutput(text, "error", error_trace(text)))
+                return outputs
             if not seen_text and isinstance(data.get("result"), str):
                 text = data["result"]
-                return [self.parsed(text)]
-            return []
+                outputs.append(self.parsed(text))
+            return outputs
         if event_type in {"system", "user"}:
             return []
         return self._progress_from_json(event_type, data)
@@ -331,12 +794,47 @@ class ClaudeCodeAdapter(CliAgentAdapter):
             return [ParsedOutput(trace_text(trace), "progress", trace)]
         return []
 
+    @staticmethod
+    def _result_metadata_outputs(data: dict) -> list[ParsedOutput]:
+        engine_session_id = _first_non_empty_string(
+            data,
+            ("session_id", "sessionId", "conversation_id", "conversationId"),
+        )
+        if not engine_session_id:
+            return []
+        metadata = {
+            "engineSessionId": engine_session_id,
+            "engineSessionSource": "claude_code_result",
+            "cliTool": "claude_code",
+        }
+        for source_key, target_key in (
+            ("total_cost_usd", "totalCostUsd"),
+            ("duration_ms", "durationMs"),
+            ("num_turns", "numTurns"),
+        ):
+            value = data.get(source_key)
+            if value is not None:
+                metadata[target_key] = value
+        return [ParsedOutput("", "metadata", metadata=metadata)]
+
 
 class CodexAdapter(CliAgentAdapter):
     cli_tool = "codex"
     display_name = "Codex"
     close_stdin_after_prompt = True
     expects_json_lines = True
+    persistent_process_policy = PersistentProcessPolicy(
+        supported=True,
+        strategy="codex mcp-server + tools/call codex/codex-reply",
+        input_format="mcp_tools_call",
+        output_format="mcp_json_rpc",
+        protocol="mcp",
+    )
+    engine_session_resume_policy = EngineSessionResumePolicy(
+        supported=True,
+        strategy="codex exec resume <session_id> -",
+        id_source="thread/session JSON event",
+    )
     progress_patterns = (
         re.compile(r"working\.\.\.", re.I),
         re.compile(r"^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]", re.M),
@@ -376,6 +874,8 @@ class CodexAdapter(CliAgentAdapter):
         cwd: str,
         user_prompt: str,
         system_prompt: str = "",
+        engine_session_id: str | None = None,
+        engine_session_mode: str = "resume",
         event_bus=None,
     ) -> AsyncIterator[CliEvent]:
         env_vars = _json_dict(agent.env_vars)
@@ -392,6 +892,40 @@ class CodexAdapter(CliAgentAdapter):
             cwd=cwd,
             user_prompt=user_prompt,
             system_prompt=system_prompt,
+            engine_session_id=engine_session_id,
+            engine_session_mode=engine_session_mode,
+            event_bus=event_bus,
+        ):
+            yield event
+
+    async def stream_persistent_turn(
+        self,
+        *,
+        agent: AgentConfig,
+        session_id: str,
+        cwd: str,
+        user_prompt: str,
+        system_prompt: str = "",
+        engine_session_id: str | None = None,
+        engine_session_mode: str = "resume",
+        event_bus=None,
+    ) -> AsyncIterator[CliEvent]:
+        env_vars = _json_dict(agent.env_vars)
+        original_args = _json_list(agent.init_args)
+        try:
+            args, runtime_env = self._apply_connection_settings(original_args, env_vars)
+        except ValueError as exc:
+            yield CliEvent("error", "", error=str(exc))
+            return
+        agent_for_run = _agent_with_runtime_config(agent, args, runtime_env)
+        async for event in super().stream_persistent_turn(
+            agent=agent_for_run,
+            session_id=session_id,
+            cwd=cwd,
+            user_prompt=user_prompt,
+            system_prompt=system_prompt,
+            engine_session_id=engine_session_id,
+            engine_session_mode=engine_session_mode,
             event_bus=event_bus,
         ):
             yield event
@@ -400,6 +934,64 @@ class CodexAdapter(CliAgentAdapter):
         if system_prompt.strip():
             return f"{system_prompt.strip()}\n\n{user_prompt.rstrip()}\n"
         return super().build_prompt(system_prompt, user_prompt)
+
+    def prepare_invocation(
+        self,
+        args: list[str],
+        prompt: str,
+        *,
+        system_prompt: str = "",
+        engine_session_id: str | None = None,
+        engine_session_mode: str = "resume",
+    ) -> tuple[list[str], str, bool]:
+        del system_prompt
+        del engine_session_mode
+        if not engine_session_id:
+            return args, prompt, self.close_stdin_after_prompt
+        return (
+            _codex_exec_resume_args(args, engine_session_id),
+            prompt,
+            self.close_stdin_after_prompt,
+        )
+
+    def prepare_persistent_rpc_invocation(
+        self,
+        args: list[str],
+        prompt: str,
+        *,
+        system_prompt: str = "",
+        engine_session_id: str | None = None,
+        engine_session_mode: str = "resume",
+        cwd: str = "",
+    ) -> tuple[list[str], CliRpcTurnRequest]:
+        command_args = _codex_mcp_server_args(args)
+        tool_args = _codex_mcp_tool_arguments(
+            args,
+            prompt,
+            system_prompt=system_prompt,
+            cwd=cwd,
+        )
+        reply_tool_args = {"prompt": prompt}
+        initial_tool = "codex"
+        if engine_session_id and engine_session_mode == "resume":
+            initial_tool = "codex-reply"
+            tool_args = {
+                "prompt": prompt,
+                "threadId": engine_session_id,
+            }
+        return command_args, CliRpcTurnRequest(
+            method="tools/call",
+            params={
+                "name": initial_tool,
+                "arguments": tool_args,
+            },
+            resume_method="tools/call",
+            resume_params={
+                "name": "codex-reply",
+                "arguments": reply_tool_args,
+            },
+            native_session_param="arguments.threadId",
+        )
 
     def _apply_connection_settings(
         self,
@@ -464,6 +1056,9 @@ class CodexAdapter(CliAgentAdapter):
         if not isinstance(data, dict):
             return super().parse_json_event(data, seen_text)
         event_type = str(data.get("type") or data.get("event") or "")
+        metadata_outputs = _codex_session_metadata_outputs(event_type, data)
+        if metadata_outputs:
+            return metadata_outputs
         if event_type in self.QUIET_EVENT_TYPES:
             return []
         if event_type == "error":
@@ -545,6 +1140,18 @@ class OpenCodeAdapter(CliAgentAdapter):
     close_stdin_after_prompt = True
     expects_json_lines = True
     stdin_mode = "inherit"
+    persistent_process_policy = PersistentProcessPolicy(
+        supported=True,
+        strategy="opencode acp + session/new/session/prompt",
+        input_format="acp_session_prompt",
+        output_format="acp_json_rpc",
+        protocol="acp",
+    )
+    engine_session_resume_policy = EngineSessionResumePolicy(
+        supported=True,
+        strategy="opencode run --session <session_id>",
+        id_source="session JSON event / session list",
+    )
     LEGACY_ARGS = (
         ["--no-color", "--plain"],
         ["run", "--format", "json"],
@@ -576,11 +1183,44 @@ class OpenCodeAdapter(CliAgentAdapter):
             return ""
         return f"{fallback}\n"
 
-    def prepare_invocation(self, args: list[str], prompt: str) -> tuple[list[str], str, bool]:
+    def prepare_invocation(
+        self,
+        args: list[str],
+        prompt: str,
+        *,
+        system_prompt: str = "",
+        engine_session_id: str | None = None,
+        engine_session_mode: str = "resume",
+    ) -> tuple[list[str], str, bool]:
+        del system_prompt
+        del engine_session_mode
         run_args = self._normalize_run_args(args)
+        if engine_session_id:
+            run_args = _opencode_with_session(run_args, engine_session_id)
         if not _opencode_has_message_or_command(run_args):
             run_args = [*run_args, prompt]
         return run_args, "", True
+
+    def prepare_persistent_rpc_invocation(
+        self,
+        args: list[str],
+        prompt: str,
+        *,
+        system_prompt: str = "",
+        engine_session_id: str | None = None,
+        engine_session_mode: str = "resume",
+        cwd: str = "",
+    ) -> tuple[list[str], CliRpcTurnRequest]:
+        del system_prompt
+        del engine_session_id
+        del engine_session_mode
+        return _opencode_acp_args(args, cwd), CliRpcTurnRequest(
+            method="session/prompt",
+            params={
+                "prompt": [{"type": "text", "text": prompt.rstrip()}],
+            },
+            native_session_param="sessionId",
+        )
 
     @classmethod
     def _normalize_run_args(cls, args: list[str]) -> list[str]:
@@ -593,6 +1233,12 @@ class OpenCodeAdapter(CliAgentAdapter):
         del seen_text
         if not isinstance(data, dict):
             return super().parse_json_event(data, False)
+        acp_outputs = self._parse_acp_session_update(data)
+        if acp_outputs:
+            return acp_outputs
+        metadata_outputs = _opencode_session_metadata_outputs(data)
+        if metadata_outputs:
+            return metadata_outputs
         event_type = str(data.get("type") or "")
         part = data.get("part")
         if isinstance(part, dict):
@@ -620,6 +1266,36 @@ class OpenCodeAdapter(CliAgentAdapter):
         if text:
             return [self.parsed(text)]
         return []
+
+    def _parse_acp_session_update(self, data: dict) -> list[ParsedOutput]:
+        session_update = str(data.get("sessionUpdate") or "")
+        if not session_update:
+            return []
+        if session_update in {"agent_message_chunk", "agent_thought_chunk"}:
+            content = data.get("content")
+            text = _acp_content_text(content)
+            if not text:
+                return []
+            if session_update == "agent_thought_chunk":
+                return [self.parsed(text, "progress")]
+            return [self.parsed(text)]
+        if session_update == "tool_call":
+            trace = opencode_part_trace(data)
+            title = first_string(data, ("title", "kind", "status")) or "tool_call"
+            return [ParsedOutput(f"OpenCode 调用工具: {title}", "progress", trace)]
+        if session_update == "tool_call_update":
+            trace = opencode_part_trace(data)
+            title = first_string(data, ("title", "status", "kind")) or "tool_call_update"
+            return [ParsedOutput(f"OpenCode 工具更新: {title}", "progress", trace)]
+        if session_update in {
+            "user_message_chunk",
+            "available_commands",
+            "available_commands_update",
+            "mode_change",
+            "current_mode_update",
+        }:
+            return []
+        return [self.parsed(session_update.replace("_", " "), "progress")]
 
 
 _ADAPTERS: dict[str, CliAgentAdapter] = {
@@ -658,6 +1334,95 @@ def _json_dict(value: str | None) -> dict[str, str]:
     return {str(k): str(v) for k, v in data.items() if v is not None}
 
 
+def _normalize_claude_print_args(args: list[str]) -> list[str]:
+    result = list(args)
+    if not _has_claude_flag(result, "-p", "--print"):
+        result.insert(0, "-p")
+    if not _has_claude_option_value(result, "--output-format"):
+        result.extend(["--output-format", "stream-json"])
+    if not _has_claude_flag(result, "--verbose"):
+        result.append("--verbose")
+    if not _has_claude_flag(result, "--include-partial-messages"):
+        result.append("--include-partial-messages")
+    return _without_claude_flag(result, "--no-session-persistence")
+
+
+def _normalize_claude_streaming_input_args(args: list[str]) -> list[str]:
+    result = _normalize_claude_print_args(args)
+    result = _without_claude_option(result, "--input-format")
+    result.extend(["--input-format", "stream-json"])
+    return result
+
+
+def _without_claude_session_args(args: list[str]) -> list[str]:
+    result: list[str] = []
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if arg in {"-c", "--continue"}:
+            index += 1
+            continue
+        if arg in {"-r", "--resume"}:
+            index += 2 if index + 1 < len(args) and not args[index + 1].startswith("-") else 1
+            continue
+        if arg == "--session-id":
+            index += 2
+            continue
+        if arg.startswith("--resume=") or arg.startswith("--session-id="):
+            index += 1
+            continue
+        result.append(arg)
+        index += 1
+    return result
+
+
+def _without_claude_flag(args: list[str], flag: str) -> list[str]:
+    return [arg for arg in args if arg != flag and not arg.startswith(f"{flag}=")]
+
+
+def _without_claude_option(args: list[str], option: str) -> list[str]:
+    result: list[str] = []
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if arg == option:
+            index += 2 if index + 1 < len(args) else 1
+            continue
+        if arg.startswith(f"{option}="):
+            index += 1
+            continue
+        result.append(arg)
+        index += 1
+    return result
+
+
+def _has_claude_flag(args: list[str], *flags: str) -> bool:
+    return any(arg in flags for arg in args)
+
+
+def _has_claude_option_value(args: list[str], option: str) -> bool:
+    return any(arg == option or arg.startswith(f"{option}=") for arg in args)
+
+
+def _first_non_empty_string(data: dict, keys: tuple[str, ...]) -> str:
+    for key in keys:
+        value = data.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _claude_sdk_user_message(text: str) -> str:
+    payload = {
+        "type": "user",
+        "message": {
+            "role": "user",
+            "content": [{"type": "text", "text": text}],
+        },
+    }
+    return json.dumps(payload, ensure_ascii=False) + "\n"
+
+
 def _agent_with_runtime_config(
     agent: AgentConfig,
     args: list[str],
@@ -670,6 +1435,291 @@ def _agent_with_runtime_config(
         init_args=json.dumps(args, ensure_ascii=False),
         env_vars=json.dumps(env_vars, ensure_ascii=False),
     )
+
+
+def _codex_exec_resume_args(args: list[str], engine_session_id: str) -> list[str]:
+    result = ["exec", "resume"]
+    index = 1 if args and args[0] in {"exec", "e"} else 0
+    while index < len(args):
+        arg = args[index]
+        if arg in {"-", "resume"} or not arg:
+            index += 1
+            continue
+        if not arg.startswith("-"):
+            index += 1
+            continue
+        if arg == "--color" or arg.startswith("--color="):
+            index += 2 if arg == "--color" and index + 1 < len(args) else 1
+            continue
+        if arg in _CODEX_EXEC_ONLY_VALUE_FLAGS:
+            index += 2 if index + 1 < len(args) else 1
+            continue
+        if arg in _CODEX_RESUME_VALUE_FLAGS:
+            if index + 1 < len(args):
+                result.extend([arg, args[index + 1]])
+                index += 2
+            else:
+                result.append(arg)
+                index += 1
+            continue
+        if _has_prefixed_option(arg, _CODEX_RESUME_VALUE_FLAGS):
+            result.append(arg)
+            index += 1
+            continue
+        if arg in _CODEX_RESUME_BOOL_FLAGS:
+            result.append(arg)
+            index += 1
+            continue
+        if _has_prefixed_option(arg, _CODEX_RESUME_BOOL_FLAGS):
+            result.append(arg)
+            index += 1
+            continue
+        index += 1
+
+    if "--json" not in result:
+        result.append("--json")
+    result.extend([engine_session_id, "-"])
+    return result
+
+
+_CODEX_RESUME_VALUE_FLAGS = {
+    "-c",
+    "--config",
+    "--enable",
+    "--disable",
+    "-i",
+    "--image",
+    "-m",
+    "--model",
+    "--output-schema",
+    "-o",
+    "--output-last-message",
+}
+
+_CODEX_RESUME_BOOL_FLAGS = {
+    "--strict-config",
+    "--dangerously-bypass-approvals-and-sandbox",
+    "--dangerously-bypass-hook-trust",
+    "--skip-git-repo-check",
+    "--ephemeral",
+    "--ignore-user-config",
+    "--ignore-rules",
+    "--json",
+}
+
+_CODEX_EXEC_ONLY_VALUE_FLAGS = {
+    "-C",
+    "--cd",
+    "--add-dir",
+    "-s",
+    "--sandbox",
+    "-a",
+    "--ask-for-approval",
+    "-p",
+    "--profile",
+    "--local-provider",
+}
+
+_CODEX_MCP_SERVER_VALUE_FLAGS = {
+    "-c",
+    "--config",
+    "--enable",
+    "--disable",
+}
+
+_CODEX_MCP_SERVER_BOOL_FLAGS = {
+    "--strict-config",
+}
+
+
+def _codex_mcp_server_args(args: list[str]) -> list[str]:
+    result = ["mcp-server"]
+    index = 1 if args and args[0] in {"exec", "e"} else 0
+    while index < len(args):
+        arg = args[index]
+        if arg in {"-", "resume"} or not arg:
+            index += 1
+            continue
+        if arg in _CODEX_MCP_SERVER_VALUE_FLAGS:
+            if index + 1 < len(args):
+                result.extend([arg, args[index + 1]])
+                index += 2
+            else:
+                result.append(arg)
+                index += 1
+            continue
+        if _has_prefixed_option(arg, _CODEX_MCP_SERVER_VALUE_FLAGS):
+            result.append(arg)
+            index += 1
+            continue
+        if arg in _CODEX_MCP_SERVER_BOOL_FLAGS or _has_prefixed_option(arg, _CODEX_MCP_SERVER_BOOL_FLAGS):
+            result.append(arg)
+            index += 1
+            continue
+        index += _codex_arg_step(args, index)
+    return result
+
+
+def _codex_mcp_tool_arguments(
+    args: list[str],
+    prompt: str,
+    *,
+    system_prompt: str,
+    cwd: str,
+) -> dict:
+    result: dict = {"prompt": prompt}
+    if cwd:
+        result["cwd"] = cwd
+    if system_prompt.strip():
+        result["developer-instructions"] = system_prompt.strip()
+    config: dict = {}
+    index = 1 if args and args[0] in {"exec", "e"} else 0
+    while index < len(args):
+        arg = args[index]
+        value = _option_value(args, index)
+        if arg in {"-m", "--model"} and value:
+            result["model"] = value
+        elif arg.startswith("--model="):
+            result["model"] = arg.split("=", 1)[1]
+        elif arg in {"-s", "--sandbox"} and value:
+            result["sandbox"] = value
+        elif arg.startswith("--sandbox="):
+            result["sandbox"] = arg.split("=", 1)[1]
+        elif arg in {"-a", "--ask-for-approval"} and value:
+            result["approval-policy"] = value
+        elif arg.startswith("--ask-for-approval="):
+            result["approval-policy"] = arg.split("=", 1)[1]
+        elif arg == "--dangerously-bypass-approvals-and-sandbox":
+            result["sandbox"] = "danger-full-access"
+            result["approval-policy"] = "never"
+        elif arg == "--skip-git-repo-check":
+            config["skip_git_repo_check"] = True
+        index += _codex_arg_step(args, index)
+    if config:
+        result["config"] = config
+    return result
+
+
+def _codex_arg_step(args: list[str], index: int) -> int:
+    arg = args[index]
+    if arg.startswith("--") and "=" in arg:
+        return 1
+    if arg in {
+        "-c",
+        "--config",
+        "--enable",
+        "--disable",
+        "-i",
+        "--image",
+        "-m",
+        "--model",
+        "--output-schema",
+        "-o",
+        "--output-last-message",
+        "-C",
+        "--cd",
+        "--add-dir",
+        "-s",
+        "--sandbox",
+        "-a",
+        "--ask-for-approval",
+        "-p",
+        "--profile",
+        "--local-provider",
+        "--color",
+    }:
+        return 2 if index + 1 < len(args) else 1
+    return 1
+
+
+def _option_value(args: list[str], index: int) -> str:
+    if index + 1 >= len(args):
+        return ""
+    value = args[index + 1]
+    return "" if value.startswith("-") else value
+
+
+def _codex_session_metadata_outputs(event_type: str, data: dict) -> list[ParsedOutput]:
+    lower = event_type.lower()
+    if not ("session" in lower or "thread" in lower):
+        return []
+    engine_session_id = _session_id_from_event(data, ("thread", "session", "conversation"))
+    if not engine_session_id:
+        return []
+    return [_engine_session_metadata_output(
+        engine_session_id,
+        source=f"codex_{event_type or 'session_event'}",
+        cli_tool="codex",
+    )]
+
+
+def _opencode_session_metadata_outputs(data: dict) -> list[ParsedOutput]:
+    event_type = str(data.get("type") or data.get("event") or "").lower()
+    if not ("session" in event_type or "init" in event_type):
+        return []
+    engine_session_id = _session_id_from_event(data, ("session",))
+    if not engine_session_id:
+        return []
+    return [_engine_session_metadata_output(
+        engine_session_id,
+        source=f"opencode_{event_type or 'session_event'}",
+        cli_tool="opencode",
+    )]
+
+
+def _engine_session_metadata_output(
+    engine_session_id: str,
+    *,
+    source: str,
+    cli_tool: str,
+) -> ParsedOutput:
+    return ParsedOutput(
+        "",
+        "metadata",
+        metadata={
+            "engineSessionId": engine_session_id,
+            "engineSessionSource": source,
+            "cliTool": cli_tool,
+        },
+    )
+
+
+def _session_id_from_event(data: dict, nested_keys: tuple[str, ...]) -> str:
+    direct = _first_non_empty_string(
+        data,
+        (
+            "session_id",
+            "sessionId",
+            "sessionID",
+            "thread_id",
+            "threadId",
+            "conversation_id",
+            "conversationId",
+        ),
+    )
+    if direct:
+        return direct
+    for key in nested_keys:
+        nested = data.get(key)
+        if isinstance(nested, dict):
+            value = _first_non_empty_string(
+                nested,
+                ("id", "session_id", "sessionId", "sessionID", "thread_id", "threadId"),
+            )
+            if value:
+                return value
+    value = data.get("id")
+    if isinstance(value, str) and (
+        value.startswith("ses_")
+        or value.startswith("thread_")
+        or bool(re.fullmatch(r"[0-9a-fA-F-]{32,36}", value.strip()))
+    ):
+        return value.strip()
+    return ""
+
+
+def _has_prefixed_option(arg: str, options: set[str]) -> bool:
+    return any(arg.startswith(f"{option}=") for option in options if option.startswith("--"))
 
 
 def _with_codex_config(args: list[str], key: str, value: str) -> list[str]:
@@ -839,11 +1889,65 @@ def _opencode_has_message_or_command(args: list[str]) -> bool:
             "--dir",
             "--port",
             "--variant",
+            "-s",
+            "--session",
         }:
             index += 2
             continue
         index += 1
     return False
+
+
+def _opencode_acp_args(args: list[str], cwd: str) -> list[str]:
+    if args and args[0] == "acp":
+        result = list(args)
+    else:
+        result = ["acp"]
+        if "--pure" in args:
+            result.append("--pure")
+        for option in ("--print-logs", "--log-level"):
+            if option in args:
+                index = args.index(option)
+                result.append(option)
+                if option == "--log-level" and index + 1 < len(args):
+                    result.append(args[index + 1])
+    if cwd and not _has_opencode_option(result, "--cwd"):
+        result.extend(["--cwd", cwd])
+    return result
+
+
+def _has_opencode_option(args: list[str], option: str) -> bool:
+    return any(arg == option or arg.startswith(f"{option}=") for arg in args)
+
+
+def _opencode_with_session(args: list[str], engine_session_id: str) -> list[str]:
+    clean = _without_opencode_session_args(args)
+    insert_at = 1 if clean and clean[0] == "run" else 0
+    return [
+        *clean[:insert_at],
+        "--session",
+        engine_session_id,
+        *clean[insert_at:],
+    ]
+
+
+def _without_opencode_session_args(args: list[str]) -> list[str]:
+    result: list[str] = []
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if arg in {"-c", "--continue", "--fork"}:
+            index += 1
+            continue
+        if arg in {"-s", "--session"}:
+            index += 2 if index + 1 < len(args) else 1
+            continue
+        if arg.startswith("--session="):
+            index += 1
+            continue
+        result.append(arg)
+        index += 1
+    return result
 
 
 def _latest_user_message(messages: list[dict]) -> str:
@@ -853,6 +1957,22 @@ def _latest_user_message(messages: list[dict]) -> str:
         content = str(message.get("content") or "").strip()
         if content:
             return content
+    return ""
+
+
+def _acp_content_text(content: object) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, dict):
+        text = content.get("text")
+        if isinstance(text, str):
+            return text
+        nested = content.get("content")
+        if nested is not None:
+            return _acp_content_text(nested)
+        return ""
+    if isinstance(content, list):
+        return "".join(_acp_content_text(item) for item in content)
     return ""
 
 

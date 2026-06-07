@@ -21,6 +21,8 @@ import re
 
 from ..config import settings
 
+BACKEND_ROOT = Path(__file__).resolve().parents[2]
+
 
 @dataclass(frozen=True)
 class SkillDefinition:
@@ -272,14 +274,14 @@ def default_skill_roots() -> list[Path]:
     for item in re.split(r"[;,]", configured):
         value = item.strip().strip('"')
         if value:
-            roots.append(Path(value).expanduser())
+            roots.append(_resolve_skill_root(value))
     if not roots:
         roots.append(Path.home() / ".agents" / "skills")
     return roots
 
 
 def load_filesystem_skills(roots: list[str | Path] | None = None) -> list[SkillDefinition]:
-    skill_roots = [Path(root).expanduser() for root in roots] if roots is not None else default_skill_roots()
+    skill_roots = [_resolve_skill_root(root) for root in roots] if roots is not None else default_skill_roots()
     skills: list[SkillDefinition] = []
     for root in skill_roots:
         if not root.exists() or not root.is_dir():
@@ -289,6 +291,14 @@ def load_filesystem_skills(roots: list[str | Path] | None = None) -> list[SkillD
             if skill:
                 skills.append(skill)
     return skills
+
+
+def _resolve_skill_root(root: str | Path) -> Path:
+    path = Path(root).expanduser()
+    if path.is_absolute() or path.exists():
+        return path
+    backend_relative = BACKEND_ROOT / path
+    return backend_relative if backend_relative.exists() else path
 
 
 def _load_skill_dir(skill_dir: Path) -> SkillDefinition | None:

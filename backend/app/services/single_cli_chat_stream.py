@@ -26,6 +26,7 @@ from .approval_service import ApprovalService, approval_to_read
 from .cli_agent_service import CliAgentService
 from .execution_trace import ExecutionTraceBuilder, merge_trace_metadata
 from .file_change_detector import FileChangeDetector
+from .engine_session_service import EngineSessionService
 from .run_service import RunService, run_to_read, task_to_read
 from .session_service import SessionService
 from .streaming_text import iter_stream_pieces
@@ -67,11 +68,24 @@ class SingleCliChatStream:
             yield self._err("当前会话未绑定项目，无法启动 CLI Agent")
             return
 
+        engine_sessions = EngineSessionService(self.db)
+        resume_policy = self._cli_agents.engine_session_resume_policy(agent_config)
+        cli_tool = agent_config.cli_tool or "custom"
+        engine_invocation = await engine_sessions.resolve_invocation(
+            session_id=session_id,
+            agent_config_id=agent_config.id,
+            cli_tool=cli_tool,
+            workspace_path=workspace_path,
+            supported=resume_policy.supported,
+            caller_assigned_id=resume_policy.caller_assigned_id,
+        )
+
         adapter_messages, system_prompt = self._assemble_prompt(
             session_id,
             history,
             pinned_message_ids,
             agent_config.system_prompt or "",
+            resume_mode=engine_invocation.is_resume,
         )
 
         assistant_msg_id = str(uuid.uuid4())
@@ -79,17 +93,50 @@ class SingleCliChatStream:
         raw_output = ""
         process_id = ""
         exit_code = None
+        supports_persistent_process = self._cli_agents.supports_persistent_process(agent_config)
+        runtime_mode = (
+            "persistent_process"
+            if supports_persistent_process
+            else "engine_session_resume" if resume_policy.supported else "oneshot_process"
+        )
         metadata: dict = {
             "agentType": agent_config.agent_type or "cli_wrapper",
-            "cliTool": agent_config.cli_tool or "custom",
+            "cliTool": cli_tool,
             "workspacePath": workspace_path,
+            "engineRuntime": {
+                "mode": runtime_mode,
+                "processScope": "one_agenthub_session_one_process"
+                if supports_persistent_process else "per_turn_process",
+                "turnIsolation": "session_lock"
+                if supports_persistent_process else "request_stream",
+            },
+            "engineSessionPolicy": {
+                "supported": resume_policy.supported,
+                "strategy": resume_policy.strategy,
+                "startStrategy": resume_policy.start_strategy,
+                "idSource": resume_policy.id_source,
+                "callerAssignedId": resume_policy.caller_assigned_id,
+            },
         }
+        if engine_invocation.engine_session_id:
+            metadata["engineSession"] = {
+                "mode": engine_invocation.mode,
+                "id": engine_invocation.engine_session_id,
+                "adapter": cli_tool,
+                "strategy": (
+                    resume_policy.strategy
+                    if engine_invocation.is_resume else resume_policy.start_strategy
+                ),
+            }
+            if engine_invocation.assigned_by_agenthub:
+                metadata["engineSession"]["source"] = "agenthub_assigned"
         trace = ExecutionTraceBuilder(
             agent_name=agent_config.name,
-            cli_tool=agent_config.cli_tool or "custom",
+            cli_tool=cli_tool,
             workspace_path=workspace_path,
         )
         persisted = False
+        engine_session_remembered = False
         snapshot_id = None
         run_service = RunService(self.db, event_bus=self.event_bus) if run_id else None
         approval_service = ApprovalService(self.db, event_bus=self.event_bus) if run_id else None
@@ -107,10 +154,51 @@ class SingleCliChatStream:
                 workspace_path=workspace_path,
                 messages=adapter_messages,
                 system_prompt=system_prompt,
+                engine_session_id=engine_invocation.engine_session_id,
+                engine_session_mode=engine_invocation.mode,
+                persistent_process=supports_persistent_process,
             ):
                 process_id = event.process_id or process_id
+                if event.type == "agent.metadata":
+                    if event.metadata:
+                        metadata.update(_engine_event_metadata(
+                            event.metadata,
+                            previous=metadata.get("engineSession"),
+                        ))
+                        engine_id = str(event.metadata.get("engineSessionId") or "").strip()
+                        if engine_id and resume_policy.supported:
+                            await engine_sessions.remember(
+                                session_id=session_id,
+                                agent_config_id=agent_config.id,
+                                cli_tool=cli_tool,
+                                workspace_path=workspace_path,
+                                engine_session_id=engine_id,
+                                metadata={
+                                    "source": event.metadata.get("engineSessionSource"),
+                                    "strategy": resume_policy.strategy,
+                                    "startStrategy": resume_policy.start_strategy,
+                                    "idSource": resume_policy.id_source,
+                                    "lastMessageId": assistant_msg_id,
+                                },
+                            )
+                            engine_session_remembered = True
+                    continue
                 if event.type == "agent.process.started":
                     metadata["processId"] = process_id
+                    runtime_metadata = event.metadata or {}
+                    if event.metadata:
+                        metadata["engineRuntime"].update({
+                            key: event.metadata[key]
+                            for key in (
+                                "persistentProcess",
+                                "persistentProtocol",
+                                "reused",
+                                "recovered",
+                                "engineSessionMode",
+                                "engineSessionId",
+                            )
+                            if key in event.metadata
+                        })
                     if run_service and run_id:
                         run = await run_service.bind_current_message(run_id, assistant_msg_id)
                         if task_id:
@@ -130,18 +218,26 @@ class SingleCliChatStream:
                         )
                         yield self._run_status_changed(run)
                     trace.set_process(process_id)
+                    start_trace = event.trace or _process_started_trace(
+                        agent_config.name,
+                        runtime_metadata,
+                    )
                     item = trace.add(
                         kind="process",
-                        text=trace_text(event.trace or {}, f"正在启动 {agent_config.name}"),
+                        text=trace_text(start_trace, f"正在启动 {agent_config.name}"),
                         process_id=process_id,
-                        trace=event.trace,
+                        trace=start_trace,
                     )
                     if item:
                         yield self._trace_delta(
                             session_id, agent_config, assistant_msg_id, process_id, item,
                         )
                     yield self._process_started(
-                        session_id, agent_config, assistant_msg_id, process_id,
+                        session_id,
+                        agent_config,
+                        assistant_msg_id,
+                        process_id,
+                        runtime_metadata,
                     )
                     continue
 
@@ -232,6 +328,9 @@ class SingleCliChatStream:
                                 process_id,
                                 exit_code=exit_code,
                                 status="failed",
+                                run_id=run_id,
+                                task_id=task_id,
+                                message_id=assistant_msg_id,
                             )
                         if task_id:
                             task = await run_service.mark_task_status(
@@ -251,17 +350,37 @@ class SingleCliChatStream:
                     yield self._err(error, message_id=assistant_msg_id)
                     return
 
-                if event.type == "agent.process.completed":
+                if event.type in {"agent.process.completed", "agent.process.turn_completed"}:
                     exit_code = event.exit_code
+                    turn_completed = event.type == "agent.process.turn_completed"
+                    if event.type == "agent.process.turn_completed":
+                        metadata["engineRuntime"]["turnCompleted"] = True
+                        metadata["engineRuntime"]["processKeptAlive"] = True
                     metadata["exitCode"] = exit_code
                     if run_service and process_id:
-                        await run_service.complete_process(process_id, exit_code=exit_code)
+                        await run_service.complete_process(
+                            process_id,
+                            exit_code=exit_code,
+                            run_id=run_id,
+                            task_id=task_id,
+                            message_id=assistant_msg_id,
+                        )
                     status = "completed" if exit_code in (0, None) else "error"
                     item = trace.add(
                         kind="process",
-                        text=trace_text(event.trace or {}, f"{agent_config.name} 已结束"),
+                        text=trace_text(
+                            event.trace or {},
+                            f"{agent_config.name} 本轮完成，常驻进程已保留"
+                            if turn_completed else f"{agent_config.name} 已结束",
+                        ),
                         process_id=process_id,
-                        trace=event.trace,
+                        trace=event.trace or ({
+                            "title": f"{agent_config.name} 本轮完成",
+                            "detail": "常驻进程已保留，下一条消息会复用该进程。",
+                            "action": "complete",
+                            "level": "success",
+                            "persistentProcess": True,
+                        } if turn_completed else None),
                     )
                     trace.complete(status=status, exit_code=exit_code)
                     if item:
@@ -293,6 +412,9 @@ class SingleCliChatStream:
                         process_id,
                         exit_code=exit_code,
                         status="failed",
+                        run_id=run_id,
+                        task_id=task_id,
+                        message_id=assistant_msg_id,
                     )
                 if task_id:
                     task = await run_service.mark_task_status(
@@ -377,6 +499,27 @@ class SingleCliChatStream:
             metadata["rawOutputPreview"] = raw_output[-4000:]
         if (agent_config.primary_skill or "") == "orchestrator_planner":
             metadata.update(_orchestrator_plan_metadata(visible))
+        if (
+            not engine_session_remembered
+            and engine_invocation.assigned_by_agenthub
+            and engine_invocation.engine_session_id
+            and resume_policy.supported
+        ):
+            await engine_sessions.remember(
+                session_id=session_id,
+                agent_config_id=agent_config.id,
+                cli_tool=cli_tool,
+                workspace_path=workspace_path,
+                engine_session_id=engine_invocation.engine_session_id,
+                metadata={
+                    "source": "agenthub_assigned",
+                    "strategy": resume_policy.strategy,
+                    "startStrategy": resume_policy.start_strategy,
+                    "idSource": resume_policy.id_source,
+                    "lastMessageId": assistant_msg_id,
+                },
+            )
+            engine_session_remembered = True
         metadata = self._run_metadata(
             merge_trace_metadata(metadata, trace),
             run_id=run_id,
@@ -468,11 +611,16 @@ class SingleCliChatStream:
         history: list[dict],
         pinned_message_ids: list[str],
         fallback_system_prompt: str,
+        resume_mode: bool = False,
     ) -> tuple[list[dict], str]:
+        prompt_messages = (
+            _resume_delta_messages(history, pinned_message_ids)
+            if resume_mode else history
+        )
         assembled = self._context_manager.assemble(PromptAssemblyInput(
             session_id=session_id,
             system_prompt=fallback_system_prompt,
-            messages=history,
+            messages=prompt_messages,
             pinned_message_ids=pinned_message_ids,
             max_tokens=100_000,
         ))
@@ -487,8 +635,9 @@ class SingleCliChatStream:
         agent: AgentConfig,
         message_id: str,
         process_id: str,
+        runtime_metadata: dict | None = None,
     ) -> str:
-        return self._sse({
+        payload = {
             "type": "agent.process.started",
             "sessionId": session_id,
             "agentId": agent.id,
@@ -497,7 +646,18 @@ class SingleCliChatStream:
             "processId": process_id,
             "token": "",
             "done": False,
-        })
+        }
+        for key in (
+            "persistentProcess",
+            "persistentProtocol",
+            "reused",
+            "recovered",
+            "engineSessionMode",
+            "engineSessionId",
+        ):
+            if runtime_metadata and key in runtime_metadata:
+                payload[key] = runtime_metadata[key]
+        return self._sse(payload)
 
     def _agent_output(
         self,
@@ -768,6 +928,50 @@ def _split_system_prompt(messages: list[dict], fallback: str) -> tuple[list[dict
     return messages, fallback
 
 
+def _resume_delta_messages(history: list[dict], pinned_message_ids: list[str]) -> list[dict]:
+    """Keep only the current turn and explicit long-lived context for resumed engines."""
+    result: list[dict] = []
+    pinned = set(pinned_message_ids)
+    for message in history:
+        if message.get("id") in pinned:
+            result.append(message)
+            continue
+        if message.get("context_priority") in {"current_reference", "current_turn"}:
+            result.append(message)
+            continue
+        if message.get("is_reply_context") and message.get("context_priority") == "current_reference":
+            result.append(message)
+    return result or history[-1:]
+
+
+def _engine_event_metadata(metadata: dict, previous: object | None = None) -> dict:
+    engine_session_id = str(metadata.get("engineSessionId") or "").strip()
+    if not engine_session_id:
+        return {}
+    prior = previous if isinstance(previous, dict) else {}
+    mode = prior.get("mode") if prior.get("mode") in {"start", "resume"} else "captured"
+    result = {
+        "engineSession": {
+            "mode": mode,
+            "id": engine_session_id,
+            "adapter": metadata.get("cliTool") or "unknown",
+            "source": metadata.get("engineSessionSource"),
+        }
+    }
+    if prior.get("strategy"):
+        result["engineSession"]["strategy"] = prior["strategy"]
+    if prior.get("id") and prior.get("id") != engine_session_id:
+        result["engineSession"]["resumedFrom"] = prior.get("id")
+    usage = {
+        key: metadata[key]
+        for key in ("totalCostUsd", "durationMs", "numTurns")
+        if key in metadata
+    }
+    if usage:
+        result["engineSession"]["usage"] = usage
+    return result
+
+
 def _orchestrator_plan_metadata(output: str) -> dict:
     try:
         plan = normalize_plan(extract_json_object(output))
@@ -789,6 +993,50 @@ def _approval_summary(content: str) -> str:
     if not clean:
         return "本轮产出没有可见文本，请基于关联产物确认是否继续。"
     return clean[:240]
+
+
+def _process_started_trace(agent_name: str, runtime_metadata: dict) -> dict:
+    persistent = bool(runtime_metadata.get("persistentProcess"))
+    reused = bool(runtime_metadata.get("reused"))
+    recovered = bool(runtime_metadata.get("recovered"))
+    engine_session_mode = str(runtime_metadata.get("engineSessionMode") or "")
+    if recovered:
+        title = f"恢复 {agent_name} 常驻进程"
+        action = "recover"
+        detail = "常驻进程已恢复，继续当前 AgentHub 对话。"
+    elif reused:
+        title = f"复用 {agent_name} 常驻进程"
+        action = "reuse"
+        detail = "同一个 AgentHub 对话继续复用已存在的 CLI 进程。"
+    elif persistent:
+        title = f"启动 {agent_name} 常驻进程"
+        action = "start"
+        detail = "已为当前 AgentHub 对话启动会话级 CLI 进程。"
+    elif engine_session_mode == "resume":
+        title = f"恢复 {agent_name} 会话"
+        action = "resume"
+        detail = "已通过底层 CLI 原生会话 ID 续聊；本轮仍是一次新的 CLI invocation。"
+    elif engine_session_mode == "start":
+        title = f"创建 {agent_name} 会话"
+        action = "start"
+        detail = "已创建底层 CLI 原生会话 ID，后续轮次会用 resume 续聊。"
+    else:
+        title = f"启动 {agent_name}"
+        action = "start"
+        detail = ""
+    return {
+        "kind": "process",
+        "title": title,
+        "detail": detail,
+        "action": action,
+        "level": "info",
+        "provider": "AgentHub",
+        "persistentProcess": persistent,
+        "reused": reused,
+        "recovered": recovered,
+        "engineSessionMode": engine_session_mode or None,
+        "engineSessionId": runtime_metadata.get("engineSessionId"),
+    }
 
 
 async def _broadcast_ws(session_id: str, payload: dict) -> None:

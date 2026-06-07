@@ -9,7 +9,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..agents.cli_runtime import cli_process_manager
+from ..agents.cli_runtime_registry import cli_runtime_registry
 from ..core.timezone import china_now
 from ..models import Message, Run, RunProcess, RunTask, Session as DBSession
 from .runtime_schemas import ProcessRead, RunRead, TaskRead
@@ -211,9 +211,19 @@ class RunService:
         *,
         exit_code: int | None,
         status: str | None = None,
+        run_id: str | None = None,
+        task_id: str | None = None,
+        message_id: str | None = None,
     ) -> None:
+        filters = [RunProcess.process_id == process_id]
+        if run_id:
+            filters.append(RunProcess.run_id == run_id)
+        if task_id:
+            filters.append(RunProcess.task_id == task_id)
+        if message_id:
+            filters.append(RunProcess.message_id == message_id)
         result = await self.db.execute(
-            select(RunProcess).where(RunProcess.process_id == process_id)
+            select(RunProcess).where(*filters)
         )
         processes = result.scalars().all()
         now = _utcnow()
@@ -247,12 +257,12 @@ class RunService:
         killed = 0
         if process_rows:
             for row in process_rows:
-                await cli_process_manager.terminate(row.process_id)
+                await cli_runtime_registry.terminate(row.process_id)
                 row.status = "cancelled"
                 row.completed_at = _utcnow()
                 killed += 1
         else:
-            killed = await cli_process_manager.terminate_session(run.session_id)
+            killed = await cli_runtime_registry.terminate_session(run.session_id)
 
         task_result = await self.db.execute(
             select(RunTask)
@@ -382,7 +392,7 @@ def process_to_read(process: RunProcess) -> ProcessRead:
 
 
 def _snapshot_for_process(session_id: str, process_id: str) -> dict:
-    for snapshot in cli_process_manager.active_snapshots(session_id):
+    for snapshot in cli_runtime_registry.active_snapshots(session_id):
         if snapshot.get("processId") == process_id:
             return snapshot
     return {}

@@ -6,6 +6,7 @@ from .session_member import SessionMember
 from .artifact import Artifact
 from .run import Run, RunTask, RunProcess
 from .approval import ApprovalCheckpoint
+from .engine_session import EngineSession
 
 __all__ = [
     "Project",
@@ -18,4 +19,5 @@ __all__ = [
     "RunTask",
     "RunProcess",
     "ApprovalCheckpoint",
+    "EngineSession",
 ]

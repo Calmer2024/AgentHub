@@ -4,7 +4,13 @@ from __future__ import annotations
 
 from typing import AsyncIterator
 
-from ..agents.cli_adapters import CliEvent, get_cli_adapter, render_transcript_prompt
+from ..agents.cli_adapters import (
+    CliEvent,
+    EngineSessionResumePolicy,
+    PersistentProcessPolicy,
+    get_cli_adapter,
+    render_transcript_prompt,
+)
 from ..domain.skill_registry import SkillRegistry
 from ..models import AgentConfig
 from .cli_agent_registry import decode_json_list
@@ -25,6 +31,9 @@ class CliAgentService:
         workspace_path: str,
         messages: list[dict],
         system_prompt: str,
+        engine_session_id: str | None = None,
+        engine_session_mode: str = "resume",
+        persistent_process: bool = False,
     ) -> AsyncIterator[CliEvent]:
         if (agent.agent_type or "cli_wrapper") != "cli_wrapper":
             yield CliEvent(
@@ -36,15 +45,33 @@ class CliAgentService:
 
         adapter = get_cli_adapter(agent.cli_tool)
         prompt = adapter.render_prompt_messages(messages)
-        async for event in adapter.stream(
+        stream = (
+            adapter.stream_persistent_turn if persistent_process and adapter.supports_persistent_process
+            else adapter.stream
+        )
+        async for event in stream(
             agent=agent,
             session_id=session_id,
             cwd=workspace_path,
             user_prompt=prompt,
             system_prompt=self._assemble_system_prompt(agent, system_prompt),
+            engine_session_id=engine_session_id,
+            engine_session_mode=engine_session_mode,
             event_bus=self.event_bus,
         ):
             yield event
+
+    def supports_engine_session_resume(self, agent: AgentConfig) -> bool:
+        return bool(get_cli_adapter(agent.cli_tool).supports_engine_session_resume)
+
+    def engine_session_resume_policy(self, agent: AgentConfig) -> EngineSessionResumePolicy:
+        return get_cli_adapter(agent.cli_tool).engine_session_resume_policy
+
+    def supports_persistent_process(self, agent: AgentConfig) -> bool:
+        return bool(get_cli_adapter(agent.cli_tool).supports_persistent_process)
+
+    def persistent_process_policy(self, agent: AgentConfig) -> PersistentProcessPolicy:
+        return get_cli_adapter(agent.cli_tool).persistent_process_policy
 
     def _assemble_system_prompt(self, agent: AgentConfig, base_prompt: str) -> str:
         parts: list[str] = [
