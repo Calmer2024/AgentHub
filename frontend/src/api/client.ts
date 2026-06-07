@@ -14,6 +14,7 @@ import type {
   ParseOrchestratorOutputRequest, ParseOrchestratorOutputResult,
   OrchestratorExecution,
   RunRead, TaskRead, ApprovalCheckpoint, SystemHealthRead, CodeReference,
+  StewardDecisionEvent,
 } from "../types";
 import { parseDagPhases, parseTasks } from "./orchestratorEvents";
 import { chinaNowIso } from "../utils/time";
@@ -422,6 +423,7 @@ export interface StreamCallbacks {
   onTaskStarted?: (
     tasks: CollabTask[], intent: string, dagPhases: DAGPhase[], planSummary: string,
   ) => void;
+  onStewardDecision?: (decision: StewardDecisionEvent) => void;
   onChainStep?: (step: ChainStep) => void;
   onPhaseChange?: (event: PhaseChangeEvent) => void;
   onTaskCompleted?: (summary: string) => void;
@@ -476,7 +478,7 @@ export function createChatStream(
   parentMessageId?: string | null,
 ): () => void {
   const {
-    onToken, onDone, onRoute, onTaskStarted, onChainStep, onPhaseChange,
+    onToken, onDone, onRoute, onTaskStarted, onStewardDecision, onChainStep, onPhaseChange,
     onTaskCompleted, onAgentStart, onOrchestratorSummaryStart,
     onOrchestratorSummaryToken, onAgentToken, onProgress, onInteractivePrompt,
     onTraceDelta, onTraceCompleted, onArtifactScanStarted, onArtifactCreated,
@@ -557,6 +559,12 @@ export function createChatStream(
             // orchestrator.route
             if (data.type === "orchestrator.route" && onRoute) {
               onRoute(data.agents);
+              continue;
+            }
+
+            if (data.type === "orchestrator.steward_decision") {
+              const decision = normalizeStewardDecision(data.decision ?? data);
+              if (decision && onStewardDecision) onStewardDecision(decision);
               continue;
             }
 
@@ -1030,6 +1038,38 @@ function normalizeApproval(raw: unknown): ApprovalCheckpoint | null {
   };
 }
 
+function normalizeStewardDecision(raw: unknown): StewardDecisionEvent | null {
+  if (!raw || typeof raw !== "object") return null;
+  const data = raw as Record<string, unknown>;
+  const routeType = normalizeStewardRouteType(data.routeType ?? data.route_type);
+  if (!routeType) return null;
+  return {
+    routeType,
+    confidence: typeof data.confidence === "number" ? data.confidence : 0,
+    reason: typeof data.reason === "string" ? data.reason : "",
+    selectedAgents: normalizeRouteAgents(data.selectedAgents ?? data.selected_agents),
+    taskBrief: typeof data.taskBrief === "string"
+      ? data.taskBrief
+      : typeof data.task_brief === "string" ? data.task_brief : "",
+    requiresApproval: Boolean(data.requiresApproval ?? data.requires_approval),
+    riskLevel: normalizeRiskLevel(data.riskLevel ?? data.risk_level),
+    intent: typeof data.intent === "string" ? data.intent : "general_qa",
+    requiredTags: Array.isArray(data.requiredTags)
+      ? data.requiredTags.map(String)
+      : Array.isArray(data.required_tags) ? data.required_tags.map(String) : [],
+  };
+}
+
+function normalizeRouteAgents(raw: unknown): RouteAgent[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const data = item as Record<string, unknown>;
+    if (typeof data.id !== "string" || typeof data.name !== "string") return [];
+    return [{ id: data.id, name: data.name }];
+  });
+}
+
 function normalizeRunStatus(value: unknown): RunRead["status"] | null {
   if (
     value === "queued" || value === "running" || value === "pausing"
@@ -1046,6 +1086,19 @@ function normalizeTaskStatus(value: unknown): TaskRead["status"] | null {
     || value === "rejected"
   ) return value;
   return null;
+}
+
+function normalizeStewardRouteType(value: unknown): StewardDecisionEvent["routeType"] | null {
+  if (
+    value === "context_only" || value === "single_agent"
+    || value === "mini_collab" || value === "draft_plan"
+  ) return value;
+  return null;
+}
+
+function normalizeRiskLevel(value: unknown): StewardDecisionEvent["riskLevel"] {
+  if (value === "medium" || value === "high") return value;
+  return "low";
 }
 
 function normalizeApprovalStatus(value: unknown): ApprovalCheckpoint["status"] | null {

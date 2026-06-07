@@ -69,6 +69,47 @@ describe("createChatStream", () => {
     expect(onTaskStarted.mock.calls[0][3]).toBe("已安排: 先由@架构师规划。");
   });
 
+  it("解析 Orchestrator 调度器的无 @ 分流决策", async () => {
+    const onStewardDecision = vi.fn();
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(sseResponse([
+      JSON.stringify({
+        type: "orchestrator.steward_decision",
+        decision: {
+          routeType: "single_agent",
+          confidence: 0.74,
+          reason: "识别为单 Agent 快速响应",
+          selectedAgents: [{ id: "backend", name: "后端专家" }],
+          taskBrief: "后端看看这个 API",
+          requiresApproval: false,
+          riskLevel: "low",
+          intent: "code_gen",
+          requiredTags: ["API", "后端"],
+        },
+      }),
+      JSON.stringify({ type: "orchestrator.task_completed", summary: "done" }),
+    ]));
+
+    createChatStream("s1", "后端看看这个 API", [], {
+      onToken: vi.fn(),
+      onDone: vi.fn(),
+      onStewardDecision,
+      onTaskCompleted: vi.fn(),
+    });
+
+    await vi.waitFor(() => expect(onStewardDecision).toHaveBeenCalled());
+    expect(onStewardDecision).toHaveBeenCalledWith({
+      routeType: "single_agent",
+      confidence: 0.74,
+      reason: "识别为单 Agent 快速响应",
+      selectedAgents: [{ id: "backend", name: "后端专家" }],
+      taskBrief: "后端看看这个 API",
+      requiresApproval: false,
+      riskLevel: "low",
+      intent: "code_gen",
+      requiredTags: ["API", "后端"],
+    });
+  });
+
   it("把 Orchestrator plan-only 当普通 Agent 输出解析", async () => {
     const onDone = vi.fn();
     const onAgentStart = vi.fn();

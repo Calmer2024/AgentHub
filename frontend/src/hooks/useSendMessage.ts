@@ -10,7 +10,9 @@ import {
   fetchRuns,
   markSessionRead,
 } from "../api/client";
-import type { Message, CollabTask, DAGPhase, PhaseChangeEvent, AgentStartEvent, Artifact } from "../types";
+import type {
+  Message, CollabTask, DAGPhase, PhaseChangeEvent, AgentStartEvent, Artifact, StewardDecisionEvent,
+} from "../types";
 import { chinaNowIso } from "../utils/time";
 
 function emptyCollab(): CollabSnapshot {
@@ -51,6 +53,17 @@ const findPhaseTasks = (phases: DAGPhase[], event: PhaseChangeEvent): CollabTask
     phase: event.phase,
   }));
 };
+
+function stewardSummary(decision: StewardDecisionEvent): string {
+  if (decision.routeType === "context_only") return "Orchestrator 调度器已记录到群聊上下文";
+  if (decision.routeType === "draft_plan") return "Orchestrator 调度器建议先生成计划，等待确认后再执行";
+  if (decision.routeType === "mini_collab") {
+    const names = decision.selectedAgents.map((agent) => `@${agent.name}`).join("、");
+    return `Orchestrator 调度器建议先生成小型协作计划${names ? `：${names}` : ""}`;
+  }
+  const first = decision.selectedAgents[0];
+  return first ? `Orchestrator 调度器已分派给 @${first.name}` : "Orchestrator 调度器已完成分流";
+}
 
 export function useSendMessage() {
   const currentSessionId = useChatStore((state) => state.currentSessionId);
@@ -238,7 +251,19 @@ export function useSendMessage() {
       },
       onRoute: (agents) => {
         if (!isLiveStream()) return;
-        saveCollab(collabKey, { ...emptyCollab(), routeAgents: agents });
+        const snap = getCollab(collabKey);
+        saveCollab(collabKey, { ...(snap ?? emptyCollab()), routeAgents: agents });
+      },
+      onStewardDecision: (decision) => {
+        if (!isLiveStream()) return;
+        const summary = stewardSummary(decision);
+        setActiveProgress(summary, currentSessionId);
+        saveCollab(collabKey, {
+          ...emptyCollab(),
+          routeAgents: decision.selectedAgents.length > 0 ? decision.selectedAgents : null,
+          orchestratorIntent: decision.intent,
+          planSummary: `${summary}。${decision.reason}`,
+        });
       },
       onProgress: (progress) => {
         if (!isLiveStream()) return;

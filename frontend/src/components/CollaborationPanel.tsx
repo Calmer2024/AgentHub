@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ArrowRight, ChevronDown, ChevronRight, Workflow } from "lucide-react";
-import type { CollabTask, DAGPhase, DraftOrchestratorPlan } from "../types";
+import type { CollabTask, DAGPhase, DraftOrchestratorPlan, RunRead, TaskRead } from "../types";
+import { RuntimeControlStrip } from "./RuntimeControlStrip";
 
 interface Props {
   intent: string | null;
@@ -9,6 +10,10 @@ interface Props {
   isCompleted: boolean;
   completedSummary: string | null;
   draftPlan?: DraftOrchestratorPlan | null;
+  run?: RunRead | null;
+  runtimeTasks?: TaskRead[];
+  onCancelRun?: (runId: string) => void;
+  cancellingRunId?: string | null;
 }
 
 const ROLE_LABELS: Record<string, string> = {
@@ -46,7 +51,7 @@ function buildFallbackPhases(tasks: CollabTask[]): DAGPhase[] {
   if (tasks.length === 0) return [];
   return [{
     phase: 0,
-    mode: tasks.length > 1 ? "parallel" : "serial",
+    mode: "serial",
     status: tasks.some((t) => t.status === "running") ? "running" : "pending",
     tasks,
   }];
@@ -54,6 +59,7 @@ function buildFallbackPhases(tasks: CollabTask[]): DAGPhase[] {
 
 export function CollaborationPanel({
   intent, tasks, phases, isCompleted, completedSummary, draftPlan,
+  run = null, runtimeTasks = [], onCancelRun, cancellingRunId = null,
 }: Props) {
   const [collapsed, setCollapsed] = useState(false);
   const isDraftPlan = intent === "orchestrator_plan" || Boolean(draftPlan);
@@ -96,6 +102,16 @@ export function CollaborationPanel({
           {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
         </span>
       </button>
+      {run && onCancelRun && (
+        <div className="border-t px-4 pb-3 pt-0" style={{ borderColor: "var(--ah-border)" }}>
+          <RuntimeControlStrip
+            run={run}
+            tasks={runtimeTasks}
+            onCancel={onCancelRun}
+            cancelling={cancellingRunId === run.id}
+          />
+        </div>
+      )}
 
       {!collapsed && (
         <div className="overflow-x-auto border-t px-4 py-4" style={{ borderColor: "var(--ah-border)" }}>

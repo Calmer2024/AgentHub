@@ -379,6 +379,20 @@ export interface RouteAgent {
   name: string;
 }
 
+export type StewardRouteType = "context_only" | "single_agent" | "mini_collab" | "draft_plan";
+
+export interface StewardDecisionEvent {
+  routeType: StewardRouteType;
+  confidence: number;
+  reason: string;
+  selectedAgents: RouteAgent[];
+  taskBrief: string;
+  requiresApproval: boolean;
+  riskLevel: "low" | "medium" | "high";
+  intent: string;
+  requiredTags: string[];
+}
+
 export interface CollabTask {
   name: string;
   role: string;
