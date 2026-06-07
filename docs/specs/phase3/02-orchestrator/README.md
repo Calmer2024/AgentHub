@@ -1,8 +1,8 @@
 # AgentHub Orchestrator — 设计文档总览
 
-**最后更新**: 2026-06-06
+**最后更新**: 2026-06-07
 **架构决策**: [ADR-0007](../../../adr/0007-orchestrator-architecture.md)
-**当前分支**: `phase/phase3-smart-collab`
+**当前分支**: `phase/group-steward-routing`
 
 ---
 
@@ -47,8 +47,8 @@
 | 消息来源建模 | ✅ 已交付 | sourceType/contentType/metadata 支持 Agent 与 Orchestrator 区分 |
 | CollaborationPanel (DAG 图) | ✅ 已交付 | Phase 节点 + 依赖箭头 + 状态 |
 | Agent 气泡 (角色标签) | ✅ 已交付 | 角色标签、Phase 标记、协作竖线 |
-| Plan-first 真实执行 | 🚧 阶段通过 | draft plan 批准后可创建 execution，Scheduler 按 DAG 调度真实 CLI Agent，详见 [真实执行复盘](10-real-agent-execution/) |
-| 群聊调度器管家路由 | 📋 待实现 | 不 @ 时先做 context_only / single_agent / mini_collab / draft_plan 四档分流，详见 [11-group-chat-steward-routing.md](11-group-chat-steward-routing.md) |
+| Plan-first 真实执行 | ✅ 已验收基线 | draft plan 批准后可创建 execution，Scheduler 按 DAG 调度真实 CLI Agent；批准、修改、放弃均由 Orchestrator Agent 结构化输出驱动 |
+| 群聊调度器管家路由 | ✅ 已验收基线 | 不 @ 时先由可见 Orchestrator Agent 做 context_only / single_agent / mini_collab / draft_plan 四档分流；mini_collab 复用 Plan-first |
 | 错误处理矩阵 | ✅ 已交付 | 超时/不可用/全失败/链中断/截断 |
 | 测试覆盖 | ✅ 已交付 | Backend/Frontend 单测；含 DAG/SharedContext/API SSE/真实 UI 验收测试 |
 

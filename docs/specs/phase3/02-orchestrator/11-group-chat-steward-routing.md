@@ -1,6 +1,6 @@
 # 11: 群聊调度器管家路由
 
-**状态**: Draft
+**状态**: 已交付基线 / 已通过人工验收
 **创建日期**: 2026-06-07
 **关联**: [01-architecture.md](01-architecture.md)、[02-agent-selection.md](02-agent-selection.md)、[10-real-agent-execution](10-real-agent-execution/)、[Phase 7 Context Pack](../../phase7/05-context-pack-and-cache-strategy.md)
 
@@ -28,8 +28,9 @@
 
 | 用户输入 | 入口 | 目标行为 |
 |---------|------|----------|
-| `@调度器 ...` | Plan-first 调度器 | 生成 draft plan 或处理计划批准/修改 |
-| `@具体Agent ...` | 指定 Agent | 让被点名 Agent 直接回复/执行，必要时作为补充轮 |
+| `@调度器 ...` | Plan-first 调度器 | 生成 draft plan，或处理上一版计划的批准、修改、放弃 |
+| `@具体Agent ...` | 指定 Agent | 让被点名 Agent 直接回复/执行；多个普通 Agent 按 @ 顺序串行，并把前序产出注入后序 Agent |
+| 同时 `@调度器` 和其它 Agent | Plan-first 调度器 | 调度器优先接管，其它被 @ Agent 只作为候选、顺序或约束输入，不直接启动 |
 | 不 `@` | 调度器管家 | 先做轻量意图分流，再决定是否记录、单 Agent、多人小协作或生成计划 |
 
 核心原则：
@@ -38,6 +39,12 @@
 不 @ = 交给调度器管家判断
 不 @ ≠ 直接自动拉 Agent 执行
 ```
+
+多 @ 的责任边界：
+
+- 多个普通 Agent 被 @ 时，系统按用户 @ 顺序串行执行，后一个 Agent 能看到前一个 Agent 的完整产出摘要；
+- 只要 @ 列表中包含 Orchestrator 调度器，本轮就进入 Plan-first，不再把调度器当成普通执行 Agent；
+- 调度器生成的 plan 必须声明每个任务的输入、输出、依赖、验收标准和责任边界，避免上游 Agent 代做下游 Agent 的工作。
 
 ---
 
@@ -272,12 +279,12 @@ approved / revised / discarded
 
 ## 8. 实现切片
 
-### Step 1：后端分类器
+### Step 1：可见调度器管家
 
-- 新增 `GroupStewardRouter` 或等价服务；
+- 新增 `OrchestratorStewardChat`；
 - 输入：content、mentions、member_agents、session/project memory 摘要；
 - 输出：四档 route decision；
-- 先用规则 + Agent 技能标签实现，不必立即接 LLM。
+- 由真实 Orchestrator Agent 输出结构化 JSON，后端只解析 `route_type`、候选 Agent、任务摘要和风险信息，不用用户文本硬编码判断。
 
 ### Step 2：GroupChatStream 接入
 
@@ -313,24 +320,30 @@ approved / revised / discarded
 
 ---
 
-## 10. 当前差距
+## 10. 当前已交付基线
 
-当前代码仍是：
-
-```text
-不 @
-  -> OrchestratorV2 自动 AgentSelector
-  -> ExecutionPlanner
-  -> AgentExecutor 可能直接启动真实 Agent
-```
-
-目标代码应变为：
+当前代码已变为：
 
 ```text
 不 @
-  -> 调度器管家 route decision
+  -> OrchestratorStewardChat 可见调度器回合
+  -> 真实 Orchestrator Agent 输出 route decision
   -> context_only / single_agent / mini_collab / draft_plan
-  -> 按档位执行或等待用户确认
+  -> 按档位记录、单 Agent 执行，或进入 Plan-first 等待确认
 ```
 
-该差距应作为下一阶段优先修复项。
+Plan-first 跟进已支持：
+
+```text
+draft_pending
+  -> approve_plan   创建 execution，Scheduler 按 DAG 异步推进
+  -> discard_plan   关闭旧 plan，下一条无 @ 重新进入管家分流
+  -> 新 draft plan   旧 plan 标记 revised，新 plan 成为唯一待处理计划
+```
+
+本轮人工验收认可的边界：
+
+- `context_only` 会产生 Orchestrator 调度器可见回复，不再出现“没人理我”的体验；
+- `mini_collab` 不直接启动多个 Agent，而是复用 Plan-first 小型 DAG；
+- 有待处理 draft plan 时，后续无 @ 的“允许执行/修改/取消/换话题”都交给 Orchestrator Agent 输出结构化动作；
+- 多个普通 @ 仍按 @ 顺序串行；多个 @ 中包含调度器时，调度器优先接管并生成/跟进 plan。
