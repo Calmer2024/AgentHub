@@ -381,7 +381,10 @@ class TestArtifactOutputBridgePhase6:
 
         resp = await test_client.post(
             f"/api/sessions/{test_session}/chat",
-            json={"content": "EMIT_HTML_BLOCK"},
+            json={
+                "content": "EMIT_HTML_BLOCK",
+                "mentions": [agent.id for agent in agents],
+            },
         )
         async for _line in resp.aiter_lines():
             pass

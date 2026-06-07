@@ -55,6 +55,7 @@ class AgentSelector:
             return []
 
         mention_ids: set[str] = set(mentions) if mentions else set()
+        mention_order = {agent_id: index for index, agent_id in enumerate(mentions or [])}
 
         scored: list[ScoredAgent] = []
 
@@ -91,8 +92,8 @@ class AgentSelector:
                     reason="fallback",
                 ))
 
-        # 按得分降序排列
-        scored.sort(key=lambda x: x.score, reverse=True)
+        # 按得分降序排列；显式/管家 mentions 保留用户或管家给出的顺序。
+        scored.sort(key=lambda x: (-x.score, mention_order.get(x.agent.id, 9999)))
         return scored
 
     def _match_tags(self, tags: list[str], agent: AgentConfig) -> tuple[int, list[str]]:

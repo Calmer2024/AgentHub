@@ -24,9 +24,10 @@ logger = logging.getLogger(__name__)
 class AgentExecutor:
     """Agent 调用执行器。
 
-    支持三种模式:
+    支持四种模式:
       - single:   单 Agent 流式调用 (60s 超时保护)
-      - parallel: 多 Agent 并行调用，token 按到达顺序交错输出
+      - serial:   多 Agent 串行调用，上一步产出注入下一步
+      - parallel: 历史兼容模式，目前降级为串行执行
       - chain:    链式调用，角色 Prompt 注入 + 中断处理
     """
 
@@ -51,8 +52,8 @@ class AgentExecutor:
         elif mode == "chain":
             async for ev in self._execute_chain(calls, session_id, workspace_path):
                 yield ev
-        elif mode == "parallel" and len(calls) > 1:
-            async for ev in self._execute_parallel(calls, session_id, workspace_path):
+        elif len(calls) > 1 and mode in {"serial", "parallel"}:
+            async for ev in self._execute_serial(calls, session_id, workspace_path):
                 yield ev
         else:
             async for ev in self._execute_single(calls[0], session_id, workspace_path):
@@ -102,6 +103,35 @@ class AgentExecutor:
         gens = [self._execute_single(c, session_id, workspace_path) for c in calls[:5]]
         async for ev in self.merger.merge(gens):
             yield ev
+
+    # ---- Serial ----
+
+    async def _execute_serial(
+        self,
+        calls: list[AgentCall],
+        session_id: str = "",
+        workspace_path: str | None = None,
+    ) -> AsyncIterator[TokenEvent]:
+        """多 Agent 串行执行，后续 Agent 读取前序完整产出。"""
+        previous_outputs: list[tuple[AgentCall, str]] = []
+        for call in calls:
+            if previous_outputs:
+                call.input_messages = [
+                    *call.input_messages,
+                    *_serial_output_messages(previous_outputs),
+                ]
+            full = ""
+            step_error = None
+            async for ev in self._execute_single(call, session_id, workspace_path):
+                if ev.token and not ev.done:
+                    full += ev.token
+                if ev.error:
+                    step_error = ev.error
+                yield ev
+            previous_outputs.append((call, full))
+            if step_error:
+                logger.warning("Serial call failed (%s): %s", call.agent.name, step_error)
+                break
 
     # ---- Chain ----
 
@@ -183,7 +213,7 @@ class AgentExecutor:
         session_id: str = "",
         workspace_path: str | None = None,
     ) -> AsyncIterator[TokenEvent]:
-        """混合 DAG 执行: Phase 间串行，Phase 内并行。"""
+        """混合 DAG 执行: Phase 间串行，Phase 内也按顺序执行。"""
         ctx = shared_context or SharedContext(
             phases[0].calls[0].input_messages if phases and phases[0].calls else []
         )
@@ -191,22 +221,23 @@ class AgentExecutor:
         for phase in phases:
             yield self._phase_event(phase, "running")
             outputs: dict[str, tuple[AgentCall, str, str | None]] = {}
-            if phase.mode == "parallel" and len(phase.calls) > 1:
-                async for ev in self._execute_parallel_phase(
-                    phase, ctx, outputs, session_id, workspace_path,
-                ):
-                    yield ev
-            else:
+            phase_failed = False
+            for call in phase.calls:
                 async for ev in self._execute_phase_call(
-                    phase.calls[0], ctx, outputs, session_id, workspace_path,
+                    call, ctx, outputs, session_id, workspace_path,
                 ):
                     yield ev
+                done_call, full, error = outputs.get(call.task, (call, "", None))
+                if not error and full:
+                    ctx.append_output(done_call.task, done_call.agent.name, done_call.role, full)
+                if error:
+                    phase_failed = True
+                    break
 
             phase_status = "error" if any(err for _, _, err in outputs.values()) else "completed"
-            for call, full, error in outputs.values():
-                if not error and full:
-                    ctx.append_output(call.task, call.agent.name, call.role, full)
             yield self._phase_event(phase, phase_status)
+            if phase_failed:
+                break
 
     async def _execute_parallel_phase(
         self, phase: DAGPhase, ctx: SharedContext,
@@ -262,3 +293,16 @@ class AgentExecutor:
             "phase": call.phase,
             "depends_on": list(call.depends_on),
         }
+
+
+def _serial_output_messages(outputs: list[tuple[AgentCall, str]]) -> list[dict]:
+    """把串行上游产出转成后续 Agent 可读上下文。"""
+    messages: list[dict] = []
+    for call, content in outputs:
+        if not content:
+            continue
+        messages.append({
+            "role": "assistant",
+            "content": f"[上一步 @{call.agent.name} / {call.task} 产出]\n{content[:3000]}",
+        })
+    return messages
