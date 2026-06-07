@@ -113,23 +113,24 @@
 行为：
 
 - 调度器选择 2-3 个 Agent；
-- 生成短任务包；
-- 可并行或短串行；
-- 不进入完整 DAG 审批；
-- 可生成一条简短中枢总结。
+- 不直接启动这些 Agent；
+- 转交 Plan-first 调度器生成一份小型 draft plan；
+- draft plan 复用完整 DAG 契约，必须声明每个节点的输入、输出、依赖、验收标准和责任边界；
+- 用户确认后才由 Scheduler 按 DAG 执行。
 
 约束：
 
 - 参与 Agent 数量默认不超过 3；
-- 默认不允许跨阶段长流程；
+- 计划任务数默认控制在 2-3 个；
+- 前序 Agent 只交付本节点产物与交接说明，不代做下游 Agent 的职责；
 - 如果需要设计、实现、测试、文档完整链路，升级到档位 D。
 
 验收：
 
-- 前端显示 2-3 个 Agent 气泡或短协作面板；
-- 不出现完整 draft plan 审批；
-- 任务完成后有简短总结；
-- Context Pack 中只注入必要摘要和文件引用，不注入完整群聊 transcript。
+- 用户批准前不出现普通 Agent 气泡；
+- 出现 draft plan 面板，且候选执行 Agent 优先来自管家选择的 2-3 个 Agent；
+- draft plan 中每个任务都带 `expected_outputs`、`acceptance_criteria` 和 `depends_on`；
+- 用户批准后才创建 execution，并可停止、刷新恢复。
 
 ### 3.4 档位 D：复杂任务生成计划
 
@@ -210,7 +211,7 @@
 |------------|-------------------|
 | `context_only` | 更新 Project Memory，不构建 Agent 执行包 |
 | `single_agent` | 构建单 Agent 小任务包，只带最新用户消息、相关记忆和少量引用 |
-| `mini_collab` | 为每个 Agent 构建独立小任务包，上游默认摘要化 |
+| `mini_collab` | 构建小型 draft plan 生成包，候选 Agent 限定为管家选中的 2-3 个角色 |
 | `draft_plan` | 构建计划生成包，重点包含目标、约束、候选 Agent、验收要求 |
 
 这能避免“不 @”消息把完整群聊 transcript 直接灌给多个 Agent。
@@ -230,7 +231,8 @@
 
 - `mentions` 为空时先走 steward router；
 - `context_only` 直接返回短确认；
-- `single_agent` / `mini_collab` 构造受限 `AgentCall`；
+- `single_agent` 构造受限 `AgentCall`；
+- `mini_collab` 转交 `OrchestratorPlanChat` 生成小型 draft plan；
 - `draft_plan` 转交 `OrchestratorPlanChat` 生成计划。
 
 ### Step 3：前端展示
@@ -243,7 +245,8 @@
 - 覆盖四档输入样例；
 - 验证复杂任务不会直接启动真实 Agent；
 - 验证 context_only 不产生普通 Agent 气泡；
-- 验证单 Agent 和 mini_collab 可停止、可刷新恢复。
+- 验证 single_agent 可停止、可刷新恢复；
+- 验证 mini_collab 只生成 draft plan，用户批准前不启动普通 Agent。
 
 ---
 

@@ -631,6 +631,9 @@ class OrchestratorPlanChat:
                 return plan
         return None
 
+    async def has_latest_orchestrator_plan(self, session_id: str) -> bool:
+        return await self._latest_orchestrator_plan(session_id) is not None
+
     async def _persist_orchestrator_message(
         self,
         *,
