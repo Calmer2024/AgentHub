@@ -14,6 +14,7 @@ class CliEvent:
     error: str | None = None
     prompt_type: str = "confirm"
     trace: dict[str, Any] | None = None
+    metadata: dict[str, Any] | None = None
 
 
 @dataclass
@@ -21,3 +22,4 @@ class ParsedOutput:
     text: str
     chunk_type: str = "text"
     trace: dict[str, Any] | None = None
+    metadata: dict[str, Any] | None = None

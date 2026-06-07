@@ -3,6 +3,7 @@ import json
 import sys
 import asyncio
 from pathlib import Path
+from types import SimpleNamespace
 import pytest
 from sqlalchemy import select
 
@@ -140,6 +141,45 @@ class TestGroupSession:
         assert "agent.start" in events
         assert "agent.done" in events
         assert not any(e.startswith("orchestrator.summary_") for e in events)
+
+    async def test_group_chat_generates_title_after_task_completed(
+        self, test_client, test_agent, db_session, monkeypatch,
+    ):
+        """群聊完成事件之后仍会自动总结标题并推送给前端。"""
+        class FakeSystemLLM:
+            def is_configured(self):
+                return True
+
+            async def chat(self, **kwargs):
+                return SimpleNamespace(content="登录页优化")
+
+        from app.services import session_title_service
+        monkeypatch.setattr(session_title_service, "system_llm", FakeSystemLLM())
+
+        agent2 = make_test_cli_agent("A2")
+        db_session.add(agent2)
+        await db_session.commit()
+
+        res = await test_client.post("/api/sessions", json={
+            "title": "群聊",
+            "mode": "group",
+            "agentConfigIds": [test_agent.id, agent2.id],
+        })
+        sid = res.json()["id"]
+
+        resp = await test_client.post(
+            f"/api/sessions/{sid}/chat",
+            json={"content": "帮我优化登录页交互"},
+        )
+        events = []
+        async for line in resp.aiter_lines():
+            if line.startswith("data: "):
+                events.append(json.loads(line[6:]))
+
+        assert any(event.get("type") == "orchestrator.task_completed" for event in events)
+        assert any(event.get("type") == "session.title_updated" for event in events)
+        session = (await test_client.get(f"/api/sessions/{sid}")).json()
+        assert session["title"] == "登录页优化"
 
     async def test_group_chat_cli_agents_produce_tokens(self, test_client, test_agent, db_session):
         """测试 CLI Agent 在群聊模式下通过 subprocess 产出完整 token 流。"""

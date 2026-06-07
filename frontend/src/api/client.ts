@@ -465,6 +465,7 @@ export interface StreamCallbacks {
   onTaskStatusChanged?: (task: TaskRead) => void;
   onApprovalCreated?: (approval: ApprovalCheckpoint) => void;
   onApprovalStatusChanged?: (approval: ApprovalCheckpoint) => void;
+  onSessionTitleUpdated?: (session: Session) => void;
 }
 
 export function createChatStream(
@@ -483,6 +484,7 @@ export function createChatStream(
     onArtifactScanCompleted, onArtifactDetectionFailed,
     onRunStarted, onRunStatusChanged, onTaskStatusChanged,
     onApprovalCreated, onApprovalStatusChanged,
+    onSessionTitleUpdated,
   } = callbacks;
   const url = `${API_BASE}/sessions/${sessionId}/chat`;
   const abortCtrl = new AbortController();
@@ -554,6 +556,12 @@ export function createChatStream(
               continue;
             }
 
+            if (data.type === "session.title_updated" && onSessionTitleUpdated) {
+              const session = normalizeSession(data.session);
+              if (session) onSessionTitleUpdated(session);
+              continue;
+            }
+
             // orchestrator.route
             if (data.type === "orchestrator.route" && onRoute) {
               onRoute(data.agents);
@@ -620,12 +628,13 @@ export function createChatStream(
               continue;
             }
 
-            // orchestrator.task_completed (new)
-            if (data.type === "orchestrator.task_completed" && onTaskCompleted) {
-              onTaskCompleted(data.summary ?? "");
-              completed = true;
-              onDone(undefined, undefined);
-              return;
+            if (data.type === "orchestrator.task_completed") {
+              if (onTaskCompleted) onTaskCompleted(data.summary ?? "");
+              if (!completed) {
+                completed = true;
+                onDone(undefined, undefined);
+              }
+              continue;
             }
 
             // agent.start
@@ -721,21 +730,28 @@ export function createChatStream(
             }
 
             if (data.type === "agent.process.started") {
+              const agentName = data.agentName || "CLI Agent";
+              const processText = processStartText(agentName, data);
               if (onTraceDelta && data.messageId && data.callKey) {
                 onTraceDelta(data.messageId, {
                   id: `trace-${Date.now()}-${Math.random().toString(16).slice(2)}`,
                   kind: "process",
-                  text: `正在启动 ${data.agentName || "CLI Agent"}`,
+                  text: processText,
+                  title: processText,
+                  action: data.recovered ? "recover" : data.reused ? "reuse" : "start",
                   source: "system",
                   chunkType: "process",
                   processId: data.processId ?? null,
+                  persistentProcess: Boolean(data.persistentProcess),
+                  reused: Boolean(data.reused),
+                  recovered: Boolean(data.recovered),
                   timestamp: chinaNowIso(),
                 }, {
                   agentName: data.agentName,
                   processId: data.processId,
                 });
               }
-              if (onProgress) onProgress(`正在启动 ${data.agentName || "CLI Agent"}...`);
+              if (onProgress) onProgress(`${processText}...`);
               continue;
             }
 
@@ -812,9 +828,11 @@ export function createChatStream(
             // 仅全局 done (无 agentId) 或全局 error 才终止流
             // 每个 Agent 的 done 事件 (有 agentId) 不终止，后续 Agent 还需流式输出
             if (data.done && !data.agentId) {
-              completed = true;
-              onDone(data.messageId, data.error);
-              return;
+              if (!completed) {
+                completed = true;
+                onDone(data.messageId, data.error);
+              }
+              continue;
             }
           } catch { /* parse error */ }
         }
@@ -1030,6 +1048,26 @@ function normalizeApproval(raw: unknown): ApprovalCheckpoint | null {
   };
 }
 
+function normalizeSession(raw: unknown): Session | null {
+  if (!raw || typeof raw !== "object") return null;
+  const data = raw as Record<string, unknown>;
+  if (typeof data.id !== "string" || typeof data.title !== "string") return null;
+  return {
+    id: data.id,
+    title: data.title,
+    projectId: typeof data.projectId === "string" ? data.projectId : null,
+    agentConfigId: typeof data.agentConfigId === "string" ? data.agentConfigId : null,
+    mode: data.mode === "group" ? "group" : "single",
+    isPinned: Boolean(data.isPinned),
+    archivedAt: typeof data.archivedAt === "string" ? data.archivedAt : null,
+    unreadCount: typeof data.unreadCount === "number" ? data.unreadCount : 0,
+    lastReadAt: typeof data.lastReadAt === "string" ? data.lastReadAt : null,
+    isMuted: Boolean(data.isMuted),
+    createdAt: typeof data.createdAt === "string" ? data.createdAt : chinaNowIso(),
+    updatedAt: typeof data.updatedAt === "string" ? data.updatedAt : chinaNowIso(),
+  };
+}
+
 function normalizeRunStatus(value: unknown): RunRead["status"] | null {
   if (
     value === "queued" || value === "running" || value === "pausing"
@@ -1055,6 +1093,15 @@ function normalizeApprovalStatus(value: unknown): ApprovalCheckpoint["status"] |
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function processStartText(agentName: string, data: Record<string, unknown>) {
+  if (data.recovered) return `恢复 ${agentName} 常驻进程`;
+  if (data.reused) return `复用 ${agentName} 常驻进程`;
+  if (data.persistentProcess) return `启动 ${agentName} 常驻进程`;
+  if (data.engineSessionMode === "resume") return `恢复 ${agentName} 会话`;
+  if (data.engineSessionMode === "start") return `创建 ${agentName} 会话`;
+  return `正在启动 ${agentName}`;
 }
 
 export async function fetchArtifacts(sessionId: string): Promise<Artifact[]> {

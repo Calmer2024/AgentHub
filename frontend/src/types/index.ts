@@ -39,6 +39,12 @@ export interface ExecutionTraceItem {
   source?: "system" | "cli" | "adapter";
   chunkType?: string | null;
   processId?: string | null;
+  persistentProcess?: boolean | null;
+  reused?: boolean | null;
+  recovered?: boolean | null;
+  engineSessionMode?: string | null;
+  engineSessionId?: string | null;
+  pid?: number | null;
   timestamp: string;
 }
 

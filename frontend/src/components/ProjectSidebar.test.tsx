@@ -14,6 +14,32 @@ const project: Project = {
   createdAt: "",
 };
 
+const makeProject = (id: string, name: string): Project => ({
+  ...project,
+  id,
+  name,
+  workspacePath: `D:\\AgentHub\\workspaces\\${id}`,
+});
+
+const makeAgent = (id: string, name: string): AgentConfig => ({
+  id,
+  name,
+  description: "",
+  systemPrompt: "",
+  agentType: "cli_wrapper",
+  cliTool: "codex",
+  executable: "codex",
+  initArgs: [],
+  envVars: {},
+  primarySkill: "general_coding",
+  auxiliarySkills: ["workspace_editing"],
+  contextPolicy: "workspace_coding",
+  status: "ready",
+  isActive: true,
+  createdAt: "",
+  updatedAt: "",
+});
+
 const renderSidebar = (overrides: Partial<ComponentProps<typeof ProjectSidebar>> = {}) => render(
   <ProjectSidebar
     projects={[project]}
@@ -69,30 +95,48 @@ describe("ProjectSidebar", () => {
 
   it("智能体设置按钮直接打开设置弹窗", () => {
     const onEditAgent = vi.fn();
-    const agent: AgentConfig = {
-      id: "a1",
-      name: "Codex",
-      description: "",
-      systemPrompt: "",
-      agentType: "cli_wrapper",
-      cliTool: "codex",
-      executable: "codex",
-      initArgs: [],
-      envVars: {},
-      primarySkill: "general_coding",
-      auxiliarySkills: ["workspace_editing"],
-      contextPolicy: "workspace_coding",
-      status: "ready",
-      isActive: true,
-      createdAt: "",
-      updatedAt: "",
-    };
+    const agent = makeAgent("a1", "Codex");
 
     renderSidebar({ agents: [agent], onEditAgent });
 
-    fireEvent.click(screen.getByTitle("智能体操作"));
+    const actionButton = screen.getByTitle("智能体操作");
+    expect(actionButton).toHaveClass("opacity-0");
+    expect(actionButton).toHaveClass("group-hover:opacity-100");
+
+    fireEvent.click(actionButton);
+    expect(actionButton).toHaveClass("opacity-100");
     fireEvent.click(screen.getByText("设置"));
 
     expect(onEditAgent).toHaveBeenCalledWith("a1");
+  });
+
+  it("好友和项目默认只展示 3 个，点击后展开全部", () => {
+    renderSidebar({
+      projects: [
+        makeProject("p1", "项目一"),
+        makeProject("p2", "项目二"),
+        makeProject("p3", "项目三"),
+        makeProject("p4", "项目四"),
+      ],
+      agents: [
+        makeAgent("a1", "Claude"),
+        makeAgent("a2", "Codex"),
+        makeAgent("a3", "OpenCode"),
+        makeAgent("a4", "Pascal"),
+      ],
+    });
+
+    expect(screen.getByText("Claude")).toBeInTheDocument();
+    expect(screen.getByText("项目三")).toBeInTheDocument();
+    expect(screen.queryByText("Pascal")).not.toBeInTheDocument();
+    expect(screen.queryByText("项目四")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /展开全部好友/ }));
+    fireEvent.click(screen.getByRole("button", { name: /展开全部项目/ }));
+
+    expect(screen.getByText("Pascal")).toBeInTheDocument();
+    expect(screen.getByText("项目四")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /收起好友 \(4\)/ })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: /收起项目 \(4\)/ })).toHaveAttribute("aria-expanded", "true");
   });
 });

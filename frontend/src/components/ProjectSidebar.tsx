@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import {
   Archive,
   Bot,
+  ChevronDown,
+  ChevronUp,
   Moon,
   Folder,
   FolderOpen,
@@ -27,6 +29,7 @@ interface Props {
   agents: AgentConfig[];
   activePanel: SidebarTab;
   creating: boolean;
+  loading?: boolean;
   onSelectProject: (id: string) => void;
   onCreateBlankProject: (name?: string) => Promise<void>;
   onPickExistingFolder: () => Promise<void>;
@@ -46,6 +49,7 @@ export function ProjectSidebar({
   agents,
   activePanel,
   creating,
+  loading = false,
   onSelectProject,
   onCreateBlankProject,
   onPickExistingFolder,
@@ -65,10 +69,14 @@ export function ProjectSidebar({
   const [createName, setCreateName] = useState("新项目");
   const [renamingProjectId, setRenamingProjectId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  const [agentsExpanded, setAgentsExpanded] = useState(false);
+  const [projectsExpanded, setProjectsExpanded] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const agentMenuRef = useRef<HTMLDivElement>(null);
   const projectMenuRef = useRef<HTMLDivElement>(null);
-  const activeAgents = agents.filter((agent) => agent.isActive).slice(0, 6);
+  const activeAgents = agents.filter((agent) => agent.isActive);
+  const visibleAgents = agentsExpanded ? activeAgents : activeAgents.slice(0, 3);
+  const visibleProjects = projectsExpanded ? projects : projects.slice(0, 3);
   const theme = useThemeStore((state) => state.theme);
   const setTheme = useThemeStore((state) => state.setTheme);
 
@@ -150,13 +158,18 @@ export function ProjectSidebar({
             onClick={onCreateAgent}
           />
         </div>
-        <div className="space-y-1">
-          {activeAgents.length === 0 ? (
+        <div
+          className={`agenthub-expand-scroll agenthub-expand-scroll-friends space-y-1 transition-all duration-200 ${agentsExpanded ? "agenthub-expand-scroll-open" : ""}`}
+          aria-label="好友列表"
+        >
+          {loading && activeAgents.length === 0 ? (
+            <SidebarMiniSkeleton rows={3} />
+          ) : activeAgents.length === 0 ? (
             <div className="agenthub-faint px-2 py-2 text-xs">暂无可用智能体</div>
-          ) : activeAgents.map((agent) => (
+          ) : visibleAgents.map((agent) => (
             <div
               key={agent.id}
-              className={`relative ${agentMenuOpen === agent.id ? "z-40" : ""}`}
+              className={`group relative animate-[agenthub-slide-in_160ms_ease-out_both] ${agentMenuOpen === agent.id ? "z-40" : ""}`}
               ref={agentMenuOpen === agent.id ? agentMenuRef : undefined}
             >
               <div className="agenthub-nav-idle w-full rounded-2xl px-2 py-2 text-left transition">
@@ -179,7 +192,9 @@ export function ProjectSidebar({
                   <button
                     type="button"
                     onClick={() => setAgentMenuOpen((value) => (value === agent.id ? null : agent.id))}
-                    className="agenthub-icon-button inline-flex h-7 w-7 items-center justify-center rounded-full"
+                    className={`agenthub-icon-button inline-flex h-7 w-7 items-center justify-center rounded-full transition-opacity group-hover:opacity-100 ${
+                      agentMenuOpen === agent.id ? "opacity-100" : "opacity-0"
+                    }`}
                     title="智能体操作"
                     aria-label="智能体操作"
                   >
@@ -219,6 +234,15 @@ export function ProjectSidebar({
             </div>
           ))}
         </div>
+        {activeAgents.length > 3 && (
+          <ExpandButton
+            expanded={agentsExpanded}
+            count={activeAgents.length}
+            expandedLabel="收起好友"
+            collapsedLabel="展开全部好友"
+            onClick={() => setAgentsExpanded((value) => !value)}
+          />
+        )}
       </div>
 
       <div className="px-3 pt-2 pb-1">
@@ -252,97 +276,113 @@ export function ProjectSidebar({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
-        {projects.length === 0 ? (
-          <div className="agenthub-faint px-2 py-8 text-sm">暂无项目</div>
-        ) : projects.map((project) => {
-          const selected = currentProjectId === project.id && activePanel === "sessions";
-          const isRenaming = renamingProjectId === project.id;
-          return (
-            <div
-              key={project.id}
-              className={`group relative ${projectMenuOpen === project.id ? "z-40" : ""}`}
-              ref={projectMenuOpen === project.id ? projectMenuRef : undefined}
-            >
-              <button
-                type="button"
-                onClick={() => { onSelectProject(project.id); onOpenPanel("sessions"); }}
-                className={`w-full rounded-2xl px-2.5 py-2.5 text-left transition-all duration-200 ${
-                  selected ? "agenthub-nav-active" : "agenthub-nav-idle"
-                }`}
+      <div className="min-h-0 flex-1 px-2 pb-3">
+        <div
+          className={`agenthub-expand-scroll agenthub-expand-scroll-projects space-y-1 transition-all duration-200 ${projectsExpanded ? "agenthub-expand-scroll-open" : ""}`}
+          aria-label="项目列表"
+        >
+          {loading && projects.length === 0 ? (
+            <SidebarMiniSkeleton rows={3} />
+          ) : projects.length === 0 ? (
+            <div className="agenthub-faint px-2 py-8 text-sm">暂无项目</div>
+          ) : visibleProjects.map((project) => {
+            const selected = currentProjectId === project.id && activePanel === "sessions";
+            const isRenaming = renamingProjectId === project.id;
+            return (
+              <div
+                key={project.id}
+                className={`group relative animate-[agenthub-slide-in_160ms_ease-out_both] ${projectMenuOpen === project.id ? "z-40" : ""}`}
+                ref={projectMenuOpen === project.id ? projectMenuRef : undefined}
               >
-                <div className="flex items-center gap-2">
-                  <span className="agenthub-project-icon agenthub-soft flex h-8 w-8 shrink-0 items-center justify-center rounded-full border agenthub-muted">
-                    <Folder size={15} />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    {isRenaming ? (
-                      <input
-                        value={renameValue}
-                        onChange={(event) => setRenameValue(event.target.value)}
-                        onBlur={() => void submitProjectRename(project)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter") void submitProjectRename(project);
-                          if (event.key === "Escape") setRenamingProjectId(null);
-                        }}
-                        onClick={(event) => event.stopPropagation()}
-                        className="w-full rounded-lg border px-2 py-1 text-sm outline-none agenthub-composer"
-                        autoFocus
-                      />
-                    ) : (
-                      <>
-                        <span className="block truncate text-sm font-medium">{project.name}</span>
-                        <span className="agenthub-faint mt-0.5 block truncate text-xs">{projectStatusLabel(project.status)}</span>
-                      </>
-                    )}
-                  </span>
-                </div>
-              </button>
-              <button
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  setProjectMenuOpen((value) => (value === project.id ? null : project.id));
-                }}
-                className="agenthub-icon-button absolute right-2 top-3 inline-flex h-7 w-7 items-center justify-center rounded-full opacity-0 group-hover:opacity-100"
-                title="项目操作"
-                aria-label="项目操作"
-              >
-                <MoreHorizontal size={15} />
-              </button>
-              {projectMenuOpen === project.id && (
-                <div className="agenthub-menu absolute right-1 top-10 z-50 w-44 rounded-2xl border p-1">
-                  <MenuItem
-                    icon={Pencil}
-                    label="重命名"
-                    onClick={() => {
-                      setRenameValue(project.name);
-                      setRenamingProjectId(project.id);
-                      setProjectMenuOpen(null);
-                    }}
-                  />
-                  <MenuItem
-                    icon={Archive}
-                    label="归档"
-                    onClick={() => {
-                      setProjectMenuOpen(null);
-                      void onArchiveProject(project.id);
-                    }}
-                  />
-                  <MenuItem
-                    icon={Trash2}
-                    label="删除目录"
-                    danger
-                    onClick={() => {
-                      setProjectMenuOpen(null);
-                      void confirmDeleteProject(project);
-                    }}
-                  />
-                </div>
-              )}
-            </div>
-          );
-        })}
+                <button
+                  type="button"
+                  onClick={() => { onSelectProject(project.id); onOpenPanel("sessions"); }}
+                  className={`w-full rounded-2xl px-2.5 py-2.5 text-left transition-all duration-200 ${
+                    selected ? "agenthub-nav-active" : "agenthub-nav-idle"
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="agenthub-project-icon agenthub-soft flex h-8 w-8 shrink-0 items-center justify-center rounded-full border agenthub-muted">
+                      <Folder size={15} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      {isRenaming ? (
+                        <input
+                          value={renameValue}
+                          onChange={(event) => setRenameValue(event.target.value)}
+                          onBlur={() => void submitProjectRename(project)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") void submitProjectRename(project);
+                            if (event.key === "Escape") setRenamingProjectId(null);
+                          }}
+                          onClick={(event) => event.stopPropagation()}
+                          className="w-full rounded-lg border px-2 py-1 text-sm outline-none agenthub-composer"
+                          autoFocus
+                        />
+                      ) : (
+                        <>
+                          <span className="block truncate text-sm font-medium">{project.name}</span>
+                          <span className="agenthub-faint mt-0.5 block truncate text-xs">{projectStatusLabel(project.status)}</span>
+                        </>
+                      )}
+                    </span>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setProjectMenuOpen((value) => (value === project.id ? null : project.id));
+                  }}
+                  className="agenthub-icon-button absolute right-2 top-3 inline-flex h-7 w-7 items-center justify-center rounded-full opacity-0 group-hover:opacity-100"
+                  title="项目操作"
+                  aria-label="项目操作"
+                >
+                  <MoreHorizontal size={15} />
+                </button>
+                {projectMenuOpen === project.id && (
+                  <div className="agenthub-menu absolute right-1 top-10 z-50 w-44 rounded-2xl border p-1">
+                    <MenuItem
+                      icon={Pencil}
+                      label="重命名"
+                      onClick={() => {
+                        setRenameValue(project.name);
+                        setRenamingProjectId(project.id);
+                        setProjectMenuOpen(null);
+                      }}
+                    />
+                    <MenuItem
+                      icon={Archive}
+                      label="归档"
+                      onClick={() => {
+                        setProjectMenuOpen(null);
+                        void onArchiveProject(project.id);
+                      }}
+                    />
+                    <MenuItem
+                      icon={Trash2}
+                      label="删除目录"
+                      danger
+                      onClick={() => {
+                        setProjectMenuOpen(null);
+                        void confirmDeleteProject(project);
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        {projects.length > 3 && (
+          <ExpandButton
+            expanded={projectsExpanded}
+            count={projects.length}
+            expandedLabel="收起项目"
+            collapsedLabel="展开全部项目"
+            onClick={() => setProjectsExpanded((value) => !value)}
+          />
+        )}
       </div>
 
       {createModalOpen && (
@@ -488,6 +528,52 @@ function IconButton({
     >
       <Icon size={15} />
     </button>
+  );
+}
+
+function ExpandButton({
+  expanded,
+  count,
+  expandedLabel,
+  collapsedLabel,
+  onClick,
+}: {
+  expanded: boolean;
+  count: number;
+  expandedLabel: string;
+  collapsedLabel: string;
+  onClick: () => void;
+}) {
+  const Icon = expanded ? ChevronUp : ChevronDown;
+  const label = expanded ? expandedLabel : collapsedLabel;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="agenthub-expand-button mt-1 flex w-full items-center justify-center gap-1.5 rounded-xl px-2.5 py-2 text-xs transition"
+      aria-expanded={expanded}
+      aria-label={`${label} (${count})`}
+    >
+      <Icon size={13} className="agenthub-muted" aria-hidden="true" />
+      <span>{label}</span>
+      <span className="agenthub-expand-count">({count})</span>
+    </button>
+  );
+}
+
+function SidebarMiniSkeleton({ rows }: { rows: number }) {
+  return (
+    <div className="space-y-1.5 py-1" aria-label="正在加载侧栏数据">
+      {Array.from({ length: rows }).map((_, index) => (
+        <div key={index} className="agenthub-skeleton flex items-center gap-3 rounded-2xl border px-2 py-2">
+          <span className="h-8 w-8 shrink-0 animate-pulse rounded-full bg-[color:var(--ah-panel-muted)]" />
+          <span className="min-w-0 flex-1 space-y-1.5">
+            <span className="block h-2.5 w-2/3 animate-pulse rounded-full bg-[color:var(--ah-panel-muted)]" />
+            <span className="block h-2 w-1/2 animate-pulse rounded-full bg-[color:var(--ah-card-soft)]" />
+          </span>
+        </div>
+      ))}
+    </div>
   );
 }
 

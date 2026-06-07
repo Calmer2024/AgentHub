@@ -11,7 +11,18 @@ from typing import Any
 TRACE_KINDS = {"process", "progress", "tool", "command", "file", "artifact", "prompt", "error", "info"}
 
 
-def process_start_trace(agent_name: str, command: list[str] | None, cwd: str | None, pid: int | None) -> dict:
+def process_start_trace(
+    agent_name: str,
+    command: list[str] | None,
+    cwd: str | None,
+    pid: int | None,
+    *,
+    persistent: bool = False,
+    reused: bool = False,
+    recovered: bool = False,
+    engine_session_mode: str | None = None,
+    engine_session_id: str | None = None,
+) -> dict:
     argv = list(command or [])
     command_text = _shell_join(argv)
     detail_parts = []
@@ -21,16 +32,48 @@ def process_start_trace(agent_name: str, command: list[str] | None, cwd: str | N
         detail_parts.append(f"cwd: {cwd}")
     if pid:
         detail_parts.append(f"pid: {pid}")
+    if persistent:
+        detail_parts.append("runtime: persistent_process")
+        detail_parts.append(f"reused: {str(reused).lower()}")
+        detail_parts.append(f"recovered: {str(recovered).lower()}")
+    elif engine_session_mode in {"start", "resume"}:
+        detail_parts.append("runtime: oneshot_process")
+        detail_parts.append(f"engine_session_mode: {engine_session_mode}")
+        if engine_session_id:
+            detail_parts.append(f"engine_session_id: {engine_session_id}")
+    if recovered:
+        title = f"恢复 {agent_name} 常驻进程"
+        action = "recover"
+    elif reused:
+        title = f"复用 {agent_name} 常驻进程"
+        action = "reuse"
+    elif persistent:
+        title = f"启动 {agent_name} 常驻进程"
+        action = "start"
+    elif engine_session_mode == "resume":
+        title = f"恢复 {agent_name} 会话"
+        action = "resume"
+    elif engine_session_mode == "start":
+        title = f"创建 {agent_name} 会话"
+        action = "start"
+    else:
+        title = f"启动 {agent_name}"
+        action = "start"
     return {
         "kind": "process",
-        "title": f"启动 {agent_name}",
+        "title": title,
         "detail": "\n".join(detail_parts),
         "command": command_text or None,
         "target": cwd,
-        "action": "start",
+        "action": action,
         "provider": "AgentHub",
         "level": "info",
         "pid": pid,
+        "persistentProcess": persistent,
+        "reused": reused,
+        "recovered": recovered,
+        "engineSessionMode": engine_session_mode,
+        "engineSessionId": engine_session_id,
     }
 
 

@@ -186,6 +186,7 @@ describe("MessageBubble", () => {
     );
 
     fireEvent.click(screen.getByLabelText("全屏查看执行过程"));
+    expect(screen.getByRole("dialog", { name: "执行过程" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "执行过程" })).toBeInTheDocument();
     expect(screen.getByText("Codex 执行命令")).toBeInTheDocument();
   });

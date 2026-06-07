@@ -63,8 +63,8 @@ export function MessageArtifactStrip({ message, artifacts, relatedArtifacts, onC
   if (related.length === 0) return null;
 
   return (
-    <div className="mt-3 space-y-2">
-      <div className="agenthub-muted flex items-center gap-2 text-[11px] font-medium">
+    <div className="mt-3 min-w-0 max-w-full space-y-2">
+      <div className="agenthub-muted flex min-w-0 items-center gap-2 text-[11px] font-medium">
         <span className="inline-flex items-center gap-1.5">
           {iconFor(related[0].type)}
           本轮产物
@@ -72,7 +72,7 @@ export function MessageArtifactStrip({ message, artifacts, relatedArtifacts, onC
         <span className="h-px flex-1 bg-[color:var(--ah-border)]" />
         <span>{related.length} 个</span>
       </div>
-      <div className="grid gap-2">
+      <div className="grid min-w-0 gap-2">
         {related.map((artifact) => (
           <ArtifactCard
             key={artifact.id}

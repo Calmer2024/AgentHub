@@ -28,7 +28,19 @@ export const useSessionStore = create<SessionState>((set) => ({
   setSessions: (sessions) => set({ sessions }),
   setAgents: (agents) => set({ agents }),
   setSidebarTab: (tab) => set({ sidebarTab: tab }),
-  updateSession: (session) => set((s) => ({
-    sessions: s.sessions.map((sess) => sess.id === session.id ? session : sess),
-  })),
+  updateSession: (session) => set((s) => {
+    const exists = s.sessions.some((sess) => sess.id === session.id);
+    const sessions = exists
+      ? s.sessions.map((sess) => sess.id === session.id ? session : sess)
+      : [session, ...s.sessions];
+    return { sessions: sortSessions(sessions) };
+  }),
 }));
+
+function sortSessions(items: Session[]) {
+  return [...items].sort((a, b) => {
+    const pinnedDelta = Number(Boolean(b.isPinned)) - Number(Boolean(a.isPinned));
+    if (pinnedDelta !== 0) return pinnedDelta;
+    return Date.parse(b.updatedAt || "") - Date.parse(a.updatedAt || "");
+  });
+}

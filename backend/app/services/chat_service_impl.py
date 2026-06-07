@@ -17,6 +17,7 @@ from .message_service_sqlalchemy import (
 )
 from .run_service import RunService, run_to_read, task_to_read
 from .session_service import SessionService
+from .session_title_service import SessionTitleService
 from .single_cli_chat_stream import SingleCliChatStream
 
 class ChatServiceImpl:
@@ -98,10 +99,14 @@ class ChatServiceImpl:
 
         # 群聊: 通过 Pipeline 决定路由和执行计划
         if session.mode == "group":
-            async for ev in self._group_chat(
-                session_id, content, mentions, history, pinned_ids, session, chain_config,
-                run_id=run.id,
-                approval_required=approval_required,
+            async for ev in self._with_title_generation(
+                self._group_chat(
+                    session_id, content, mentions, history, pinned_ids, session, chain_config,
+                    run_id=run.id,
+                    approval_required=approval_required,
+                ),
+                session_id=session_id,
+                user_content=content,
             ):
                 yield ev
             return
@@ -128,13 +133,17 @@ class ChatServiceImpl:
             "done": False,
         })
 
-        async for ev in self._single_stream.send(
-            session_id,
-            history,
-            pinned_ids,
-            session,
-            run_id=run.id,
-            task_id=task.id,
+        async for ev in self._with_title_generation(
+            self._single_stream.send(
+                session_id,
+                history,
+                pinned_ids,
+                session,
+                run_id=run.id,
+                task_id=task.id,
+            ),
+            session_id=session_id,
+            user_content=content,
         ):
             yield ev
 
@@ -149,6 +158,49 @@ class ChatServiceImpl:
             approval_required=approval_required,
         ):
             yield ev
+
+    async def _with_title_generation(
+        self,
+        stream: AsyncGenerator[str, None],
+        *,
+        session_id: str,
+        user_content: str,
+    ) -> AsyncGenerator[str, None]:
+        assistant_content = ""
+        completed_without_error = False
+        async for ev in stream:
+            payload = _parse_sse_payload(ev)
+            if payload:
+                piece = _assistant_text_piece(payload)
+                if piece:
+                    assistant_content += piece
+                if payload.get("done") is True and not payload.get("error"):
+                    completed_without_error = True
+                if payload.get("type") == "orchestrator.task_completed":
+                    completed_without_error = True
+                if _is_successful_agent_completion(payload):
+                    completed_without_error = True
+            yield ev
+
+        if not completed_without_error:
+            return
+
+        updated = await SessionTitleService(self.db).maybe_generate_title(
+            session_id=session_id,
+            user_content=user_content,
+            assistant_content=assistant_content,
+        )
+        if not updated:
+            return
+        payload = {
+            "type": "session.title_updated",
+            "sessionId": session_id,
+            "session": updated.model_dump(by_alias=True, mode="json"),
+            "token": "",
+            "done": False,
+        }
+        await _broadcast_ws(session_id, payload)
+        yield self._sse(payload)
 
     # ---- SSE 格式化 ----
 
@@ -174,3 +226,38 @@ def _approval_requested(content: str) -> bool:
         "审核后",
     )
     return any(marker in lowered for marker in markers)
+
+
+def _parse_sse_payload(event: str) -> dict | None:
+    if not event.startswith("data: "):
+        return None
+    try:
+        return json.loads(event[6:])
+    except json.JSONDecodeError:
+        return None
+
+
+def _assistant_text_piece(payload: dict) -> str:
+    token = payload.get("token")
+    if isinstance(token, str) and token:
+        return token
+    if payload.get("type") == "agent.output" and payload.get("chunkType") == "text":
+        chunk = payload.get("chunk")
+        if isinstance(chunk, str):
+            return chunk
+    summary = payload.get("summary") if payload.get("type") == "orchestrator.task_completed" else None
+    return summary if isinstance(summary, str) else ""
+
+
+def _is_successful_agent_completion(payload: dict) -> bool:
+    if payload.get("type") not in {"agent.process.completed", "agent.process.turn_completed"}:
+        return False
+    return payload.get("exitCode") in (0, None)
+
+
+async def _broadcast_ws(session_id: str, payload: dict) -> None:
+    try:
+        from ..api.ws_manager import manager as ws_manager
+        await ws_manager.broadcast(session_id, payload)
+    except Exception:
+        pass

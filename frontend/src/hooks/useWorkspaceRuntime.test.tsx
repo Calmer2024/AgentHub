@@ -7,6 +7,7 @@ import type { Message, Project, Session } from "../types";
 
 const apiMocks = vi.hoisted(() => ({
   archiveProject: vi.fn(),
+  archiveSession: vi.fn(),
   createGroupSession: vi.fn(),
   createProject: vi.fn(),
   createSession: vi.fn(),
@@ -21,16 +22,25 @@ const apiMocks = vi.hoisted(() => ({
   fetchSessionMembers: vi.fn(),
   fetchSessions: vi.fn(),
   fetchSystemHealth: vi.fn(),
+  markSessionRead: vi.fn(),
+  muteSession: vi.fn(),
   pickProjectFolder: vi.fn(),
+  pinSession: vi.fn(),
   renameSession: vi.fn(),
   updateProject: vi.fn(),
 }));
 
 vi.mock("../api/client", () => apiMocks);
 
+const wsHandlers = vi.hoisted(() => ({
+  current: {} as Record<string, (event: Record<string, unknown>) => void>,
+}));
+
 vi.mock("../api/wsClient", () => ({
   WSClient: class {
-    on(_event: string, _handler: (event: Record<string, unknown>) => void) {}
+    on(event: string, handler: (event: Record<string, unknown>) => void) {
+      wsHandlers.current[event] = handler;
+    }
     connect(_sessionId: string) {}
     disconnect() {}
   },
@@ -72,6 +82,7 @@ function resetStores() {
     agents: [],
     sidebarTab: "sessions",
   });
+  wsHandlers.current = {};
 }
 
 const projects: Project[] = [
@@ -132,6 +143,7 @@ describe("useWorkspaceRuntime hydration", () => {
     apiMocks.fetchRuns.mockResolvedValue([]);
     apiMocks.fetchApprovals.mockResolvedValue([]);
     apiMocks.fetchSystemHealth.mockResolvedValue(null);
+    apiMocks.markSessionRead.mockResolvedValue(sessionA);
 
     const { result } = renderHook(() => useWorkspaceRuntime());
 
@@ -153,5 +165,46 @@ describe("useWorkspaceRuntime hydration", () => {
     await waitFor(() => expect(apiMocks.fetchMessages.mock.calls.length).toBeGreaterThan(callsAfterInitialLoad));
     await waitFor(() => expect(result.current.sessionHydrating).toBe(false));
     expect(useChatStore.getState().messagesBySession["s-a"]).toEqual([hydratedMessage]);
+  });
+
+  it("收到会话标题更新事件后同步列表和项目缓存", async () => {
+    resetStores();
+    apiMocks.fetchProjects.mockResolvedValue(projects);
+    apiMocks.fetchAgents.mockResolvedValue([]);
+    apiMocks.fetchSessions.mockResolvedValue([sessionA]);
+    apiMocks.fetchMessages.mockResolvedValue([hydratedMessage]);
+    apiMocks.fetchArtifacts.mockResolvedValue([]);
+    apiMocks.fetchRuns.mockResolvedValue([]);
+    apiMocks.fetchApprovals.mockResolvedValue([]);
+    apiMocks.fetchSystemHealth.mockResolvedValue(null);
+    apiMocks.markSessionRead.mockResolvedValue(sessionA);
+
+    const { result } = renderHook(() => useWorkspaceRuntime());
+
+    await waitFor(() => expect(result.current.currentProjectId).toBe("p-a"));
+    await waitFor(() => expect(useChatStore.getState().currentSessionId).toBe("s-a"));
+    await waitFor(() => expect(wsHandlers.current["session.title_updated"]).toBeTypeOf("function"));
+
+    const updated = {
+      ...sessionA,
+      title: "自动总结标题",
+      updatedAt: "2026-06-06T00:01:00.000Z",
+    };
+    act(() => {
+      wsHandlers.current["session.title_updated"]({ session: updated });
+    });
+
+    await waitFor(() => expect(result.current.sessions[0].title).toBe("自动总结标题"));
+
+    await act(async () => {
+      result.current.handleSelectProject("p-b");
+    });
+    await waitFor(() => expect(result.current.currentProjectId).toBe("p-b"));
+
+    await act(async () => {
+      result.current.handleSelectProject("p-a");
+    });
+
+    await waitFor(() => expect(result.current.sessions[0].title).toBe("自动总结标题"));
   });
 });

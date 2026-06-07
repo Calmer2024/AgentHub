@@ -1,8 +1,8 @@
 # Phase 7: 任务可控性 + 审批 + 环境体检 + 演示闭环
 
-**版本**: v3.3
+**版本**: v3.5
 **创建日期**: 2026-06-06
-**状态**: v1.0 Baseline — 7A/7B/7C 已验收，7D IM 基线与 v1.0 UI 加固已实现；真实 cc 完整自动化演示脚本待沉淀
+**状态**: v1.0 Baseline — 7A/7B/7C 已验收，7D IM 基线与 v1.0 UI 加固已实现；7E/7F 已落地 Engine Session、Claude Code stdin JSONL 常驻进程与 Codex/OpenCode 常驻 RPC 基线；真实 CLI 完整自动化演示脚本待沉淀
 **关联 ADR/PRD**: [ADR-0008](../../adr/0008-revised-development-strategy.md)、[ADR-0009](../../adr/0009-project-workspace-model.md)、[ADR-0010](../../adr/0010-message-level-artifact-experience.md)、[PRD-02](../../PRD/02-Orchestrator_Engine.md)、[PRD-03](../../PRD/03-User_Experience.md)、[PRD-05](../../PRD/05-End_to_End_Product_Flow.md)、[PRD-06](../../PRD/06-MVP_Local_Workspace_Delivery.md)
 **依赖模块**: Phase 4 消息交互闭环、Phase 5 Artifact 版本/编辑、Phase 6 Workspace Runtime + CLI Adapter + Artifact Bridge
 
@@ -81,7 +81,8 @@ Project workspace
 | **7B: 人工审批断点** | [02-approval-checkpoints.md](02-approval-checkpoints.md) | ✅ 验收通过 | ApprovalCheckpoint 数据模型、确认/驳回 API、聊天流 Approval Card、Artifact/代码引用回流 |
 | **7C: 环境体检** | [03-environment-health.md](03-environment-health.md) | ✅ 验收通过 | `/api/system/health`、CLI/Node/Python/workspace/DeepSeek/进程状态、HealthCheckCard 与发送前 guard |
 | **7D: IM 体验、演示与 UX 加固** | [04-mvp-demo-ux-hardening.md](04-mvp-demo-ux-hardening.md) | 🚧 IM 基线已实现 | 会话置顶/归档/未读/免打扰/转发/多选、右键菜单、明亮主题纯白与圆角布局、执行过程全屏；真实 cc 脚本待补 |
-| **7E: 上下文包与缓存策略** | [05-context-pack-and-cache-strategy.md](05-context-pack-and-cache-strategy.md) | Draft | 记录每轮新 CLI 进程 + 手动拼 prompt 的上下文/缓存风险，提出 Context Pack、Project Memory、Task Package 与 Engine Resume 探测路线 |
+| **7E: 上下文包与缓存策略** | [05-context-pack-and-cache-strategy.md](05-context-pack-and-cache-strategy.md) | Draft | 记录短进程 transcript 拼接的上下文/缓存风险，提出 Context Pack、Project Memory、Task Package、Engine Session 与常驻进程路线 |
+| **7F: CLI Session Process Runtime** | [06-cli-session-process-runtime.md](06-cli-session-process-runtime.md) | ✅ 实现基线 | Claude Code 单聊一会话一常驻 stdin JSONL 进程；Codex/OpenCode 单聊一会话一常驻 RPC 进程、turn 边界、并发串行、取消和恢复 |
 
 2026-06-06 验收记录：7A/7B/7C 已完成实现基线并通过本轮人工验收。验收中发现的“停止输出后无明确中止提示、输入框仍显示 AI 正在回复、其它会话被全局占用”问题已修复：前端点击停止后立即 abort 当前流、本地标记 run/message 为 cancelled、追加可见“本次运行已中止成功”系统消息并解锁输入框；后端取消也会持久化 cancelled metadata 和运行控制消息。
 
@@ -167,7 +168,7 @@ Project workspace
 
 | 依赖模块 | 需要的接口 | 当前状态 |
 |---------|-----------|---------|
-| Phase 6 CLI Runtime | `cli_process_manager.terminate_session()`、`active_snapshots()`、`agent.process.*` SSE | 已部分就绪 |
+| Phase 6/7 CLI Runtime | `cli_runtime_registry.terminate_session()`、`active_snapshots()`、`reply()`、`agent.process.*` SSE | 已就绪，统一覆盖短进程、Claude Code 会话级常驻 stdin JSONL 进程与 Codex/OpenCode 会话级常驻 RPC 进程 |
 | Phase 6 Artifact Bridge | `artifact.created`、`GET /api/sessions/{id}/artifacts`、消息级 ArtifactCard | 已验收 |
 | Phase 5 ArtifactService | `save`、`restore`、`versions`、`diff` | 已验收 |
 | Phase 3 Orchestrator | DAG phase/task 概念、summary 事件 | 已有基础，但缺持久化 run/task |
@@ -197,4 +198,6 @@ Project workspace
 - v3.1 (2026-06-06): 同步 7A/7B/7C 实现基线与人工验收结果，7D 保持后续演示加固范围。
 - v3.2 (2026-06-07): 同步 7D IM 基线、明亮主题/布局加固、消息右键菜单、转发/多选、执行过程全屏和交付快照入口。
 - v3.3 (2026-06-07): 同步 v1.0.0 发布摘要入口，明确真实 cc 完整自动化演示脚本仍为后续增强项。
-- v3.4 (2026-06-07): 新增 7E 上下文包与缓存策略，记录真实 CLI Agent 每轮新进程执行导致的上下文爆炸与缓存不可控风险。
+- v3.4 (2026-06-07): 新增 7E 上下文包与缓存策略，记录历史短进程 transcript 拼接导致的上下文爆炸与缓存不可控风险。
+- v3.5 (2026-06-07): 新增 7F CLI Session Process Runtime，将 Claude Code 单聊升级为一会话一常驻 stdin JSONL 进程，并通过 `cli_runtime_registry` 统一运行时控制入口。
+- v3.6 (2026-06-07): 复核 Claude Code 物理常驻口径：本机 `stream-json` 双 turn 探针确认同一存活进程可复用；Codex/OpenCode 常驻 RPC 保持实现基线。

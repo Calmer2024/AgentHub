@@ -40,7 +40,7 @@ async def _cleanup_db():
                 await conn.execute(text(f"DELETE FROM {t}"))
             except Exception:
                 pass
-        for t in ("session_members", "artifacts", "messages", "sessions", "agent_configs", "projects"):
+        for t in ("engine_sessions", "session_members", "artifacts", "messages", "sessions", "agent_configs", "projects"):
             try:
                 await conn.execute(text(f"DELETE FROM {t}"))
             except Exception:

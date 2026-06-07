@@ -177,9 +177,13 @@ export function ChatWindow({
     return map;
   }, [runs]);
   const hasActiveRun = useMemo(() => runs.some((run) => ACTIVE_RUN_STATUSES.has(run.status)), [runs]);
+  const currentSession = useMemo(
+    () => sessions.find((session) => session.id === currentSessionId) ?? null,
+    [currentSessionId, sessions],
+  );
   const headerStatus = isStreaming || hasActiveRun
     ? "对方正在输入"
-    : isGroup ? "多智能体协作" : currentAgent?.cliTool ?? "命令行智能体";
+    : isGroup ? "多智能体协作" : currentAgent?.name ?? currentAgent?.cliTool ?? "命令行智能体";
 
   const refreshRuntime = useCallback(async () => {
     try {
@@ -392,19 +396,19 @@ export function ChatWindow({
   }, []);
 
   return (
-    <div className="agenthub-chat relative flex-1 h-full min-h-0 flex flex-col overflow-hidden transition-colors duration-300">
+    <div className="agenthub-chat relative flex h-full min-h-0 min-w-0 max-w-full flex-1 flex-col overflow-hidden transition-colors duration-300">
       {/* Header */}
       <div className="agenthub-header flex items-center justify-between border-b px-4 py-3 md:px-6">
         <div className="flex min-w-0 items-center gap-3">
           <AgentAvatar
             agent={!isGroup ? currentAgent : undefined}
-            name={isGroup ? "群聊" : currentAgent?.name ?? "未选择智能体"}
+            name={isGroup ? currentSession?.title ?? "群聊" : currentAgent?.name ?? "未选择智能体"}
             kind={isGroup ? "group" : "agent"}
             size="md"
           />
           <div className="min-w-0">
             <h1 className="agenthub-strong truncate text-base font-semibold">
-              {isGroup ? "群聊" : currentAgent?.name ?? "未选择智能体"}
+              {currentSession?.title ?? (isGroup ? "群聊" : currentAgent?.name ?? "未选择智能体")}
             </h1>
             <p className="agenthub-muted mt-0.5 truncate text-xs">
               {headerStatus}
@@ -513,11 +517,11 @@ export function ChatWindow({
         </div>
       )}
 
-      <div className="relative flex-1 min-h-0 flex overflow-hidden">
+      <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
         {/* Messages area (scrollable) */}
         <div
           ref={scrollRef}
-          className="agenthub-message-area relative min-h-0 w-full overflow-y-auto p-4 pb-28 md:p-6 md:pb-28"
+          className="agenthub-message-area relative min-h-0 min-w-0 w-full overflow-y-auto p-4 pb-28 md:p-6 md:pb-28"
         >
           {messages.length === 0 && collabTasks.length === 0 && hydrating ? (
             <MessageListSkeleton />

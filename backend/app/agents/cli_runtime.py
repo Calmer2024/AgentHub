@@ -13,7 +13,6 @@ from typing import AsyncIterator
 
 from ..core.agent_env import clean_cli_agent_env
 from ..event_bus.event_types import EventType
-from .cli_stream import PromptInterceptor, StreamSanitizer
 
 
 class CliExecutableNotFound(FileNotFoundError):
@@ -36,6 +35,8 @@ class ManagedCliProcess:
     executable: str
     cwd: str
     process: asyncio.subprocess.Process
+    command: list[str]
+    mode: str = "oneshot"
     waiting_prompt: str | None = None
 
     def snapshot(self) -> dict:
@@ -45,7 +46,9 @@ class ManagedCliProcess:
             "agentId": self.agent_id,
             "executable": self.executable,
             "cwd": self.cwd,
+            "mode": self.mode,
             "pid": self.process.pid,
+            "argv": self.command,
             "waitingPrompt": self.waiting_prompt,
             "returnCode": self.process.returncode,
         }
@@ -62,6 +65,9 @@ class ProcessChunk:
     command: list[str] | None = None
     cwd: str | None = None
     pid: int | None = None
+    persistent: bool = False
+    reused: bool = False
+    recovered: bool = False
 
 
 class CliProcessManager:
@@ -124,6 +130,7 @@ class CliProcessManager:
             executable=executable,
             cwd=str(workspace),
             process=process,
+            command=command,
         )
         self._processes[process_id] = handle
         self._session_processes.setdefault(session_id, set()).add(process_id)

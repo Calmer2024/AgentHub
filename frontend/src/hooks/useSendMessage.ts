@@ -85,6 +85,7 @@ export function useSendMessage() {
   const saveCollab = useChatStore((state) => state.saveCollab);
   const setReplyTarget = useChatStore((state) => state.setReplyTarget);
   const sessions = useSessionStore((state) => state.sessions);
+  const updateSession = useSessionStore((state) => state.updateSession);
 
   return useCallback(async (content: string, mentions: string[]) => {
     if (!currentSessionId) return;
@@ -264,6 +265,9 @@ export function useSendMessage() {
       onApprovalStatusChanged: (approval) => {
         upsertApproval(approval);
       },
+      onSessionTitleUpdated: (session) => {
+        updateSession(session);
+      },
       onTraceDelta: (messageId, item, meta) => {
         if (!isLiveStream()) return;
         if (currentMode === "group") {
@@ -432,5 +436,6 @@ export function useSendMessage() {
     setSystemHealth, setHealthBlockingError,
     appendStreamingTokenToSessionMessage, startStreamRun, finishStreamRun,
     setActiveRunId, setActiveStreamAbort, getCollab, saveCollab, replyTarget, setReplyTarget,
+    updateSession,
   ]);
 }

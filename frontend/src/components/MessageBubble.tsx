@@ -95,7 +95,7 @@ function EmptyAssistantReply() {
 
 function MarkdownContent({ content }: { content: string }) {
   return (
-    <div className="agent-markdown max-w-none">
+    <div className="agent-markdown min-w-0 max-w-full">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
@@ -107,7 +107,7 @@ function MarkdownContent({ content }: { content: string }) {
               return <code className="agenthub-inline-code" {...props}>{children}</code>;
             }
             return (
-              <pre className="agenthub-code-block max-w-full overflow-x-auto rounded-2xl border p-0 text-xs leading-5">
+              <pre className="agenthub-code-block min-w-0 max-w-full overflow-x-auto rounded-2xl border p-0 text-xs leading-5">
                 <code className={match ? `language-${match[1]}` : undefined} {...props}>
                   {codeStr}
                 </code>
@@ -194,7 +194,7 @@ function MessageBubbleBase({
   };
 
   return (
-    <div className={`group relative mb-4 flex scroll-mt-6 items-end gap-2.5 transition ${
+    <div className={`group relative mb-4 flex min-w-0 scroll-mt-6 items-end gap-2.5 transition ${
       isUser ? "flex-row-reverse justify-start" : "justify-start"
     } ${highlighted ? "rounded-2xl bg-[color:var(--ah-highlight-bg)] ring-2 ring-[color:var(--ah-border-strong)]" : ""}`}>
       {selectionMode && (
@@ -216,11 +216,11 @@ function MessageBubbleBase({
         size="md"
         className="mb-0.5"
       />
-      <div className={`${isSummary || orchestratorPlan || orchestratorExecution ? "max-w-[min(92%,1080px)]" : "max-w-[min(78%,860px)]"} flex flex-col ${
+      <div className={`${isSummary || orchestratorPlan || orchestratorExecution ? "max-w-[min(92%,1080px)]" : "max-w-[min(78%,860px)]"} min-w-0 flex flex-col ${
         isUser ? "items-end" : "items-start"
       }`}>
         <div
-          className={`relative transition-transform duration-150 group-hover:-translate-y-0.5 ${
+          className={`relative min-w-0 max-w-full overflow-hidden transition-transform duration-150 group-hover:-translate-y-0.5 ${
           isSummary ? `${summaryClass} w-full` : bubbleClass
         } ${roundClass}`}
           onContextMenu={openContextMenu}
@@ -263,7 +263,7 @@ function MessageBubbleBase({
               )}
             </div>
           )}
-          <div className={isUser ? "px-5 py-3.5" : "px-4 py-3.5"}>
+          <div className={isUser ? "min-w-0 max-w-full px-5 py-3.5" : "min-w-0 max-w-full px-4 py-3.5"}>
           {message.isPinned && (
             <div className={`mb-2 text-xs font-medium ${isUser ? "text-current/80" : "agenthub-accent"}`}>
               <Pin size={13} aria-label="已 Pin" />

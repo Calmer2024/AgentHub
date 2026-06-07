@@ -115,6 +115,11 @@ class TestMigrationRunner:
         assert "project_id" in columns
 
         result = await conn.execute(text(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='engine_sessions'"
+        ))
+        assert result.fetchone() is not None
+
+        result = await conn.execute(text(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='projects'"
         ))
         assert result.fetchone() is not None

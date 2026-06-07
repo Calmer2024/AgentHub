@@ -1,5 +1,6 @@
 # Python
 __pycache__/
+.pytest_cache/
 *.py[cod]
 *$py.class
 *.so
@@ -45,6 +46,8 @@ backend/pytest-cache-files-*/
 backend/backend/
 backend/.agenthub-backend-*.log
 frontend/.agenthub-frontend-*.log
+.agenthub-backend-*.log
+.agenthub-frontend-*.log
 backend/.uvicorn-dev.*.log
 frontend/.vite-dev.*.log
 .tmp/

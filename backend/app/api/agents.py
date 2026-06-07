@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
 from ..models import AgentConfig
-from ..agents.cli_runtime import cli_process_manager
+from ..agents.cli_runtime_registry import cli_runtime_registry
 from ..services.cli_agent_registry import (
     CliAgentNotFoundError,
     CliAgentRegistry,
@@ -195,7 +195,7 @@ async def update_codex_config(data: CodexLocalConfigUpdate):
 
 @router.get("/runtime/processes")
 async def list_cli_processes(sessionId: str | None = None):
-    return {"processes": cli_process_manager.active_snapshots(sessionId)}
+    return {"processes": cli_runtime_registry.active_snapshots(sessionId)}
 
 
 @router.get("/{agent_id}", response_model=AgentConfigRead)

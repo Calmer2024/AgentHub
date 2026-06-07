@@ -51,7 +51,7 @@ function App() {
 
   const {
     projects, currentProjectId, currentProject, sessions, agents, sidebarTab,
-    creatingProject, sessionsLoading, sessionHydrating, sessionMembers, currentAgent, currentMode,
+    creatingProject, initialLoading, sessionsLoading, sessionHydrating, sessionMembers, currentAgent, currentMode,
     setSidebarTab, loadData,
     handleSelectProject, handleArchiveProject,
     handleRenameProject, handleDeleteProject,
@@ -141,14 +141,15 @@ function App() {
   }, [currentSessionId, setArtifactsForSession]);
 
   return (
-    <div className="agenthub-shell h-[100dvh] w-screen flex flex-col md:flex-row overflow-hidden">
-      <div className="agenthub-left-cluster flex w-full shrink-0 flex-col md:h-full md:w-[584px] md:flex-row">
+    <div className="agenthub-shell flex h-[100dvh] min-w-0 w-full max-w-full flex-col overflow-hidden md:flex-row">
+      <div className="agenthub-left-cluster flex min-w-0 w-full shrink-0 flex-col md:h-full md:w-[584px] md:flex-row">
         <ProjectSidebar
           projects={projects}
           currentProjectId={currentProjectId}
           agents={agents}
           activePanel={sidebarTab}
           creating={creatingProject}
+          loading={initialLoading}
           onSelectProject={handleSelectProject}
           onCreateBlankProject={handleCreateBlankProject}
           onPickExistingFolder={handlePickExistingFolder}
@@ -165,7 +166,7 @@ function App() {
           }}
         />
 
-        <div className="agenthub-session-nest flex h-[32dvh] w-full flex-col shrink-0 transition-colors duration-300 md:h-full md:w-[300px]">
+        <div className="agenthub-session-nest flex h-[32dvh] min-w-0 w-full shrink-0 flex-col transition-colors duration-300 md:h-full md:w-[300px]">
           <SessionList
             project={currentProject}
             sessions={sessions} currentSessionId={currentSessionId}
@@ -183,7 +184,7 @@ function App() {
       </div>
 
       {sidebarTab === "debug" ? (
-        <div className="flex-1 min-h-0">
+        <div className="min-h-0 min-w-0 flex-1">
           <OrchestratorDebugPanel agents={agents} onAgentsChanged={loadData} />
         </div>
       ) : currentSessionId ? (
@@ -212,7 +213,7 @@ function App() {
           onArtifactsChanged={handleArtifactsChanged}
         />
       ) : (
-        <div className="agenthub-chat flex-1 min-h-0 flex items-center justify-center text-lg px-6 text-center">
+        <div className="agenthub-chat flex min-h-0 min-w-0 flex-1 items-center justify-center px-6 text-center text-lg">
           <span className="agenthub-muted">
           {currentProject ? "在当前项目中新建私聊或群聊" : "创建项目后开始"}
           </span>
