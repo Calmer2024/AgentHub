@@ -84,6 +84,24 @@ class TestGroupSession:
         names = {member["agentName"] for member in members}
         assert {"A2", test_agent.name, "Orchestrator 调度器"}.issubset(names)
 
+    async def test_create_group_session_keeps_twelve_members(self, test_client, db_session):
+        agents = [make_test_cli_agent(f"A{index}") for index in range(11)]
+        db_session.add_all(agents)
+        await db_session.commit()
+
+        res = await test_client.post("/api/sessions", json={
+            "mode": "group",
+            "agentConfigIds": [agent.id for agent in agents],
+        })
+
+        assert res.status_code == 201
+        sid = res.json()["id"]
+        members = (await test_client.get(f"/api/sessions/{sid}/members")).json()
+        assert len(members) == 12
+        names = {member["agentName"] for member in members}
+        assert {f"A{index}" for index in range(11)}.issubset(names)
+        assert "Orchestrator 调度器" in names
+
     async def test_single_mode_still_works(self, test_client, test_agent):
         res = await test_client.post("/api/sessions", json={
             "agentConfigId": test_agent.id, "mode": "single"

@@ -160,6 +160,36 @@ class TestListAgents:
         assert orchestrator["primarySkill"] == "orchestrator_planner"
         assert orchestrator["contextPolicy"] == "planning_only"
 
+    async def test_configure_builtin_agents_codex_keeps_roles(self, test_client):
+        res = await test_client.post("/api/agents/configure-builtins-codex")
+        assert res.status_code == 200
+
+        agents = res.json()
+        role_names = {
+            "Orchestrator 调度器",
+            "产品经理",
+            "需求分析师",
+            "架构师",
+            "后端专家",
+            "前端专家",
+            "测试专家",
+            "文档专家",
+        }
+        role_agents = [agent for agent in agents if agent["name"] in role_names]
+
+        assert {agent["name"] for agent in role_agents} == role_names
+        assert all(agent["cliTool"] == "codex" for agent in role_agents)
+        assert all(agent["executable"] == "codex" for agent in role_agents)
+        assert all(agent["initArgs"][:2] == ["exec", "--skip-git-repo-check"] for agent in role_agents)
+
+        orchestrator = next(agent for agent in role_agents if agent["name"] == "Orchestrator 调度器")
+        assert orchestrator["primarySkill"] == "orchestrator_planner"
+        assert orchestrator["contextPolicy"] == "planning_only"
+
+        frontend = next(agent for agent in role_agents if agent["name"] == "前端专家")
+        assert frontend["primarySkill"] == "frontend_engineer"
+        assert "ux_designer" in frontend["auxiliarySkills"]
+
     async def test_list_after_create(self, test_client):
         res_before = await test_client.get("/api/agents")
         count_before = len(res_before.json())

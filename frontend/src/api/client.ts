@@ -33,6 +33,12 @@ export async function seedDefaultAgents(): Promise<AgentConfig[]> {
   return res.json();
 }
 
+export async function configureBuiltinAgentsCodex(): Promise<AgentConfig[]> {
+  const res = await fetch(`${API_BASE}/agents/configure-builtins-codex`, { method: "POST" });
+  if (!res.ok) throw new Error("Failed to configure builtin agents as Codex");
+  return res.json();
+}
+
 export async function fetchSkills(): Promise<SkillDefinition[]> {
   const res = await fetch(`${API_BASE}/skills`);
   if (!res.ok) throw new Error("Failed to fetch skills");

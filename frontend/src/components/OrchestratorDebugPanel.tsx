@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   buildOrchestratorInput,
+  configureBuiltinAgentsCodex,
   fetchOrchestratorExecution,
   parseOrchestratorOutput,
   seedDefaultAgents,
@@ -41,7 +42,7 @@ export function OrchestratorDebugPanel({ agents, onAgentsChanged }: Props) {
   const [parsed, setParsed] = useState<ParseOrchestratorOutputResult | null>(null);
   const [executionId, setExecutionId] = useState("");
   const [execution, setExecution] = useState<OrchestratorExecution | null>(null);
-  const [loading, setLoading] = useState<"build" | "parse" | "seed" | "execution" | null>(null);
+  const [loading, setLoading] = useState<"build" | "parse" | "seed" | "codex" | "execution" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [seedMessage, setSeedMessage] = useState<string | null>(null);
 
@@ -52,10 +53,20 @@ export function OrchestratorDebugPanel({ agents, onAgentsChanged }: Props) {
 
   const defaultAgentStatus = useMemo(() => {
     const names = new Set(agents.map((agent) => agent.name));
+    const byName = new Map(agents.map((agent) => [agent.name, agent]));
     const existing = DEFAULT_AGENT_NAMES.filter((name) => names.has(name));
+    const codexConfigured = DEFAULT_AGENT_NAMES.filter((name) => {
+      const agent = byName.get(name);
+      return agent?.cliTool === "codex" && agent.executable === "codex";
+    });
     return {
       existing,
+      codexConfigured,
       missing: DEFAULT_AGENT_NAMES.filter((name) => !names.has(name)),
+      nonCodex: DEFAULT_AGENT_NAMES.filter((name) => {
+        const agent = byName.get(name);
+        return agent && (agent.cliTool !== "codex" || agent.executable !== "codex");
+      }),
     };
   }, [agents]);
 
@@ -71,6 +82,26 @@ export function OrchestratorDebugPanel({ agents, onAgentsChanged }: Props) {
       setSeedMessage(`已补齐/更新默认 Agent 小队：${count}/${DEFAULT_AGENT_NAMES.length}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "创建默认 Agent 失败");
+    } finally {
+      setLoading(null);
+    }
+  };
+
+  const configureCodexDefaults = async () => {
+    setLoading("codex");
+    setError(null);
+    setSeedMessage(null);
+    try {
+      const configured = await configureBuiltinAgentsCodex();
+      await onAgentsChanged?.();
+      const byName = new Map(configured.map((agent) => [agent.name, agent]));
+      const count = DEFAULT_AGENT_NAMES.filter((name) => {
+        const agent = byName.get(name);
+        return agent?.cliTool === "codex" && agent.executable === "codex";
+      }).length;
+      setSeedMessage(`已统一内置角色 Agent 为 Codex 引擎：${count}/${DEFAULT_AGENT_NAMES.length}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "统一配置 Codex 引擎失败");
     } finally {
       setLoading(null);
     }
@@ -195,12 +226,26 @@ export function OrchestratorDebugPanel({ agents, onAgentsChanged }: Props) {
             >
               {loading === "seed" ? "创建中..." : "补齐/更新默认 Agent"}
             </button>
+            <button
+              type="button"
+              onClick={configureCodexDefaults}
+              disabled={loading !== null}
+              className="w-full border border-[#49624a] bg-[#49624a] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#384438] disabled:cursor-not-allowed disabled:border-[#c9cbbf] disabled:bg-[#d8d8cc] disabled:text-[#7f857b]"
+            >
+              {loading === "codex" ? "配置中..." : "一键统一为 Codex 引擎"}
+            </button>
             {defaultAgentStatus.missing.length > 0 ? (
               <p className="text-[11px] leading-5 text-amber-700">
                 缺少：{defaultAgentStatus.missing.join("、")}
               </p>
             ) : (
               <p className="text-[11px] leading-5 text-green-700">默认小队已存在，可直接拉群测试调度。</p>
+            )}
+            {defaultAgentStatus.existing.length > 0 && (
+              <p className="text-[11px] leading-5 text-[#697166]">
+                Codex 配置：{defaultAgentStatus.codexConfigured.length}/{DEFAULT_AGENT_NAMES.length}
+                {defaultAgentStatus.nonCodex.length > 0 ? `；未统一：${defaultAgentStatus.nonCodex.join("、")}` : "；已统一"}
+              </p>
             )}
             {seedMessage && <p className="text-[11px] leading-5 text-[#49624a]">{seedMessage}</p>}
           </section>

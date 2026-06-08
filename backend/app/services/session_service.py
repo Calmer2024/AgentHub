@@ -38,6 +38,9 @@ class MessageNotForwardableError(Exception):
     pass
 
 
+MAX_GROUP_AGENTS = 12
+
+
 class SessionService:
 
     def __init__(self, db: AsyncSession):
@@ -69,7 +72,7 @@ class SessionService:
         self.db.add(session)
 
         if is_group and group_agent_ids:
-            for aid in group_agent_ids[:6]:
+            for aid in group_agent_ids[:MAX_GROUP_AGENTS]:
                 self.db.add(SessionMember(session_id=session.id, agent_config_id=aid))
 
         await self.db.commit()

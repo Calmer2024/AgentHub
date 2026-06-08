@@ -274,6 +274,11 @@ LIFECYCLE_AGENT_SPECS = [
     },
 ]
 
+BUILTIN_ROLE_AGENT_NAMES = [
+    "Orchestrator 调度器",
+    *[str(spec["name"]) for spec in LIFECYCLE_AGENT_SPECS],
+]
+
 
 async def _ensure_lifecycle_agents(
     db: AsyncSession,
@@ -311,6 +316,32 @@ async def _ensure_lifecycle_agents(
             auxiliary_skills=json.dumps(spec["auxiliary_skills"], ensure_ascii=False),
             context_policy=spec["context_policy"],
         ))
+
+
+async def configure_builtin_role_agents_as_codex(db: AsyncSession) -> int:
+    """把内置角色 Agent 统一切到 Codex 引擎，保留角色技能配置。"""
+    await seed_default_cli_agents(db)
+    result = await db.execute(
+        select(AgentConfig).where(
+            AgentConfig.name.in_(BUILTIN_ROLE_AGENT_NAMES),
+            AgentConfig.is_active == True,
+        )
+    )
+    codex_defaults = DEFAULT_CLI_AGENTS["codex"]
+    updated = 0
+    for agent in result.scalars().all():
+        agent.agent_type = "cli_wrapper"
+        agent.cli_tool = "codex"
+        agent.executable = codex_defaults["executable"]
+        agent.init_args = json.dumps(codex_defaults["init_args"], ensure_ascii=False)
+        agent.env_vars = encode_cli_agent_env(
+            codex_defaults["env_vars"],
+            allowed_sensitive_keys=allowed_sensitive_env_keys_for_cli("codex"),
+        )
+        _ensure_skill_profile(agent)
+        updated += 1
+    await db.commit()
+    return updated
 
 
 def _preferred_engine(
