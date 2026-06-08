@@ -128,6 +128,7 @@ export interface Message {
     orchestratorPlan?: OrchestratorPlanMetadata;
     orchestratorPlanError?: string;
     orchestratorExecution?: OrchestratorExecution;
+    groupDialog?: GroupDialogMetadata;
   }) | null;
   agentRole?: string | null;
   phase?: number | null;
@@ -137,6 +138,17 @@ export interface Message {
   isPinned?: boolean;
   highlight?: string | null;
   createdAt: string;
+}
+
+export interface GroupDialogMetadata {
+  mode: "direct_dialog";
+  status: string;
+  activeAgentId: string;
+  activeAgentName: string;
+  goal?: string;
+  source?: string;
+  executionId?: string;
+  taskId?: string;
 }
 
 export interface AgentConfig {
@@ -442,7 +454,7 @@ export interface RouteAgent {
   name: string;
 }
 
-export type StewardRouteType = "context_only" | "single_agent" | "mini_collab" | "draft_plan";
+export type StewardRouteType = "context_only" | "single_agent" | "direct_dialog" | "mini_collab" | "draft_plan";
 
 export interface StewardDecisionEvent {
   routeType: StewardRouteType;

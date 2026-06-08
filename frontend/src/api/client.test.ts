@@ -104,6 +104,45 @@ describe("createChatStream", () => {
     expect(onDone).toHaveBeenCalledWith(undefined, undefined);
   });
 
+  it("收到 Agent done 后自然 EOF 不误报连接中断", async () => {
+    const onDone = vi.fn();
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(sseResponse([
+      JSON.stringify({
+        type: "agent.start",
+        agentId: "agent-product",
+        agentName: "产品经理",
+        messageId: "m1",
+        callKey: "agent-product:0:direct_dialog",
+      }),
+      JSON.stringify({
+        type: "agent.output",
+        agentId: "agent-product",
+        agentName: "产品经理",
+        messageId: "m1",
+        callKey: "agent-product:0:direct_dialog",
+        token: "页面信息顺序、视觉风格",
+        chunkType: "text",
+      }),
+      JSON.stringify({
+        agentId: "agent-product",
+        agentName: "产品经理",
+        done: true,
+        messageId: "m1",
+        callKey: "agent-product:0:direct_dialog",
+      }),
+    ]));
+
+    createChatStream("s1", "hello", [], {
+      onToken: vi.fn(),
+      onDone,
+      onAgentStart: vi.fn(),
+      onAgentToken: vi.fn(),
+    });
+
+    await vi.waitFor(() => expect(onDone).toHaveBeenCalled());
+    expect(onDone).toHaveBeenCalledWith(undefined, undefined);
+  });
+
   it("从 task_started 读取后端生成的分工解释", async () => {
     const onTaskStarted = vi.fn();
     vi.spyOn(globalThis, "fetch").mockResolvedValue(sseResponse([

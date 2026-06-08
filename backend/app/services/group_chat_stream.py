@@ -19,6 +19,8 @@ from .run_service import RunService, task_to_read, run_to_read
 from .session_service import SessionService
 from .shared_context import SharedContext
 from .group_chat_finalizer import GroupChatFinalizer
+from .group_dialog_state import GroupDialogStateService
+from .group_direct_dialog import GroupDirectDialog
 from .orchestrator_plan_chat import OrchestratorPlanChat
 from .orchestrator_steward_chat import OrchestratorStewardChat, StewardAgentDecision
 
@@ -38,6 +40,8 @@ class GroupChatStream:
         self._finalizer = GroupChatFinalizer(db, pipeline, event_bus=event_bus)
         self._plan_chat = OrchestratorPlanChat(db)
         self._steward_chat = OrchestratorStewardChat(db, event_bus=event_bus)
+        self._direct_dialog = GroupDirectDialog(db, event_bus=event_bus)
+        self._dialog_state = GroupDialogStateService(db)
 
     async def send(
         self, session_id: str, content: str, mentions: list[str] | None,
@@ -68,6 +72,26 @@ class GroupChatStream:
                 yield self._run_status_changed(run)
             yield self._err("当前会话未绑定项目，无法启动 CLI Agent")
             return
+
+        if not mentions:
+            active_dialog = await self._dialog_state.latest_active(session_id)
+            if active_dialog:
+                agent = await self.db.get(AgentConfig, active_dialog.agent_id)
+                if agent and agent.is_active:
+                    async for item in self._direct_dialog.send(
+                        session=session,
+                        content=content,
+                        history=history,
+                        workspace_path=workspace_path,
+                        agent=agent,
+                        run_id=run_id,
+                        goal=active_dialog.goal,
+                        source=active_dialog.source,
+                        execution_id=active_dialog.execution_id,
+                        task_id=active_dialog.task_id,
+                    ):
+                        yield item
+                    return
 
         orchestrator_agent = self._mentioned_orchestrator(member_agents, mentions, content)
         if orchestrator_agent:
@@ -163,6 +187,29 @@ class GroupChatStream:
                     )
                     yield self._run_status_changed(run)
                 yield self._sse({"token": "", "done": True, "messageId": steward_message_id})
+                return
+            if steward_decision.route_type == "direct_dialog":
+                if not steward_decision.selected_agents:
+                    if run_id:
+                        run = await RunService(self.db, event_bus=self.event_bus).mark_run_status(
+                            run_id,
+                            "failed",
+                            reason="Orchestrator 调度器没有为直接对话选择 Agent",
+                        )
+                        yield self._run_status_changed(run)
+                    yield self._err("Orchestrator 调度器没有为直接对话选择 Agent，请尝试 @ 指定 Agent")
+                    return
+                async for item in self._direct_dialog.send(
+                    session=session,
+                    content=content,
+                    history=history,
+                    workspace_path=workspace_path,
+                    agent=steward_decision.selected_agents[0],
+                    run_id=run_id,
+                    goal=steward_decision.task_brief or content,
+                    source="steward",
+                ):
+                    yield item
                 return
             if steward_decision.route_type in {"draft_plan", "mini_collab"}:
                 plan_member_agents = (

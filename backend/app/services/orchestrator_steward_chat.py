@@ -1,7 +1,7 @@
 """可见 Orchestrator 调度器管家回合。
 
-群聊无 @ 消息必须交给真实 Orchestrator Agent 判断四档分流：
-context_only / single_agent / mini_collab / draft_plan。这里不做隐藏规则路由，
+群聊无 @ 消息必须交给真实 Orchestrator Agent 判断分流：
+context_only / single_agent / direct_dialog / mini_collab / draft_plan。这里不做隐藏规则路由，
 只负责把调度器 Agent 的判断过程尽早流式暴露给前端。
 """
 
@@ -22,7 +22,7 @@ from .run_service import RunService, run_to_read, task_to_read
 from .session_service import SessionService
 
 
-StewardRouteType = Literal["context_only", "single_agent", "mini_collab", "draft_plan"]
+StewardRouteType = Literal["context_only", "single_agent", "direct_dialog", "mini_collab", "draft_plan"]
 
 
 @dataclass(frozen=True)
@@ -308,7 +308,7 @@ class OrchestratorStewardChat:
             return None
 
         route_type = str(data.get("route_type") or data.get("routeType") or "")
-        if route_type not in {"context_only", "single_agent", "mini_collab", "draft_plan"}:
+        if route_type not in {"context_only", "single_agent", "direct_dialog", "mini_collab", "draft_plan"}:
             return None
 
         candidates = {
@@ -345,6 +345,10 @@ class OrchestratorStewardChat:
             return "已记录到群聊上下文，我不会启动执行。"
         if route_type == "draft_plan":
             return "这个需求更适合先生成计划，我会先给出 draft plan，确认后再执行。"
+        if route_type == "direct_dialog":
+            if selected_agents:
+                return f"可以，我先请 @{selected_agents[0].name} 出来和你连续对齐。"
+            return "可以，我先切到单独对话模式。"
         if route_type == "mini_collab":
             names = "、".join(f"@{agent.name}" for agent in selected_agents)
             suffix = f"：{names}" if names else ""
@@ -368,7 +372,7 @@ class OrchestratorStewardChat:
                 "description": agent.description or "",
             })
         schema = {
-            "route_type": "context_only | single_agent | mini_collab | draft_plan",
+            "route_type": "context_only | single_agent | direct_dialog | mini_collab | draft_plan",
             "reply": "给用户看的简短中文回复",
             "reason": "内部判断原因",
             "selected_agent_ids": ["agent_id"],
@@ -381,14 +385,17 @@ class OrchestratorStewardChat:
             "你是 AgentHub 群聊中的 Orchestrator 调度器。用户没有 @ 任何成员时，"
             "这条消息默认就是发给你的。你必须先作为可见群聊成员判断下一步。\n\n"
             "只输出一个 JSON 对象，不要输出 Markdown，不要修改文件，不要执行子任务。\n"
-            "四档含义：\n"
+            "四档含义（当前已扩展 direct_dialog 分流档位）：\n"
             "- context_only：只是背景、约束、偏好或记忆；回复用户已记录，不启动 Agent。\n"
             "- single_agent：适合一个 Agent 轻量回答或处理；selected_agent_ids 只填 1 个。\n"
+            "- direct_dialog：用户想直接和某个群成员连续交流、访谈、澄清，或明确不想走任务/计划；"
+            "selected_agent_ids 只填 1 个；后续用户无 @ 消息会继续交给该 Agent，直到用户通过结构化操作结束或交接。\n"
             "- mini_collab：适合 2-3 个 Agent 协作，但仍需要先生成小型 draft plan；selected_agent_ids 填 2-3 个。\n"
             "- draft_plan：多阶段、高成本、可能写多文件或需要确认范围；先生成 draft plan。\n\n"
             "重要：如果一句话同时包含约束和明确需求，要按明确需求判断，不能只因为有"
             "“用中文、先别急着写代码、补充一下”等词就判成 context_only。"
-            "如果用户想找产品经理、前端、后端、测试等角色对齐，应选择对应 Agent。"
+            "如果用户想找产品经理、前端、后端、测试等角色进行单独交流、访谈或需求对齐，应选择 direct_dialog。"
+            "如果用户只是让某个 Agent 一次性回答一个轻量问题，才选择 single_agent。"
             "如果用户说先让 A 再让 B，选择 mini_collab，并按用户语序填写 selected_agent_ids；"
             "mini_collab 后续也会进入 plan-first，不会直接启动这些 Agent。\n\n"
             "候选 Agent：\n"

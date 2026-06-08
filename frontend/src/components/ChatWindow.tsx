@@ -12,6 +12,8 @@ import { RuntimeControlStrip } from "./RuntimeControlStrip";
 import {
   approveCheckpoint,
   cancelRun,
+  closeGroupDialog,
+  confirmOrchestratorTask,
   fetchApprovals,
   fetchArtifacts,
   fetchMessages,
@@ -106,6 +108,8 @@ export function ChatWindow({
   const [forwardTargetIds, setForwardTargetIds] = useState<Set<string>>(() => new Set());
   const [forwardingBusy, setForwardingBusy] = useState(false);
   const [groupManagementOpen, setGroupManagementOpen] = useState(false);
+  const [confirmingDialog, setConfirmingDialog] = useState(false);
+  const [closingDialog, setClosingDialog] = useState(false);
   const interactivePrompts = useChatStore((state) => state.interactivePrompts);
   const removeInteractivePrompt = useChatStore((state) => state.removeInteractivePrompt);
   const runs = useChatStore((state) => state.runs);
@@ -206,8 +210,10 @@ export function ChatWindow({
     [agents, groupMembers],
   );
   const showCollabPanel = collabTasks.length > 0 || Boolean(draftPlan);
+  const activeGroupDialog = useMemo(() => findActiveGroupDialog(messages), [messages]);
   const headerStatus = isStreaming || hasActiveRun
     ? "对方正在输入"
+    : activeGroupDialog ? `等待你回复 @${activeGroupDialog.activeAgentName}`
     : isGroup ? "多智能体协作" : currentAgent?.name ?? currentAgent?.cliTool ?? "命令行智能体";
 
   const refreshRuntime = useCallback(async () => {
@@ -392,6 +398,36 @@ export function ChatWindow({
     void handleReject(approval.id);
   }, [handleReject]);
 
+  const confirmActiveDialog = useCallback(async () => {
+    if (!activeGroupDialog?.executionId || !activeGroupDialog.taskId) return;
+    setConfirmingDialog(true);
+    try {
+      await confirmOrchestratorTask(
+        activeGroupDialog.executionId,
+        activeGroupDialog.taskId,
+        `${activeGroupDialog.activeAgentName} 访谈节点已由用户确认`,
+      );
+      await refreshRuntime();
+    } catch {
+      setStreamingError("确认访谈节点失败，请刷新后重试", currentSessionId);
+    } finally {
+      setConfirmingDialog(false);
+    }
+  }, [activeGroupDialog, currentSessionId, refreshRuntime, setStreamingError]);
+
+  const closeActiveDialog = useCallback(async () => {
+    if (!activeGroupDialog) return;
+    setClosingDialog(true);
+    try {
+      await closeGroupDialog(currentSessionId, "user_returned_to_orchestrator");
+      await refreshRuntime();
+    } catch {
+      setStreamingError("结束直接对齐失败，请刷新后重试", currentSessionId);
+    } finally {
+      setClosingDialog(false);
+    }
+  }, [activeGroupDialog, currentSessionId, refreshRuntime, setStreamingError]);
+
   useEffect(() => {
     const userMessages = messages.filter((message) => message.role === "user");
     const latestUser = userMessages[userMessages.length - 1] ?? null;
@@ -508,6 +544,40 @@ export function ChatWindow({
       {!isGroup && !currentAgent && (
         <div className="agenthub-status-warning mx-6 mt-3 rounded-xl border px-4 py-3">
           <p className="text-sm">请先在智能体管理中创建或选择一个智能体</p>
+        </div>
+      )}
+
+      {isGroup && activeGroupDialog && (
+        <div className="agenthub-status-info mx-6 mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3">
+          <div className="min-w-0">
+            <p className="text-sm font-medium">
+              正在和 @{activeGroupDialog.activeAgentName} 对齐
+            </p>
+            {activeGroupDialog.goal && (
+              <p className="agenthub-muted mt-0.5 truncate text-xs">{activeGroupDialog.goal}</p>
+            )}
+          </div>
+          {activeGroupDialog.executionId && activeGroupDialog.taskId ? (
+            <button
+              type="button"
+              onClick={() => void confirmActiveDialog()}
+              disabled={confirmingDialog}
+              className="agenthub-primary-button inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <CheckSquare size={14} />
+              {confirmingDialog ? "确认中" : "确认并继续调度"}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => void closeActiveDialog()}
+              disabled={closingDialog}
+              className="agenthub-icon-button inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <X size={14} />
+              {closingDialog ? "结束中" : "交给调度器"}
+            </button>
+          )}
         </div>
       )}
 
@@ -872,3 +942,33 @@ function MessageListSkeleton() {
 }
 
 export const MemoChatWindow = memo(ChatWindow);
+
+interface ActiveGroupDialog {
+  activeAgentId: string;
+  activeAgentName: string;
+  status: string;
+  goal?: string;
+  executionId?: string;
+  taskId?: string;
+}
+
+function findActiveGroupDialog(messages: Message[]): ActiveGroupDialog | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const dialog = messages[index].metadata?.groupDialog;
+    if (!dialog || dialog.mode !== "direct_dialog") continue;
+    if (["closed", "handoff_confirmed", "cancelled"].includes(dialog.status)) return null;
+    if (!["active", "awaiting_user_input", "agent_responding", "ready_for_handoff"].includes(dialog.status)) {
+      continue;
+    }
+    if (!dialog.activeAgentId || !dialog.activeAgentName) continue;
+    return {
+      activeAgentId: dialog.activeAgentId,
+      activeAgentName: dialog.activeAgentName,
+      status: dialog.status,
+      goal: dialog.goal,
+      executionId: dialog.executionId,
+      taskId: dialog.taskId,
+    };
+  }
+  return null;
+}

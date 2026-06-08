@@ -8,6 +8,7 @@ turn lock；具体工具名、prompt 参数和输出解析由 Adapter 提供。
 from __future__ import annotations
 
 import asyncio
+import codecs
 import copy
 import json
 import os
@@ -17,7 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import AsyncIterator, Literal
 
-from ..core.agent_env import clean_cli_agent_env
+from ..core.agent_env import apply_cli_utf8_defaults, clean_cli_agent_env
 from ..event_bus.event_types import EventType
 from .cli_runtime import (
     CliExecutableNotFound,
@@ -339,11 +340,10 @@ class CliRpcSessionRuntime:
         executable: str,
     ) -> asyncio.subprocess.Process:
         env = os.environ.copy()
+        apply_cli_utf8_defaults(env)
         for key, value in clean_cli_agent_env(env_vars).items():
             if value:
                 env[str(key)] = str(value)
-        env.setdefault("NO_COLOR", "1")
-        env.setdefault("TERM", "dumb")
         try:
             return await asyncio.create_subprocess_exec(
                 *command,
@@ -501,11 +501,17 @@ class CliRpcSessionRuntime:
         if reader is None:
             await handle.stderr_queue.put(None)
             return
+        decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
         while True:
             data = await reader.read(1024)
             if not data:
                 break
-            await handle.stderr_queue.put(data.decode("utf-8", errors="replace"))
+            text = decoder.decode(data, final=False)
+            if text:
+                await handle.stderr_queue.put(text)
+        tail = decoder.decode(b"", final=True)
+        if tail:
+            await handle.stderr_queue.put(tail)
         await handle.stderr_queue.put(None)
 
     def _events_from_notification(self, message: dict) -> list[dict]:

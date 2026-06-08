@@ -32,6 +32,10 @@ PLAN_SCHEMA: dict[str, Any] = {
         "depends_on": [],
         "expected_outputs": ["交付物类型或建议位置，不要强制精确文件名"],
         "acceptance_criteria": ["可验证的完成标准"],
+        "interaction_policy": "auto_run | ask_user_once | ask_user_until_confirmed | approval_after_output",
+        "handoff_policy": "auto | manual_confirm",
+        "awaits_user_input": False,
+        "blocks_downstream_until": "task_completed | user_confirms",
         "needs_approval": False,
         "is_blocking": True,
     }],
@@ -71,7 +75,10 @@ def build_plan_prompt(content: str, candidate_agents: list[dict[str, Any]]) -> s
         "如果用户要求 PRD、架构设计、接口说明、测试清单等正式项目文档，"
         "expected_outputs 应明确建议写入项目 `docs/`，不要只写“document”。\n"
         "7. acceptance_criteria 写成可验收的行为/质量标准，不要把语言要求重复塞进每个任务。\n"
-        "8. 输出语言遵循用户输入语言；用户用中文时，计划标题、目标、交接说明和后续执行要求都用中文。\n\n"
+        "8. 需求澄清、产品访谈、UX 访谈、架构对齐等需要用户持续回答的任务，"
+        "interaction_policy 应设为 ask_user_until_confirmed，handoff_policy 设为 manual_confirm，"
+        "blocks_downstream_until 设为 user_confirms；这类任务先提问，不得自动交接给下游。\n"
+        "9. 输出语言遵循用户输入语言；用户用中文时，计划标题、目标、交接说明和后续执行要求都用中文。\n\n"
         f"用户需求：\n{content.strip()}\n"
     )
 
@@ -95,6 +102,15 @@ def build_plan_followup_prompt(
         '  "action": "discard_plan",\n'
         '  "target_plan_id": "上一版 plan_id",\n'
         '  "reason": "为什么判断用户是在放弃这版计划"\n'
+        "}\n\n"
+        "如果用户明确希望绕开/暂停当前计划，直接和某个候选 Agent 单独交流、访谈或需求对齐，"
+        "请输出控制 JSON。不要生成只有该 Agent 一个任务的新计划：\n"
+        "{\n"
+        '  "action": "start_direct_dialog",\n'
+        '  "target_plan_id": "上一版 plan_id",\n'
+        '  "selected_agent_id": "候选 Agent id",\n'
+        '  "dialog_goal": "本次单独交流要对齐什么",\n'
+        '  "reason": "为什么判断用户要切到直接对话"\n'
         "}\n\n"
         "如果用户提出修改、补充、删除、合并、重新分配等意见，请输出一份新的 draft plan JSON，"
         "结构仍必须符合 Plan JSON / DAG schema，不要输出 approve_plan。\n\n"
@@ -205,6 +221,10 @@ def normalize_plan(raw_plan: dict[str, Any]) -> dict[str, Any]:
             "depends_on": depends_on,
             "expected_outputs": _string_list(task.get("expected_outputs")),
             "acceptance_criteria": _string_list(task.get("acceptance_criteria")),
+            "interaction_policy": _interaction_policy(task.get("interaction_policy")),
+            "handoff_policy": _handoff_policy(task.get("handoff_policy")),
+            "awaits_user_input": bool(task.get("awaits_user_input") or False),
+            "blocks_downstream_until": _blocks_downstream_until(task.get("blocks_downstream_until")),
             "needs_approval": bool(task.get("needs_approval") or task.get("requires_human_approval") or False),
             "is_blocking": bool(task.get("is_blocking") if "is_blocking" in task else True),
         })
@@ -314,6 +334,22 @@ def _optional_str(value: Any) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _interaction_policy(value: Any) -> str:
+    text = str(value or "auto_run").strip()
+    allowed = {"auto_run", "ask_user_once", "ask_user_until_confirmed", "approval_after_output"}
+    return text if text in allowed else "auto_run"
+
+
+def _handoff_policy(value: Any) -> str:
+    text = str(value or "auto").strip()
+    return text if text in {"auto", "manual_confirm"} else "auto"
+
+
+def _blocks_downstream_until(value: Any) -> str:
+    text = str(value or "task_completed").strip()
+    return text if text in {"task_completed", "user_confirms"} else "task_completed"
 
 
 def _critical_path(tasks: list[dict[str, Any]]) -> list[str]:

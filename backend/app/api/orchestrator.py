@@ -33,6 +33,10 @@ def _plan_svc(db: AsyncSession) -> OrchestratorPlanService:
     return OrchestratorPlanService(db, event_bus=_event_bus)
 
 
+class ConfirmTaskBody(BaseModel):
+    note: str | None = None
+
+
 @router.post("/plans/execute")
 async def execute_orchestrator_plan(
     data: ExecutePlanBody,
@@ -143,6 +147,22 @@ async def cancel_orchestrator_execution(execution_id: str):
     execution = await execution_registry.cancel_execution(execution_id)
     if execution is None:
         raise HTTPException(status_code=404, detail="Execution 不存在或已不可取消")
+    return execution
+
+
+@router.post("/executions/{execution_id}/tasks/{task_id}/confirm")
+async def confirm_orchestrator_waiting_task(
+    execution_id: str,
+    task_id: str,
+    data: ConfirmTaskBody | None = None,
+):
+    execution = await execution_registry.confirm_waiting_task(
+        execution_id,
+        task_id,
+        note=data.note if data else None,
+    )
+    if execution is None:
+        raise HTTPException(status_code=404, detail="等待用户确认的任务不存在")
     return execution
 
 

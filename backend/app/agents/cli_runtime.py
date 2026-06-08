@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import codecs
 import os
 import shutil
 import signal
@@ -11,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import AsyncIterator
 
-from ..core.agent_env import clean_cli_agent_env
+from ..core.agent_env import apply_cli_utf8_defaults, clean_cli_agent_env
 from ..event_bus.event_types import EventType
 
 
@@ -260,11 +261,17 @@ class CliProcessManager:
         if reader is None:
             await queue.put((name, None))
             return
+        decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
         while True:
             data = await reader.read(1024)
             if not data:
                 break
-            await queue.put((name, data.decode("utf-8", errors="replace")))
+            text = decoder.decode(data, final=False)
+            if text:
+                await queue.put((name, text))
+        tail = decoder.decode(b"", final=True)
+        if tail:
+            await queue.put((name, tail))
         await queue.put((name, None))
 
     @staticmethod
@@ -279,6 +286,7 @@ class CliProcessManager:
     @staticmethod
     def _build_env(env_vars: dict[str, str]) -> dict[str, str]:
         env = os.environ.copy()
+        apply_cli_utf8_defaults(env)
         for key, value in clean_cli_agent_env(env_vars).items():
             if value:
                 env[str(key)] = str(value)

@@ -369,6 +369,19 @@ export async function markSessionRead(sessionId: string): Promise<Session> {
   return res.json();
 }
 
+export async function closeGroupDialog(sessionId: string, reason = "user_closed"): Promise<{
+  ok: boolean;
+  closed: boolean;
+}> {
+  const res = await fetch(`${API_BASE}/sessions/${sessionId}/group-dialog/close`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason }),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to close group dialog"));
+  return res.json();
+}
+
 export async function forwardMessages(
   messageIds: string[],
   targetSessionIds: string[],
@@ -600,6 +613,8 @@ export function createChatStream(
     const decoder = new TextDecoder("utf-8");
     let buffer = "";
     let completed = false;
+    let sawEvent = false;
+    let sawTerminalEvent = false;
 
     while (true) {
       const { done, value } = await reader.read();
@@ -611,6 +626,8 @@ export function createChatStream(
         if (line.startsWith("data: ")) {
           try {
             const data = JSON.parse(line.slice(6));
+            sawEvent = true;
+            if (data.done) sawTerminalEvent = true;
 
             if (data.type === "run.started" && onRunStarted) {
               const run = normalizeRun(data.run);
@@ -930,7 +947,11 @@ export function createChatStream(
         }
       }
     }
-    if (!completed) onDone(undefined, "Stream ended unexpectedly");
+    buffer += decoder.decode();
+    if (!completed) {
+      if (sawEvent || sawTerminalEvent) onDone(undefined, undefined);
+      else onDone(undefined, "Stream ended unexpectedly");
+    }
   })().catch((error: unknown) => {
     if (error instanceof DOMException && error.name === "AbortError") {
       return;
@@ -1213,7 +1234,7 @@ function normalizeTaskStatus(value: unknown): TaskRead["status"] | null {
 function normalizeStewardRouteType(value: unknown): StewardDecisionEvent["routeType"] | null {
   if (
     value === "context_only" || value === "single_agent"
-    || value === "mini_collab" || value === "draft_plan"
+    || value === "direct_dialog" || value === "mini_collab" || value === "draft_plan"
   ) return value;
   return null;
 }
@@ -1338,6 +1359,26 @@ export async function cancelOrchestratorExecution(executionId: string): Promise<
   const res = await fetch(`${API_BASE}/orchestrator/executions/${encodeURIComponent(executionId)}/cancel`, {
     method: "POST",
   });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(text || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function confirmOrchestratorTask(
+  executionId: string,
+  taskId: string,
+  note?: string,
+): Promise<OrchestratorExecution> {
+  const res = await fetch(
+    `${API_BASE}/orchestrator/executions/${encodeURIComponent(executionId)}/tasks/${encodeURIComponent(taskId)}/confirm`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ note: note ?? null }),
+    },
+  );
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(text || `HTTP ${res.status}`);

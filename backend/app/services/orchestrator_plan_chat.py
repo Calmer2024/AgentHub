@@ -21,6 +21,7 @@ from ..models import AgentConfig, Message as DBMessage, Session as DBSession, Se
 from .cli_agent_service import CliAgentService
 from .execution_trace import ExecutionTraceBuilder, merge_trace_metadata
 from .file_change_detector import FileChangeDetector
+from .group_direct_dialog import GroupDirectDialog
 from .orchestrator_execution import PlanExecutionError, execution_registry
 from .run_service import RunService, run_to_read, task_to_read
 
@@ -249,6 +250,23 @@ class OrchestratorPlanChat:
                         agent=orchestrator_agent,
                         plan=latest_plan,
                         action=parsed,
+                        metadata=metadata,
+                        trace=trace,
+                        run_id=run_id,
+                    ):
+                        yield item
+                    return
+                if action == "start_direct_dialog":
+                    async for item in self._start_direct_dialog_from_action(
+                        session_id=session_id,
+                        content=content,
+                        history=history,
+                        workspace_path=workspace_path,
+                        agent=orchestrator_agent,
+                        member_agents=member_agents,
+                        plan=latest_plan,
+                        action=parsed,
+                        message_id=message_id,
                         metadata=metadata,
                         trace=trace,
                         run_id=run_id,
@@ -523,6 +541,132 @@ class OrchestratorPlanChat:
             "done": False,
         })
         yield self._sse({"token": "", "done": True, "messageId": message_id})
+
+    async def _start_direct_dialog_from_action(
+        self,
+        *,
+        session_id: str,
+        content: str,
+        history: list[dict],
+        workspace_path: str,
+        agent: AgentConfig,
+        member_agents: list[AgentConfig],
+        plan: dict,
+        action: dict,
+        message_id: str,
+        metadata: dict,
+        trace: ExecutionTraceBuilder,
+        run_id: str | None = None,
+    ) -> AsyncGenerator[str, None]:
+        selected_id = str(action.get("selected_agent_id") or action.get("selectedAgentId") or "")
+        target = next(
+            (
+                member for member in member_agents
+                if member.id == selected_id and member.id != agent.id
+                and (member.primary_skill or "") != "orchestrator_planner"
+            ),
+            None,
+        )
+        if not target:
+            content_text = "无法切换到直接对话：调度器没有选择有效的群成员 Agent。"
+            await self._persist_orchestrator_message(
+                session_id=session_id,
+                message_id=message_id,
+                agent=agent,
+                content=content_text,
+                metadata=merge_trace_metadata({
+                    **metadata,
+                    "orchestratorAction": action,
+                    "orchestratorActionError": "selected_agent_id 无效",
+                }, trace),
+            )
+            yield self._sse({
+                "type": "agent.output",
+                "agentId": agent.id,
+                "agentName": agent.name,
+                "token": content_text,
+                "messageId": message_id,
+                "role": "planner",
+                "phase": 0,
+                "task": "start direct dialog",
+                "callKey": self._call_key(agent.id, "start direct dialog", 0),
+                "chunk": content_text,
+                "chunkType": "text",
+                "done": False,
+            })
+            if run_id:
+                async for item in self._mark_run_failed(
+                    run_id=run_id,
+                    message_id=message_id,
+                    error="selected_agent_id 无效",
+                ):
+                    yield item
+            yield self._sse({"token": "", "done": True, "messageId": message_id})
+            return
+
+        plan_id = str(action.get("target_plan_id") or plan.get("plan_id") or "")
+        reason = str(action.get("reason") or "用户切换为直接对话")
+        dialog_goal = str(action.get("dialog_goal") or action.get("dialogGoal") or content)
+        content_text = f"已暂停计划 {plan_id}，切换到 @{target.name} 单独对齐。"
+        await self._persist_orchestrator_message(
+            session_id=session_id,
+            message_id=message_id,
+            agent=agent,
+            content=content_text,
+            metadata=merge_trace_metadata({
+                **metadata,
+                "orchestratorAction": {
+                    **action,
+                    "action": "start_direct_dialog",
+                    "target_plan_id": plan_id,
+                    "selected_agent_id": target.id,
+                    "selected_agent_name": target.name,
+                    "dialog_goal": dialog_goal,
+                    "reason": reason,
+                },
+                "orchestratorPlanState": {
+                    "planId": plan_id,
+                    "status": "suspended_for_direct_dialog",
+                    "reason": reason,
+                },
+            }, trace),
+        )
+        await self._mark_plan_status(
+            session_id=session_id,
+            plan_id=plan_id,
+            status="discarded",
+            action_message_id=message_id,
+        )
+        yield self._sse({
+            "type": "agent.output",
+            "agentId": agent.id,
+            "agentName": agent.name,
+            "token": content_text,
+            "messageId": message_id,
+            "role": "planner",
+            "phase": 0,
+            "task": "start direct dialog",
+            "callKey": self._call_key(agent.id, "start direct dialog", 0),
+            "chunk": content_text,
+            "chunkType": "text",
+            "done": False,
+        })
+
+        session = await self.db.get(DBSession, session_id)
+        if not session:
+            yield self._sse({"token": "", "done": True, "messageId": message_id, "error": "Session 不存在"})
+            return
+        async for item in GroupDirectDialog(self.db).send(
+            session=session,
+            content=content,
+            history=history,
+            workspace_path=workspace_path,
+            agent=target,
+            run_id=run_id,
+            goal=dialog_goal,
+            source="plan_followup",
+        ):
+            yield item
 
     async def _bind_planner_runtime(
         self,

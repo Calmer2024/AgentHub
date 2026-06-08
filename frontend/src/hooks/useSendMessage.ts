@@ -56,6 +56,10 @@ const findPhaseTasks = (phases: DAGPhase[], event: PhaseChangeEvent): CollabTask
 
 function stewardSummary(decision: StewardDecisionEvent): string {
   if (decision.routeType === "context_only") return "Orchestrator 调度器已记录到群聊上下文";
+  if (decision.routeType === "direct_dialog") {
+    const first = decision.selectedAgents[0];
+    return first ? `已切换到和 @${first.name} 直接对话` : "已切换到直接对话";
+  }
   if (decision.routeType === "draft_plan") return "Orchestrator 调度器建议先生成计划，等待确认后再执行";
   if (decision.routeType === "mini_collab") {
     const names = decision.selectedAgents.map((agent) => `@${agent.name}`).join("、");

@@ -55,6 +55,7 @@ const ROLE_LABELS: Record<string, string> = {
   researcher: "研究员",
   synthesizer: "综合者",
   critic: "批判者",
+  interviewer: "访谈者",
 };
 
 const ROLE_STYLES: Record<string, string> = {
@@ -64,6 +65,7 @@ const ROLE_STYLES: Record<string, string> = {
   researcher: "border-emerald-300/45 bg-emerald-50 text-emerald-700",
   synthesizer: "border-cyan-300/45 bg-cyan-50 text-cyan-700",
   critic: "border-rose-300/45 bg-rose-50 text-rose-700",
+  interviewer: "border-violet-300/45 bg-violet-50 text-violet-700",
 };
 
 function replyReference(message: Message): ReplyReference | null {

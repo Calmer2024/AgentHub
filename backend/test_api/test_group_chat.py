@@ -618,7 +618,7 @@ class TestGroupSession:
     async def test_unmentioned_product_alignment_routes_to_product_manager(
         self, test_client, test_agent, db_session, monkeypatch,
     ):
-        """用户随口找产品经理时，无 @ 先由调度器 Agent 可见分流。"""
+        """用户随口找产品经理对齐时，进入 direct dialog 而不是任务执行。"""
         product = make_test_cli_agent("产品经理")
         product.primary_skill = "product_manager"
         product.description = "产品 需求 PRD 业务"
@@ -635,8 +635,8 @@ class TestGroupSession:
                     "agent.output",
                     "proc-steward",
                     chunk=json.dumps({
-                        "route_type": "single_agent",
-                        "reply": "我先请 @产品经理 对齐范围和验收标准。",
+                        "route_type": "direct_dialog",
+                        "reply": "我先请 @产品经理 出来和你单独对齐。",
                         "reason": "用户明确希望和产品经理对齐。",
                         "selected_agent_ids": [product.id],
                         "task_brief": "对齐家庭资产管理 demo 的需求范围",
@@ -676,7 +676,9 @@ class TestGroupSession:
                 agent_names.append(data.get("agentName"))
 
         assert "orchestrator.steward_decision" in event_types
-        assert "orchestrator.route" in event_types
+        assert "group.direct_dialog_started" in event_types
+        assert "group.direct_dialog_waiting" in event_types
+        assert "orchestrator.route" not in event_types
         assert agent_names[0] == "Orchestrator 调度器"
         assert "产品经理" in agent_names
 
@@ -684,8 +686,279 @@ class TestGroupSession:
         assert resp.status_code == 200
         msgs = resp.json()
         assert msgs[1]["agentName"] == "Orchestrator 调度器"
-        assert msgs[1]["content"] == "我先请 @产品经理 对齐范围和验收标准。"
-        assert any(message["agentName"] == "产品经理" for message in msgs)
+        assert msgs[1]["content"] == "我先请 @产品经理 出来和你单独对齐。"
+        product_msg = next(message for message in msgs if message["agentName"] == "产品经理")
+        assert product_msg["metadata"]["dialogMode"] == "direct"
+        assert product_msg["metadata"]["awaitingUserInput"] is True
+        assert product_msg["metadata"]["groupDialog"]["activeAgentId"] == product.id
+
+    async def test_direct_dialog_followup_goes_to_active_agent_without_steward(
+        self, test_client, test_agent, db_session, monkeypatch,
+    ):
+        """direct dialog 激活后，后续无 @ 消息继续给当前 Agent。"""
+        product = make_test_cli_agent("产品经理")
+        product.primary_skill = "product_manager"
+        orchestrator = make_test_cli_agent("Orchestrator 调度器")
+        orchestrator.primary_skill = "orchestrator_planner"
+        orchestrator.context_policy = "planning_only"
+        db_session.add_all([product, orchestrator])
+        await db_session.commit()
+
+        steward_calls = 0
+        product_prompts: list[str] = []
+
+        async def fake_stream(self, **kwargs):
+            nonlocal steward_calls
+            agent = kwargs["agent"]
+            if (agent.primary_skill or "") == "orchestrator_planner":
+                steward_calls += 1
+                yield CliEvent(
+                    "agent.output",
+                    "proc-steward",
+                    chunk=json.dumps({
+                        "route_type": "direct_dialog",
+                        "reply": "我先请 @产品经理 出来和你单独对齐。",
+                        "reason": "用户明确希望和产品经理对齐。",
+                        "selected_agent_ids": [product.id],
+                        "task_brief": "对齐宠物洗护店预约页需求",
+                        "confidence": 0.95,
+                        "requires_approval": False,
+                        "risk_level": "low",
+                    }, ensure_ascii=False),
+                    chunk_type="text",
+                )
+                yield CliEvent("agent.process.completed", "proc-steward", exit_code=0)
+                return
+            product_prompts.append(kwargs["messages"][-1]["content"])
+            yield CliEvent("agent.process.started", f"proc-product-{len(product_prompts)}")
+            yield CliEvent(
+                "agent.output",
+                f"proc-product-{len(product_prompts)}",
+                chunk=f"产品经理第 {len(product_prompts)} 轮追问。",
+                chunk_type="text",
+            )
+            yield CliEvent("agent.process.completed", "proc-product", exit_code=0)
+
+        from app.services.cli_agent_service import CliAgentService
+        monkeypatch.setattr(CliAgentService, "stream", fake_stream)
+
+        res = await test_client.post("/api/sessions", json={
+            "mode": "group", "agentConfigIds": [test_agent.id, product.id, orchestrator.id],
+        })
+        sid = res.json()["id"]
+
+        await test_client.post(
+            f"/api/sessions/{sid}/chat",
+            json={"content": "我只想先和产品经理对齐宠物洗护店页面需求"},
+        )
+        resp = await test_client.post(
+            f"/api/sessions/{sid}/chat",
+            json={"content": "主要发给新客户和朋友圈引流"},
+        )
+
+        event_types = []
+        agent_names = []
+        global_done = 0
+        async for line in resp.aiter_lines():
+            if not line.startswith("data: "):
+                continue
+            data = json.loads(line[6:])
+            if data.get("type"):
+                event_types.append(data["type"])
+            if data.get("type") == "agent.start":
+                agent_names.append(data.get("agentName"))
+            if data.get("done") and not data.get("agentId"):
+                global_done += 1
+
+        assert steward_calls == 1
+        assert "orchestrator.steward_decision" not in event_types
+        assert "group.direct_dialog_started" in event_types
+        assert "agent.process.started" in event_types
+        assert "agent.process.completed" in event_types
+        assert agent_names == ["产品经理"]
+        assert global_done == 1
+        assert len(product_prompts) == 2
+        assert "主要发给新客户" in product_prompts[1]
+
+    async def test_direct_dialog_close_returns_next_turn_to_steward(
+        self, test_client, test_agent, db_session, monkeypatch,
+    ):
+        """用户显式结束普通 direct dialog 后，下一轮无 @ 消息重新交给调度器。"""
+        product = make_test_cli_agent("产品经理")
+        product.primary_skill = "product_manager"
+        orchestrator = make_test_cli_agent("Orchestrator 调度器")
+        orchestrator.primary_skill = "orchestrator_planner"
+        orchestrator.context_policy = "planning_only"
+        db_session.add_all([product, orchestrator])
+        await db_session.commit()
+
+        steward_calls = 0
+        product_calls = 0
+
+        async def fake_stream(self, **kwargs):
+            nonlocal steward_calls, product_calls
+            agent = kwargs["agent"]
+            if (agent.primary_skill or "") == "orchestrator_planner":
+                steward_calls += 1
+                route_type = "direct_dialog" if steward_calls == 1 else "context_only"
+                payload = {
+                    "route_type": route_type,
+                    "reply": "我先请 @产品经理 出来和你单独对齐。" if route_type == "direct_dialog" else "已回到调度器，我先记录这条补充。",
+                    "reason": "结构化路由决策",
+                    "selected_agent_ids": [product.id] if route_type == "direct_dialog" else [],
+                    "task_brief": "对齐需求" if route_type == "direct_dialog" else "记录补充",
+                    "confidence": 0.9,
+                }
+                yield CliEvent(
+                    "agent.output",
+                    f"proc-steward-{steward_calls}",
+                    chunk=json.dumps(payload, ensure_ascii=False),
+                    chunk_type="text",
+                )
+                yield CliEvent("agent.process.completed", "proc-steward", exit_code=0)
+                return
+            product_calls += 1
+            yield CliEvent(
+                "agent.output",
+                f"proc-product-{product_calls}",
+                chunk=f"产品经理第 {product_calls} 轮追问。",
+                chunk_type="text",
+            )
+            yield CliEvent("agent.process.completed", "proc-product", exit_code=0)
+
+        from app.services.cli_agent_service import CliAgentService
+        monkeypatch.setattr(CliAgentService, "stream", fake_stream)
+
+        res = await test_client.post("/api/sessions", json={
+            "mode": "group", "agentConfigIds": [test_agent.id, product.id, orchestrator.id],
+        })
+        sid = res.json()["id"]
+
+        await test_client.post(
+            f"/api/sessions/{sid}/chat",
+            json={"content": "我只想先和产品经理对齐需求"},
+        )
+        close_resp = await test_client.post(f"/api/sessions/{sid}/group-dialog/close")
+        assert close_resp.status_code == 200
+        assert close_resp.json()["closed"] is True
+
+        resp = await test_client.post(
+            f"/api/sessions/{sid}/chat",
+            json={"content": "这条应该回到调度器处理"},
+        )
+        event_types = []
+        agent_names = []
+        async for line in resp.aiter_lines():
+            if not line.startswith("data: "):
+                continue
+            data = json.loads(line[6:])
+            if data.get("type"):
+                event_types.append(data["type"])
+            if data.get("type") == "agent.start":
+                agent_names.append(data.get("agentName"))
+
+        assert steward_calls == 2
+        assert product_calls == 1
+        assert "orchestrator.steward_decision" in event_types
+        assert "group.direct_dialog_started" not in event_types
+        assert agent_names == ["Orchestrator 调度器"]
+
+        messages = (await test_client.get(f"/api/sessions/{sid}/messages")).json()
+        closed = next(
+            message for message in messages
+            if message["metadata"] and message["metadata"].get("groupDialog", {}).get("status") == "closed"
+        )
+        assert closed["sourceName"] == "群聊控制"
+        assert closed["metadata"]["groupDialog"]["activeAgentId"] == product.id
+
+    async def test_pending_plan_can_switch_to_direct_dialog_by_structured_action(
+        self, test_client, test_agent, db_session, monkeypatch,
+    ):
+        """有待处理 plan 时，调度器可用结构化 action 切换到 direct dialog。"""
+        product = make_test_cli_agent("产品经理")
+        product.primary_skill = "product_manager"
+        orchestrator = make_test_cli_agent("Orchestrator 调度器")
+        orchestrator.primary_skill = "orchestrator_planner"
+        orchestrator.context_policy = "planning_only"
+        db_session.add_all([product, orchestrator])
+        await db_session.commit()
+
+        orchestrator_outputs = [
+            {
+                "plan_id": "plan_direct_dialog_switch",
+                "tasks": [{
+                    "task_id": "T1",
+                    "title": "静态页面实现",
+                    "goal": "实现预约页",
+                    "required_skills": ["frontend"],
+                    "assigned_agent_id": test_agent.id,
+                    "assigned_agent_name": test_agent.name,
+                    "depends_on": [],
+                    "expected_outputs": ["web page"],
+                    "acceptance_criteria": ["页面可查看"],
+                }],
+            },
+            {
+                "action": "start_direct_dialog",
+                "target_plan_id": "plan_direct_dialog_switch",
+                "selected_agent_id": product.id,
+                "dialog_goal": "先和产品经理对齐宠物洗护店预约页需求",
+                "reason": "用户希望暂停计划并直接访谈产品经理",
+            },
+        ]
+        orchestrator_call_count = 0
+
+        async def fake_stream(self, **kwargs):
+            nonlocal orchestrator_call_count
+            agent = kwargs["agent"]
+            if (agent.primary_skill or "") == "orchestrator_planner":
+                payload = orchestrator_outputs[orchestrator_call_count]
+                orchestrator_call_count += 1
+                yield CliEvent(
+                    "agent.output",
+                    f"proc-orch-{orchestrator_call_count}",
+                    chunk=json.dumps(payload, ensure_ascii=False),
+                    chunk_type="text",
+                )
+                yield CliEvent("agent.process.completed", "proc-orch", exit_code=0)
+                return
+            yield CliEvent("agent.output", "proc-product", chunk="产品经理开始访谈。", chunk_type="text")
+            yield CliEvent("agent.process.completed", "proc-product", exit_code=0)
+
+        from app.services.cli_agent_service import CliAgentService
+        monkeypatch.setattr(CliAgentService, "stream", fake_stream)
+
+        res = await test_client.post("/api/sessions", json={
+            "mode": "group", "agentConfigIds": [test_agent.id, product.id, orchestrator.id],
+        })
+        sid = res.json()["id"]
+
+        await test_client.post(
+            f"/api/sessions/{sid}/chat",
+            json={"content": "@Orchestrator 调度器 做预约页", "mentions": [orchestrator.id]},
+        )
+        resp = await test_client.post(
+            f"/api/sessions/{sid}/chat",
+            json={"content": "这版先别执行，我只要和产品经理聊。"},
+        )
+
+        event_types = []
+        async for line in resp.aiter_lines():
+            if not line.startswith("data: "):
+                continue
+            data = json.loads(line[6:])
+            if data.get("type"):
+                event_types.append(data["type"])
+
+        assert "group.direct_dialog_started" in event_types
+        assert "orchestrator.plan_execution_created" not in event_types
+        assert orchestrator_call_count == 2
+
+        messages = (await test_client.get(f"/api/sessions/{sid}/messages")).json()
+        product_msg = next(message for message in messages if message["agentName"] == "产品经理")
+        assert product_msg["metadata"]["groupDialog"]["source"] == "plan_followup"
+        plan_message = next(message for message in messages if message["metadata"] and "orchestratorPlan" in message["metadata"])
+        assert plan_message["metadata"]["orchestratorPlan"]["normalizedPlan"]["status"] == "discarded"
 
     async def test_group_chat_passes_pinned_ids_to_orchestrator(
         self, test_client, test_agent, db_session, monkeypatch,

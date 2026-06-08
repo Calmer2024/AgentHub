@@ -27,6 +27,24 @@ async def _wait_execution_completed(test_client, execution_id: str, attempts: in
     return latest
 
 
+async def _wait_execution_status(
+    test_client,
+    execution_id: str,
+    statuses: set[str],
+    attempts: int = 30,
+) -> dict:
+    latest = None
+    for _ in range(attempts):
+        lookup = await test_client.get(f"/api/orchestrator/executions/{execution_id}")
+        assert lookup.status_code == 200
+        latest = lookup.json()
+        if latest["status"] in statuses:
+            return latest
+        await asyncio.sleep(0.05)
+    assert latest is not None
+    return latest
+
+
 def _agent(agent_id: str, name: str, primary_skill: str) -> AgentConfig:
     cli = _ensure_fixture_cli()
     return AgentConfig(
@@ -220,6 +238,54 @@ async def test_execute_plan_starts_async_scheduler_then_completes(test_client, d
     assert visible["metadata"]["orchestratorTaskMessage"]["taskId"] == "T1"
     assert visible["metadata"]["taskWorkspacePath"] == str(task_workspace)
     assert visible["metadata"]["orchestratorTaskMessage"]["taskWorkspacePath"] == str(task_workspace)
+
+
+@pytest.mark.asyncio
+async def test_interview_task_blocks_downstream_until_user_confirms(test_client, db_session):
+    session_id = await _seed_session_with_agents(db_session)
+    plan = _valid_plan()
+    plan["tasks"][0].update({
+        "title": "产品经理需求访谈",
+        "goal": "先向用户澄清业务目标和预约规则",
+        "interaction_policy": "ask_user_until_confirmed",
+        "handoff_policy": "manual_confirm",
+        "awaits_user_input": True,
+        "blocks_downstream_until": "user_confirms",
+    })
+
+    res = await test_client.post("/api/orchestrator/plans/execute", json={
+        "sessionId": session_id,
+        "normalizedPlan": plan,
+    })
+    assert res.status_code == 200
+    execution_id = res.json()["executionId"]
+
+    waiting = await _wait_execution_status(test_client, execution_id, {"awaiting_user_input", "failed"})
+    assert waiting["status"] == "awaiting_user_input", waiting["events"][-1]
+    assert waiting["tasks"][0]["status"] == "awaiting_user_input"
+    assert waiting["tasks"][1]["status"] == "pending"
+    assert waiting["tasks"][0]["interactionPolicy"] == "ask_user_until_confirmed"
+
+    visible_messages = (await test_client.get(f"/api/sessions/{session_id}/messages")).json()
+    interview_message = next(
+        message for message in visible_messages
+        if message["id"] == waiting["tasks"][0]["visibleMessageId"]
+    )
+    assert interview_message["metadata"]["awaitingUserInput"] is True
+    assert interview_message["metadata"]["groupDialog"]["status"] == "awaiting_user_input"
+    assert interview_message["metadata"]["groupDialog"]["executionId"] == execution_id
+    assert interview_message["metadata"]["groupDialog"]["taskId"] == "T1"
+
+    confirm = await test_client.post(
+        f"/api/orchestrator/executions/{execution_id}/tasks/T1/confirm",
+        json={"note": "需求已确认，进入前端实现。"},
+    )
+    assert confirm.status_code == 200
+
+    completed = await _wait_execution_completed(test_client, execution_id)
+    assert completed["status"] == "completed", completed["events"][-1]
+    assert [task["status"] for task in completed["tasks"]] == ["completed", "completed"]
+    assert completed["tasks"][1]["visibleMessageId"]
 
 
 @pytest.mark.asyncio

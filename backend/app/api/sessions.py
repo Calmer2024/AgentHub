@@ -1,8 +1,10 @@
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
+from ..models import Session as DBSession
 from ..services import (
     SessionService, SessionCreate, SessionRead, SessionUpdate, MemberRead, GroupMemberCreate,
     SessionNotFoundError, AgentNotFoundError, ForwardMessagesRequest,
@@ -15,8 +17,13 @@ from ..services.session_service import (
     ProjectNotFoundError,
     SessionModeError,
 )
+from ..services.group_dialog_state import GroupDialogStateService
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
+
+
+class CloseGroupDialogBody(BaseModel):
+    reason: str = "user_closed"
 
 
 def _svc(db: AsyncSession) -> SessionService:
@@ -113,6 +120,34 @@ async def mark_session_read(session_id: str, db: AsyncSession = Depends(get_db))
         return await _svc(db).mark_read(session_id)
     except SessionNotFoundError:
         raise HTTPException(status_code=404, detail="session not found")
+
+
+@router.post("/{session_id}/group-dialog/close")
+async def close_group_dialog(
+    session_id: str,
+    data: CloseGroupDialogBody | None = None,
+    db: AsyncSession = Depends(get_db),
+):
+    session = await db.get(DBSession, session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="session not found")
+    if session.mode != "group":
+        raise HTTPException(status_code=400, detail="只有群聊可以结束直接对齐")
+    state = await GroupDialogStateService(db).close_active(
+        session,
+        reason=data.reason if data else "user_closed",
+    )
+    if state is None:
+        return {"ok": True, "closed": False}
+    return {
+        "ok": True,
+        "closed": True,
+        "dialog": {
+            **state.to_metadata(),
+            "status": "closed",
+            "closedReason": data.reason if data else "user_closed",
+        },
+    }
 
 
 @router.post("/forward", response_model=ForwardMessagesResult, status_code=201)

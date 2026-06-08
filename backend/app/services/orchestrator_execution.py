@@ -411,6 +411,21 @@ class CliTaskRunner:
             "phase": task.get("phase"),
             "taskName": task.get("title"),
         }
+        if OrchestratorExecutionRegistry._task_waits_for_user(task):
+            metadata.update({
+                "dialogMode": "direct",
+                "awaitingUserInput": True,
+                "groupDialog": {
+                    "mode": "direct_dialog",
+                    "status": "awaiting_user_input",
+                    "activeAgentId": task.get("assignedAgentId"),
+                    "activeAgentName": task.get("assignedAgentName"),
+                    "goal": task.get("goal") or task.get("title") or "",
+                    "source": "orchestrator_task",
+                    "executionId": execution.get("executionId"),
+                    "taskId": task.get("taskId"),
+                },
+            })
         if execution.get("runId"):
             metadata["runId"] = execution["runId"]
             metadata["runStatus"] = "running"
@@ -552,6 +567,11 @@ class CliTaskRunner:
             f"所需能力: {', '.join(task.get('requiredSkills') or []) or '未声明'}\n"
             f"期望输出: {', '.join(task.get('expectedOutputs') or []) or '未声明'}\n"
             f"验收标准: {', '.join(task.get('acceptanceCriteria') or []) or '未声明'}\n\n"
+            f"互动策略: {task.get('interactionPolicy') or 'auto_run'}\n"
+            f"交接策略: {task.get('handoffPolicy') or 'auto'}\n"
+            f"下游释放条件: {task.get('blocksDownstreamUntil') or 'task_completed'}\n"
+            "如果互动策略要求用户回答或确认，你本轮应优先向用户提出清晰问题或整理待确认事项，"
+            "不要擅自代替用户确认，也不要把任务交给下游 Agent。\n\n"
             "上游任务结果:\n"
             f"{upstream}\n\n"
             "完整计划 JSON:\n"
@@ -762,6 +782,76 @@ class OrchestratorExecutionRegistry:
         await self._persist_execution_snapshot(execution)
         return copy.deepcopy(execution)
 
+    async def confirm_waiting_task(
+        self,
+        execution_id: str,
+        task_id: str,
+        *,
+        note: str | None = None,
+    ) -> dict[str, Any] | None:
+        execution = self._executions.get(execution_id)
+        if execution is None:
+            return None
+        target = next(
+            (task for task in execution.get("tasks") or [] if task.get("taskId") == task_id),
+            None,
+        )
+        if not target or target.get("status") != "awaiting_user_input":
+            return None
+        confirmed_at = self._now()
+        target["status"] = "completed"
+        target["completedAt"] = confirmed_at
+        target["updatedAt"] = confirmed_at
+        summary = note.strip() if note and note.strip() else target.get("summary") or "用户已确认该访谈节点。"
+        target["summary"] = summary
+        if not target.get("resultMessageId"):
+            target["resultMessageId"] = await self._persist_task_result(execution, target, summary)
+        await self._mark_runtime_task_status(
+            execution,
+            target,
+            "completed",
+            message_id=target.get("visibleMessageId"),
+            metadata_patch={
+                "awaitingUserInput": False,
+                "userConfirmed": True,
+                "confirmationNote": note,
+            },
+        )
+        execution["status"] = "running"
+        execution["updatedAt"] = confirmed_at
+        execution["events"].append({
+            "type": "task_user_confirmed",
+            "status": "completed",
+            "timestamp": confirmed_at,
+            "taskId": task_id,
+            "message": f"{task_id} 已由用户确认，Scheduler 将继续释放下游任务。",
+        })
+        await self._append_dialog_closed_message(
+            execution,
+            target,
+            status="handoff_confirmed",
+            content=f"{target.get('title') or task_id} 已确认，继续后续调度。",
+        )
+        await self._mark_runtime_run_status(execution, "running")
+        await self._persist_execution_snapshot(execution)
+        self.start_execution(execution_id)
+        return copy.deepcopy(execution)
+
+    async def _merge_visible_message_metadata(
+        self,
+        message_id: str,
+        *,
+        metadata: dict[str, Any],
+    ) -> None:
+        async with self._session_factory() as db:
+            message = await db.get(DBMessage, message_id)
+            if not message:
+                return
+            current = _loads_metadata(message.metadata_json)
+            current.update(metadata)
+            message.metadata_json = json.dumps(current, ensure_ascii=False)
+            await db.commit()
+
     def mark_cancelled_by_run(
         self,
         run_id: str,
@@ -811,8 +901,14 @@ class OrchestratorExecutionRegistry:
             return
         await self._mark_runtime_run_status(execution, "running")
         tasks = execution["tasks"]
-        pending = {task["taskId"] for task in tasks}
-        completed: set[str] = set()
+        completed: set[str] = {
+            task["taskId"] for task in tasks
+            if task.get("status") == "completed"
+        }
+        pending = {
+            task["taskId"] for task in tasks
+            if task.get("status") not in {"completed", "cancelled", "failed", "awaiting_user_input"}
+        }
         task_by_id = {task["taskId"]: task for task in tasks}
 
         phase = 0
@@ -916,6 +1012,69 @@ class OrchestratorExecutionRegistry:
             execution["updatedAt"] = completed_at
             for task_id, summary in zip(ready, summaries):
                 task = task_by_id[task_id]
+                if self._task_waits_for_user(task):
+                    task["status"] = "awaiting_user_input"
+                    task["summary"] = summary
+                    task["updatedAt"] = completed_at
+                    if task.get("visibleMessageId"):
+                        await self._merge_visible_message_metadata(
+                            task["visibleMessageId"],
+                            metadata={
+                                "runStatus": "paused",
+                                "awaitingUserInput": True,
+                                "groupDialog": {
+                                    "mode": "direct_dialog",
+                                    "status": "awaiting_user_input",
+                                    "activeAgentId": task.get("assignedAgentId"),
+                                    "activeAgentName": task.get("assignedAgentName"),
+                                    "goal": task.get("goal") or task.get("title") or "",
+                                    "source": "orchestrator_task",
+                                    "executionId": execution.get("executionId"),
+                                    "taskId": task.get("taskId"),
+                                },
+                            },
+                        )
+                    await self._mark_runtime_task_status(
+                        execution,
+                        task,
+                        "paused",
+                        message_id=task.get("visibleMessageId"),
+                        metadata_patch={
+                            "interactionPolicy": task.get("interactionPolicy"),
+                            "handoffPolicy": task.get("handoffPolicy"),
+                            "awaitingUserInput": True,
+                            "blocksDownstreamUntil": task.get("blocksDownstreamUntil"),
+                        },
+                    )
+                    execution["status"] = "awaiting_user_input"
+                    execution["updatedAt"] = completed_at
+                    execution["events"].append({
+                        "type": "task_awaiting_user_input",
+                        "status": "awaiting_user_input",
+                        "timestamp": completed_at,
+                        "phase": phase,
+                        "taskId": task_id,
+                        "message": f"{task_id} 等待用户回答或确认后再继续下游任务。",
+                    })
+                    await self._mark_runtime_run_status(
+                        execution,
+                        "paused",
+                        current_message_id=task.get("visibleMessageId"),
+                    )
+                    await self._persist_execution_snapshot(execution)
+                    await _broadcast_ws(execution["sessionId"], {
+                        "type": "task.awaiting_user_input",
+                        "executionId": execution["executionId"],
+                        "planId": execution["planId"],
+                        "taskId": task_id,
+                        "messageId": task.get("visibleMessageId"),
+                        "agentId": task.get("assignedAgentId"),
+                        "agentName": task.get("assignedAgentName"),
+                        "task": task,
+                        "token": "",
+                        "done": False,
+                    })
+                    return
                 task["status"] = "completed"
                 task["completedAt"] = completed_at
                 task["updatedAt"] = completed_at
@@ -1040,6 +1199,39 @@ class OrchestratorExecutionRegistry:
             await db.commit()
         return message_id
 
+    async def _append_dialog_closed_message(
+        self,
+        execution: dict[str, Any],
+        task: dict[str, Any],
+        *,
+        status: str,
+        content: str,
+    ) -> None:
+        metadata = {
+            "groupDialog": {
+                "mode": "direct_dialog",
+                "status": status,
+                "activeAgentId": task.get("assignedAgentId"),
+                "activeAgentName": task.get("assignedAgentName"),
+                "goal": task.get("goal") or task.get("title") or "",
+                "source": "orchestrator_task",
+                "executionId": execution.get("executionId"),
+                "taskId": task.get("taskId"),
+            }
+        }
+        async with self._session_factory() as db:
+            db.add(DBMessage(
+                id=f"msg_system_{uuid.uuid4().hex[:12]}",
+                session_id=execution["sessionId"],
+                role="system",
+                content=content,
+                content_type="text",
+                source_type="system",
+                source_name="调度控制",
+                metadata_json=json.dumps(metadata, ensure_ascii=False),
+            ))
+            await db.commit()
+
     async def _persist_execution_snapshot(self, execution: dict[str, Any]) -> None:
         message_id = execution.get("controlMessageId")
         if not message_id:
@@ -1142,6 +1334,10 @@ class OrchestratorExecutionRegistry:
             "isBlocking": bool(task.get("is_blocking")),
             "expectedOutputs": list(task.get("expected_outputs") or []),
             "acceptanceCriteria": list(task.get("acceptance_criteria") or []),
+            "interactionPolicy": str(task.get("interaction_policy") or "auto_run"),
+            "handoffPolicy": str(task.get("handoff_policy") or "auto"),
+            "awaitsUserInput": bool(task.get("awaits_user_input")),
+            "blocksDownstreamUntil": str(task.get("blocks_downstream_until") or "task_completed"),
             "taskWorkspacePath": None,
         }
 
@@ -1234,6 +1430,14 @@ class OrchestratorExecutionRegistry:
     def _runner_type_for(execution: dict[str, Any]) -> str:
         runner_type = str(execution.get("runnerType") or "cli").strip().lower()
         return "mock" if runner_type == "mock" else "cli"
+
+    @staticmethod
+    def _task_waits_for_user(task: dict[str, Any]) -> bool:
+        if task.get("awaitsUserInput"):
+            return True
+        if task.get("blocksDownstreamUntil") == "user_confirms":
+            return True
+        return task.get("interactionPolicy") in {"ask_user_once", "ask_user_until_confirmed"}
 
     @staticmethod
     def _now() -> str:

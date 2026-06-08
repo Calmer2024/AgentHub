@@ -31,6 +31,19 @@ def clean_cli_agent_env(
     }
 
 
+def apply_cli_utf8_defaults(env: dict[str, str]) -> dict[str, str]:
+    """为 CLI 子进程设置保守的 UTF-8 默认值，避免 Windows 代码页污染中文输出。"""
+    env.setdefault("PYTHONUTF8", "1")
+    env.setdefault("PYTHONIOENCODING", "utf-8")
+    env.setdefault("NO_COLOR", "1")
+    env.setdefault("TERM", "dumb")
+    if env.get("LANG") in {None, "", "C"}:
+        env["LANG"] = "C.UTF-8"
+    if env.get("LC_ALL") in {"", "C"}:
+        env["LC_ALL"] = "C.UTF-8"
+    return env
+
+
 def encode_cli_agent_env(
     raw: dict[str, str] | str | None,
     *,
