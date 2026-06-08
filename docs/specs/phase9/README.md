@@ -1,6 +1,6 @@
 # Phase 9：Cloud Workspace Foundation
 
-**版本**: v1.0  
+**版本**: v1.1
 **创建日期**: 2026-06-08  
 **状态**: Draft  
 **关联 ADR/PRD**: [AgentHub-多Agent协作平台设计](../../archive/AgentHub-多Agent协作平台设计.md)、[ADR-0005](../../adr/0005-target-architecture.md)、[ADR-0009](../../adr/0009-project-workspace-model.md)、[PRD-00](../../PRD/00-Master_Hub.md)、[PRD-04](../../PRD/04-Data_API_Contracts.md)、[PRD-07](../../PRD/07-SaaS_Cloud_Workspace_Delivery.md)  
@@ -22,6 +22,8 @@ Phase 9 解决 P1 本地 workspace 与 P2 云端 workspace 之间的架构断层
 - [ ] 云端 Project 返回 `workspaceId`，不向前端暴露服务器文件系统路径。
 - [ ] 用户、团队、成员、角色、Project 权限和审计日志可持久化。
 - [ ] 云端 workspace 支持创建、归档、删除、快照、恢复、源码 zip 导入、GitHub 导入占位流程。
+- [ ] P1 本机 Project、会话、Artifact、本地 build/preview/export 在真实服务上保持可用。
+- [ ] 本阶段 SaaS 最小可运行切片为：登录态 → 创建团队 → 创建 cloud Project → 导入/快照/恢复 workspace 元数据闭环。
 - [ ] 不通过标准：为了云端能力改坏 P1 本地 workspace；或在本阶段启动云端 CLI/sandbox 执行。
 
 ---
@@ -45,6 +47,15 @@ Phase 8 P1 local workspace release candidate
 | **下游产出** | `CloudWorkspaceProvider`、workspace/snapshot/audit APIs | Phase 10 Sandbox Runner 挂载 workspace |
 | **下游产出** | 租户隔离字段、RBAC、audit log | Phase 11 Deploy、Phase 12 团队协作消费 |
 | **本模块不通** | sandbox 执行、云端 preview、部署发布、多人实时编辑 | Phase 10-12 负责 |
+
+### 2.3 双运行时兼容门禁
+
+Phase 9 是 P2 的入口阶段，因此必须先证明云端抽象不会污染 P1 本机版：
+
+- `workspaceMode = "local"` 仍是本机默认可用路径，不要求登录真实云端账号、不要求团队、不要求 `workspaceId`。
+- `workspaceMode = "cloud"` 只能走 CloudWorkspaceProvider，不向前端返回服务器物理路径。
+- 前端新增云端入口必须在 P2 环境可用；在 P1 本机环境中可隐藏、禁用或清晰提示，不得阻断本机创建 Project。
+- 阶段完成报告必须同时列出 P1 local 回归结果和 Phase 9 cloud slice 真实服务结果。
 
 ---
 
@@ -292,6 +303,8 @@ WorkspaceSettingsPage
 - [ ] AC-P9-06: zip 导入和 GitHub 导入占位流程有状态、错误和审计日志。
 - [ ] AC-P9-07: Project/Workspace/Team/Audit API 均验证租户权限。
 - [ ] AC-P9-08: 前端 TeamSwitcher、Workspace 设置页覆盖空/加载/正常/完成/错误/边界六态。
+- [ ] AC-P9-09: P1 local Project 创建、会话创建、Artifact 查询、本地 build/preview/export 真实服务回归通过。
+- [ ] AC-P9-10: Phase 9 cloud slice 在真实服务上完成创建团队、创建 cloud Project、导入、snapshot、restore 流程。
 
 ---
 
@@ -317,6 +330,12 @@ WorkspaceSettingsPage
 
 - 浏览器创建团队和云端 Project，上传 zip，创建 snapshot，恢复 snapshot。
 - viewer 登录后确认创建/删除按钮不可用，直接调用 API 返回 403。
+
+### 8.4 P1/P2 兼容门禁
+
+- P1 local 回归：使用本机 workspace 创建 Project，创建私聊或群聊，确认 Artifact、本地 build、preview、export API 不因新增 auth/team/cloud 字段失败。
+- P2 cloud slice：使用真实后端创建团队和 cloud Project，完成 zip 导入、snapshot、restore，并确认前端不展示任何本机绝对路径。
+- 多端视口：桌面宽度展示 TeamSwitcher 和 Workspace 设置页；移动宽度下云端入口可用或明确降级，不遮挡聊天输入。
 
 ---
 
@@ -364,4 +383,5 @@ WorkspaceSettingsPage
 | Project 创建 UI | 只选本地目录或空白 workspace | 增加 local/cloud 与团队作用域 | 默认仍推荐 local，云端入口在 P2 环境显示 |
 
 > **版本历史**
+> - v1.1 (2026-06-08): 增加 Phase 9 起 P1/P2 双运行时兼容门禁，明确 P1 local 零回归和 cloud slice 真实服务验收。
 > - v1.0 (2026-06-08): 按 `SPEC_TEMPLATE.md` 创建 Phase 9 独立 Spec。

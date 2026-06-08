@@ -72,6 +72,28 @@ Completed Phase 保留完成记录，但也要写清“已解锁任务”和“�
 
 ---
 
+## P2 双运行时兼容门禁
+
+Phase 9 起进入 SaaS 云端化阶段，但 P2 开发不得破坏 P1 本机版。每个 Phase 必须同时满足以下两条硬性门禁：
+
+1. **P1 本机版零回归**：本机 Project 创建、私聊/群聊、真实 CLI runtime、Artifact Card、本地 build/preview/export、审批续跑和 IM 基线必须继续通过真实服务验收。任何云端抽象不得让 P1 用户必须登录、必须选择团队、必须拥有云端 workspace，或暴露 cloud-only 字段才能完成本机流程。
+2. **P2 可运行切片递增**：每个 SaaS Phase 都必须交付一个真实可运行的 cloud slice，而不是只沉淀 schema 或静态 UI。Phase 9 至少可创建 cloud Project 和 workspace 元数据闭环；Phase 10 至少可在 cloud runtime 路径启动并回传标准事件；Phase 11 至少可创建 cloud preview/deployment 状态闭环；Phase 12 至少可完成 Web/Mobile 协作、通知、审批和预览查看闭环。
+
+### 强制验证矩阵
+
+| 验证维度 | Phase 9-11 最低要求 | Phase 12 起最低要求 |
+|---------|-------------------|-------------------|
+| P1 local runtime | local Project + local session + Artifact/build/preview/export 回归 | 同左，且 IM 通知/未读不被 SaaS 通知中心覆盖 |
+| P2 cloud runtime | 当前 Phase 的 cloud slice 真实服务可运行 | cloud workspace + runtime + preview/deploy + collaboration/mobile 真实服务可运行 |
+| Web 桌面端 | 真实 Vite 页面 + `/api` 代理 + 桌面宽度截图无 P0/P1 UX 缺陷 | 同左 |
+| Web 移动宽度 | Playwright mobile viewport 覆盖新增入口的轻量展示或禁用态 | MobileShell 主链路覆盖 IM、审批、状态、预览 |
+| 桌面壳 | 不引入 cloud-only 依赖导致 Tauri/local 后端无法启动 | Tauri/local 后端 smoke 继续通过 |
+| 移动壳 | 不要求移动端具备本机 CLI 或文件系统特权 | Capacitor/MobileShell smoke 覆盖移动入口 |
+
+若任一门禁失败，本 Phase 不得标记为 Completed，也不得进入下一 Phase。
+
+---
+
 ## 阅读指南
 
 - **新成员**：从 [SPEC_TEMPLATE.md](SPEC_TEMPLATE.md) 了解 Spec 格式，然后按 Phase 顺序阅读

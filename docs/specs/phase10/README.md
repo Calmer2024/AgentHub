@@ -1,6 +1,6 @@
 # Phase 10：Sandbox Runner 与云端 Agent Runtime
 
-**版本**: v1.0  
+**版本**: v1.1
 **创建日期**: 2026-06-08  
 **状态**: Draft  
 **关联 ADR/PRD**: [AgentHub-多Agent协作平台设计](../../archive/AgentHub-多Agent协作平台设计.md)、[ADR-0005](../../adr/0005-target-architecture.md)、[ADR-0009](../../adr/0009-project-workspace-model.md)、[PRD-01](../../PRD/01-Architecture_Adapter.md)、[PRD-02](../../PRD/02-Orchestrator_Engine.md)、[PRD-07](../../PRD/07-SaaS_Cloud_Workspace_Delivery.md)  
@@ -23,6 +23,8 @@ Phase 10 解决 P2 的真实执行问题：云端 Project 有 workspace 后，�
 - [ ] 运行取消能终止 sandbox 内 CLI 进程，并持久化 cancelled 状态。
 - [ ] CPU、内存、磁盘、运行时长、并发数、网络策略至少有最小配额控制。
 - [ ] secret 只在 sandbox 内按需注入，日志和事件中不出现原始 secret 值。
+- [ ] P1 本机 CLI runtime、会话级常驻进程、Artifact Bridge 和运行取消不因 cloud runtime 引入而回归。
+- [ ] 本阶段 SaaS 最小可运行切片为：cloud Project → 创建 run → sandbox ready → 真实 CLI 输出标准事件 → Artifact Card 或 run 终态。
 - [ ] 不通过标准：云端 Agent 通过裸 HTTP LLM API 假装执行，或 sandbox 间可互相读写 workspace。
 
 ---
@@ -46,6 +48,15 @@ Phase 9 Cloud Workspace
 | **下游产出** | `agent.output`、`agent.process.*`、`artifact.detected`、`run.*` | 前端聊天流、Artifact Bridge、运行控制消费 |
 | **下游产出** | workspace diff、build-ready artifact | Phase 11 preview/deploy 消费 |
 | **本模块不通** | 公网 preview URL、部署发布、团队评论和移动端通知 | Phase 11-12 负责 |
+
+### 2.3 双运行时兼容门禁
+
+Phase 10 引入 cloud runtime，但 local runtime 仍是 P1 桌面版的主路径：
+
+- `/api/sessions/{sessionId}/runs` 必须显式接受 `runtime = "local" | "cloud"`；不传或本机环境默认选择 local，不得自动强制 cloud。
+- `runtimeMode = "cloud"` 可以返回 `sandboxId`；`runtimeMode = "local"` 的响应和 Store 状态不能要求存在 `sandboxId`。
+- `agent.output`、`artifact.detected`、`approval.*`、`run.*` 事件必须继续使用统一契约，前端 MessageList 和 Artifact Card 不分叉实现。
+- 阶段完成报告必须同时列出 P1 local runtime 回归结果和 Phase 10 cloud runtime 真实服务结果。
 
 ---
 
@@ -300,6 +311,8 @@ ChatWorkspace
 - [ ] AC-P10-06: secret 原文不会出现在 runtime_logs、EventBus payload、前端日志或错误摘要中。
 - [ ] AC-P10-07: sandbox 停止后 workspace 数据仍可通过 Phase 9 workspace/snapshot API 访问。
 - [ ] AC-P10-08: 本地 P1 runtime 不因云端 runtime 引入而回归。
+- [ ] AC-P10-09: local 和 cloud run 使用同一 MessageList、Artifact Card、ApprovalCard 渲染路径，不新增云端专用聊天 UI 分叉。
+- [ ] AC-P10-10: Phase 10 cloud slice 在真实服务上完成 sandbox ready、CLI 输出、run 终态和日志查询闭环。
 
 ---
 
@@ -326,6 +339,12 @@ ChatWorkspace
 - 云端 Project 发送任务，等待 sandbox ready，查看输出和 Artifact Card。
 - 点击取消，验证 UI 状态、后端 run 状态、sandbox 状态一致。
 - secret 缺失 → 配置 secret → 重新运行成功。
+
+### 8.4 P1/P2 兼容门禁
+
+- P1 local 回归：本机 Project 中发送消息，确认本机 CLI runtime、取消、审批续跑、Artifact Bridge 和本地 build/preview/export 仍可用。
+- P2 cloud slice：cloud Project 中发送消息，确认 sandbox 生命周期、标准事件、日志脱敏、Artifact 检测和 run 状态持久化。
+- 多端视口：桌面宽度展示 RuntimeModeBadge/QuotaIndicator；移动宽度下 runtime 状态为紧凑条，不遮挡 ChatInput。
 
 ---
 
@@ -373,4 +392,5 @@ ChatWorkspace
 | 日志 | 本机 runtime 日志 | 云端 runtime_logs + 脱敏 | 前端 RuntimeLogViewer 统一读取 `/api/runs/{runId}/logs` |
 
 > **版本历史**
+> - v1.1 (2026-06-08): 增加 P1 local runtime 零回归与 Phase 10 cloud runtime 可运行切片门禁。
 > - v1.0 (2026-06-08): 按 `SPEC_TEMPLATE.md` 创建 Phase 10 独立 Spec。

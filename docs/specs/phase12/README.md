@@ -1,6 +1,6 @@
 # Phase 12：协作、多端与高级 Artifact
 
-**版本**: v1.0  
+**版本**: v1.1
 **创建日期**: 2026-06-08  
 **状态**: Draft  
 **关联 ADR/PRD**: [AgentHub-多Agent协作平台设计](../../archive/AgentHub-多Agent协作平台设计.md)、[ADR-0009](../../adr/0009-project-workspace-model.md)、[ADR-0010](../../adr/0010-message-level-artifact-experience.md)、[ADR-0011](../../adr/0011-agent-engine-skill-model.md)、[PRD-03](../../PRD/03-User_Experience.md)、[PRD-05](../../PRD/05-End_to_End_Product_Flow.md)、[PRD-07](../../PRD/07-SaaS_Cloud_Workspace_Delivery.md)  
@@ -24,6 +24,8 @@ Phase 12 解决 AgentHub 从“单人云端 Agent 工作台”走向“团队多
 - [ ] PPT/文档类 Artifact 可浏览、版本化、导出，并可被消息引用。
 - [ ] Artifact 可转发并保留级联引用关系，不只转发文本快照。
 - [ ] 用户可通过对话创建或调整 Agent 模板，最终仍落到 Agent = System Prompt + Rules + Toolset + Runtime Config + Engine。
+- [ ] P1 本机 IM、未读/免打扰、消息级 Artifact、local runtime 和本地导出能力继续可用，不被 SaaS 通知/协作模型覆盖。
+- [ ] 本阶段 SaaS 最小可运行切片为：Web/Mobile 查看同一 cloud Project、审批/通知状态同步、preview/deployment 链接可查看。
 - [ ] 不通过标准：只做社交 UI，不接权限/审计/真实 Artifact 引用；或移动端只展示营销页。
 
 ---
@@ -46,6 +48,15 @@ Phase 11 cloud preview/deploy
 | **上游输入** | Message、Artifact、Agent Profile、Deployment metadata | 为评论、附件、转发、通知、Agent 创建提供对象关系 |
 | **下游产出** | notifications、comments、attachments、artifact references、mobile views | Web/Mobile UI、审计日志、后续企业能力消费 |
 | **本模块不通** | 复杂 marketplace、企业 SSO、计费、实时多人代码编辑 | 后续企业化阶段 |
+
+### 2.3 双运行时与多端兼容门禁
+
+Phase 12 是多端协作阶段，但不能把移动端或团队协作误做成新的主运行时：
+
+- Web 端继续是完整生产力工作台；Mobile 只消费云端 API，不能依赖本机文件系统、PTY 或 CLI 权限。
+- P1 本机版继续使用已有 IM 未读、免打扰、会话置顶/归档和消息级 Artifact 体验；SaaS NotificationService 只在 cloud/team 场景启用或作为兼容增强。
+- MobileApprovalCard 调用现有 ApprovalService，不创建一套移动端专用审批状态机。
+- 阶段完成报告必须同时列出 P1 local IM/runtime 回归结果、Phase 12 Web cloud 协作结果和 MobileShell/移动视口结果。
 
 ---
 
@@ -349,6 +360,8 @@ App
 - [ ] AC-P12-07: PPT/文档 Artifact 可 render、分页浏览、版本切换和导出。
 - [ ] AC-P12-08: 对话式 Agent 创建最终落到 Agent Profile，而不是旧 Skill 模板或好友内置项。
 - [ ] AC-P12-09: Git sync job 有状态、日志、冲突错误和审计记录。
+- [ ] AC-P12-10: P1 local IM、会话置顶/归档/未读/免打扰、local runtime、消息级 Artifact 和本地导出回归通过。
+- [ ] AC-P12-11: Phase 12 cloud multi-end slice 在真实服务上完成 Web 与 Mobile 共享会话、通知、审批、preview/deployment 链接状态同步。
 
 ---
 
@@ -378,6 +391,13 @@ App
 - Web：上传附件、发送给 Agent、查看 Artifact、评论、转发。
 - Mobile viewport：收到审批、批准、打开 preview URL。
 - Agent 创建：对话生成模板、finalize、出现在添加 Agent/自定义 Agent 分区。
+
+### 8.4 P1/P2 兼容门禁
+
+- P1 local 回归：本机 IM 基线、local runtime、消息级 Artifact、build/preview/export、审批续跑全部通过真实服务验收。
+- P2 Web cloud slice：团队 Project 中完成评论、通知、附件、Artifact 引用、deployment 链接查看。
+- P2 Mobile slice：MobileShell 或 mobile viewport 下查看会话、审批、运行状态、preview/deployment 链接，审批结果与 Web 端同步。
+- 壳兼容：移动端不调用本机文件选择、PTY、CLI 启动等桌面特权能力；桌面壳不因 NotificationService/Auth cloud 依赖阻断本机默认流程。
 
 ---
 
@@ -427,4 +447,5 @@ App
 | 通知 | 本地 IM 未读/免打扰 | SaaS 通知中心 + 移动端摘要 | 本地模式继续使用原 IM 状态，云端启用 NotificationService |
 
 > **版本历史**
+> - v1.1 (2026-06-08): 增加 P1 本机 IM/runtime 零回归与 Phase 12 Web/Mobile cloud 协作可运行切片门禁。
 > - v1.0 (2026-06-08): 按 `SPEC_TEMPLATE.md` 创建 Phase 12 独立 Spec。

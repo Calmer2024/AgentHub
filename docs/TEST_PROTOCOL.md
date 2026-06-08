@@ -1,8 +1,8 @@
 # 测试协议 (Test Protocol)
 
-**版本**: v2.3
+**版本**: v2.4
 **创建日期**: 2026-05-26
-**最后更新**: 2026-06-02
+**最后更新**: 2026-06-08
 **适用范围**: AgentHub 所有开发阶段
 
 ---
@@ -17,6 +17,7 @@
 - **回归防护**：任何已发现的 bug 修复后必须加入对应的回归测试。
 - **功能正确是底线，体验正确是标准**：UX 交互体验测试与功能测试同等权重。详见 [UX_TEST_SPEC.md](testing/UX_TEST_SPEC.md)。
 - **Mock 不改变代码路径**：Mock 只能替换外部依赖的返回值，不能跳过被测试的业务代码。如果 mock 让某条 `if` 分支、某个函数调用不被执行，那就在测试盲区里制造了虚假的安全感。
+- **P2 双运行时门禁**：Phase 9 起，SaaS 云端能力必须以真实可运行切片递增；同时 P1 本机版必须零回归。任何 Phase 不能用“云端开发中”作为 P1 local 流程失败的理由。
 
 ### 1.2 测试金字塔
 
@@ -220,6 +221,22 @@ Phase 完成前:
 
 未执行上述步骤，或旧服务仍在提供旧代码，视为验收未完成。
 
+### 4.2.2 P2 双运行时兼容门禁（Phase 9 起硬性要求）
+
+Phase 9-12 每次阶段验收必须额外完成以下矩阵：
+
+| 门禁 | 必测路径 | 失败处理 |
+|------|---------|---------|
+| P1 local 回归 | 本机 Project 创建、本机私聊/群聊、真实 CLI runtime、Artifact Card、本地 build/preview/export、审批续跑 | 阻断 Phase 完成，先修复本机回归 |
+| P2 cloud slice | 本 Phase 定义的 cloud 端到端路径在真实服务上可运行，不能只依赖 schema、mock 或静态 UI | 阻断 Phase 完成，补齐最小可运行切片 |
+| API 契约统一 | local/cloud 分支使用同一上层 Project/Session/Artifact/Run 事件契约；cloud-only 字段必须可选且不破坏 local 响应 | 阻断合并，补契约测试 |
+| Web 桌面端 | Vite 页面、`/api` 代理、桌面宽度截图和关键交互通过 | 修复 UI/代理/状态缺陷 |
+| Web 移动宽度 | mobile viewport 下新增入口可用、隐藏或给出明确不可用态，不遮挡聊天输入 | 修复 P0/P1 UX 缺陷 |
+| 桌面壳兼容 | Tauri/local 后端不被 cloud auth、team、workspace 依赖阻断启动 | 保持本机默认免云端依赖 |
+| 移动壳兼容 | 移动端只消费云端 API，不要求本机文件系统、PTY 或 CLI 权限 | 禁止把桌面特权能力泄漏到移动端 |
+
+P2 阶段的测试报告必须明确写出：本轮验证的 P1 local 基线路径、P2 cloud 新增切片、未覆盖的后续 Phase 边界。
+
 ### 4.3 Phase 测试计划
 
 每个 Phase 新建 Spec 时，应同步创建对应的测试计划：
@@ -320,6 +337,7 @@ async def test_sse_events_are_valid_json(client, db_session):
 - [ ] 本 Phase 所有 API 端点的异常分支（400/404/500）有覆盖
 - [ ] Spec 第 4 节所有验收标准已通过（自动或手动）
 - [ ] 上一 Phase 的测试全部仍通过（无回归）
+- [ ] Phase 9 起：P1 local 真实服务回归全部通过，SaaS 新增能力以本 Phase cloud slice 可运行方式通过
 - [ ] 旧后端/前端进程已清理，新服务进程已从当前仓库启动
 - [ ] 真实服务验收已通过，且最终交付包含前端/后端/API docs 地址
 
@@ -374,6 +392,7 @@ async def test_sse_events_are_valid_json(client, db_session):
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
+| 2026-06-08 | v2.4 | 增加 Phase 9 起 P2 双运行时兼容门禁：P1 本机版零回归，SaaS 能力按可运行切片递增 |
 | 2026-06-02 | v2.3 | 增加每轮结束清理旧进程、启动新服务、真实服务验收并交付访问地址的硬性要求 |
 | 2026-06-02 | v2.2 | Phase 5 增加架构契约测试要求；记录 tool calling 能力声明、Artifact 版本链头节点测试陷阱 |
 | 2026-06-01 | v2.1 | 复盘 Orchestrator 测试盲区: 新增"Mock 不改变代码路径"原则、模式变体强制覆盖、`asyncio.wait_for` 陷阱、分支覆盖检查清单 |
