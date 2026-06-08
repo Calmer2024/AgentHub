@@ -38,6 +38,22 @@ class MessageNotForwardableError(Exception):
     pass
 
 
+class SessionModeError(Exception):
+    pass
+
+
+class GroupMemberLimitError(Exception):
+    pass
+
+
+class GroupMemberNotFoundError(Exception):
+    pass
+
+
+MAX_GROUP_MEMBERS = 12
+MIN_GROUP_MEMBERS = 2
+
+
 class SessionService:
 
     def __init__(self, db: AsyncSession):
@@ -69,7 +85,7 @@ class SessionService:
         self.db.add(session)
 
         if is_group and group_agent_ids:
-            for aid in group_agent_ids[:6]:
+            for aid in group_agent_ids[:MAX_GROUP_MEMBERS]:
                 self.db.add(SessionMember(session_id=session.id, agent_config_id=aid))
 
         await self.db.commit()
@@ -160,6 +176,7 @@ class SessionService:
             select(SessionMember, AgentConfig)
             .join(AgentConfig, SessionMember.agent_config_id == AgentConfig.id)
             .where(SessionMember.session_id == session_id)
+            .order_by(SessionMember.joined_at.asc())
         )
         members: list[MemberRead] = []
         for sm, agent in result.all():
@@ -171,8 +188,41 @@ class SessionService:
         return members
 
     async def add_member(self, session_id: str, agent_config_id: str) -> None:
-        self.db.add(SessionMember(session_id=session_id, agent_config_id=agent_config_id))
+        await self.add_group_member(session_id, agent_config_id)
+
+    async def add_group_member(self, session_id: str, agent_config_id: str) -> list[MemberRead]:
+        session = await self._require_group_session(session_id)
+        agent = await self.db.get(AgentConfig, agent_config_id)
+        if not agent or not agent.is_active:
+            raise AgentNotFoundError(agent_config_id)
+
+        members = await self._get_member_rows(session_id)
+        if any(member.agent_config_id == agent_config_id for member in members):
+            return await self.get_members(session_id)
+        if len(members) >= MAX_GROUP_MEMBERS:
+            raise GroupMemberLimitError(f"群聊最多支持 {MAX_GROUP_MEMBERS} 个成员")
+
+        self.db.add(SessionMember(session_id=session.id, agent_config_id=agent_config_id))
+        session.updated_at = china_now()
         await self.db.commit()
+        return await self.get_members(session_id)
+
+    async def remove_group_member(self, session_id: str, agent_config_id: str) -> list[MemberRead]:
+        session = await self._require_group_session(session_id)
+        members = await self._get_member_rows(session_id)
+        target = next((member for member in members if member.agent_config_id == agent_config_id), None)
+        if target is None:
+            raise GroupMemberNotFoundError(agent_config_id)
+        if len(members) <= MIN_GROUP_MEMBERS:
+            raise GroupMemberLimitError(f"群聊至少需要 {MIN_GROUP_MEMBERS} 个成员")
+
+        await self.db.delete(target)
+        remaining_ids = [member.agent_config_id for member in members if member.agent_config_id != agent_config_id]
+        if session.agent_config_id == agent_config_id:
+            session.agent_config_id = remaining_ids[0] if remaining_ids else None
+        session.updated_at = china_now()
+        await self.db.commit()
+        return await self.get_members(session_id)
 
     async def get_workspace_path(self, session_id: str) -> str:
         return await ProjectService(self.db).get_workspace_path_for_session(session_id)
@@ -205,6 +255,20 @@ class SessionService:
         if missing:
             raise SessionNotFoundError(missing[0])
         return [by_id[session_id] for session_id in unique_ids]
+
+    async def _require_group_session(self, session_id: str) -> DBSession:
+        session = await self.db.get(DBSession, session_id)
+        if not session or session.is_active != "1":
+            raise SessionNotFoundError(session_id)
+        if session.mode != "group":
+            raise SessionModeError(session_id)
+        return session
+
+    async def _get_member_rows(self, session_id: str) -> list[SessionMember]:
+        result = await self.db.execute(
+            select(SessionMember).where(SessionMember.session_id == session_id)
+        )
+        return list(result.scalars().all())
 
     @staticmethod
     def _forwarded_message(target_session_id: str, source: DBMessage, created_at) -> DBMessage:

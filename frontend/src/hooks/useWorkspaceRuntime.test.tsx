@@ -6,6 +6,7 @@ import { useSessionStore } from "../stores/sessionStore";
 import type { Message, Project, Session } from "../types";
 
 const apiMocks = vi.hoisted(() => ({
+  addGroupMember: vi.fn(),
   archiveProject: vi.fn(),
   archiveSession: vi.fn(),
   createGroupSession: vi.fn(),
@@ -27,6 +28,7 @@ const apiMocks = vi.hoisted(() => ({
   pickProjectFolder: vi.fn(),
   pinSession: vi.fn(),
   renameSession: vi.fn(),
+  removeGroupMember: vi.fn(),
   updateProject: vi.fn(),
 }));
 

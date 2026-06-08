@@ -25,6 +25,25 @@ import {
   isBlockedAgentEnvKey,
   type CliTool,
 } from "./AgentCliPresets";
+import { UiSelect, type UiSelectOption } from "./UiSelect";
+
+const CLI_TOOL_OPTIONS: UiSelectOption[] = [
+  { value: "claude_code", label: "Claude Code" },
+  { value: "codex", label: "Codex" },
+  { value: "opencode", label: "OpenCode" },
+  { value: "custom", label: "自定义" },
+];
+
+const CONTEXT_POLICY_OPTIONS: UiSelectOption[] = [
+  { value: "workspace_coding", label: "Workspace Coding", description: "读取项目上下文并允许工作区编辑" },
+  { value: "planning_only", label: "Planning Only", description: "仅用于计划、拆解和调度" },
+  { value: "review_only", label: "Review Only", description: "侧重审查、测试和验收" },
+];
+
+const CODEX_CONNECTION_OPTIONS: UiSelectOption[] = [
+  { value: "proxy", label: "OpenAI 兼容中转 API" },
+  { value: "official", label: "官方 OpenAI API" },
+];
 
 export function AgentCliForm({
   initial,
@@ -230,19 +249,24 @@ export function AgentCliForm({
 
             <ConfigSection icon={Sparkles} title="能力配置" description="Agent = Engine + Skills，供调度器匹配任务">
               <FieldLabel label="命令行类型">
-                <select value={cliTool} onChange={(event) => selectTool(event.target.value as CliTool)} className={inputClass}>
-                  <option value="claude_code">Claude Code</option>
-                  <option value="codex">Codex</option>
-                  <option value="opencode">OpenCode</option>
-                  <option value="custom">自定义</option>
-                </select>
+                <UiSelect
+                  ariaLabel="命令行类型"
+                  value={cliTool}
+                  options={CLI_TOOL_OPTIONS}
+                  onValueChange={(next) => selectTool(next as CliTool)}
+                />
               </FieldLabel>
               <FieldLabel label="主 Skill">
-                <select value={primarySkill} onChange={(event) => setPrimarySkill(event.target.value)} className={inputClass}>
-                  {skillOptions(skills).map((skill) => (
-                    <option key={skill.id} value={skill.id}>{skill.name}</option>
-                  ))}
-                </select>
+                <UiSelect
+                  ariaLabel="主 Skill"
+                  value={primarySkill}
+                  options={skillOptions(skills).map((skill) => ({
+                    value: skill.id,
+                    label: skill.name,
+                    description: skill.source === "filesystem" ? "本机 Skill" : undefined,
+                  }))}
+                  onValueChange={setPrimarySkill}
+                />
               </FieldLabel>
               <FieldLabel label="辅助 Skills">
                 <div className="grid gap-2 sm:grid-cols-2">
@@ -267,11 +291,12 @@ export function AgentCliForm({
                 </div>
               </FieldLabel>
               <FieldLabel label="上下文策略">
-                <select value={contextPolicy} onChange={(event) => setContextPolicy(event.target.value)} className={inputClass}>
-                  <option value="workspace_coding">Workspace Coding</option>
-                  <option value="planning_only">Planning Only</option>
-                  <option value="review_only">Review Only</option>
-                </select>
+                <UiSelect
+                  ariaLabel="上下文策略"
+                  value={contextPolicy}
+                  options={CONTEXT_POLICY_OPTIONS}
+                  onValueChange={setContextPolicy}
+                />
               </FieldLabel>
             </ConfigSection>
 
@@ -323,14 +348,12 @@ export function AgentCliForm({
                   )}
                   <div className="grid gap-3 lg:grid-cols-2">
                     <FieldLabel label="连接模式">
-                      <select
+                      <UiSelect
+                        ariaLabel="连接模式"
                         value={codexConnection}
-                        onChange={(event) => updateCodexConnection(event.target.value as "official" | "proxy")}
-                        className={inputClass}
-                      >
-                        <option value="proxy">OpenAI 兼容中转 API</option>
-                        <option value="official">官方 OpenAI API</option>
-                      </select>
+                        options={CODEX_CONNECTION_OPTIONS}
+                        onValueChange={(next) => updateCodexConnection(next as "official" | "proxy")}
+                      />
                     </FieldLabel>
                     <FieldLabel label="模型">
                       <input

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  addGroupMember,
   archiveProject,
   archiveSession,
   createGroupSession,
@@ -22,6 +23,7 @@ import {
   pickProjectFolder,
   pinSession,
   renameSession,
+  removeGroupMember,
   updateProject,
 } from "../api/client";
 import { WSClient } from "../api/wsClient";
@@ -602,8 +604,29 @@ export function useWorkspaceRuntime() {
     setApprovalsForSession(s.id, []);
     setStreamingError(null, s.id);
     clearCollab(s.id);
-    setSessionMembers(agents.filter((agent) => selectedIds.includes(agent.id)));
-    setSessionMembersLoading(false);
+    try {
+      setSessionMembers(toMemberAgents(await fetchSessionMembers(s.id)));
+    } catch {
+      setSessionMembers(agents.filter((agent) => selectedIds.includes(agent.id)));
+    } finally {
+      setSessionMembersLoading(false);
+    }
+  };
+
+  const handleAddGroupMember = async (sessionId: string, agentId: string) => {
+    const members = await addGroupMember(sessionId, agentId);
+    if (useChatStore.getState().currentSessionId === sessionId) {
+      setSessionMembers(toMemberAgents(members));
+    }
+    if (currentProjectId) void loadSessionsForProject(currentProjectId);
+  };
+
+  const handleRemoveGroupMember = async (sessionId: string, agentId: string) => {
+    const members = await removeGroupMember(sessionId, agentId);
+    if (useChatStore.getState().currentSessionId === sessionId) {
+      setSessionMembers(toMemberAgents(members));
+    }
+    if (currentProjectId) void loadSessionsForProject(currentProjectId);
   };
 
   const handleDeleteSession = async (id: string) => {
@@ -697,6 +720,8 @@ export function useWorkspaceRuntime() {
     handleSelectSession,
     handleNewSession,
     handleCreateGroup,
+    handleAddGroupMember,
+    handleRemoveGroupMember,
     handleDeleteSession,
     handleRenameSession,
     handlePinSession,

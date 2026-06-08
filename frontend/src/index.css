@@ -684,6 +684,182 @@ body {
   transform: translateY(1px) scale(0.99);
 }
 
+.agenthub-danger-button {
+  background: var(--ah-danger);
+  color: #111111;
+  box-shadow: 0 16px 34px color-mix(in srgb, var(--ah-danger) 24%, transparent);
+}
+
+.agenthub-danger-button:hover {
+  filter: brightness(1.04);
+}
+
+.agenthub-danger-button:active {
+  transform: translateY(1px) scale(0.99);
+}
+
+:root[data-theme="light"] .agenthub-danger-button {
+  color: #ffffff;
+}
+
+.agenthub-select-wrap {
+  position: relative;
+  min-width: 0;
+}
+
+.agenthub-select-trigger {
+  min-height: 2.5rem;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--ah-card-soft) 72%, transparent), transparent 100%),
+    var(--ah-composer-bg);
+  border-color: var(--ah-border-strong);
+  color: var(--ah-text);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.08),
+    0 14px 32px rgb(24 34 50 / 0.1);
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    background 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.agenthub-select-trigger:hover:not(:disabled) {
+  border-color: var(--ah-border-hover);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--ah-card-soft) 100%, transparent), transparent 100%),
+    color-mix(in srgb, var(--ah-composer-bg) 86%, var(--ah-card-soft));
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.12),
+    0 16px 36px rgb(24 34 50 / 0.14);
+  transform: translateY(-1px);
+}
+
+.agenthub-select-trigger:active:not(:disabled) {
+  transform: translateY(1px) scale(0.995);
+}
+
+.agenthub-select-value,
+.agenthub-select-option-label {
+  color: var(--ah-text);
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+.agenthub-select-chevron {
+  color: var(--ah-muted);
+}
+
+.agenthub-select-menu {
+  min-width: 13rem;
+  border-color: var(--ah-border-strong);
+  padding: 0.35rem;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.08),
+    var(--ah-shadow);
+}
+
+.agenthub-select-option {
+  position: relative;
+  border: 1px solid transparent;
+  color: var(--ah-text);
+  font-weight: 400;
+  transition:
+    transform 130ms ease,
+    background 130ms ease,
+    border-color 130ms ease,
+    color 130ms ease;
+}
+
+.agenthub-select-option-active {
+  background: color-mix(in srgb, var(--ah-panel-muted) 84%, var(--ah-card-soft));
+  border-color: var(--ah-border);
+  color: var(--ah-text-strong);
+  transform: translateX(1px);
+}
+
+.agenthub-select-option:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ah-panel-muted) 92%, var(--ah-card-soft));
+  border-color: var(--ah-border-hover);
+  color: var(--ah-text-strong);
+  transform: translateX(1px);
+}
+
+.agenthub-select-option-selected {
+  background: color-mix(in srgb, var(--ah-highlight-bg) 72%, transparent);
+  border-color: color-mix(in srgb, var(--ah-border-strong) 74%, transparent);
+  color: var(--ah-text-strong);
+}
+
+.agenthub-select-check {
+  background: var(--ah-primary-bg);
+  color: var(--ah-primary-text);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.12);
+}
+
+.agenthub-toast-viewport {
+  pointer-events: none;
+}
+
+.agenthub-toast {
+  pointer-events: auto;
+  background: var(--ah-menu-bg);
+  border-color: var(--ah-border);
+  color: var(--ah-text);
+  backdrop-filter: blur(18px) saturate(140%);
+  animation: agenthub-popover-in 150ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.agenthub-toast-icon {
+  background: var(--ah-card-soft);
+  color: var(--ah-text-strong);
+}
+
+.agenthub-toast-success {
+  border-color: color-mix(in srgb, var(--ah-success) 36%, var(--ah-border));
+}
+
+.agenthub-toast-success .agenthub-toast-icon {
+  background: var(--ah-success-soft);
+  color: var(--ah-success);
+}
+
+.agenthub-toast-error {
+  border-color: color-mix(in srgb, var(--ah-danger) 40%, var(--ah-border));
+}
+
+.agenthub-toast-error .agenthub-toast-icon {
+  background: var(--ah-danger-soft);
+  color: var(--ah-danger);
+}
+
+.agenthub-toast-warning {
+  border-color: color-mix(in srgb, var(--ah-warning) 40%, var(--ah-border));
+}
+
+.agenthub-toast-warning .agenthub-toast-icon {
+  background: var(--ah-warning-soft);
+  color: var(--ah-warning);
+}
+
+.agenthub-toast-info {
+  border-color: color-mix(in srgb, var(--ah-info) 34%, var(--ah-border));
+}
+
+.agenthub-toast-info .agenthub-toast-icon {
+  background: var(--ah-info-soft);
+  color: var(--ah-info);
+}
+
+.agenthub-toast-close {
+  color: var(--ah-muted);
+}
+
+.agenthub-toast-close:hover {
+  background: var(--ah-panel-muted);
+  color: var(--ah-text-strong);
+}
+
 .agenthub-backdrop {
   background: var(--ah-overlay);
   backdrop-filter: blur(16px) saturate(120%);

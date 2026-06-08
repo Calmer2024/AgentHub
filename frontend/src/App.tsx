@@ -5,6 +5,7 @@ import { MemoChatWindow as ChatWindow } from "./components/ChatWindow";
 import { ProjectSidebar } from "./components/ProjectSidebar";
 import { AgentPanel } from "./components/AgentPanel";
 import { GroupChatCreator } from "./components/GroupChatCreator";
+import { ToastViewport } from "./components/ToastViewport";
 import { OrchestratorDebugPanel } from "./components/OrchestratorDebugPanel";
 import {
   deleteAgent,
@@ -17,6 +18,7 @@ import {
 } from "./api/client";
 import { useSendMessage } from "./hooks/useSendMessage";
 import { useWorkspaceRuntime } from "./hooks/useWorkspaceRuntime";
+import { useToastStore } from "./stores/toastStore";
 import type { Message } from "./types";
 
 /** 从 store 读取当前会话的协作状态（零值 = 空快照）。 */
@@ -58,6 +60,7 @@ function App() {
     handleRenameProject, handleDeleteProject,
     handleCreateBlankProject, handlePickExistingFolder,
     handleSelectSession, handleNewSession, handleCreateGroup,
+    handleAddGroupMember, handleRemoveGroupMember,
     handleDeleteSession, handleRenameSession, handlePinSession, handleArchiveSession,
     handleMuteSession,
   } = useWorkspaceRuntime();
@@ -80,20 +83,46 @@ function App() {
   const [showGroupCreator, setShowGroupCreator] = useState(false);
   const [agentModal, setAgentModal] = useState<{ mode: "create" | "edit"; agentId?: string } | null>(null);
   const handleSend = useSendMessage();
+  const pushToast = useToastStore((state) => state.pushToast);
+
+  const notifyError = useCallback((title: string, error: unknown) => {
+    pushToast({
+      kind: "error",
+      title,
+      description: error instanceof Error ? error.message : "请稍后重试",
+    });
+  }, [pushToast]);
+
+  const runCrudAction = useCallback(async (
+    action: () => Promise<void>,
+    successTitle: string,
+    errorTitle: string,
+    description?: string,
+  ) => {
+    try {
+      await action();
+      pushToast({ kind: "success", title: successTitle, description });
+    } catch (error) {
+      notifyError(errorTitle, error);
+    }
+  }, [notifyError, pushToast]);
 
   const handleTogglePin = useCallback(async (message: Message) => {
     try {
       if (message.isPinned) {
         await unpinMessage(message.id);
         updateMessage(message.id, { isPinned: false });
+        pushToast({ kind: "success", title: "已取消 Pin" });
       } else {
         await pinMessage(message.id);
         updateMessage(message.id, { isPinned: true });
+        pushToast({ kind: "success", title: "消息已 Pin" });
       }
     } catch {
       setStreamingError("Pin 操作失败，请稍后重试", message.sessionId || currentSessionId);
+      pushToast({ kind: "error", title: "Pin 操作失败" });
     }
-  }, [currentSessionId, setStreamingError, updateMessage]);
+  }, [currentSessionId, pushToast, setStreamingError, updateMessage]);
 
   const handleRegenerate = useCallback((message: Message) => {
     const sessionId = message.sessionId || currentSessionId;
@@ -152,18 +181,40 @@ function App() {
           creating={creatingProject}
           loading={initialLoading}
           onSelectProject={handleSelectProject}
-          onCreateBlankProject={handleCreateBlankProject}
-          onPickExistingFolder={handlePickExistingFolder}
-          onArchiveProject={handleArchiveProject}
-          onRenameProject={handleRenameProject}
-          onDeleteProject={handleDeleteProject}
+          onCreateBlankProject={(name) => runCrudAction(
+            () => handleCreateBlankProject(name),
+            "项目已创建",
+            "创建项目失败",
+          )}
+          onPickExistingFolder={() => runCrudAction(
+            handlePickExistingFolder,
+            "项目已绑定",
+            "选择文件夹失败",
+          )}
+          onArchiveProject={(projectId) => runCrudAction(
+            () => handleArchiveProject(projectId),
+            "项目已归档",
+            "归档项目失败",
+          )}
+          onRenameProject={(projectId, name) => runCrudAction(
+            () => handleRenameProject(projectId, name),
+            "项目已重命名",
+            "重命名项目失败",
+          )}
+          onDeleteProject={(projectId, deleteFiles) => runCrudAction(
+            () => handleDeleteProject(projectId, deleteFiles),
+            "项目已删除",
+            "删除项目失败",
+          )}
           onOpenPanel={setSidebarTab}
           onStartAgentChat={handleNewSession}
           onCreateAgent={() => setAgentModal({ mode: "create" })}
           onEditAgent={(agentId) => setAgentModal({ mode: "edit", agentId })}
           onDeleteAgent={async (agentId) => {
-            await deleteAgent(agentId);
-            await loadData();
+            await runCrudAction(async () => {
+              await deleteAgent(agentId);
+              await loadData();
+            }, "Agent 已删除", "删除 Agent 失败");
           }}
         />
 
@@ -173,13 +224,37 @@ function App() {
             sessions={sessions} currentSessionId={currentSessionId}
             loading={sessionsLoading}
             agents={agents} onSelectSession={handleSelectSession}
-            onNewSession={handleNewSession}
+            onNewSession={(agentId) => runCrudAction(
+              () => handleNewSession(agentId),
+              "私聊已创建",
+              "创建私聊失败",
+            )}
             onNewGroupSession={() => setShowGroupCreator(true)}
-            onDeleteSession={handleDeleteSession}
-            onRenameSession={handleRenameSession}
-            onPinSession={handlePinSession}
-            onArchiveSession={handleArchiveSession}
-            onMuteSession={handleMuteSession}
+            onDeleteSession={(sessionId) => runCrudAction(
+              () => handleDeleteSession(sessionId),
+              "对话已删除",
+              "删除对话失败",
+            )}
+            onRenameSession={(sessionId, title) => runCrudAction(
+              () => handleRenameSession(sessionId, title),
+              "对话已重命名",
+              "重命名对话失败",
+            )}
+            onPinSession={(sessionId, pinned) => runCrudAction(
+              () => handlePinSession(sessionId, pinned),
+              pinned ? "对话已置顶" : "已取消置顶",
+              "更新置顶失败",
+            )}
+            onArchiveSession={(sessionId, archived) => runCrudAction(
+              () => handleArchiveSession(sessionId, archived),
+              archived === false ? "对话已恢复" : "对话已归档",
+              "更新归档失败",
+            )}
+            onMuteSession={(sessionId, muted) => runCrudAction(
+              () => handleMuteSession(sessionId, muted),
+              muted ? "已开启免打扰" : "已关闭免打扰",
+              "更新免打扰失败",
+            )}
           />
         </div>
       </div>
@@ -201,6 +276,8 @@ function App() {
           planSummary={planSummary}
           mentionableAgents={currentMode === "group" ? sessionMembers : agents}
           mentionLoading={currentMode === "group" ? sessionMembersLoading : false}
+          groupMembers={sessionMembers}
+          groupMembersLoading={sessionMembersLoading}
           collabTasks={collabTasks}
           dagPhases={dagPhases}
           chainSteps={chainSteps}
@@ -213,6 +290,21 @@ function App() {
           onRegenerate={handleRegenerate}
           onTogglePin={handleTogglePin}
           onArtifactsChanged={handleArtifactsChanged}
+          onRenameSession={(sessionId, title) => runCrudAction(
+            () => handleRenameSession(sessionId, title),
+            "群聊已重命名",
+            "重命名群聊失败",
+          )}
+          onAddGroupMember={(sessionId, agentId) => runCrudAction(
+            () => handleAddGroupMember(sessionId, agentId),
+            "成员已加入群聊",
+            "添加成员失败",
+          )}
+          onRemoveGroupMember={(sessionId, agentId) => runCrudAction(
+            () => handleRemoveGroupMember(sessionId, agentId),
+            "成员已移出群聊",
+            "移除成员失败",
+          )}
         />
       ) : (
         <div className="agenthub-chat flex min-h-0 min-w-0 flex-1 items-center justify-center px-6 text-center text-lg">
@@ -227,7 +319,11 @@ function App() {
           agents={agents}
           onConfirm={(title, selectedIds) => {
             setShowGroupCreator(false);
-            handleCreateGroup(title, selectedIds);
+            void runCrudAction(
+              () => handleCreateGroup(title, selectedIds),
+              "群聊已创建",
+              "创建群聊失败",
+            );
           }}
           onCancel={() => setShowGroupCreator(false)}
         />
@@ -239,6 +335,7 @@ function App() {
         onChanged={loadData}
         onClose={() => setAgentModal(null)}
       />
+      <ToastViewport />
     </div>
   );
 }

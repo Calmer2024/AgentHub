@@ -4,11 +4,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
 from ..services import (
-    SessionService, SessionCreate, SessionRead, SessionUpdate, MemberRead,
+    SessionService, SessionCreate, SessionRead, SessionUpdate, MemberRead, GroupMemberCreate,
     SessionNotFoundError, AgentNotFoundError, ForwardMessagesRequest,
     ForwardMessagesResult,
 )
-from ..services.session_service import MessageNotForwardableError, ProjectNotFoundError
+from ..services.session_service import (
+    GroupMemberLimitError,
+    GroupMemberNotFoundError,
+    MessageNotForwardableError,
+    ProjectNotFoundError,
+    SessionModeError,
+)
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -45,6 +51,42 @@ async def get_session(session_id: str, db: AsyncSession = Depends(get_db)):
 @router.get("/{session_id}/members", response_model=List[MemberRead])
 async def list_members(session_id: str, db: AsyncSession = Depends(get_db)):
     return await _svc(db).get_members(session_id)
+
+
+@router.post("/{session_id}/members", response_model=List[MemberRead])
+async def add_member(
+    session_id: str,
+    data: GroupMemberCreate,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        return await _svc(db).add_group_member(session_id, data.agent_config_id)
+    except SessionNotFoundError:
+        raise HTTPException(status_code=404, detail="session not found")
+    except SessionModeError:
+        raise HTTPException(status_code=400, detail="只有群聊可以管理成员")
+    except AgentNotFoundError:
+        raise HTTPException(status_code=404, detail="agent not found")
+    except GroupMemberLimitError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.delete("/{session_id}/members/{agent_config_id}", response_model=List[MemberRead])
+async def remove_member(
+    session_id: str,
+    agent_config_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        return await _svc(db).remove_group_member(session_id, agent_config_id)
+    except SessionNotFoundError:
+        raise HTTPException(status_code=404, detail="session not found")
+    except SessionModeError:
+        raise HTTPException(status_code=400, detail="只有群聊可以管理成员")
+    except GroupMemberNotFoundError:
+        raise HTTPException(status_code=404, detail="member not found")
+    except GroupMemberLimitError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @router.get("/{session_id}/workspace")

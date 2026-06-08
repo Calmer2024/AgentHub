@@ -75,6 +75,12 @@ export interface Session {
   updatedAt: string;
 }
 
+export interface SessionMember {
+  agentConfigId: string;
+  agentName: string;
+  joinedAt: string;
+}
+
 export interface Project {
   id: string;
   name: string;

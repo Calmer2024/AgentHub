@@ -1,9 +1,9 @@
 import {
   Code2,
   Cpu,
+  MessagesSquare,
   Sparkles,
   UserRound,
-  Users,
   type LucideIcon,
 } from "lucide-react";
 import { siClaudecode } from "simple-icons";
@@ -139,8 +139,8 @@ function resolveLook(
   }
   if (kind === "group") {
     return {
-      icon: Users,
-      className: "border-violet-300/25 bg-violet-400/15 text-violet-100",
+      icon: MessagesSquare,
+      className: "border-[color:var(--ah-border-strong)] bg-[color:var(--ah-card-soft)] text-[color:var(--ah-text-strong)]",
       label: "群聊",
     };
   }

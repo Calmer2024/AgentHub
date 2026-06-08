@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import type { Session, AgentConfig, Project, RunStatus } from "../types";
 import { AgentAvatar } from "./AgentAvatar";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { formatChinaDateTime } from "../utils/time";
 import { useChatStore } from "../stores/chatStore";
 
@@ -29,7 +30,7 @@ interface Props {
   onSelectSession: (id: string) => void;
   onNewSession: (agentId?: string) => void;
   onNewGroupSession: () => void;
-  onDeleteSession: (id: string) => void;
+  onDeleteSession: (id: string) => Promise<void> | void;
   onRenameSession: (id: string, title: string) => void;
   onPinSession: (id: string, isPinned: boolean) => void;
   onArchiveSession: (id: string, archived?: boolean) => void;
@@ -58,6 +59,8 @@ export function SessionList({
   const [renameTitle, setRenameTitle] = useState("");
   const [query, setQuery] = useState("");
   const [view, setView] = useState<"active" | "archive">("active");
+  const [deleteTarget, setDeleteTarget] = useState<Session | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
   const previousProjectIdRef = useRef(project?.id);
   const runtimeBySession = useChatStore((state) => state.runtimeBySession);
   const runsBySession = useChatStore((state) => state.runsBySession);
@@ -123,6 +126,17 @@ export function SessionList({
 
   const archivedView = view === "archive";
   const visibleSessions = archivedView ? sessionGroups.archived : sessionGroups.active;
+
+  const confirmDeleteSession = async () => {
+    if (!deleteTarget) return;
+    setDeleteBusy(true);
+    try {
+      await onDeleteSession(deleteTarget.id);
+      setDeleteTarget(null);
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
 
   const renderArchiveFolderButton = () => (
     <button
@@ -272,7 +286,7 @@ export function SessionList({
                 归档
               </button>
             )}
-            <button onClick={() => { onDeleteSession(session.id); setMenuOpen(null); }}
+            <button onClick={() => { setDeleteTarget(session); setMenuOpen(null); }}
               className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm text-[color:var(--ah-danger)] hover:bg-[color:var(--ah-danger-soft)]">
               <Trash2 size={14} />
               删除
@@ -432,6 +446,15 @@ export function SessionList({
           </>
         )}
       </div>
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        title="删除对话"
+        description={`删除「${deleteTarget?.title ?? ""}」后，历史消息会从当前列表移除。`}
+        confirmLabel="删除"
+        busy={deleteBusy}
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={() => void confirmDeleteSession()}
+      />
     </div>
   );
 }

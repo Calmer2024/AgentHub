@@ -10,6 +10,7 @@ import {
   writeProjectFile,
 } from "../api/client";
 import { useChatStore } from "../stores/chatStore";
+import { useToastStore } from "../stores/toastStore";
 
 const CodeMirrorFileEditor = lazy(() => import("./CodeMirrorFileEditor").then((module) => ({
   default: module.CodeMirrorFileEditor,
@@ -59,6 +60,7 @@ export function FileEditorModal({
 }: Props) {
   const editorRef = useRef<ReactCodeMirrorRef | null>(null);
   const setCodeReference = useChatStore((state) => state.setCodeReference);
+  const pushToast = useToastStore((state) => state.pushToast);
   const [content, setContent] = useState(initialContent ?? artifact?.content ?? "");
   const [original, setOriginal] = useState(initialContent ?? artifact?.content ?? "");
   const [loading, setLoading] = useState(false);
@@ -152,8 +154,10 @@ export function FileEditorModal({
       setOriginal(content);
       setSaved(true);
       onSaved?.();
+      pushToast({ kind: "success", title: "文件已保存" });
     } catch {
       setError("保存失败，请检查文件权限或产物状态");
+      pushToast({ kind: "error", title: "保存失败", description: "请检查文件权限或产物状态" });
     } finally {
       setSaving(false);
     }

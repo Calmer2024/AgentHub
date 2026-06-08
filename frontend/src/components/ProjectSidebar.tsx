@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import type { AgentConfig, Project } from "../types";
 import { AgentAvatar } from "./AgentAvatar";
+import { ConfirmDialog } from "./ConfirmDialog";
 import type { SidebarTab } from "../stores/sessionStore";
 import { useThemeStore, type ThemeMode } from "../stores/themeStore";
 
@@ -42,6 +43,14 @@ interface Props {
   onEditAgent: (agentId: string) => void;
   onDeleteAgent: (agentId: string) => Promise<void>;
 }
+
+type DeleteTarget = {
+  kind: "project" | "agent";
+  id: string;
+  title: string;
+  description: string;
+  confirmLabel: string;
+};
 
 export function ProjectSidebar({
   projects,
@@ -71,6 +80,8 @@ export function ProjectSidebar({
   const [renameValue, setRenameValue] = useState("");
   const [agentsExpanded, setAgentsExpanded] = useState(false);
   const [projectsExpanded, setProjectsExpanded] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const agentMenuRef = useRef<HTMLDivElement>(null);
   const projectMenuRef = useRef<HTMLDivElement>(null);
@@ -118,12 +129,19 @@ export function ProjectSidebar({
     await onRenameProject(project.id, name);
   };
 
-  const confirmDeleteProject = async (project: Project) => {
-    const confirmed = window.confirm(
-      `永久删除项目「${project.name}」并删除本机目录？\n\n${project.workspacePath}`,
-    );
-    if (!confirmed) return;
-    await onDeleteProject(project.id, true);
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleteBusy(true);
+    try {
+      if (deleteTarget.kind === "project") {
+        await onDeleteProject(deleteTarget.id, true);
+      } else {
+        await onDeleteAgent(deleteTarget.id);
+      }
+      setDeleteTarget(null);
+    } finally {
+      setDeleteBusy(false);
+    }
   };
 
   return (
@@ -226,7 +244,13 @@ export function ProjectSidebar({
                     danger
                     onClick={() => {
                       setAgentMenuOpen(null);
-                      void onDeleteAgent(agent.id);
+                      setDeleteTarget({
+                        kind: "agent",
+                        id: agent.id,
+                        title: "删除 Agent",
+                        description: `删除「${agent.name}」后，历史消息仍会保留。`,
+                        confirmLabel: "删除",
+                      });
                     }}
                   />
                 </div>
@@ -365,7 +389,13 @@ export function ProjectSidebar({
                       danger
                       onClick={() => {
                         setProjectMenuOpen(null);
-                        void confirmDeleteProject(project);
+                        setDeleteTarget({
+                          kind: "project",
+                          id: project.id,
+                          title: "删除项目",
+                          description: `永久删除「${project.name}」并删除本机目录：\n${project.workspacePath}`,
+                          confirmLabel: "删除目录",
+                        });
                       }}
                     />
                   </div>
@@ -436,6 +466,15 @@ export function ProjectSidebar({
           </div>
         </div>
       )}
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        title={deleteTarget?.title ?? ""}
+        description={deleteTarget?.description ?? ""}
+        confirmLabel={deleteTarget?.confirmLabel ?? "确认"}
+        busy={deleteBusy}
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={() => void confirmDelete()}
+      />
     </aside>
   );
 }

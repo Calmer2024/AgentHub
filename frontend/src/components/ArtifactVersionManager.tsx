@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { CheckCircle2, GitBranch, History, Loader2, RotateCcw, X } from "lucide-react";
 import type { Artifact, ArtifactVersion } from "../types";
 import { fetchArtifactVersions, restoreArtifactVersion } from "../api/client";
+import { useToastStore } from "../stores/toastStore";
 
 interface Props {
   artifact: Artifact;
@@ -17,6 +18,7 @@ export function ArtifactVersionManager({ artifact, open, onClose, onChanged }: P
   const [loading, setLoading] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const pushToast = useToastStore((state) => state.pushToast);
 
   useEffect(() => {
     if (!open) return;
@@ -65,9 +67,11 @@ export function ArtifactVersionManager({ artifact, open, onClose, onChanged }: P
     try {
       await restoreArtifactVersion(artifact.id, version);
       await onChanged?.();
+      pushToast({ kind: "success", title: "版本已恢复", description: `已恢复到 v${version}` });
       onClose();
     } catch {
       setError("版本恢复失败");
+      pushToast({ kind: "error", title: "版本恢复失败" });
     } finally {
       setRestoring(false);
     }

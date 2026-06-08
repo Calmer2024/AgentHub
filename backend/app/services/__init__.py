@@ -1,6 +1,6 @@
 from .schemas import (
     MessageCreate, MessageRead, SessionCreate, SessionRead,
-    SessionUpdate, MemberRead, ProjectCreate, ProjectRead,
+    SessionUpdate, MemberRead, GroupMemberCreate, ProjectCreate, ProjectRead,
     ForwardMessagesRequest, ForwardMessagesResult,
 )
 from .message_service import MessageService
@@ -9,7 +9,7 @@ from .session_service import SessionService, SessionNotFoundError, AgentNotFound
 
 __all__ = [
     "MessageCreate", "MessageRead", "SessionCreate", "SessionRead",
-    "SessionUpdate", "MemberRead", "ProjectCreate", "ProjectRead",
+    "SessionUpdate", "MemberRead", "GroupMemberCreate", "ProjectCreate", "ProjectRead",
     "ForwardMessagesRequest", "ForwardMessagesResult",
     "MessageService", "ChatService", "SessionService",
     "SessionNotFoundError", "AgentNotFoundError",

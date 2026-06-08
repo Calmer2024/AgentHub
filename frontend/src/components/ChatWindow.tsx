@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CheckSquare, Files, Forward, Search, X } from "lucide-react";
+import { CheckSquare, Files, Forward, Search, Users, X } from "lucide-react";
 import type {
   Message, AgentConfig, CollabTask, ChainStep, DAGPhase, Artifact,
   ApprovalCheckpoint, TaskRead, DraftOrchestratorPlan, Session,
@@ -27,6 +27,8 @@ import { AgentAvatar } from "./AgentAvatar";
 import { SessionArtifactManager } from "./SessionArtifactManager";
 import { HealthCheckCard } from "./HealthCheckCard";
 import { ArtifactReviewModal } from "./ArtifactReviewModal";
+import { GroupManagementDialog } from "./GroupManagementDialog";
+import { useToastStore } from "../stores/toastStore";
 
 interface Props {
   messages: Message[];
@@ -44,6 +46,8 @@ interface Props {
   planSummary: string | null;
   mentionableAgents: AgentConfig[];
   mentionLoading?: boolean;
+  groupMembers: AgentConfig[];
+  groupMembersLoading?: boolean;
   // CollaborationView props (inline in message flow)
   collabTasks: CollabTask[];
   dagPhases: DAGPhase[];
@@ -57,6 +61,9 @@ interface Props {
   onRegenerate: (message: Message) => void;
   onTogglePin: (message: Message) => void;
   onArtifactsChanged: () => void;
+  onRenameSession: (sessionId: string, title: string) => Promise<void>;
+  onAddGroupMember: (sessionId: string, agentId: string) => Promise<void>;
+  onRemoveGroupMember: (sessionId: string, agentId: string) => Promise<void>;
 }
 
 const INTENT_LABELS: Record<string, string> = {
@@ -76,8 +83,11 @@ export function ChatWindow({
   hydrating = false,
   currentAgent, currentSessionId, sessions, agents, mode, routeAgents, orchestratorIntent, planSummary, mentionableAgents,
   mentionLoading = false,
+  groupMembers,
+  groupMembersLoading = false,
   collabTasks, dagPhases, collabCompleted, collabSummary, draftPlan,
   onSend, onDismissError, onReply, onRegenerate, onTogglePin, onArtifactsChanged,
+  onRenameSession, onAddGroupMember, onRemoveGroupMember,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -95,6 +105,7 @@ export function ChatWindow({
   const [forwardingIds, setForwardingIds] = useState<string[] | null>(null);
   const [forwardTargetIds, setForwardTargetIds] = useState<Set<string>>(() => new Set());
   const [forwardingBusy, setForwardingBusy] = useState(false);
+  const [groupManagementOpen, setGroupManagementOpen] = useState(false);
   const interactivePrompts = useChatStore((state) => state.interactivePrompts);
   const removeInteractivePrompt = useChatStore((state) => state.removeInteractivePrompt);
   const runs = useChatStore((state) => state.runs);
@@ -110,6 +121,7 @@ export function ChatWindow({
   const setReplyTarget = useChatStore((state) => state.setReplyTarget);
   const setCodeReference = useChatStore((state) => state.setCodeReference);
   const cancelRunLocally = useChatStore((state) => state.cancelRunLocally);
+  const pushToast = useToastStore((state) => state.pushToast);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -188,6 +200,10 @@ export function ChatWindow({
   const currentSession = useMemo(
     () => sessions.find((session) => session.id === currentSessionId) ?? null,
     [currentSessionId, sessions],
+  );
+  const groupMembersFull = useMemo(
+    () => groupMembers.map((member) => agents.find((agent) => agent.id === member.id) ?? member),
+    [agents, groupMembers],
   );
   const showCollabPanel = collabTasks.length > 0 || Boolean(draftPlan);
   const headerStatus = isStreaming || hasActiveRun
@@ -341,8 +357,10 @@ export function ChatWindow({
       setSelectionMode(false);
       setSelectedMessageIds(new Set());
       closeForwardDialog();
+      pushToast({ kind: "success", title: "消息已转发" });
     } catch {
       setStreamingError("转发失败，请稍后重试", currentSessionId);
+      pushToast({ kind: "error", title: "转发失败" });
     } finally {
       setForwardingBusy(false);
     }
@@ -353,6 +371,7 @@ export function ChatWindow({
     forwardTargetIds,
     refreshRuntime,
     setStreamingError,
+    pushToast,
   ]);
 
   useEffect(() => {
@@ -433,6 +452,25 @@ export function ChatWindow({
               onRefresh={() => void refreshHealth()}
             />
           </div>
+          {isGroup && (
+            <button
+              type="button"
+              onClick={() => setGroupManagementOpen(true)}
+              className="agenthub-icon-button relative inline-flex h-9 w-9 items-center justify-center rounded-full"
+              aria-label="群管理"
+              title="群管理"
+            >
+              <Users size={15} />
+              {groupMembersFull.length > 0 && (
+                <span
+                  className="agenthub-status absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border px-1 text-[10px] font-semibold"
+                  style={{ borderColor: "var(--ah-header-bg)" }}
+                >
+                  {groupMembersFull.length > 9 ? "9+" : groupMembersFull.length}
+                </span>
+              )}
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setArtifactManagerOpen(true)}
@@ -650,6 +688,17 @@ export function ChatWindow({
         artifact={reviewArtifact}
         onClose={() => setReviewArtifact(null)}
         onChanged={onArtifactsChanged}
+      />
+      <GroupManagementDialog
+        open={groupManagementOpen}
+        session={currentSession}
+        members={groupMembersFull}
+        agents={agents}
+        loading={groupMembersLoading}
+        onClose={() => setGroupManagementOpen(false)}
+        onRename={(title) => onRenameSession(currentSessionId, title)}
+        onAddMember={(agentId) => onAddGroupMember(currentSessionId, agentId)}
+        onRemoveMember={(agentId) => onRemoveGroupMember(currentSessionId, agentId)}
       />
 
       {selectionMode && (

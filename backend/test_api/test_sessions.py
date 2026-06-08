@@ -96,6 +96,110 @@ class TestUpdateSession:
 
 
 @pytest.mark.asyncio
+class TestGroupMembers:
+    async def test_add_and_remove_group_member(self, test_client, test_agent, db_session):
+        from app.models import AgentConfig
+        import uuid
+
+        agent2 = AgentConfig(
+            id=str(uuid.uuid4()),
+            name="A2",
+            description="",
+            system_prompt="",
+            agent_type="cli_wrapper",
+            cli_tool="custom",
+            executable="python",
+            init_args="[]",
+            env_vars="{}",
+        )
+        agent3 = AgentConfig(
+            id=str(uuid.uuid4()),
+            name="A3",
+            description="",
+            system_prompt="",
+            agent_type="cli_wrapper",
+            cli_tool="custom",
+            executable="python",
+            init_args="[]",
+            env_vars="{}",
+        )
+        db_session.add_all([agent2, agent3])
+        await db_session.commit()
+
+        created = await test_client.post("/api/sessions", json={
+            "title": "群管理",
+            "mode": "group",
+            "agentConfigIds": [test_agent.id, agent2.id],
+        })
+        assert created.status_code == 201
+        session_id = created.json()["id"]
+
+        added = await test_client.post(f"/api/sessions/{session_id}/members", json={
+            "agentConfigId": agent3.id,
+        })
+        assert added.status_code == 200
+        assert any(member["agentConfigId"] == agent3.id for member in added.json())
+
+        removed = await test_client.delete(f"/api/sessions/{session_id}/members/{agent3.id}")
+        assert removed.status_code == 200
+        assert not any(member["agentConfigId"] == agent3.id for member in removed.json())
+
+    async def test_group_member_minimum_is_enforced(self, test_client, test_agent, db_session):
+        from app.models import AgentConfig
+        import uuid
+
+        agent2 = AgentConfig(
+            id=str(uuid.uuid4()),
+            name="A2",
+            description="",
+            system_prompt="",
+            agent_type="cli_wrapper",
+            cli_tool="custom",
+            executable="python",
+            init_args="[]",
+            env_vars="{}",
+        )
+        agent3 = AgentConfig(
+            id=str(uuid.uuid4()),
+            name="A3",
+            description="",
+            system_prompt="",
+            agent_type="cli_wrapper",
+            cli_tool="custom",
+            executable="python",
+            init_args="[]",
+            env_vars="{}",
+        )
+        db_session.add_all([agent2, agent3])
+        await db_session.commit()
+
+        created = await test_client.post("/api/sessions", json={
+            "title": "群管理",
+            "mode": "group",
+            "agentConfigIds": [test_agent.id, agent2.id, agent3.id],
+        })
+        session_id = created.json()["id"]
+
+        members = (await test_client.get(f"/api/sessions/{session_id}/members")).json()
+        for member in members[2:]:
+            first_remove = await test_client.delete(
+                f"/api/sessions/{session_id}/members/{member['agentConfigId']}",
+            )
+            assert first_remove.status_code == 200
+
+        remaining = (await test_client.get(f"/api/sessions/{session_id}/members")).json()
+        assert len(remaining) == 2
+        blocked = await test_client.delete(f"/api/sessions/{session_id}/members/{remaining[0]['agentConfigId']}")
+        assert blocked.status_code == 400
+
+    async def test_member_management_rejects_single_chat(self, test_client, test_session, test_agent):
+        resp = await test_client.post(f"/api/sessions/{test_session}/members", json={
+            "agentConfigId": test_agent.id,
+        })
+        assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
 class TestForwardMessages:
     async def test_forward_messages(self, test_client, test_session, test_agent, db_session):
         from app.models import Message

@@ -6,7 +6,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sess
 from app.database import Base
 from app.models import AgentConfig, Message as DBMessage, Session as DBSession
 from app.services.session_service import (
-    SessionService, SessionNotFoundError, AgentNotFoundError,
+    GroupMemberLimitError,
+    SessionService,
+    SessionNotFoundError,
+    AgentNotFoundError,
 )
 from app.services.schemas import ForwardMessagesRequest, SessionCreate, SessionUpdate
 
@@ -39,6 +42,21 @@ async def db(engine):
 async def test_agent(db: AsyncSession):
     agent = AgentConfig(
         id=str(uuid.uuid4()), name="测试 Agent", description="测试",
+        system_prompt="你是一个测试助手。",
+        agent_type="cli_wrapper",
+        cli_tool="custom",
+        executable="python",
+        init_args="[]",
+        env_vars="{}",
+    )
+    db.add(agent)
+    await db.commit()
+    return agent
+
+
+async def create_agent(db: AsyncSession, name: str) -> AgentConfig:
+    agent = AgentConfig(
+        id=str(uuid.uuid4()), name=name, description="测试",
         system_prompt="你是一个测试助手。",
         agent_type="cli_wrapper",
         cli_tool="custom",
@@ -187,6 +205,54 @@ class TestMembers:
         created = await svc.create_session(SessionCreate(title="无成员"))
         members = await svc.get_members(created.id)
         assert len(members) == 0
+
+    async def test_add_and_remove_group_members(self, svc: SessionService, test_agent, db: AsyncSession):
+        agent2 = await create_agent(db, "A2")
+        agent3 = await create_agent(db, "A3")
+        created = await svc.create_session(SessionCreate(
+            title="群管理",
+            mode="group",
+            agent_config_ids=[test_agent.id, agent2.id],
+        ))
+
+        added = await svc.add_group_member(created.id, agent3.id)
+        duplicate = await svc.add_group_member(created.id, agent3.id)
+        removed = await svc.remove_group_member(created.id, agent3.id)
+
+        assert [member.agent_config_id for member in added] == [test_agent.id, agent2.id, agent3.id]
+        assert [member.agent_config_id for member in duplicate] == [test_agent.id, agent2.id, agent3.id]
+        assert [member.agent_config_id for member in removed] == [test_agent.id, agent2.id]
+
+    async def test_group_keeps_at_least_two_members(self, svc: SessionService, test_agent, db: AsyncSession):
+        agent2 = await create_agent(db, "A2")
+        created = await svc.create_session(SessionCreate(
+            title="群管理",
+            mode="group",
+            agent_config_ids=[test_agent.id, agent2.id],
+        ))
+
+        with pytest.raises(GroupMemberLimitError):
+            await svc.remove_group_member(created.id, agent2.id)
+
+    async def test_remove_primary_group_member_reassigns_primary_agent(
+        self,
+        svc: SessionService,
+        test_agent,
+        db: AsyncSession,
+    ):
+        agent2 = await create_agent(db, "A2")
+        agent3 = await create_agent(db, "A3")
+        created = await svc.create_session(SessionCreate(
+            title="群管理",
+            mode="group",
+            agent_config_ids=[test_agent.id, agent2.id, agent3.id],
+        ))
+
+        await svc.remove_group_member(created.id, test_agent.id)
+        stored = await db.get(DBSession, created.id)
+
+        assert stored is not None
+        assert stored.agent_config_id == agent2.id
 
 
 class TestForwardMessages:

@@ -157,6 +157,7 @@ function Harness() {
       orchestratorIntent={null}
       planSummary={null}
       mentionableAgents={[agent]}
+      groupMembers={[]}
       collabTasks={[]}
       dagPhases={[]}
       chainSteps={[]}
@@ -169,6 +170,9 @@ function Harness() {
       onRegenerate={vi.fn()}
       onTogglePin={vi.fn()}
       onArtifactsChanged={vi.fn()}
+      onRenameSession={vi.fn(() => Promise.resolve())}
+      onAddGroupMember={vi.fn(() => Promise.resolve())}
+      onRemoveGroupMember={vi.fn(() => Promise.resolve())}
     />
   );
 }

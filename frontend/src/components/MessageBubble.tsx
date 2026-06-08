@@ -220,7 +220,7 @@ function MessageBubbleBase({
         isUser ? "items-end" : "items-start"
       }`}>
         <div
-          className={`relative min-w-0 max-w-full overflow-hidden transition-transform duration-150 group-hover:-translate-y-0.5 ${
+          className={`relative min-w-0 max-w-full overflow-hidden ${
           isSummary ? `${summaryClass} w-full` : bubbleClass
         } ${roundClass}`}
           onContextMenu={openContextMenu}

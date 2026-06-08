@@ -1,5 +1,5 @@
 import type {
-  Session, Message, AgentConfig, AgentConfigCreate, AgentConfigUpdate,
+  Session, SessionMember, Message, AgentConfig, AgentConfigCreate, AgentConfigUpdate,
   RouteAgent, CollabTask, ChainStep, ChainConfigInput,
   DAGPhase, PhaseChangeEvent, AgentStartEvent, OrchestratorSummaryStartEvent,
   Artifact, ArtifactDiff, ArtifactEditRequest, ArtifactEditResult, ArtifactVersion,
@@ -20,6 +20,17 @@ import { parseDagPhases, parseTasks } from "./orchestratorEvents";
 import { chinaNowIso } from "../utils/time";
 
 const API_BASE = "/api";
+
+async function readApiError(res: Response, fallback: string) {
+  try {
+    const data = await res.json();
+    if (data && typeof data === "object" && "detail" in data) {
+      const detail = (data as { detail?: unknown }).detail;
+      if (typeof detail === "string") return detail;
+    }
+  } catch { /* keep fallback */ }
+  return fallback;
+}
 
 export async function fetchAgents(): Promise<AgentConfig[]> {
   const res = await fetch(`${API_BASE}/agents`);
@@ -256,7 +267,8 @@ export async function createSession(
 }
 
 export async function deleteSession(sessionId: string): Promise<void> {
-  await fetch(`${API_BASE}/sessions/${sessionId}`, { method: "DELETE" });
+  const res = await fetch(`${API_BASE}/sessions/${sessionId}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to delete session"));
 }
 
 export async function renameSession(sessionId: string, title: string): Promise<Session> {
@@ -264,6 +276,7 @@ export async function renameSession(sessionId: string, title: string): Promise<S
     method: "PATCH", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ title }),
   });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to rename session"));
   return res.json();
 }
 
@@ -316,9 +329,27 @@ export async function forwardMessages(
   return res.json();
 }
 
-export async function fetchSessionMembers(sessionId: string): Promise<Array<{ agentConfigId: string; agentName: string }>> {
+export async function fetchSessionMembers(sessionId: string): Promise<SessionMember[]> {
   const res = await fetch(`${API_BASE}/sessions/${sessionId}/members`);
   if (!res.ok) return [];
+  return res.json();
+}
+
+export async function addGroupMember(sessionId: string, agentConfigId: string): Promise<SessionMember[]> {
+  const res = await fetch(`${API_BASE}/sessions/${sessionId}/members`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ agentConfigId }),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to add group member"));
+  return res.json();
+}
+
+export async function removeGroupMember(sessionId: string, agentConfigId: string): Promise<SessionMember[]> {
+  const res = await fetch(`${API_BASE}/sessions/${sessionId}/members/${encodeURIComponent(agentConfigId)}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to remove group member"));
   return res.json();
 }
 

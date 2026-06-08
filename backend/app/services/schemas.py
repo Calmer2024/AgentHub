@@ -100,6 +100,12 @@ class MemberRead(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class GroupMemberCreate(BaseModel):
+    agent_config_id: str = Field(alias="agentConfigId")
+
+    model_config = {"populate_by_name": True}
+
+
 class ChainConfigSchema(BaseModel):
     """链式协作配置 (运行时参数，不持久化)。"""
     chain_name: str | None = Field(default=None, alias="chainName")
