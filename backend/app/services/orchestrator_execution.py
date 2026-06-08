@@ -111,7 +111,7 @@ class CliTaskRunner:
         trace = ExecutionTraceBuilder(
             agent_name=agent.name,
             cli_tool=agent.cli_tool or "custom",
-            workspace_path=task_workspace_path,
+            workspace_path=workspace_path,
         )
         await self._persist_visible_message(
             execution,
@@ -137,7 +137,7 @@ class CliTaskRunner:
         async for event in CliAgentService().stream(
             agent=agent,
             session_id=execution["sessionId"],
-            workspace_path=task_workspace_path,
+            workspace_path=workspace_path,
             messages=[{
                 "role": "user",
                 "content": self._task_prompt(
@@ -534,14 +534,16 @@ class CliTaskRunner:
         ) or "- 无"
         return (
             "你正在作为 AgentHub 调度任务中的专家 Agent 执行一个 DAG 节点。\n"
-            "当前进程 cwd 已切到本任务工作包目录。请把详细交付物、设计草稿、交接文档写入该目录，"
+            "当前进程 cwd 是项目根目录。请把用户最终需要看到、复用或继续开发的正式产物写入项目目录，"
             "聊天里只输出简短进展汇报。\n\n"
             "执行边界：\n"
             f"- 项目根目录: {project_workspace_path}\n"
             f"- 当前任务工作包目录: {task_workspace_path}\n"
-            "- 默认不要在项目根目录创建 docs/、frontend/、plan_*.json 等中间文件。\n"
-            "- 只有当前任务明确要求直接修改项目源码/配置时，才可以写项目根目录下的真实交付文件。\n"
-            "- 推荐在任务工作包中写 HANDOFF.md、notes.md、contracts.md 或其他必要附件，供下游任务读取。\n"
+            "- 项目根目录是正式交付区：PRD、架构设计、接口说明、测试清单等项目文档默认写入 `docs/`；"
+            "源码、配置、测试和可运行 Demo 写入项目对应目录。\n"
+            "- 任务工作包是临时追溯区：只放 TASK.md、草稿、过程笔记、HANDOFF.md 或给下游 Agent 的副本。\n"
+            "- 不要把正式产物只留在 `.agenthub/executions/.../tasks`；除非任务明确说明只是内部草稿。\n"
+            "- 不要在项目根目录创建 plan_*.json 等调度中间文件；需要保存中间结构时放任务工作包。\n"
             "- 聊天输出最多 8 行：完成了什么、写了哪些文件、下游应该看哪里、仍有什么风险。\n\n"
             f"Plan ID: {execution.get('planId')}\n"
             f"当前任务 ID: {task.get('taskId')}\n"
@@ -573,7 +575,13 @@ class CliTaskRunner:
         )
         task_dir.mkdir(parents=True, exist_ok=True)
         (task_dir / "TASK.md").write_text(
-            self._task_card(execution, task, upstream_results, str(task_dir)),
+            self._task_card(
+                execution,
+                task,
+                upstream_results,
+                task_workspace_path=str(task_dir),
+                project_workspace_path=project_workspace_path,
+            ),
             encoding="utf-8",
         )
         return str(task_dir)
@@ -583,7 +591,9 @@ class CliTaskRunner:
         execution: dict[str, Any],
         task: dict[str, Any],
         upstream_results: list[dict[str, Any]],
+        *,
         task_workspace_path: str,
+        project_workspace_path: str,
     ) -> str:
         upstream = "\n".join(
             f"- {item.get('taskId')}: {item.get('summary') or ''}"
@@ -594,8 +604,12 @@ class CliTaskRunner:
             f"- Plan: {execution.get('planId')}\n"
             f"- Execution: {execution.get('executionId')}\n"
             f"- Task workspace: `{task_workspace_path}`\n"
+            f"- Project workspace: `{project_workspace_path}`\n"
             f"- Assigned Agent: {task.get('assignedAgentName') or task.get('assignedAgentId') or '未分配'}\n"
             f"- Required skills: {', '.join(task.get('requiredSkills') or []) or '未声明'}\n\n"
+            "## Deliverable Boundary\n\n"
+            "- Project workspace 是正式交付区；用户要的文档、代码、配置和测试应沉淀在项目目录。\n"
+            "- Task workspace 是临时追溯区；只保存任务卡、草稿、过程笔记和下游 HANDOFF 副本。\n\n"
             "## Goal\n\n"
             f"{task.get('goal') or '未声明'}\n\n"
             "## Expected Outputs\n\n"

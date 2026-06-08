@@ -50,12 +50,18 @@ def _ensure_fixture_cli() -> Path:
     script = BACKEND_ROOT / ".test-bin" / "orchestrator_task_fixture.py"
     script.parent.mkdir(parents=True, exist_ok=True)
     script.write_text(
-        "import os, sys\n"
+        "import os, re, sys\n"
         "data = os.read(sys.stdin.fileno(), 65536).decode('utf-8', errors='replace')\n"
         "cwd = os.getcwd().replace('\\\\', '/')\n"
-        "with open('HANDOFF.md', 'w', encoding='utf-8') as f:\n"
-        "    f.write('# 任务交接\\n\\n已在任务工作包内写入交接产物。\\n')\n"
-        "sys.stdout.buffer.write(f'真实任务输出：cwd={cwd}；已写 HANDOFF.md。'.encode('utf-8'))\n"
+        "match = re.search(r'当前任务工作包目录: (.+)', data)\n"
+        "task_dir = match.group(1).strip().strip('`') if match else os.getcwd()\n"
+        "os.makedirs(task_dir, exist_ok=True)\n"
+        "with open(os.path.join(task_dir, 'HANDOFF.md'), 'w', encoding='utf-8') as f:\n"
+        "    f.write('# 任务交接\\n\\n已在任务工作包内写入交接副本。\\n')\n"
+        "os.makedirs('docs', exist_ok=True)\n"
+        "with open(os.path.join('docs', 'orchestrator-deliverable.md'), 'w', encoding='utf-8') as f:\n"
+        "    f.write('# 正式交付文档\\n\\n已写入项目 docs 目录。\\n')\n"
+        "sys.stdout.buffer.write(f'真实任务输出：cwd={cwd}；正式文档写入 docs/；交接副本写入任务工作包。'.encode('utf-8'))\n"
         "sys.stdout.buffer.flush()\n",
         encoding="utf-8",
     )
@@ -124,6 +130,11 @@ def _valid_plan() -> dict:
 @pytest.mark.asyncio
 async def test_execute_plan_starts_async_scheduler_then_completes(test_client, db_session):
     session_id = await _seed_session_with_agents(db_session)
+    session = await db_session.get(Session, session_id)
+    assert session is not None
+    project = await db_session.get(Project, session.project_id)
+    assert project is not None
+    project_workspace = Path(project.workspace_path)
 
     res = await test_client.post("/api/orchestrator/plans/execute", json={
         "sessionId": session_id,
@@ -160,6 +171,7 @@ async def test_execute_plan_starts_async_scheduler_then_completes(test_client, d
     assert task_workspace.name == "T1"
     assert (task_workspace / "TASK.md").exists()
     assert (task_workspace / "HANDOFF.md").exists()
+    assert (project_workspace / "docs" / "orchestrator-deliverable.md").exists()
     assert completed["tasks"][1]["runnerType"] == "cli"
     assert completed["tasks"][1]["visibleMessageId"]
     assert all(task["resultMessageId"] for task in completed["tasks"])
@@ -204,6 +216,7 @@ async def test_execute_plan_starts_async_scheduler_then_completes(test_client, d
         if message["id"] == completed["tasks"][0]["visibleMessageId"]
     )
     assert visible["metadata"]["executionTrace"]["status"] == "completed"
+    assert visible["metadata"]["executionTrace"]["workspacePath"] == str(project_workspace)
     assert visible["metadata"]["orchestratorTaskMessage"]["taskId"] == "T1"
     assert visible["metadata"]["taskWorkspacePath"] == str(task_workspace)
     assert visible["metadata"]["orchestratorTaskMessage"]["taskWorkspacePath"] == str(task_workspace)

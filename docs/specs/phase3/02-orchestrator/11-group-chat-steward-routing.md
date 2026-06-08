@@ -133,6 +133,8 @@
 - 参与 Agent 数量默认不超过 3；
 - 计划任务数默认控制在 2-3 个；
 - 前序 Agent 只交付本节点产物与交接说明，不代做下游 Agent 的职责；
+- Project workspace 是正式交付区；用户要求的 PRD、架构设计、接口说明、测试清单等项目文档默认沉淀到 `docs/`；
+- `.agenthub/executions/.../tasks` 是任务工作包，只保存任务卡、草稿、过程笔记和下游交接副本，不作为最终交付目录；
 - 如果需要设计、实现、测试、文档完整链路，升级到档位 D。
 
 验收：
@@ -140,6 +142,7 @@
 - 用户批准前不出现普通 Agent 气泡；
 - 出现 draft plan 面板，且候选执行 Agent 优先来自管家选择的 2-3 个 Agent；
 - draft plan 中每个任务都带 `expected_outputs`、`acceptance_criteria` 和 `depends_on`；
+- 用户要求正式项目文档时，`expected_outputs` 能表达项目 `docs/` 这类稳定目录层级，而不是只写 `document`；
 - 用户批准后才创建 execution，并可停止、刷新恢复。
 
 ### 3.4 档位 D：复杂任务生成计划
@@ -375,3 +378,4 @@ draft_pending
 - 多个普通 @ 仍按 @ 顺序串行；多个 @ 中包含调度器时，调度器优先接管并生成/跟进 plan。
 - 显式 @ 已收敛为结构化 `mentionIds` 协议；手输正文里的 `@Orchestrator` 但未携带 `mentionIds` 时，按无 @ 管家分流处理。
 - 普通 Agent 执行已同步单聊 runtime/Artifact 链路：群聊内每个 Agent 拥有专属 EngineSession/runtime 和 workspace snapshot，产物绑定具体 Agent 子消息。
+- Plan-first DAG 执行时，CLI cwd 使用 Project workspace；任务工作包继续存在，但只作为任务追溯和交接副本目录。正式文档/代码必须落在 Project workspace，避免用户在项目文件区看不到交付物。
