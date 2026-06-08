@@ -37,6 +37,10 @@ class ConfirmTaskBody(BaseModel):
     note: str | None = None
 
 
+class ExecutionControlBody(BaseModel):
+    reason: str | None = None
+
+
 @router.post("/plans/execute")
 async def execute_orchestrator_plan(
     data: ExecutePlanBody,
@@ -142,8 +146,57 @@ async def get_orchestrator_execution(
     return execution
 
 
+@router.post("/executions/{execution_id}/interrupt")
+async def interrupt_orchestrator_execution(
+    execution_id: str,
+    data: ExecutionControlBody | None = None,
+    db: AsyncSession = Depends(get_db),
+):
+    execution = execution_registry.get_execution(execution_id)
+    if execution is None:
+        execution = await _persisted_execution_snapshot(db, execution_id)
+        if execution is not None:
+            execution_registry.restore_execution(execution)
+    execution = await execution_registry.interrupt_execution(
+        execution_id,
+        reason=(data.reason if data else None),
+    )
+    if execution is None:
+        raise HTTPException(status_code=404, detail="Execution 不存在或无法中断")
+    return execution
+
+
+@router.post("/executions/{execution_id}/resume")
+async def resume_orchestrator_execution(
+    execution_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    execution = execution_registry.get_execution(execution_id)
+    if execution is None:
+        execution = await _persisted_execution_snapshot(db, execution_id)
+        if execution is not None:
+            if execution.get("status") in {"pending", "running", "cancelling"}:
+                execution = execution_registry.interrupted_snapshot(
+                    execution,
+                    reason="服务重启或页面刷新后恢复执行",
+                )
+            execution_registry.restore_execution(execution)
+    execution = await execution_registry.resume_execution(execution_id)
+    if execution is None:
+        raise HTTPException(status_code=404, detail="Execution 不存在或无法恢复")
+    return execution
+
+
 @router.post("/executions/{execution_id}/cancel")
-async def cancel_orchestrator_execution(execution_id: str):
+async def cancel_orchestrator_execution(
+    execution_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    execution = execution_registry.get_execution(execution_id)
+    if execution is None:
+        execution = await _persisted_execution_snapshot(db, execution_id)
+        if execution is not None:
+            execution_registry.restore_execution(execution)
     execution = await execution_registry.cancel_execution(execution_id)
     if execution is None:
         raise HTTPException(status_code=404, detail="Execution 不存在或已不可取消")
@@ -155,7 +208,13 @@ async def confirm_orchestrator_waiting_task(
     execution_id: str,
     task_id: str,
     data: ConfirmTaskBody | None = None,
+    db: AsyncSession = Depends(get_db),
 ):
+    execution = execution_registry.get_execution(execution_id)
+    if execution is None:
+        execution = await _persisted_execution_snapshot(db, execution_id)
+        if execution is not None:
+            execution_registry.restore_execution(execution)
     execution = await execution_registry.confirm_waiting_task(
         execution_id,
         task_id,
@@ -185,5 +244,10 @@ async def _persisted_execution_snapshot(db: AsyncSession, execution_id: str) -> 
             continue
         execution = metadata.get("orchestratorExecution")
         if isinstance(execution, dict) and execution.get("executionId") == execution_id:
+            if execution.get("status") in {"pending", "running", "cancelling"}:
+                return execution_registry.interrupted_snapshot(
+                    execution,
+                    reason="服务重启或页面刷新后检测到运行态丢失",
+                )
             return execution
     return None

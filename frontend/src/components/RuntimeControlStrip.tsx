@@ -14,6 +14,7 @@ function statusText(status: RunRead["status"]) {
   if (status === "queued") return "准备执行";
   if (status === "running") return "运行中";
   if (status === "paused") return "等待审批";
+  if (status === "interrupted") return "已中断";
   if (status === "cancelling") return "正在停止";
   if (status === "cancelled") return "已取消";
   if (status === "failed") return "执行失败";
@@ -27,6 +28,7 @@ function statusIcon(status: RunRead["status"]) {
   if (status === "completed") return <CheckCircle2 size={13} aria-hidden="true" />;
   if (status === "failed") return <AlertTriangle size={13} aria-hidden="true" />;
   if (status === "cancelled") return <XCircle size={13} aria-hidden="true" />;
+  if (status === "interrupted") return <AlertTriangle size={13} aria-hidden="true" />;
   return <Clock3 size={13} aria-hidden="true" />;
 }
 

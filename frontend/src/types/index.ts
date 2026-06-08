@@ -370,8 +370,8 @@ export interface ArtifactScanResult {
   }>;
 }
 
-export type RunStatus = "queued" | "running" | "pausing" | "paused" | "cancelling" | "cancelled" | "completed" | "failed";
-export type TaskStatus = "pending" | "running" | "paused" | "completed" | "failed" | "cancelled" | "rejected";
+export type RunStatus = "queued" | "running" | "pausing" | "paused" | "interrupted" | "cancelling" | "cancelled" | "completed" | "failed";
+export type TaskStatus = "pending" | "running" | "paused" | "interrupted" | "completed" | "failed" | "cancelled" | "rejected";
 
 export interface RunRead {
   id: string;

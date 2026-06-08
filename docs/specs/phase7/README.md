@@ -84,6 +84,7 @@ Project workspace
 | **7E: 上下文包与缓存策略** | [05-context-pack-and-cache-strategy.md](05-context-pack-and-cache-strategy.md) | Draft | 记录短进程 transcript 拼接的上下文/缓存风险，提出 Context Pack、Project Memory、Task Package、Engine Session 与常驻进程路线 |
 | **7F: CLI Session Process Runtime** | [06-cli-session-process-runtime.md](06-cli-session-process-runtime.md) | ✅ 实现基线 | 单聊按 Session+Agent 复用常驻进程；群聊按 Session+Agent 独立 runtime 复用；Claude Code stdin JSONL、Codex/OpenCode RPC、turn 边界、并发串行、取消和恢复 |
 | **7G: 群聊人机协作控制权诊断** | [07-group-chat-human-control-diagnosis.md](07-group-chat-human-control-diagnosis.md) | Draft | 诊断真实群聊验收中“想直接和产品经理聊却被迫走计划”的体验问题，定义 direct dialog、访谈等待态、手动交接和测试修改清单 |
+| **7H: Orchestrator 执行中断与断点恢复** | [08-orchestrator-execution-resume.md](08-orchestrator-execution-resume.md) | Draft | 将停止与取消拆分：停止进入 interrupted，可刷新找回并通过结构化 Resume 从未完成任务继续；放弃才进入 cancelled 终态 |
 
 2026-06-06 验收记录：7A/7B/7C 已完成实现基线并通过本轮人工验收。验收中发现的“停止输出后无明确中止提示、输入框仍显示 AI 正在回复、其它会话被全局占用”问题已修复：前端点击停止后立即 abort 当前流、本地标记 run/message 为 cancelled、追加可见“本次运行已中止成功”系统消息并解锁输入框；后端取消也会持久化 cancelled metadata 和运行控制消息。
 
@@ -207,3 +208,4 @@ Project workspace
 - v3.6 (2026-06-07): 复核 Claude Code 物理常驻口径：本机 `stream-json` 双 turn 探针确认同一存活进程可复用；Codex/OpenCode 常驻 RPC 保持实现基线。
 - v3.7 (2026-06-08): 同步群聊重构：群聊按 `session_id + agent_id` 拥有独立 EngineSession/runtime，Artifact Bridge 基于每个 Agent 消息 snapshot 扫描 workspace diff 并绑定产物。
 - v3.8 (2026-06-08): 新增 7G 群聊人机协作控制权诊断，明确 direct dialog、awaiting_user_input、manual handoff 和 pending plan 覆盖修复清单。
+- v3.9 (2026-06-09): 新增 7H Orchestrator 执行中断与断点恢复，定义 interrupted/resume/cancel 状态机和上下文隔离要求。

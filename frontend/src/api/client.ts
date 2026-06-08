@@ -1366,6 +1366,33 @@ export async function cancelOrchestratorExecution(executionId: string): Promise<
   return res.json();
 }
 
+export async function interruptOrchestratorExecution(
+  executionId: string,
+  reason?: string,
+): Promise<OrchestratorExecution> {
+  const res = await fetch(`${API_BASE}/orchestrator/executions/${encodeURIComponent(executionId)}/interrupt`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason: reason ?? null }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(text || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function resumeOrchestratorExecution(executionId: string): Promise<OrchestratorExecution> {
+  const res = await fetch(`${API_BASE}/orchestrator/executions/${encodeURIComponent(executionId)}/resume`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(text || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function confirmOrchestratorTask(
   executionId: string,
   taskId: string,

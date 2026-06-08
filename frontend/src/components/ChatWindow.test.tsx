@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ChatWindow } from "./ChatWindow";
 import { useChatStore } from "../stores/chatStore";
 import type { AgentConfig, Message, RunRead, Session, TaskRead } from "../types";
+import { cancelRun, interruptOrchestratorExecution, resumeOrchestratorExecution } from "../api/client";
 
 vi.mock("../api/client", () => ({
   approveCheckpoint: vi.fn(),
@@ -13,8 +14,10 @@ vi.mock("../api/client", () => ({
   forwardMessages: vi.fn(() => Promise.resolve({ messages: [] })),
   fetchRuns: vi.fn(() => Promise.resolve([])),
   fetchSystemHealth: vi.fn(() => Promise.resolve(null)),
+  interruptOrchestratorExecution: vi.fn(() => Promise.resolve({ status: "interrupted" })),
   rejectCheckpoint: vi.fn(),
   replyToInteractivePrompt: vi.fn(),
+  resumeOrchestratorExecution: vi.fn(() => Promise.resolve({ status: "running" })),
 }));
 
 const agent: AgentConfig = {
@@ -143,7 +146,7 @@ const runningTask: TaskRead = {
   dependsOn: [],
 };
 
-function Harness() {
+function Harness({ onSend = vi.fn() }: { onSend?: (content: string, mentions: string[]) => void } = {}) {
   const state = useChatStore();
   return (
     <ChatWindow
@@ -167,7 +170,7 @@ function Harness() {
       collabCompleted={false}
       collabSummary={null}
       draftPlan={null}
-      onSend={vi.fn()}
+      onSend={onSend}
       onDismissError={vi.fn()}
       onReply={vi.fn()}
       onRegenerate={vi.fn()}
@@ -228,5 +231,121 @@ describe("ChatWindow runtime cancel", () => {
     expect(screen.getByPlaceholderText("输入消息，@ 提及智能体")).toBeEnabled();
     expect(screen.getByText(/本次运行已中止成功/)).toBeInTheDocument();
     expect(screen.queryByText("正在生成")).not.toBeInTheDocument();
+  });
+
+  it("Orchestrator 运行的停止按钮会中断执行而不是取消执行", async () => {
+    vi.clearAllMocks();
+    const run: RunRead = {
+      ...runningRun,
+      mode: "orchestrated",
+    };
+    const message = {
+      ...runningMessage(),
+      metadata: {
+        ...runningMessage().metadata,
+        orchestratorExecution: {
+          executionId: "exec-interrupt",
+          sessionId: "s-cancel",
+          planId: "plan-demo",
+          runId: run.id,
+          status: "running",
+          createdAt: "",
+          updatedAt: "",
+          startedAt: "",
+          completedAt: null,
+          validation: { ok: true, errors: [], warnings: [] },
+          tasks: [],
+          events: [],
+        },
+      },
+    } satisfies Message;
+    resetStore();
+    useChatStore.setState({
+      messages: [message],
+      messagesBySession: { "s-cancel": [message] },
+      runs: [run],
+      runsBySession: { "s-cancel": [run] },
+      tasksByRun: { "run-cancel": [runningTask] },
+    });
+
+    render(<Harness />);
+
+    fireEvent.click(screen.getByRole("button", { name: "停止本次运行" }));
+
+    await waitFor(() => {
+      expect(interruptOrchestratorExecution).toHaveBeenCalledWith(
+        "exec-interrupt",
+        "用户在界面中停止运行",
+      );
+    });
+    expect(cancelRun).not.toHaveBeenCalled();
+  });
+
+  it("存在中断执行时，发送任意消息都会先提示恢复", async () => {
+    vi.clearAllMocks();
+    const onSend = vi.fn();
+    const interruptedMessage: Message = {
+      id: "m-execution",
+      sessionId: "s-cancel",
+      role: "assistant",
+      content: "执行面板",
+      agentName: "Orchestrator 调度器",
+      createdAt: "2026-06-09T00:00:00.000Z",
+      metadata: {
+        orchestratorExecution: {
+          executionId: "exec-interrupted",
+          sessionId: "s-cancel",
+          planId: "plan-demo",
+          runId: "run-demo",
+          status: "interrupted",
+          createdAt: "",
+          updatedAt: "",
+          startedAt: "",
+          completedAt: null,
+          validation: { ok: true, errors: [], warnings: [] },
+          tasks: [{
+            taskId: "T4",
+            title: "实现后端服务",
+            goal: "",
+            status: "interrupted",
+            startedAt: "",
+            completedAt: null,
+            updatedAt: "",
+            summary: null,
+            runnerType: "cli",
+            visibleMessageId: null,
+            assignedAgentId: "agent-1",
+            assignedAgentName: "后端工程师",
+            dependsOn: [],
+            requiredSkills: [],
+            needsApproval: false,
+            isBlocking: false,
+            expectedOutputs: [],
+            acceptanceCriteria: [],
+          }],
+          events: [],
+        },
+      },
+    };
+    resetStore();
+    useChatStore.setState({
+      messages: [interruptedMessage],
+      messagesBySession: { "s-cancel": [interruptedMessage] },
+    });
+
+    render(<Harness onSend={onSend} />);
+
+    const input = screen.getByPlaceholderText("输入消息，@ 提及智能体");
+    fireEvent.change(input, { target: { value: "随便发一句新消息" } });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    expect(screen.getByText("存在可恢复的计划执行")).toBeInTheDocument();
+    expect(onSend).not.toHaveBeenCalled();
+
+    const resumeButtons = screen.getAllByRole("button", { name: "继续执行" });
+    fireEvent.click(resumeButtons[resumeButtons.length - 1]);
+    await waitFor(() => {
+      expect(resumeOrchestratorExecution).toHaveBeenCalledWith("exec-interrupted");
+    });
   });
 });

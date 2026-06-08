@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { Activity, CheckCircle2, ChevronDown, ChevronRight, Clock3, GitBranch, Square, XCircle } from "lucide-react";
-import { cancelOrchestratorExecution, fetchOrchestratorExecution } from "../api/client";
+import { Activity, CheckCircle2, ChevronDown, ChevronRight, Clock3, GitBranch, Play, Square, Trash2, XCircle } from "lucide-react";
+import {
+  cancelOrchestratorExecution,
+  fetchOrchestratorExecution,
+  interruptOrchestratorExecution,
+  resumeOrchestratorExecution,
+} from "../api/client";
 import type { OrchestratorExecution, OrchestratorExecutionTask } from "../types";
-import { useChatStore } from "../stores/chatStore";
 
 interface Props {
   initialExecution: OrchestratorExecution;
@@ -12,15 +16,11 @@ export function OrchestratorExecutionPanel({ initialExecution }: Props) {
   const [execution, setExecution] = useState(initialExecution);
   const [showEvents, setShowEvents] = useState(false);
   const [pollingLost, setPollingLost] = useState(false);
-  const [isCancelling, setIsCancelling] = useState(false);
-  const cancelRunLocally = useChatStore((state) => state.cancelRunLocally);
-  const runs = useChatStore((state) => state.runs);
-  const runtimeRunId = useMemo(() => {
-    const matched = runs.find((run) => run.metadata?.executionId === execution.executionId);
-    return execution.runId ?? matched?.id ?? null;
-  }, [execution.executionId, execution.runId, runs]);
+  const [controlBusy, setControlBusy] = useState<"interrupt" | "resume" | "cancel" | null>(null);
   const isLive = !pollingLost && ["pending", "running", "cancelling"].includes(execution.status);
-  const canCancel = !pollingLost && !isCancelling && ["pending", "running", "cancelling"].includes(execution.status);
+  const canInterrupt = !pollingLost && !controlBusy && ["pending", "running", "cancelling"].includes(execution.status);
+  const canResume = !pollingLost && !controlBusy && execution.status === "interrupted";
+  const canAbandon = !pollingLost && !controlBusy && execution.status === "interrupted";
   const completed = execution.tasks.filter((task) => task.status === "completed").length;
   const progress = execution.tasks.length ? Math.round((completed / execution.tasks.length) * 100) : 0;
   const phases = useMemo(() => groupTasksByPhase(execution.tasks), [execution.tasks]);
@@ -28,7 +28,7 @@ export function OrchestratorExecutionPanel({ initialExecution }: Props) {
   useEffect(() => {
     setExecution(initialExecution);
     setPollingLost(false);
-    setIsCancelling(false);
+    setControlBusy(null);
   }, [initialExecution.executionId, initialExecution.updatedAt, initialExecution.status]);
 
   useEffect(() => {
@@ -39,7 +39,9 @@ export function OrchestratorExecutionPanel({ initialExecution }: Props) {
         const next = await fetchOrchestratorExecution(execution.executionId);
         if (!cancelled) {
           setExecution(next);
-          if (next.status === "cancelled") setIsCancelling(false);
+          if (["cancelled", "interrupted", "completed", "failed"].includes(next.status)) {
+            setControlBusy(null);
+          }
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : "";
@@ -67,30 +69,76 @@ export function OrchestratorExecutionPanel({ initialExecution }: Props) {
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <StatusBadge status={execution.status} live={isLive} stale={pollingLost} />
-            {canCancel && (
+            {canInterrupt && (
               <button
                 type="button"
                 onClick={async () => {
-                  setIsCancelling(true);
+                  setControlBusy("interrupt");
                   try {
-                    if (runtimeRunId) {
-                      cancelRunLocally(runtimeRunId, "用户在调度执行面板停止运行");
-                    }
+                    const next = await interruptOrchestratorExecution(
+                      execution.executionId,
+                      "用户在调度执行面板停止运行",
+                    );
+                    setExecution(next);
+                    window.dispatchEvent(new CustomEvent("agenthub:orchestrator-execution-interrupted", {
+                      detail: { sessionId: next.sessionId, executionId: next.executionId, runId: next.runId ?? null },
+                    }));
+                  } finally {
+                    setControlBusy(null);
+                  }
+                }}
+                className="inline-flex items-center gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-700 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={Boolean(controlBusy)}
+                title="中断当前调度执行，稍后可继续"
+              >
+                <Square size={12} />
+                {controlBusy === "interrupt" ? "停止中" : "停止"}
+              </button>
+            )}
+            {canResume && (
+              <button
+                type="button"
+                onClick={async () => {
+                  setControlBusy("resume");
+                  try {
+                    const next = await resumeOrchestratorExecution(execution.executionId);
+                    setExecution(next);
+                    window.dispatchEvent(new CustomEvent("agenthub:orchestrator-execution-resumed", {
+                      detail: { sessionId: next.sessionId, executionId: next.executionId, runId: next.runId ?? null },
+                    }));
+                  } finally {
+                    setControlBusy(null);
+                  }
+                }}
+                className="inline-flex items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={Boolean(controlBusy)}
+                title="从未完成任务继续调度执行"
+              >
+                <Play size={12} />
+                {controlBusy === "resume" ? "恢复中" : "继续执行"}
+              </button>
+            )}
+            {canAbandon && (
+              <button
+                type="button"
+                onClick={async () => {
+                  setControlBusy("cancel");
+                  try {
                     const next = await cancelOrchestratorExecution(execution.executionId);
                     setExecution(next);
                     window.dispatchEvent(new CustomEvent("agenthub:orchestrator-execution-cancelled", {
-                      detail: { sessionId: next.sessionId, executionId: next.executionId, runId: next.runId ?? runtimeRunId },
+                      detail: { sessionId: next.sessionId, executionId: next.executionId, runId: next.runId ?? null },
                     }));
                   } finally {
-                    setIsCancelling(false);
+                    setControlBusy(null);
                   }
                 }}
-                className="inline-flex items-center gap-1.5 rounded-md border border-red-200 bg-red-50 px-2 py-1 text-[11px] font-semibold text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={isCancelling}
-                title="停止当前调度执行"
+                className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={Boolean(controlBusy)}
+                title="放弃本次执行，进入不可恢复的取消状态"
               >
-                <Square size={12} />
-                {isCancelling ? "停止中" : "停止"}
+                <Trash2 size={12} />
+                {controlBusy === "cancel" ? "放弃中" : "放弃执行"}
               </button>
             )}
           </div>
@@ -116,6 +164,11 @@ export function OrchestratorExecutionPanel({ initialExecution }: Props) {
       </div>
 
       <div className="grid gap-2 p-3">
+        {execution.status === "interrupted" && (
+          <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+            执行已中断，已完成任务会保留；点击“继续执行”将从未完成任务恢复调度。
+          </div>
+        )}
         {phases.map((phase) => (
           <div key={phase.index} className="rounded-md border border-slate-100 bg-slate-50 p-2">
             <div className="mb-2 flex items-center justify-between gap-2">
@@ -192,6 +245,8 @@ function StatusBadge({ status, live, stale }: { status: string; live: boolean; s
     ? "border-emerald-200 bg-emerald-50 text-emerald-700"
     : status === "failed" || status === "error"
       ? "border-red-200 bg-red-50 text-red-700"
+      : status === "interrupted"
+        ? "border-amber-200 bg-amber-50 text-amber-700"
       : status === "cancelled"
         ? "border-slate-200 bg-slate-100 text-slate-600"
       : "border-indigo-200 bg-indigo-50 text-indigo-700";
@@ -210,6 +265,8 @@ function TaskStatus({ status }: { status: string }) {
     ? "text-emerald-700"
     : status === "failed" || status === "error"
       ? "text-red-700"
+      : status === "interrupted"
+        ? "text-amber-700"
       : status === "cancelled"
         ? "text-slate-500"
       : status === "running"
@@ -234,6 +291,7 @@ function statusLabel(status: string) {
   if (status === "completed") return "completed";
   if (status === "running") return "running";
   if (status === "cancelling") return "cancelling";
+  if (status === "interrupted") return "interrupted";
   if (status === "cancelled") return "cancelled";
   if (status === "pending") return "pending";
   if (status === "failed" || status === "error") return "failed";

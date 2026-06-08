@@ -289,6 +289,55 @@ class RunService:
         await self.db.refresh(run)
         return run
 
+    async def interrupt_run(self, run_id: str, reason: str | None = None) -> Run:
+        """可恢复中断运行：终止当前进程，但不把 run/task 置为取消终态。"""
+        run = await self.get_run(run_id)
+        if run.status in TERMINAL_RUN_STATUSES:
+            return run
+
+        now = _utcnow()
+        run.status = "interrupted"
+        run.cancel_reason = reason
+        run.updated_at = now
+        await self.db.commit()
+
+        result = await self.db.execute(
+            select(RunProcess)
+            .where(RunProcess.run_id == run.id, RunProcess.status == "running")
+        )
+        process_rows = result.scalars().all()
+        interrupted = 0
+        if process_rows:
+            for row in process_rows:
+                await cli_runtime_registry.terminate(row.process_id)
+                row.status = "interrupted"
+                row.completed_at = _utcnow()
+                interrupted += 1
+        else:
+            interrupted = await cli_runtime_registry.terminate_session(run.session_id)
+
+        task_result = await self.db.execute(
+            select(RunTask)
+            .where(RunTask.run_id == run.id, RunTask.status.in_(["running", "cancelling"]))
+        )
+        for task in task_result.scalars().all():
+            task.status = "paused"
+            task.completed_at = task.completed_at or _utcnow()
+
+        await self._merge_message_run_metadata(
+            run.current_message_id,
+            {
+                "runId": run.id,
+                "runStatus": "interrupted",
+                "interruptReason": reason,
+                "interruptedProcessCount": interrupted,
+            },
+        )
+        await self._append_interrupt_message(run, reason=reason, interrupted_process_count=interrupted)
+        await self.db.commit()
+        await self.db.refresh(run)
+        return run
+
     async def complete_run_from_tasks(self, run_id: str) -> Run:
         result = await self.db.execute(
             select(RunTask).where(RunTask.run_id == run_id)
@@ -339,6 +388,30 @@ class RunService:
                 "runStatus": "cancelled",
                 "cancelReason": reason,
                 "killedProcessCount": killed_process_count,
+            }),
+        ))
+
+    async def _append_interrupt_message(
+        self,
+        run: Run,
+        *,
+        reason: str | None,
+        interrupted_process_count: int,
+    ) -> None:
+        detail = f"原因：{reason.strip()}" if reason and reason.strip() else "运行已中断。"
+        self.db.add(Message(
+            id=str(uuid.uuid4()),
+            session_id=run.session_id,
+            role="system",
+            content=f"本次运行已中断，可从执行面板继续或放弃。{detail}",
+            content_type="text",
+            source_type="system",
+            source_name="运行控制",
+            metadata_json=_json({
+                "runId": run.id,
+                "runStatus": "interrupted",
+                "interruptReason": reason,
+                "interruptedProcessCount": interrupted_process_count,
             }),
         ))
 

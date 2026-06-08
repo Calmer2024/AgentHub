@@ -289,6 +289,206 @@ async def test_interview_task_blocks_downstream_until_user_confirms(test_client,
 
 
 @pytest.mark.asyncio
+async def test_confirmed_interview_handoff_includes_latest_dialog_context(test_client, db_session):
+    session_id = await _seed_session_with_agents(db_session)
+    plan = _valid_plan()
+    plan["tasks"][0].update({
+        "title": "明确预约后端需求与边界",
+        "goal": "先向用户澄清业务目标和预约规则",
+        "interaction_policy": "ask_user_until_confirmed",
+        "handoff_policy": "manual_confirm",
+        "awaits_user_input": True,
+        "blocks_downstream_until": "user_confirms",
+    })
+
+    res = await test_client.post("/api/orchestrator/plans/execute", json={
+        "sessionId": session_id,
+        "normalizedPlan": plan,
+    })
+    assert res.status_code == 200
+    execution_id = res.json()["executionId"]
+
+    waiting = await _wait_execution_status(test_client, execution_id, {"awaiting_user_input", "failed"})
+    assert waiting["status"] == "awaiting_user_input"
+
+    metadata = {
+        "groupDialog": {
+            "mode": "direct_dialog",
+            "status": "awaiting_user_input",
+            "activeAgentId": "agent_backend_exec",
+            "activeAgentName": "后端专家",
+            "source": "orchestrator_task",
+            "executionId": execution_id,
+            "taskId": "T1",
+        }
+    }
+    db_session.add_all([
+        Message(
+            id=str(uuid.uuid4()),
+            session_id=session_id,
+            role="user",
+            content=(
+                "不是正式预约成功，而是预约意向已提交；周一休息不约；"
+                "Demo 不做通知、不登录，手机号完整展示。"
+            ),
+            source_type="user",
+            source_name="用户",
+        ),
+        Message(
+            id=str(uuid.uuid4()),
+            session_id=session_id,
+            role="assistant",
+            content=(
+                "最终口径：后端只接收并保存预约表单；管理页公开展示完整手机号；"
+                "不做门店通知；周一不可预约；最早预约当前时间 2 小时后。"
+            ),
+            agent_name="后端专家",
+            source_type="agent",
+            source_id="agent_backend_exec",
+            source_name="后端专家",
+            metadata_json=json.dumps(metadata, ensure_ascii=False),
+        ),
+    ])
+    await db_session.commit()
+
+    confirm = await test_client.post(
+        f"/api/orchestrator/executions/{execution_id}/tasks/T1/confirm",
+        json={"note": "后端专家 访谈节点已由用户确认"},
+    )
+    assert confirm.status_code == 200
+
+    completed = await _wait_execution_completed(test_client, execution_id)
+    assert completed["status"] == "completed", completed["events"][-1]
+    t1 = completed["tasks"][0]
+    t2 = completed["tasks"][1]
+    assert "周一休息不约" in t1["summary"]
+    assert "不做门店通知" in t1["summary"]
+    assert "手机号完整展示" in t2["upstreamResults"][0]["summary"]
+
+    handoff = Path(t1["taskWorkspacePath"]) / "HANDOFF.md"
+    assert handoff.exists()
+    handoff_text = handoff.read_text(encoding="utf-8")
+    assert "用户确认后的最终交接" in handoff_text
+    assert "最早预约当前时间 2 小时后" in handoff_text
+
+
+@pytest.mark.asyncio
+async def test_interrupted_execution_can_resume_from_unfinished_task_only(db_session):
+    class SlowSecondTaskRunner:
+        def __init__(self):
+            self.calls: list[str] = []
+            self.t2_started = asyncio.Event()
+            self.release_t2 = asyncio.Event()
+
+        async def run(self, task, execution, upstream_results):
+            task_id = task["taskId"]
+            self.calls.append(task_id)
+            if task_id == "T1":
+                return "T1 已完成"
+            self.t2_started.set()
+            if self.calls.count("T2") == 1:
+                await self.release_t2.wait()
+            return "T2 已完成"
+
+    runner = SlowSecondTaskRunner()
+    registry = OrchestratorExecutionRegistry(task_runner=runner)
+    execution = registry.create_execution(
+        session_id=str(uuid.uuid4()),
+        plan=_valid_plan(),
+        active_agent_ids={"agent_backend_exec", "agent_frontend_exec"},
+        auto_start=False,
+    )
+    registry._executions[execution["executionId"]]["runnerType"] = "mock"
+    registry.start_execution(execution["executionId"])
+
+    for _ in range(40):
+        latest = registry.get_execution(execution["executionId"])
+        assert latest is not None
+        if latest["tasks"][0]["status"] == "completed" and latest["tasks"][1]["status"] == "running":
+            break
+        await asyncio.sleep(0.02)
+    else:
+        raise AssertionError("T2 did not start")
+
+    interrupted = await registry.interrupt_execution(
+        execution["executionId"],
+        reason="测试中断",
+    )
+    assert interrupted is not None
+    assert interrupted["status"] == "interrupted"
+    assert [task["status"] for task in interrupted["tasks"]] == ["completed", "interrupted"]
+
+    runner.release_t2.set()
+    await asyncio.sleep(0.05)
+
+    resumed = await registry.resume_execution(execution["executionId"])
+    assert resumed is not None
+    assert resumed["status"] == "running"
+
+    for _ in range(40):
+        latest = registry.get_execution(execution["executionId"])
+        assert latest is not None
+        if latest["status"] == "completed":
+            break
+        await asyncio.sleep(0.02)
+    else:
+        raise AssertionError("resumed execution did not complete")
+
+    latest = registry.get_execution(execution["executionId"])
+    assert latest is not None
+    assert latest["status"] == "completed"
+    assert [task["status"] for task in latest["tasks"]] == ["completed", "completed"]
+    assert runner.calls.count("T1") == 1
+    assert runner.calls.count("T2") == 2
+
+
+@pytest.mark.asyncio
+async def test_resume_execution_restores_persisted_running_snapshot(test_client, db_session):
+    session_id = await _seed_session_with_agents(db_session)
+    execution = execution_registry.create_execution(
+        session_id=session_id,
+        plan=_valid_plan(),
+        active_agent_ids={"agent_backend_exec", "agent_frontend_exec"},
+        auto_start=False,
+    )
+    execution_id = execution["executionId"]
+    snapshot = execution_registry.get_execution(execution_id)
+    assert snapshot is not None
+    snapshot["runnerType"] = "mock"
+    snapshot["status"] = "running"
+    snapshot["tasks"][0]["status"] = "completed"
+    snapshot["tasks"][0]["summary"] = "T1 已完成"
+    snapshot["tasks"][1]["status"] = "running"
+    snapshot["tasks"][1]["runnerType"] = "mock"
+    snapshot["updatedAt"] = "2026-06-09T00:00:00+00:00"
+
+    control_message_id = str(uuid.uuid4())
+    db_session.add(Message(
+        id=control_message_id,
+        session_id=session_id,
+        role="assistant",
+        content="执行面板",
+        content_type="text",
+        source_type="system",
+        source_name="Scheduler",
+        metadata_json=json.dumps({"orchestratorExecution": snapshot}, ensure_ascii=False),
+    ))
+    await db_session.commit()
+    execution_registry._executions.pop(execution_id, None)
+
+    resume = await test_client.post(f"/api/orchestrator/executions/{execution_id}/resume")
+    assert resume.status_code == 200
+    resumed = resume.json()
+    assert resumed["status"] == "running"
+    assert resumed["tasks"][0]["status"] == "completed"
+
+    completed = await _wait_execution_completed(test_client, execution_id)
+    assert completed["status"] == "completed", completed["events"][-1]
+    assert [task["status"] for task in completed["tasks"]] == ["completed", "completed"]
+    assert completed["tasks"][1]["summary"].startswith("T2 已完成")
+
+
+@pytest.mark.asyncio
 async def test_execute_plan_simulates_parallel_ready_tasks(test_client, db_session):
     session_id = await _seed_session_with_agents(db_session)
     plan = _valid_plan()
@@ -405,7 +605,8 @@ async def test_get_execution_falls_back_to_persisted_message_snapshot(test_clien
     assert res.status_code == 200
     data = res.json()
     assert data["executionId"] == execution_id
-    assert data["status"] == execution["status"]
+    assert data["status"] == "interrupted"
+    assert data["events"][-1]["type"] == "execution_interrupted"
 
 
 @pytest.mark.asyncio

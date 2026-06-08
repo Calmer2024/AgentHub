@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CheckSquare, Files, Forward, Search, Users, X } from "lucide-react";
 import type {
   Message, AgentConfig, CollabTask, ChainStep, DAGPhase, Artifact,
-  ApprovalCheckpoint, TaskRead, DraftOrchestratorPlan, Session,
+  ApprovalCheckpoint, TaskRead, DraftOrchestratorPlan, Session, OrchestratorExecution,
 } from "../types";
 import { MessageBubble } from "./MessageBubble";
 import { ChatInput } from "./ChatInput";
@@ -20,7 +20,9 @@ import {
   forwardMessages,
   fetchRuns,
   fetchSystemHealth,
+  interruptOrchestratorExecution,
   rejectCheckpoint,
+  resumeOrchestratorExecution,
   replyToInteractivePrompt,
 } from "../api/client";
 import { useChatStore } from "../stores/chatStore";
@@ -110,6 +112,12 @@ export function ChatWindow({
   const [groupManagementOpen, setGroupManagementOpen] = useState(false);
   const [confirmingDialog, setConfirmingDialog] = useState(false);
   const [closingDialog, setClosingDialog] = useState(false);
+  const [blockedSend, setBlockedSend] = useState<{
+    content: string;
+    mentions: string[];
+    execution: OrchestratorExecution;
+  } | null>(null);
+  const [resumeBusy, setResumeBusy] = useState(false);
   const interactivePrompts = useChatStore((state) => state.interactivePrompts);
   const removeInteractivePrompt = useChatStore((state) => state.removeInteractivePrompt);
   const runs = useChatStore((state) => state.runs);
@@ -201,6 +209,7 @@ export function ChatWindow({
   }, [runs]);
   const activeRunTasks = activeRun ? tasksByRun[activeRun.id] ?? EMPTY_TASKS : EMPTY_TASKS;
   const hasActiveRun = useMemo(() => runs.some((run) => ACTIVE_RUN_STATUSES.has(run.status)), [runs]);
+  const interruptedExecution = useMemo(() => findInterruptedExecution(messages), [messages]);
   const currentSession = useMemo(
     () => sessions.find((session) => session.id === currentSessionId) ?? null,
     [currentSessionId, sessions],
@@ -252,16 +261,22 @@ export function ChatWindow({
   const handleCancelRun = useCallback(async (runId: string) => {
     setCancellingRunId(runId);
     const reason = "用户在界面中停止运行";
-    cancelRunLocally(runId, reason);
+    const run = runs.find((item) => item.id === runId);
+    const executionId = findExecutionIdForRun(runId, run?.currentMessageId ?? null, messages, runs);
     try {
-      await cancelRun(runId, reason);
+      if (executionId) {
+        await interruptOrchestratorExecution(executionId, reason);
+      } else {
+        cancelRunLocally(runId, reason);
+        await cancelRun(runId, reason);
+      }
       await refreshRuntime();
     } catch {
-      setStreamingError("本地输出已停止，但后端取消运行失败，请稍后刷新状态", currentSessionId);
+      setStreamingError("停止运行失败，请稍后刷新状态", currentSessionId);
     } finally {
       setCancellingRunId(null);
     }
-  }, [cancelRunLocally, refreshRuntime, setStreamingError]);
+  }, [cancelRunLocally, currentSessionId, messages, refreshRuntime, runs, setStreamingError]);
 
   const handleApprove = useCallback(async (approvalId: string) => {
     setBusyApprovalId(approvalId);
@@ -427,6 +442,35 @@ export function ChatWindow({
       setClosingDialog(false);
     }
   }, [activeGroupDialog, currentSessionId, refreshRuntime, setStreamingError]);
+
+  const submitMessage = useCallback((content: string, mentions: string[]) => {
+    if (interruptedExecution) {
+      setBlockedSend({ content, mentions, execution: interruptedExecution });
+      return;
+    }
+    onSend(content, mentions);
+  }, [interruptedExecution, onSend]);
+
+  const resumeBlockedExecution = useCallback(async () => {
+    if (!blockedSend) return;
+    setResumeBusy(true);
+    try {
+      await resumeOrchestratorExecution(blockedSend.execution.executionId);
+      setBlockedSend(null);
+      await refreshRuntime();
+    } catch {
+      setStreamingError("恢复执行失败，请刷新后重试", currentSessionId);
+    } finally {
+      setResumeBusy(false);
+    }
+  }, [blockedSend, currentSessionId, refreshRuntime, setStreamingError]);
+
+  const sendBlockedAsNormal = useCallback(() => {
+    if (!blockedSend) return;
+    const next = blockedSend;
+    setBlockedSend(null);
+    onSend(next.content, next.mentions);
+  }, [blockedSend, onSend]);
 
   useEffect(() => {
     const userMessages = messages.filter((message) => message.role === "user");
@@ -816,9 +860,19 @@ export function ChatWindow({
         />
       )}
 
+      {blockedSend && (
+        <ResumeExecutionPrompt
+          execution={blockedSend.execution}
+          busy={resumeBusy}
+          onResume={resumeBlockedExecution}
+          onSendNormal={sendBlockedAsNormal}
+          onCancel={() => setBlockedSend(null)}
+        />
+      )}
+
       {/* Chat input */}
       <ChatInput
-        onSubmit={onSend}
+        onSubmit={submitMessage}
         disabled={isStreaming || hasActiveRun || (!isGroup && !currentAgent)}
         busy={isStreaming || hasActiveRun}
         mentionableAgents={isGroup ? mentionableAgents : agents}
@@ -918,6 +972,73 @@ function ForwardMessagesDialog({
   );
 }
 
+function ResumeExecutionPrompt({
+  execution,
+  busy,
+  onResume,
+  onSendNormal,
+  onCancel,
+}: {
+  execution: OrchestratorExecution;
+  busy: boolean;
+  onResume: () => void;
+  onSendNormal: () => void;
+  onCancel: () => void;
+}) {
+  const interruptedTask = execution.tasks.find((task) => task.status === "interrupted")
+    ?? execution.tasks.find((task) => task.status !== "completed");
+  return (
+    <div className="agenthub-backdrop fixed inset-0 z-[1300] flex items-center justify-center px-4">
+      <div className="agenthub-modal agenthub-modal-pop w-full max-w-md rounded-3xl border p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="agenthub-strong text-sm font-semibold">存在可恢复的计划执行</h2>
+            <p className="agenthub-muted mt-1 text-xs leading-5">
+              当前会话还有一个中断的计划。继续发消息前，建议先从断点恢复，避免调度器把新消息当成普通任务重新分派。
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="agenthub-icon-button inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
+            aria-label="关闭"
+            title="关闭"
+          >
+            <X size={15} />
+          </button>
+        </div>
+        <div className="agenthub-soft mt-3 rounded-2xl border px-3 py-2 text-xs leading-5">
+          <div className="agenthub-strong font-mono">{execution.planId}</div>
+          <div className="agenthub-muted font-mono">{execution.executionId}</div>
+          {interruptedTask && (
+            <div className="mt-1">
+              断点：{interruptedTask.taskId} · {interruptedTask.title}
+            </div>
+          )}
+        </div>
+        <div className="mt-4 grid gap-2 sm:grid-cols-[1fr_auto]">
+          <button
+            type="button"
+            onClick={onResume}
+            disabled={busy}
+            className="agenthub-primary-button inline-flex min-h-10 items-center justify-center rounded-xl px-4 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {busy ? "恢复中" : "继续执行"}
+          </button>
+          <button
+            type="button"
+            onClick={onSendNormal}
+            disabled={busy}
+            className="agenthub-button inline-flex min-h-10 items-center justify-center rounded-xl px-4 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            作为普通消息发送
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function MessageListSkeleton() {
   return (
     <div className="flex h-full flex-col justify-end gap-4 pb-6" aria-label="正在加载消息">
@@ -969,6 +1090,40 @@ function findActiveGroupDialog(messages: Message[]): ActiveGroupDialog | null {
       executionId: dialog.executionId,
       taskId: dialog.taskId,
     };
+  }
+  return null;
+}
+
+function findInterruptedExecution(messages: Message[]): OrchestratorExecution | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const execution = messages[index].metadata?.orchestratorExecution;
+    if (!execution || typeof execution !== "object") continue;
+    if (execution.status !== "interrupted") continue;
+    return execution;
+  }
+  return null;
+}
+
+function findExecutionIdForRun(
+  runId: string,
+  currentMessageId: string | null,
+  messages: Message[],
+  runs: Array<{ id: string; metadata?: Record<string, unknown> | null }>,
+): string | null {
+  const run = runs.find((item) => item.id === runId);
+  const metadataExecutionId = run?.metadata?.executionId;
+  if (typeof metadataExecutionId === "string" && metadataExecutionId.trim()) {
+    return metadataExecutionId;
+  }
+  const currentMessage = currentMessageId
+    ? messages.find((message) => message.id === currentMessageId)
+    : null;
+  const currentExecution = currentMessage?.metadata?.orchestratorExecution;
+  if (currentExecution?.executionId) return currentExecution.executionId;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const execution = messages[index].metadata?.orchestratorExecution;
+    if (!execution) continue;
+    if (execution.runId === runId) return execution.executionId;
   }
   return null;
 }

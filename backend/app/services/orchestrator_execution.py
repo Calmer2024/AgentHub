@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..agents.cli_runtime_registry import cli_runtime_registry
@@ -32,6 +33,8 @@ from .streaming_text import iter_stream_pieces
 
 TASK_VISIBLE_OUTPUT_LIMIT = 3000
 TASK_OUTPUT_TRUNCATION_NOTICE = "\n\n[后续输出已折叠：请查看任务工作包中的交付文件。]"
+LIVE_EXECUTION_STATUSES = {"pending", "running", "cancelling"}
+TERMINAL_EXECUTION_STATUSES = {"completed", "failed", "cancelled"}
 
 
 class PlanExecutionError(ValueError):
@@ -721,6 +724,19 @@ class OrchestratorExecutionRegistry:
                 task["status"] = "pending"
         return snapshot
 
+    def restore_execution(self, execution: dict[str, Any]) -> dict[str, Any]:
+        execution_id = str(execution.get("executionId") or "")
+        if not execution_id:
+            return copy.deepcopy(execution)
+        restored = copy.deepcopy(execution)
+        self._executions[execution_id] = restored
+        return copy.deepcopy(restored)
+
+    def interrupted_snapshot(self, execution: dict[str, Any], *, reason: str) -> dict[str, Any]:
+        snapshot = copy.deepcopy(execution)
+        self._mark_snapshot_interrupted(snapshot, reason=reason)
+        return snapshot
+
     def bind_runtime(
         self,
         execution_id: str,
@@ -756,11 +772,108 @@ class OrchestratorExecutionRegistry:
         if execution_id in self._executions:
             self._start_background_scheduler(execution_id)
 
+    async def interrupt_execution(
+        self,
+        execution_id: str,
+        *,
+        reason: str | None = None,
+    ) -> dict[str, Any] | None:
+        execution = self._executions.get(execution_id)
+        if execution is None:
+            return None
+        if execution.get("status") in TERMINAL_EXECUTION_STATUSES:
+            return copy.deepcopy(execution)
+        if execution.get("status") == "interrupted":
+            return copy.deepcopy(execution)
+
+        interrupted_at = self._now()
+        execution["interruptRequested"] = True
+        execution["cancelRequested"] = False
+        execution["status"] = "interrupted"
+        execution["updatedAt"] = interrupted_at
+        execution["interruptReason"] = reason or "用户中断当前调度执行"
+        interrupted_tasks: list[str] = []
+        for task in execution.get("tasks") or []:
+            if task.get("status") in {"running", "cancelling"}:
+                task["status"] = "interrupted"
+                task["updatedAt"] = interrupted_at
+                interrupted_tasks.append(str(task.get("taskId")))
+                await self._mark_runtime_task_status(
+                    execution,
+                    task,
+                    "paused",
+                    message_id=task.get("visibleMessageId"),
+                    metadata_patch={
+                        "runStatus": "interrupted",
+                        "interrupted": True,
+                        "interruptReason": reason,
+                    },
+                )
+        terminated = await cli_runtime_registry.terminate_session(execution["sessionId"])
+        if execution.get("runId"):
+            async with self._session_factory() as db:
+                await RunService(db).interrupt_run(execution["runId"], reason or "用户中断当前调度执行")
+        execution["events"].append({
+            "type": "execution_interrupted",
+            "status": "interrupted",
+            "timestamp": interrupted_at,
+            "taskIds": interrupted_tasks,
+            "message": "调度执行已中断，可从执行面板继续或放弃。",
+            "terminatedProcessCount": terminated,
+        })
+        await self._mark_interrupted_visible_messages(execution, reason or "调度执行已中断")
+        await self._persist_execution_snapshot(execution)
+        return copy.deepcopy(execution)
+
+    async def resume_execution(self, execution_id: str) -> dict[str, Any] | None:
+        execution = self._executions.get(execution_id)
+        if execution is None:
+            return None
+        if execution.get("status") in TERMINAL_EXECUTION_STATUSES:
+            return copy.deepcopy(execution)
+        resumed_at = self._now()
+        if execution.get("status") in LIVE_EXECUTION_STATUSES:
+            self._mark_snapshot_interrupted(execution, reason="服务重启或运行态丢失后恢复")
+        resumable = execution.get("status") in {"interrupted", "paused"}
+        if not resumable:
+            return copy.deepcopy(execution)
+
+        reset_tasks: list[str] = []
+        for task in execution.get("tasks") or []:
+            if task.get("status") == "interrupted":
+                task["status"] = "pending"
+                task["updatedAt"] = resumed_at
+                reset_tasks.append(str(task.get("taskId")))
+                await self._mark_runtime_task_status(
+                    execution,
+                    task,
+                    "pending",
+                    metadata_patch={
+                        "runStatus": "running",
+                        "resumed": True,
+                    },
+                )
+        execution["status"] = "running"
+        execution["cancelRequested"] = False
+        execution["interruptRequested"] = False
+        execution["updatedAt"] = resumed_at
+        execution["events"].append({
+            "type": "execution_resumed",
+            "status": "running",
+            "timestamp": resumed_at,
+            "taskIds": reset_tasks,
+            "message": "调度执行已从断点恢复，Scheduler 将从未完成任务继续。",
+        })
+        await self._mark_runtime_run_status(execution, "running")
+        await self._persist_execution_snapshot(execution)
+        self.start_execution(execution_id)
+        return copy.deepcopy(execution)
+
     async def cancel_execution(self, execution_id: str) -> dict[str, Any] | None:
         execution = self._executions.get(execution_id)
         if execution is None:
             return None
-        if execution.get("status") in {"completed", "failed", "cancelled"}:
+        if execution.get("status") in TERMINAL_EXECUTION_STATUSES:
             return copy.deepcopy(execution)
 
         cancelled_at = self._now()
@@ -802,8 +915,9 @@ class OrchestratorExecutionRegistry:
         target["status"] = "completed"
         target["completedAt"] = confirmed_at
         target["updatedAt"] = confirmed_at
-        summary = note.strip() if note and note.strip() else target.get("summary") or "用户已确认该访谈节点。"
+        summary = await self._confirmed_handoff_summary(execution, target, note=note)
         target["summary"] = summary
+        await self._write_confirmed_handoff(execution, target, summary=summary)
         if not target.get("resultMessageId"):
             target["resultMessageId"] = await self._persist_task_result(execution, target, summary)
         await self._mark_runtime_task_status(
@@ -815,6 +929,7 @@ class OrchestratorExecutionRegistry:
                 "awaitingUserInput": False,
                 "userConfirmed": True,
                 "confirmationNote": note,
+                "confirmationSummary": summary,
             },
         )
         execution["status"] = "running"
@@ -836,6 +951,99 @@ class OrchestratorExecutionRegistry:
         await self._persist_execution_snapshot(execution)
         self.start_execution(execution_id)
         return copy.deepcopy(execution)
+
+    async def _confirmed_handoff_summary(
+        self,
+        execution: dict[str, Any],
+        task: dict[str, Any],
+        *,
+        note: str | None,
+    ) -> str:
+        note_text = (note or "").strip()
+        original_summary = str(task.get("summary") or "").strip()
+        transcript = await self._confirmed_dialog_transcript(execution, task)
+
+        parts: list[str] = ["用户已确认该访谈节点，以下内容作为下游任务的最终交接依据。"]
+        if note_text:
+            parts.append(f"确认说明：{note_text}")
+        if transcript:
+            parts.append("确认前对齐记录：\n" + transcript)
+        if original_summary:
+            parts.append("原任务输出摘要：\n" + original_summary)
+        return _summary_text("\n\n".join(parts), limit=2400)
+
+    async def _confirmed_dialog_transcript(
+        self,
+        execution: dict[str, Any],
+        task: dict[str, Any],
+    ) -> str:
+        visible_message_id = task.get("visibleMessageId")
+        execution_id = execution.get("executionId")
+        task_id = task.get("taskId")
+        async with self._session_factory() as db:
+            result = await db.execute(
+                select(DBMessage)
+                .where(DBMessage.session_id == execution["sessionId"])
+                .order_by(DBMessage.created_at.asc(), DBMessage.id.asc())
+            )
+            messages = list(result.scalars().all())
+
+        started = visible_message_id is None
+        entries: list[str] = []
+        for message in messages:
+            if message.id == visible_message_id:
+                started = True
+            if not started or message.content_type != "text":
+                continue
+            content = (message.content or "").strip()
+            if not content:
+                continue
+            metadata = _loads_metadata(message.metadata_json)
+            dialog = metadata.get("groupDialog") if isinstance(metadata.get("groupDialog"), dict) else {}
+            belongs_to_task = (
+                dialog.get("executionId") == execution_id
+                and dialog.get("taskId") == task_id
+            )
+            if message.role == "user":
+                label = "用户"
+            elif message.id == visible_message_id or belongs_to_task:
+                label = message.agent_name or message.source_name or task.get("assignedAgentName") or "Agent"
+            else:
+                continue
+            entries.append(f"{label}: {_summary_text(content, limit=900)}")
+
+        return "\n\n".join(entries[-12:])
+
+    async def _write_confirmed_handoff(
+        self,
+        execution: dict[str, Any],
+        task: dict[str, Any],
+        *,
+        summary: str,
+    ) -> None:
+        task_workspace = task.get("taskWorkspacePath")
+        if not task_workspace:
+            return
+        task_dir = Path(str(task_workspace))
+        try:
+            task_dir.mkdir(parents=True, exist_ok=True)
+            handoff = task_dir / "HANDOFF.md"
+            previous = handoff.read_text(encoding="utf-8") if handoff.exists() else ""
+            content = (
+                "# 用户确认后的最终交接\n\n"
+                f"- Plan: {execution.get('planId')}\n"
+                f"- Execution: {execution.get('executionId')}\n"
+                f"- Task: {task.get('taskId')} · {task.get('title')}\n"
+                "- 优先级：本文件中的用户确认结果优先于本任务早期草稿、待确认版文档和旧交接内容。\n\n"
+                "## 最终确认摘要\n\n"
+                f"{summary.strip()}\n"
+            )
+            if previous.strip():
+                content += "\n## 原 HANDOFF 备份\n\n" + previous.strip() + "\n"
+            handoff.write_text(content, encoding="utf-8")
+            task["confirmedHandoffPath"] = str(handoff)
+        except OSError:
+            return
 
     async def _merge_visible_message_metadata(
         self,
@@ -913,6 +1121,9 @@ class OrchestratorExecutionRegistry:
 
         phase = 0
         while pending:
+            if self._is_interrupted(execution):
+                await self._persist_execution_snapshot(execution)
+                return
             if self._is_cancelled(execution):
                 self._mark_cancelled(execution)
                 await self._cancel_runtime_execution(execution)
@@ -978,6 +1189,9 @@ class OrchestratorExecutionRegistry:
                     for task_id in ready
                 ])
             except Exception as exc:
+                if self._is_interrupted(execution):
+                    await self._persist_execution_snapshot(execution)
+                    return
                 if self._is_cancelled(execution):
                     self._mark_cancelled(execution)
                     await self._cancel_runtime_execution(execution)
@@ -1006,6 +1220,9 @@ class OrchestratorExecutionRegistry:
                         "failed",
                         metadata_patch={"error": str(exc)},
                     )
+                await self._persist_execution_snapshot(execution)
+                return
+            if self._is_interrupted(execution):
                 await self._persist_execution_snapshot(execution)
                 return
             completed_at = self._now()
@@ -1128,6 +1345,10 @@ class OrchestratorExecutionRegistry:
     @staticmethod
     def _is_cancelled(execution: dict[str, Any]) -> bool:
         return bool(execution.get("cancelRequested")) or execution.get("status") in {"cancelling", "cancelled"}
+
+    @staticmethod
+    def _is_interrupted(execution: dict[str, Any]) -> bool:
+        return bool(execution.get("interruptRequested")) or execution.get("status") == "interrupted"
 
     def _mark_cancelled(
         self,
@@ -1295,6 +1516,81 @@ class OrchestratorExecutionRegistry:
                 "sessionId": execution["sessionId"],
                 "messageId": message_id,
             })
+
+    async def _mark_interrupted_visible_messages(
+        self,
+        execution: dict[str, Any],
+        reason: str,
+    ) -> None:
+        now = self._now()
+        async with self._session_factory() as db:
+            changed_ids: list[str] = []
+            for task in execution.get("tasks") or []:
+                message_id = task.get("visibleMessageId")
+                if not message_id:
+                    continue
+                message = await db.get(DBMessage, message_id)
+                if not message:
+                    continue
+                metadata = _loads_metadata(message.metadata_json)
+                trace = metadata.get("executionTrace")
+                if isinstance(trace, dict) and trace.get("status") == "running":
+                    trace["status"] = "interrupted"
+                    trace["completedAt"] = trace.get("completedAt") or now
+                    trace["items"] = [
+                        *(trace.get("items") if isinstance(trace.get("items"), list) else []),
+                        {
+                            "id": f"trace_{uuid.uuid4().hex[:12]}",
+                            "kind": "info",
+                            "text": "调度执行已中断，可从执行面板继续",
+                            "source": "system",
+                            "chunkType": "interrupted",
+                            "level": "warning",
+                            "timestamp": now,
+                        },
+                    ][-300:]
+                    metadata["executionTrace"] = trace
+                metadata["runStatus"] = "interrupted"
+                metadata["interruptReason"] = reason
+                if not message.content:
+                    message.content = "任务已中断，可从执行面板继续。"
+                message.metadata_json = json.dumps(metadata, ensure_ascii=False)
+                changed_ids.append(message_id)
+            if changed_ids:
+                await db.commit()
+        for message_id in changed_ids:
+            await _broadcast_ws(execution["sessionId"], {
+                "type": "message.completed",
+                "sessionId": execution["sessionId"],
+                "messageId": message_id,
+            })
+
+    @staticmethod
+    def _mark_snapshot_interrupted(
+        execution: dict[str, Any],
+        *,
+        reason: str,
+    ) -> dict[str, Any]:
+        interrupted_at = datetime.now(timezone.utc).isoformat()
+        execution["status"] = "interrupted"
+        execution["updatedAt"] = interrupted_at
+        execution["interruptReason"] = reason
+        execution["cancelRequested"] = False
+        execution["interruptRequested"] = True
+        interrupted_tasks: list[str] = []
+        for task in execution.get("tasks") or []:
+            if task.get("status") in {"running", "cancelling"}:
+                task["status"] = "interrupted"
+                task["updatedAt"] = interrupted_at
+                interrupted_tasks.append(str(task.get("taskId")))
+        execution.setdefault("events", []).append({
+            "type": "execution_interrupted",
+            "status": "interrupted",
+            "timestamp": interrupted_at,
+            "taskIds": interrupted_tasks,
+            "message": "检测到执行运行态已丢失，已转为可恢复中断。",
+        })
+        return execution
 
     @staticmethod
     def _validate_execution_readiness(plan: dict[str, Any], active_agent_ids: set[str]) -> list[str]:
