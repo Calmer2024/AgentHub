@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
+  configureBuiltinAgentsCodex,
   createProjectPreview,
   createChatStream,
   editArtifact,
@@ -462,5 +463,40 @@ describe("artifact APIs", () => {
       path: "src/app.ts",
       content: "new",
     });
+  });
+});
+
+describe("agent debug APIs", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("一键统一内置 Agent 为 Codex 引擎", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify([
+      {
+        id: "orchestrator",
+        name: "Orchestrator 调度器",
+        description: "",
+        systemPrompt: "",
+        rules: "",
+        agentType: "cli_wrapper",
+        cliTool: "codex",
+        executable: "codex",
+        initArgs: ["exec"],
+        envVars: {},
+        primarySkill: "orchestrator_planner",
+        auxiliarySkills: [],
+        contextPolicy: "planning_only",
+        status: "ready",
+        isActive: true,
+        createdAt: "",
+        updatedAt: "",
+      },
+    ]), { status: 200 }));
+
+    const agents = await configureBuiltinAgentsCodex();
+
+    expect(globalThis.fetch).toHaveBeenCalledWith("/api/agents/configure-builtins-codex", { method: "POST" });
+    expect(agents[0].cliTool).toBe("codex");
   });
 });

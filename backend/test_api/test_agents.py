@@ -6,6 +6,7 @@ class TestCreateAgent:
         res = await test_client.post("/api/agents", json={
             "name": "代码审查员",
             "systemPrompt": "你是代码审查专家。",
+            "rules": "回答先列风险，再给建议。",
             "cliTool": "claude_code",
             "executable": "claude",
         })
@@ -13,6 +14,7 @@ class TestCreateAgent:
         data = res.json()
         assert data["name"] == "代码审查员"
         assert data["systemPrompt"] == "你是代码审查专家。"
+        assert data["rules"] == "回答先列风险，再给建议。"
         assert data["agentType"] == "cli_wrapper"
         assert data["cliTool"] == "claude_code"
         assert data["executable"] == "claude"
@@ -43,6 +45,8 @@ class TestCreateAgent:
         assert data["agentType"] == "cli_wrapper"
         assert data["cliTool"] == "custom"
         assert data["initArgs"] == []
+        assert data["systemPrompt"] == ""
+        assert data["rules"] == ""
 
     async def test_rejects_legacy_http_agent_type(self, test_client):
         res = await test_client.post("/api/agents", json={
@@ -160,6 +164,36 @@ class TestListAgents:
         assert orchestrator["primarySkill"] == "orchestrator_planner"
         assert orchestrator["contextPolicy"] == "planning_only"
 
+    async def test_configure_builtin_agents_codex_keeps_roles(self, test_client):
+        res = await test_client.post("/api/agents/configure-builtins-codex")
+        assert res.status_code == 200
+
+        agents = res.json()
+        role_names = {
+            "Orchestrator 调度器",
+            "产品经理",
+            "需求分析师",
+            "架构师",
+            "后端专家",
+            "前端专家",
+            "测试专家",
+            "文档专家",
+        }
+        role_agents = [agent for agent in agents if agent["name"] in role_names]
+
+        assert {agent["name"] for agent in role_agents} == role_names
+        assert all(agent["cliTool"] == "codex" for agent in role_agents)
+        assert all(agent["executable"] == "codex" for agent in role_agents)
+        assert all(agent["initArgs"][:2] == ["exec", "--skip-git-repo-check"] for agent in role_agents)
+
+        orchestrator = next(agent for agent in role_agents if agent["name"] == "Orchestrator 调度器")
+        assert orchestrator["primarySkill"] == "orchestrator_planner"
+        assert orchestrator["contextPolicy"] == "planning_only"
+
+        frontend = next(agent for agent in role_agents if agent["name"] == "前端专家")
+        assert frontend["primarySkill"] == "frontend_engineer"
+        assert "ux_designer" in frontend["auxiliarySkills"]
+
     async def test_list_after_create(self, test_client):
         res_before = await test_client.get("/api/agents")
         count_before = len(res_before.json())
@@ -190,6 +224,16 @@ class TestUpdateAgent:
         assert data["primarySkill"] == "code_reviewer"
         assert data["auxiliarySkills"] == ["security", "workspace_editing"]
         assert data["contextPolicy"] == "review_only"
+
+    async def test_update_identity_and_rules(self, test_client, test_agent):
+        res = await test_client.patch(f"/api/agents/{test_agent.id}", json={
+            "systemPrompt": "你是家庭资产管理项目的后端专家。",
+            "rules": "所有说明使用中文；不要扩大 MVP 范围。",
+        })
+        assert res.status_code == 200
+        data = res.json()
+        assert data["systemPrompt"] == "你是家庭资产管理项目的后端专家。"
+        assert data["rules"] == "所有说明使用中文；不要扩大 MVP 范围。"
 
     async def test_update_nonexistent(self, test_client):
         res = await test_client.patch("/api/agents/nonexistent", json={"name": "X"})

@@ -14,7 +14,10 @@ from ..services.cli_agent_registry import (
     decode_json_dict,
     decode_json_list,
 )
-from ..services.agent_seed import seed_default_cli_agents
+from ..services.agent_seed import (
+    configure_builtin_role_agents_as_codex,
+    seed_default_cli_agents,
+)
 from ..services.codex_local_config_service import (
     CodexLocalConfigError,
     CodexLocalConfigService,
@@ -27,6 +30,7 @@ class AgentConfigCreate(BaseModel):
     name: str
     description: str = ""
     system_prompt: str = Field("", alias="systemPrompt")
+    rules: str = ""
     agent_type: str = Field("cli_wrapper", alias="agentType")
     cli_tool: str = Field("custom", alias="cliTool")
     executable: str | None = None
@@ -43,6 +47,7 @@ class AgentConfigUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
     system_prompt: str | None = Field(None, alias="systemPrompt")
+    rules: str | None = None
     agent_type: str | None = Field(None, alias="agentType")
     cli_tool: str | None = Field(None, alias="cliTool")
     executable: str | None = None
@@ -61,6 +66,7 @@ class AgentConfigRead(BaseModel):
     name: str
     description: str
     system_prompt: str = Field(alias="systemPrompt")
+    rules: str = ""
     agent_type: str = Field(alias="agentType")
     cli_tool: str = Field(alias="cliTool")
     executable: str | None = None
@@ -86,6 +92,7 @@ class AgentConfigRead(BaseModel):
             name=agent.name,
             description=agent.description,
             system_prompt=agent.system_prompt,
+            rules=getattr(agent, "rules", "") or "",
             agent_type=agent.agent_type or "cli_wrapper",
             cli_tool=agent.cli_tool or "custom",
             executable=agent.executable,
@@ -151,6 +158,13 @@ async def list_agents(db: AsyncSession = Depends(get_db)):
 @router.post("/seed-defaults", response_model=List[AgentConfigRead])
 async def seed_default_agents(db: AsyncSession = Depends(get_db)):
     await seed_default_cli_agents(db)
+    agents = await _registry(db).list_active()
+    return [AgentConfigRead.from_model(agent) for agent in agents]
+
+
+@router.post("/configure-builtins-codex", response_model=List[AgentConfigRead])
+async def configure_builtin_agents_codex(db: AsyncSession = Depends(get_db)):
+    await configure_builtin_role_agents_as_codex(db)
     agents = await _registry(db).list_active()
     return [AgentConfigRead.from_model(agent) for agent in agents]
 

@@ -50,7 +50,8 @@ class GroupMemberNotFoundError(Exception):
     pass
 
 
-MAX_GROUP_MEMBERS = 12
+MAX_GROUP_AGENTS = 12
+MAX_GROUP_MEMBERS = MAX_GROUP_AGENTS
 MIN_GROUP_MEMBERS = 2
 
 

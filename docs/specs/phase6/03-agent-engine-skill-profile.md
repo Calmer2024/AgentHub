@@ -24,7 +24,7 @@ Phase 6 已经接入 Claude Code、Codex、OpenCode 等真实 CLI 工具，但�
 这些不是裸 CLI 工具，而是：
 
 ```text
-Agent Profile = Engine + Skills + Context Policy
+Agent Profile = System Prompt + Rules + Skills + Context Policy + Runtime Config + Engine
 ```
 
 因此本 Spec 的目标是先完成 Agent 概念升级，让好友列表里的每个联系人都变成明确的 Agent Profile。调度器接入放到下一阶段，但它也必须遵循同一模型：调度器是绑定 `orchestrator_planner` Skill 的特殊 Agent。
@@ -55,11 +55,13 @@ Agent Profile = Engine + Skills + Context Policy
 | 概念 | 第一版定义 |
 |------|------------|
 | Engine | `claude_code` / `codex` / `opencode` / `custom` |
-| Skill | 可复用能力定义，包含 id/name/tags/prompt；第一版来自内置列表 + 本机 Skill Pool |
+| System Prompt | 用户定义的 Agent 身份、业务边界和职责范围 |
+| Rules | 用户定义的长期行为规则、说话风格和基本原则，类似 Agent 自己的 `CLAUDE.md` |
+| Skill | 可复用能力定义，包含 id/name/tags/prompt；第一版来自内置列表 + 本机 Skill Pool。Skill 只描述能力，不定义 Agent 身份 |
 | Primary Skill | Agent 的主职责，最多一个 |
 | Auxiliary Skills | Agent 的辅助能力，可多个 |
 | Context Policy | 上下文注入策略，第一版使用枚举/默认值 |
-| Agent Profile | 用户可见好友，即 Engine + Skill bindings |
+| Agent Profile | 用户可见好友，即 System Prompt + Rules + Skill bindings + Context Policy + Runtime Config + Engine |
 | Orchestrator Agent | 使用 `orchestrator_planner` Primary Skill 的特殊 Agent |
 | Scheduler/Executor | 读取 Plan/DAG 并启动任务的后端服务，不是 Agent Profile 本身 |
 
@@ -84,6 +86,7 @@ system_prompt
 新增字段：
 
 ```sql
+ALTER TABLE agent_configs ADD COLUMN rules TEXT DEFAULT '' NOT NULL;
 ALTER TABLE agent_configs ADD COLUMN primary_skill VARCHAR DEFAULT '';
 ALTER TABLE agent_configs ADD COLUMN auxiliary_skills TEXT DEFAULT '[]' NOT NULL;
 ALTER TABLE agent_configs ADD COLUMN context_policy VARCHAR DEFAULT 'workspace_coding' NOT NULL;
@@ -92,6 +95,8 @@ ALTER TABLE agent_configs ADD COLUMN context_policy VARCHAR DEFAULT 'workspace_c
 说明：
 
 - `cli_tool` 在产品语言中对应 Engine。
+- `system_prompt` 是用户可编辑的身份与业务边界，不由 Skill 暗中替代。
+- `rules` 是用户可编辑的长期行为规则；旧 Agent 迁移后默认为空字符串。
 - `primary_skill` 是 Skill id。
 - `auxiliary_skills` 是 JSON array of Skill id。
 - `context_policy` 第一版只做枚举字符串，不做复杂 JSON。
@@ -207,6 +212,7 @@ interface AgentConfig {
   name: string;
   description: string;
   systemPrompt: string;
+  rules: string;
   agentType: "cli_wrapper";
   cliTool: "claude_code" | "codex" | "opencode" | "custom";
   executable: string | null;
@@ -225,6 +231,7 @@ interface AgentConfigCreate {
   name: string;
   description?: string;
   systemPrompt?: string;
+  rules?: string;
   cliTool?: "claude_code" | "codex" | "opencode" | "custom";
   executable?: string | null;
   initArgs?: string[];
@@ -270,12 +277,13 @@ GET /api/skills
 
 ```text
 1. Engine base instruction
-2. Primary skill prompt
-3. Auxiliary skill prompts
-4. Agent custom systemPrompt
-5. Context policy instruction
-6. Task-specific instruction / role prompt
-7. User transcript
+2. Agent System Prompt：身份、业务边界、职责范围
+3. Agent Rules：长期行为规则、说话风格、基本原则
+4. Primary skill prompt
+5. Auxiliary skill prompts
+6. Context policy instruction
+7. Task-specific instruction / role prompt
+8. User transcript
 ```
 
 ### 7.2 Skill 缺失策略
@@ -283,6 +291,7 @@ GET /api/skills
 - `primarySkill` 为空：使用 `general_coding`。
 - `auxiliarySkills` 中存在未知 id：忽略，并在执行轨迹或后端日志记录 warning。
 - `orchestrator_planner` 必须配 `planning_only` context policy；若未配置，后端仍按 `planning_only` 兜底。
+- Skill prompt 不得写成“你是某某 Agent”的身份定义；身份由 Agent System Prompt 提供，Rules 提供长期行为约束。
 
 ### 7.3 Orchestrator Skill 约束
 
@@ -329,6 +338,10 @@ GET /api/skills
 基础信息
   - 显示名称
   - 备注
+
+身份与规则
+  - System Prompt：身份 / 业务边界
+  - Rules：行为规则 / 说话风格 / 基本原则
 
 能力配置
   - Engine
@@ -378,16 +391,19 @@ Status: ready
 ### 后端
 
 - `GET /api/agents` 返回 `primarySkill / auxiliarySkills / contextPolicy`。
+- `GET /api/agents` 返回 `systemPrompt / rules`，旧 Agent 的 `rules` 默认为空字符串。
 - `POST /api/agents` 可保存 Skill Profile 字段。
 - `PATCH /api/agents/{id}` 可更新 Skill Profile 字段。
+- `POST /api/agents` 与 `PATCH /api/agents/{id}` 可保存和更新 `rules`，旧 payload 不传该字段仍兼容。
 - `GET /api/skills` 返回内置 Skill + 本机 Skill Pool 列表，并标明 `source/path`。
 - 未配置 skill 的旧 Agent 自动 fallback 到 `general_coding`。
-- Prompt assembly 包含 primary skill 和 auxiliary skill prompt；本机 `SKILL.md` 的正文可被注入。
+- Prompt assembly 按 Agent System Prompt → Rules → primary skill → auxiliary skill → context policy 的顺序组装；本机 `SKILL.md` 的正文可被注入。
 - AgentSelector 能按 Skill 命中排序。
 
 ### 前端
 
 - Agent 设置面板能选择 Engine、Primary Skill、Auxiliary Skills、Context Policy。
+- Agent 设置面板能编辑 System Prompt 和 Rules。
 - 保存后刷新列表仍能看到 Skill 信息。
 - 不再把 Claude Code/Codex/OpenCode 文案作为最终 Agent 身份。
 - 现有 executable 检测、Codex 配置托管、启动参数保存不回归。

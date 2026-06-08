@@ -30,6 +30,11 @@ export function AgentCliRow({
           {agent.description && (
             <p className="agenthub-faint mt-1 truncate text-xs">{agent.description}</p>
           )}
+          <p className="agenthub-faint mt-1 truncate text-xs">
+            {agent.systemPrompt ? "已配置 System Prompt" : "未配置 System Prompt"}
+            {" · "}
+            {agent.rules ? "已配置 Rules" : "未配置 Rules"}
+          </p>
           <p className="agenthub-faint mt-1 text-xs">
             {agent.status === "ready" ? agent.version || "就绪" : "未找到 executable"}
           </p>

@@ -53,6 +53,7 @@ describe("ChatInput", () => {
         name: "文档专家",
         description: "",
         systemPrompt: "",
+        rules: "",
         agentType: "cli_wrapper",
         cliTool: "custom",
         executable: null,

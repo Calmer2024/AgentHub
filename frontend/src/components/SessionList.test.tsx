@@ -19,6 +19,7 @@ const agent: AgentConfig = {
   name: "Codex",
   description: "",
   systemPrompt: "",
+  rules: "",
   agentType: "cli_wrapper",
   cliTool: "codex",
   executable: "codex",

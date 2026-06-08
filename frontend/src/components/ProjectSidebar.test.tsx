@@ -26,6 +26,7 @@ const makeAgent = (id: string, name: string): AgentConfig => ({
   name,
   description: "",
   systemPrompt: "",
+  rules: "",
   agentType: "cli_wrapper",
   cliTool: "codex",
   executable: "codex",
