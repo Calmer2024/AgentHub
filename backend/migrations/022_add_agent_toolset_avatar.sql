@@ -1,0 +1,2 @@
+ALTER TABLE agent_configs ADD COLUMN toolset TEXT DEFAULT '[]' NOT NULL;
+ALTER TABLE agent_configs ADD COLUMN avatar TEXT DEFAULT '' NOT NULL;

@@ -4,7 +4,7 @@
 本文档面向**核心业务逻辑研发**、**AI 算法/Prompt 工程师**。
 如果说底层 CLI Agent 是 AgentHub 的“手脚”，那么 Orchestrator（协调器）就是平台唯一的“大脑”。本文档详细规定了 Orchestrator 如何处理宏大需求，如何避免大模型在长上下文中崩溃，以及如何实现类似 GitHub Actions 的工业级流水线调度。
 
-> **2026-06-05 口径修订**：底层 Claude Code / Codex / OpenCode 应理解为 Engine。用户可见 Agent Profile = Engine + Skills + Context Policy。Orchestrator 也遵循同一模型，是绑定 `orchestrator_planner` Skill 的特殊 Agent Profile；Scheduler/Executor 则是读取 Plan/DAG 后启动任务的后端执行机制。详见 [ADR-0011](../adr/0011-agent-engine-skill-model.md)。
+> **2026-06-05 口径修订**：底层 Claude Code / Codex / OpenCode 应理解为 Engine。用户可见 Agent Profile = Engine + Toolset + Context Policy。Orchestrator 也遵循同一模型，是内置调度器 Agent 模板；Scheduler/Executor 则是读取 Plan/DAG 后启动任务的后端执行机制。详见 [ADR-0011](../adr/0011-agent-engine-skill-model.md)。
 
 ---
 
@@ -21,10 +21,10 @@
 
 ### 3.1 意图拦截与宏观拆解
 当用户在群聊中输入大段需求后，请求首先打到 Orchestrator。
-Orchestrator 在产品概念上也是一个特殊 Agent：它由 Engine + Orchestrator Skill 组合而成，只负责规划、拆解、分配和解释，不直接写业务代码。第一版为便于调试，使用 LLM 假 Agent 实现 Orchestrator；待真实 ClaudeCode/Codex CLI Agent 接入后，Orchestrator 的计划契约保持不变。
+Orchestrator 在产品概念上也是一个特殊 Agent：它由内置 System Prompt、Rules、Toolset 和 Engine 配置组成，只负责规划、拆解、分配和解释，不直接写业务代码。第一版为便于调试，使用 LLM 假 Agent 实现 Orchestrator；待真实 ClaudeCode/Codex CLI Agent 接入后，Orchestrator 的计划契约保持不变。
 
 *   **System Prompt 设定**：
-    > “你是一个硅谷顶级的软件架构师和敏捷教练（Scrum Master）。你的任务不是写代码，而是将用户庞大、模糊的业务需求，拆解为一系列严密的、细粒度的开发任务。每个任务必须能够由单个工程师在短时间内独立完成。你需要明确指出每个任务需要哪些 Skill（如：frontend、backend、database、review），可以推荐 assigned_agent_id，并解释分配原因，以及这些任务之间的绝对先后依赖关系。”
+    > “你是一个硅谷顶级的软件架构师和敏捷教练（Scrum Master）。你的任务不是写代码，而是将用户庞大、模糊的业务需求，拆解为一系列严密的、细粒度的开发任务。每个任务必须能够由单个工程师在短时间内独立完成。你需要明确指出每个任务需要哪些能力标签（如：frontend、backend、database、review），可以推荐 assigned_agent_id，并解释分配原因，以及这些任务之间的绝对先后依赖关系。”
 
 ### 3.2 结构化输出契约 (JSON DAG)
 Orchestrator 解析需求后，必须向后端返回符合 Schema 的 draft plan。Plan 中的 `tasks` 在数学上构成一个 **有向无环图 (Directed Acyclic Graph, DAG)**。第一版只生成和可视化 draft plan，不自动执行子 Agent；用户确认后的执行流属于后续增强。
@@ -43,7 +43,7 @@ Orchestrator 解析需求后，必须向后端返回符合 Schema 的 draft plan
       "required_skills": ["product_analysis", "permission_design"],
       "assigned_agent_id": "mock_architect",
       "assigned_agent_name": "架构专家",
-      "assignment_reason": "该 Agent 主 skill 覆盖需求分析与权限建模",
+      "assignment_reason": "该 Agent 的职责与工具集覆盖需求分析与权限建模",
       "depends_on": [],
       "expected_outputs": ["document"],
       "acceptance_criteria": ["明确角色权限", "列出核心业务流程"],
@@ -98,7 +98,7 @@ Orchestrator 第一版只拆到模块/交付物级，不拆到代码步骤级。
 - `normalized_plan`：后端解析和规范化后的 draft plan。
 - `validation`：结构校验结果和 warning。
 
-校验策略为“结构严格，内容宽松”：`task_id` 唯一、`depends_on` 引用存在、DAG 无环必须强校验；`acceptance_criteria` 太短、`assigned_agent_id` 不存在、`required_skills` 未命中 Skill Pool 等先记录 warning，不阻断第一版调试链路。
+校验策略为“结构严格，内容宽松”：`task_id` 唯一、`depends_on` 引用存在、DAG 无环必须强校验；`acceptance_criteria` 太短、`assigned_agent_id` 不存在、`required_skills` 未命中 Agent 工具集或能力标签等先记录 warning，不阻断第一版调试链路。
 
 ---
 

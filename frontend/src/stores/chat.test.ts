@@ -8,7 +8,9 @@ const mockAgent: AgentConfig = {
   rules: "",
   agentType: "cli_wrapper", cliTool: "claude_code", executable: "claude",
   initArgs: ["-p"], envVars: {}, status: "ready",
+  toolset: [],
   primarySkill: "general_coding", auxiliarySkills: ["workspace_editing"],
+  avatar: "preset:blue",
   contextPolicy: "workspace_coding",
   isActive: true, createdAt: "", updatedAt: "",
 };

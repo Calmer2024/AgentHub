@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Archive,
   Bot,
@@ -14,7 +14,6 @@ import {
   Settings,
   Sun,
   Trash2,
-  Workflow,
   Users,
   type LucideIcon,
 } from "lucide-react";
@@ -52,6 +51,20 @@ type DeleteTarget = {
   confirmLabel: string;
 };
 
+const NATIVE_CLI_AGENT_NAMES: Partial<Record<AgentConfig["cliTool"], string>> = {
+  claude_code: "Claude Code",
+  codex: "Codex",
+  opencode: "OpenCode",
+};
+
+const NATIVE_CLI_AGENT_ORDER: Partial<Record<AgentConfig["cliTool"], number>> = {
+  claude_code: 0,
+  codex: 1,
+  opencode: 2,
+};
+
+const COLLAPSED_CUSTOM_AGENT_LIMIT = 3;
+
 export function ProjectSidebar({
   projects,
   currentProjectId,
@@ -86,7 +99,14 @@ export function ProjectSidebar({
   const agentMenuRef = useRef<HTMLDivElement>(null);
   const projectMenuRef = useRef<HTMLDivElement>(null);
   const activeAgents = agents.filter((agent) => agent.isActive);
-  const visibleAgents = agentsExpanded ? activeAgents : activeAgents.slice(0, 3);
+  const nativeCliAgents = activeAgents
+    .filter(isNativeCliAgent)
+    .sort((left, right) => nativeCliAgentRank(left) - nativeCliAgentRank(right));
+  const customAgents = activeAgents.filter((agent) => !isNativeCliAgent(agent));
+  const visibleCustomAgents = agentsExpanded
+    ? customAgents
+    : customAgents.slice(0, COLLAPSED_CUSTOM_AGENT_LIMIT);
+  const showAgentExpand = customAgents.length > COLLAPSED_CUSTOM_AGENT_LIMIT;
   const visibleProjects = projectsExpanded ? projects : projects.slice(0, 3);
   const theme = useThemeStore((state) => state.theme);
   const setTheme = useThemeStore((state) => state.setTheme);
@@ -144,6 +164,80 @@ export function ProjectSidebar({
     }
   };
 
+  const renderAgentItem = (agent: AgentConfig) => (
+    <div
+      key={agent.id}
+      className={`group relative animate-[agenthub-slide-in_160ms_ease-out_both] ${agentMenuOpen === agent.id ? "z-40" : ""}`}
+      ref={agentMenuOpen === agent.id ? agentMenuRef : undefined}
+    >
+      <div className="agenthub-nav-idle w-full rounded-2xl px-2 py-2 text-left transition">
+        <div className="flex items-center gap-3">
+          <AgentAvatar agent={agent} size="sm" />
+          <button
+            type="button"
+            onClick={() => {
+              if (currentProjectId) void onStartAgentChat(agent.id);
+            }}
+            disabled={!currentProjectId}
+            className="min-w-0 flex-1 text-left disabled:cursor-not-allowed disabled:opacity-45"
+            title={currentProjectId ? "发起对话" : "请先选择项目"}
+          >
+            <span className="block truncate text-sm font-medium">{agent.name}</span>
+            <span className="agenthub-faint mt-0.5 block truncate text-xs">
+              {agent.version || (agent.status === "ready" ? "就绪" : "未找到 executable")}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setAgentMenuOpen((value) => (value === agent.id ? null : agent.id))}
+            className={`agenthub-icon-button inline-flex h-7 w-7 items-center justify-center rounded-full transition-opacity group-hover:opacity-100 ${
+              agentMenuOpen === agent.id ? "opacity-100" : "opacity-0"
+            }`}
+            title="智能体操作"
+            aria-label="智能体操作"
+          >
+            <MoreHorizontal size={15} />
+          </button>
+        </div>
+      </div>
+      {agentMenuOpen === agent.id && (
+        <div className="agenthub-menu absolute right-1 top-10 z-50 w-38 rounded-2xl border p-1">
+          <MenuItem
+            icon={MessageCircle}
+            label="发起对话"
+            onClick={() => {
+              setAgentMenuOpen(null);
+              if (currentProjectId) void onStartAgentChat(agent.id);
+            }}
+          />
+          <MenuItem
+            icon={Settings}
+            label="设置"
+            onClick={() => {
+              setAgentMenuOpen(null);
+              onEditAgent(agent.id);
+            }}
+          />
+          <MenuItem
+            icon={Trash2}
+            label="删除"
+            danger
+            onClick={() => {
+              setAgentMenuOpen(null);
+              setDeleteTarget({
+                kind: "agent",
+                id: agent.id,
+                title: "删除 Agent",
+                description: `删除「${agent.name}」后，历史消息仍会保留。`,
+                confirmLabel: "删除",
+              });
+            }}
+          />
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <aside className="agenthub-rail w-full md:w-[260px] h-[34dvh] md:h-full flex flex-col shrink-0 border-r transition-colors duration-300">
       <div className="px-3 py-3 space-y-3">
@@ -153,12 +247,6 @@ export function ProjectSidebar({
           label="对话"
           active={activePanel === "sessions"}
           onClick={() => onOpenPanel("sessions")}
-        />
-        <NavButton
-          icon={Workflow}
-          label="调度器调试台"
-          active={activePanel === "debug"}
-          onClick={() => onOpenPanel("debug")}
         />
         <NavButton icon={Bot} label="添加 Agent" onClick={onCreateAgent} />
       </div>
@@ -184,81 +272,26 @@ export function ProjectSidebar({
             <SidebarMiniSkeleton rows={3} />
           ) : activeAgents.length === 0 ? (
             <div className="agenthub-faint px-2 py-2 text-xs">暂无可用智能体</div>
-          ) : visibleAgents.map((agent) => (
-            <div
-              key={agent.id}
-              className={`group relative animate-[agenthub-slide-in_160ms_ease-out_both] ${agentMenuOpen === agent.id ? "z-40" : ""}`}
-              ref={agentMenuOpen === agent.id ? agentMenuRef : undefined}
-            >
-              <div className="agenthub-nav-idle w-full rounded-2xl px-2 py-2 text-left transition">
-                <div className="flex items-center gap-3">
-                  <AgentAvatar agent={agent} size="sm" />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (currentProjectId) void onStartAgentChat(agent.id);
-                    }}
-                    disabled={!currentProjectId}
-                    className="min-w-0 flex-1 text-left disabled:cursor-not-allowed disabled:opacity-45"
-                    title={currentProjectId ? "发起对话" : "请先选择项目"}
-                  >
-                    <span className="block truncate text-sm font-medium">{agent.name}</span>
-                    <span className="agenthub-faint mt-0.5 block truncate text-xs">
-                      {agent.version || (agent.status === "ready" ? "就绪" : "未找到 executable")}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setAgentMenuOpen((value) => (value === agent.id ? null : agent.id))}
-                    className={`agenthub-icon-button inline-flex h-7 w-7 items-center justify-center rounded-full transition-opacity group-hover:opacity-100 ${
-                      agentMenuOpen === agent.id ? "opacity-100" : "opacity-0"
-                    }`}
-                    title="智能体操作"
-                    aria-label="智能体操作"
-                  >
-                    <MoreHorizontal size={15} />
-                  </button>
-                </div>
-              </div>
-              {agentMenuOpen === agent.id && (
-                <div className="agenthub-menu absolute right-1 top-10 z-50 w-38 rounded-2xl border p-1">
-                  <MenuItem
-                    icon={MessageCircle}
-                    label="发起对话"
-                    onClick={() => {
-                      setAgentMenuOpen(null);
-                      if (currentProjectId) void onStartAgentChat(agent.id);
-                    }}
-                  />
-                  <MenuItem
-                    icon={Settings}
-                    label="设置"
-                    onClick={() => {
-                      setAgentMenuOpen(null);
-                      onEditAgent(agent.id);
-                    }}
-                  />
-                  <MenuItem
-                    icon={Trash2}
-                    label="删除"
-                    danger
-                    onClick={() => {
-                      setAgentMenuOpen(null);
-                      setDeleteTarget({
-                        kind: "agent",
-                        id: agent.id,
-                        title: "删除 Agent",
-                        description: `删除「${agent.name}」后，历史消息仍会保留。`,
-                        confirmLabel: "删除",
-                      });
-                    }}
-                  />
-                </div>
+          ) : (
+            <>
+              {nativeCliAgents.length > 0 && (
+                <AgentGroup label="原生 CLI" count={nativeCliAgents.length}>
+                  {nativeCliAgents.map(renderAgentItem)}
+                </AgentGroup>
               )}
-            </div>
-          ))}
+              {customAgents.length > 0 && (
+                <AgentGroup
+                  label="自定义 Agent"
+                  count={customAgents.length}
+                  className={nativeCliAgents.length > 0 ? "mt-2" : ""}
+                >
+                  {visibleCustomAgents.map(renderAgentItem)}
+                </AgentGroup>
+              )}
+            </>
+          )}
         </div>
-        {activeAgents.length > 3 && (
+        {showAgentExpand && (
           <ExpandButton
             expanded={agentsExpanded}
             count={activeAgents.length}
@@ -476,6 +509,36 @@ export function ProjectSidebar({
         onConfirm={() => void confirmDelete()}
       />
     </aside>
+  );
+}
+
+function isNativeCliAgent(agent: AgentConfig) {
+  return NATIVE_CLI_AGENT_NAMES[agent.cliTool] === agent.name;
+}
+
+function nativeCliAgentRank(agent: AgentConfig) {
+  return NATIVE_CLI_AGENT_ORDER[agent.cliTool] ?? Number.MAX_SAFE_INTEGER;
+}
+
+function AgentGroup({
+  label,
+  count,
+  children,
+  className = "",
+}: {
+  label: string;
+  count: number;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={`space-y-1 ${className}`} aria-label={`${label} 分区`}>
+      <div className="agenthub-session-section-label flex items-center justify-between px-2 pb-1 pt-1 text-[11px] font-normal">
+        <span>{label}</span>
+        <span>{count}</span>
+      </div>
+      {children}
+    </div>
   );
 }
 

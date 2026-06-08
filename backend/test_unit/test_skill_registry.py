@@ -33,19 +33,21 @@ def test_cli_agent_service_injects_filesystem_skill_prompts():
         env_vars="{}",
         primary_skill="local-fixture-skill",
         auxiliary_skills=json.dumps(["workspace_editing"], ensure_ascii=False),
+        toolset=json.dumps(["local-fixture-skill", "workspace_editing"], ensure_ascii=False),
         context_policy="workspace_coding",
+        avatar="preset:blue",
     )
     service = CliAgentService()
     service._skills = SkillRegistry(roots=[FIXTURE_SKILL_ROOT])
 
     prompt = service._assemble_system_prompt(agent, agent.system_prompt)
 
-    assert "[Primary Skill: local-fixture-skill]" in prompt
+    assert "[Local Tool: local-fixture-skill]" in prompt
     assert "Use fixture skill instructions." in prompt
-    assert "[Auxiliary Skill: workspace_editing]" in prompt
+    assert "[Agent Toolset]\nworkspace_editing" in prompt
     assert "[Agent System Prompt]\nPrefer small focused changes." in prompt
     assert "[Agent Rules]\n回答先给结论，再列风险。" in prompt
     assert "[Context Policy: workspace_coding]" in prompt
     assert prompt.index("[Agent System Prompt]") < prompt.index("[Agent Rules]")
-    assert prompt.index("[Agent Rules]") < prompt.index("[Primary Skill: local-fixture-skill]")
-    assert prompt.index("[Primary Skill: local-fixture-skill]") < prompt.index("[Auxiliary Skill: workspace_editing]")
+    assert prompt.index("[Agent Rules]") < prompt.index("[Local Tool: local-fixture-skill]")
+    assert prompt.index("[Local Tool: local-fixture-skill]") < prompt.index("[Agent Toolset]")

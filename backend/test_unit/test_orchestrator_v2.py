@@ -243,7 +243,7 @@ class TestExecutionPlanner:
         assert plan.mode == "dag"
         assert plan.decomposer_used
         assert [p.phase for p in plan.dag_phases] == [0, 1, 2]
-        assert plan.dag_phases[1].mode == "parallel"
+        assert plan.dag_phases[1].mode == "serial"
 
     def test_chain_keyword_triggers_auto_dag(self):
         """多阶段关键词触发自动 DAG。"""
@@ -280,15 +280,15 @@ class TestExecutionPlanner:
         assert plan.mode == "empty"
         assert len(plan.calls) == 0
 
-    def test_multi_agent_no_complex_parallel(self):
-        """多 Agent，无复杂标记 → parallel (all primary)。"""
+    def test_multi_agent_no_complex_serial(self):
+        """多 Agent，无复杂标记 → serial (all primary)。"""
         planner = ExecutionPlanner()
         agents = [
             make_agent(name="A"),
             make_agent(name="B"),
         ]
         plan = planner.plan(agents, "写一个函数", [{"role": "user", "content": "写一个函数"}])
-        assert plan.mode == "parallel"
+        assert plan.mode == "serial"
         assert all(c.task == "primary" for c in plan.calls)
 
     def test_supplemental_does_not_rebuild_dag(self):
@@ -305,7 +305,7 @@ class TestExecutionPlanner:
             [{"role": "user", "content": "补充后端缺失内容"}],
             supplemental=True,
         )
-        assert plan.mode == "parallel"
+        assert plan.mode == "serial"
         assert not plan.decomposer_used
         assert plan.dag_phases == []
         assert all(c.task == "primary" for c in plan.calls)

@@ -97,7 +97,9 @@ class CliAgentRegistry:
             ),
             primary_skill=_normalize_skill_id(data.primary_skill) or DEFAULT_PRIMARY_SKILL,
             auxiliary_skills=encode_json(_normalize_skill_list(data.auxiliary_skills)),
+            toolset=encode_json(_normalize_skill_list(getattr(data, "toolset", None))),
             context_policy=_normalize_context_policy(data.context_policy),
+            avatar=_normalize_avatar(getattr(data, "avatar", "")),
         )
         self.db.add(agent)
         await self.db.commit()
@@ -116,6 +118,7 @@ class CliAgentRegistry:
             "rules",
             "cli_tool",
             "executable",
+            "avatar",
             "is_active",
         )
         for field in scalar_fields:
@@ -135,6 +138,8 @@ class CliAgentRegistry:
             agent.primary_skill = _normalize_skill_id(data.primary_skill) or DEFAULT_PRIMARY_SKILL
         if data.auxiliary_skills is not None:
             agent.auxiliary_skills = encode_json(_normalize_skill_list(data.auxiliary_skills))
+        if getattr(data, "toolset", None) is not None:
+            agent.toolset = encode_json(_normalize_skill_list(data.toolset))
         if data.context_policy is not None:
             agent.context_policy = _normalize_context_policy(data.context_policy)
 
@@ -206,6 +211,10 @@ def _normalize_skill_list(value: list[str] | None) -> list[str]:
 
 def _normalize_context_policy(value: str | None) -> str:
     return str(value or DEFAULT_CONTEXT_POLICY).strip() or DEFAULT_CONTEXT_POLICY
+
+
+def _normalize_avatar(value: str | None) -> str:
+    return str(value or "").strip()
 
 
 def _decode_json(value: str | None, fallback):

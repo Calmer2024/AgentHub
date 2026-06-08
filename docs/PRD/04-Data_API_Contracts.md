@@ -11,26 +11,26 @@
 建议使用 PostgreSQL 或 SQLite。以下采用标准的 SQL 或 ORM 伪代码描述核心业务表。
 
 ### 2.1 Agent Profile 实体表 (`agents`)
-代表平台中“专家”的用户可见身份。注意，我们剥离了传统的 LLM Provider 概念，也不再把 Claude Code / Codex / OpenCode 这些 CLI 工具直接等同为 Agent。CLI 工具是 Engine；Agent Profile = Engine + Skills + Context Policy + Runtime Config。
+代表平台中“专家”的用户可见身份。注意，我们剥离了传统的 LLM Provider 概念，也不再把 Claude Code / Codex / OpenCode 这些 CLI 工具直接等同为 Agent。CLI 工具是 Engine；Agent Profile = Engine + Toolset + Context Policy + Runtime Config + System Prompt + Rules。
 
 ```sql
 CREATE TABLE agents (
     id UUID PRIMARY KEY,
     name VARCHAR(255) NOT NULL, -- 展示名称，如 "前端专家"
-    avatar_url VARCHAR(1024),   -- 头像
+    avatar VARCHAR(4096),       -- 头像：preset:* 或用户上传的 data:image
     agent_type VARCHAR(50) NOT NULL, -- 当前主要为 'cli_wrapper'
     engine_type VARCHAR(50) NOT NULL, -- claude_code, codex, opencode, custom
     executable VARCHAR(255),    -- Engine 可执行文件，如 'claude', 'codex', 'opencode'
     init_args JSONB,            -- CLI 启动参数，如 ["--theme=dark", "--compact"]
-    primary_skill VARCHAR(100), -- 主 Skill，如 frontend_engineer
-    auxiliary_skills JSONB,     -- 辅助 Skill ID 数组，如 ["react", "typescript"]
+    toolset JSONB,              -- 工具集 ID 数组；自定义 Agent 不区分主/辅
     context_policy VARCHAR(100),-- workspace_coding, planning_only, review_only 等
-    system_prompt TEXT,         -- 用户自定义补充提示，排在 Skill prompt 之后
+    system_prompt TEXT,         -- Agent 身份提示
+    rules TEXT,                 -- Agent 行为规则
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 ```
 
-兼容说明：当前实现表名为 `agent_configs`，字段 `cli_tool` 对应此处的 `engine_type`。后续文档统一采用 Engine 语言，代码可渐进迁移。
+兼容说明：当前实现表名为 `agent_configs`，字段 `cli_tool` 对应此处的 `engine_type`。旧字段 `primary_skill` / `auxiliary_skills` 仅作为内部匹配和历史数据兼容，不再作为用户自定义 Agent 的主模型。
 
 ### 2.2 Project、会话与历史记录 (`projects`, `sessions` & `messages`)
 由于我们需要高度复用传统 IM 聊天的 UI，会话表设计接近微信/Slack。
@@ -77,7 +77,7 @@ CREATE TABLE tasks (
     name VARCHAR(255) NOT NULL,
     description TEXT,
     assigned_agent_id UUID REFERENCES agents(id),
-    required_skills JSONB, -- Orchestrator 声明该任务需要的 Skill，如 ["frontend", "react"]
+    required_skills JSONB, -- Orchestrator 声明该任务需要的能力标签，如 ["frontend", "react"]
     assignment_reason TEXT,
     status VARCHAR(50) DEFAULT 'PENDING', -- PENDING, RUNNING, PAUSED, COMPLETED, FAILED
     requires_approval BOOLEAN DEFAULT FALSE,

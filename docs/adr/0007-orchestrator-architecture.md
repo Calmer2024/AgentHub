@@ -463,7 +463,7 @@ class TestAgentExecutor:
 | 消息来源建模 | agentName 字符串 vs. 一等来源字段 | **sourceType/contentType/metadata** | 支持系统整理、产物归属、审计和后续重新综合 |
 | Orchestrator 模型 | 借用成员 Agent vs. 独立配置 | **独立 orchestratorProvider/orchestratorModel** | 中枢是编排层能力，不应受某个成员 Agent 的模型身份影响 |
 | 调度器第一版形态 | 自动执行 vs. Plan-first dry-run | **只生成 draft plan** | 先可视化和调试调度脑子，避免过早唤醒真实 Agent |
-| 调度器 Agent | 硬编码服务 vs. Engine + Skill Agent | **特殊 Agent Profile** | 与 Agent = Engine + Skill Bindings + Context Policy 的产品模型保持一致 |
+| 调度器 Agent | 硬编码服务 vs. Engine + Toolset Agent | **特殊 Agent Profile** | 与 Agent = Engine + Toolset + Context Policy 的产品模型保持一致 |
 | 任务分配口径 | 只按 Agent vs. 只按 Skill vs. 二者同时保留 | **required_skills + assigned_agent_id + reason** | 执行按 Agent，解释和兜底按能力 |
 | 第一版 Engine | ClaudeCode CLI vs. LLM 假 Agent | **LLM 假 Agent** | 真实 CLI 接入前先跑通结构化计划链路 |
 
@@ -573,15 +573,15 @@ class TokenEvent:
 AgentHub 的 Agent 模型统一为：
 
 ```text
-Agent = Engine + Skill Bindings + Context Policy
+Agent = Engine + Toolset + Context Policy
 ```
 
 - `Engine` 可以是 LLM API、ClaudeCode CLI、Codex CLI 等。
-- `Skill Bindings` 来自全局 Skill Pool，包含一个 `primary_skill` 和多个 `auxiliary_skills`。
+- `Toolset` 是 Agent 可用能力集合。用户自定义 Agent 不再区分主能力与辅助能力；本机 Skill 只作为可选工具集来源。
 - `Context Policy` 决定执行时如何注入 Project、Session、Pin、Reply、Artifact 等上下文。
-- Orchestrator 也是一个特殊 Agent，第一版使用 LLM 假 Agent + orchestrator planner skill。
+- Orchestrator 也是一个特殊 Agent，使用内置 System Prompt、Rules、Toolset 与 Engine 配置。
 
-Skill 是全局池子；Agent 只是绑定其中一组 Skill。运行时由 Prompt Assembly 从 Skill Pool 捞出 Agent 的 primary/auxiliary skills，再与任务上下文一起组装。第一版只要求 Orchestrator 能看见 Agent Profile 快照并据此分配任务，不实现完整执行 Prompt Assembly。
+运行时由 Prompt Assembly 把 Agent 的身份提示、规则、工具集摘要、本机 Skill 内容和任务上下文一起组装。第一版只要求 Orchestrator 能看见 Agent Profile 快照并据此分配任务，不实现完整执行 Prompt Assembly。
 
 ### 13.2 第一版边界
 

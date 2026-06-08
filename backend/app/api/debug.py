@@ -97,11 +97,11 @@ async def _load_agents(
 
 def _mock_agents() -> list[AgentConfig]:
     specs = [
-        ("mock_architect", "架构专家", "系统架构与技术方案", "architect", ["api_design", "database_design"]),
-        ("mock_frontend", "前端专家", "React 前端与 UI 组件", "frontend_engineer", ["react", "typescript", "web_preview"]),
-        ("mock_backend", "后端专家", "Python API 与数据库", "backend_engineer", ["api_design", "database"]),
-        ("mock_reviewer", "审查专家", "测试、安全与代码审查", "code_reviewer", ["testing", "security_review"]),
-        ("mock_researcher", "研究专家", "调研分析与综合写作", "researcher", ["analysis", "writing"]),
+        ("mock_architect", "系统架构师", "系统边界、接口契约与演进路径", "architect", ["system_boundary", "contract_design"]),
+        ("mock_designer", "UX/UI设计师", "信息架构、界面布局与交互状态", "ux_ui_designer", ["interaction_flow", "visual_system"]),
+        ("mock_frontend", "前端工程师", "React 前端、状态管理与组件实现", "frontend_engineer", ["react_typescript", "responsive_ui"]),
+        ("mock_backend", "后端工程师", "FastAPI 服务、业务逻辑与集成测试", "backend_engineer", ["fastapi_service", "integration_testing"]),
+        ("mock_tester", "测试工程师", "测试策略、回归风险与验收报告", "test_engineer", ["risk_based_testing", "frontend_ux_testing"]),
     ]
     return [
         mock_agent(agent_id or str(uuid.uuid4()), name, description, primary_skill, auxiliary_skills)

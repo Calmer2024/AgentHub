@@ -150,9 +150,11 @@ export interface AgentConfig {
   executable: string | null;
   initArgs: string[];
   envVars: Record<string, string>;
+  toolset: string[];
   primarySkill: string;
   auxiliarySkills: string[];
   contextPolicy: string;
+  avatar: string;
   status: "ready" | "not_found" | "running" | "error";
   version?: string | null;
   executablePath?: string | null;
@@ -171,9 +173,11 @@ export interface AgentConfigCreate {
   executable?: string | null;
   initArgs?: string[];
   envVars?: Record<string, string>;
+  toolset?: string[];
   primarySkill?: string;
   auxiliarySkills?: string[];
   contextPolicy?: string;
+  avatar?: string;
 }
 
 export interface AgentConfigUpdate {
@@ -186,9 +190,11 @@ export interface AgentConfigUpdate {
   executable?: string | null;
   initArgs?: string[];
   envVars?: Record<string, string>;
+  toolset?: string[];
   primarySkill?: string;
   auxiliarySkills?: string[];
   contextPolicy?: string;
+  avatar?: string;
 }
 
 export interface SkillDefinition {
@@ -524,6 +530,7 @@ export interface OrchestratorDebugAgent {
   description: string;
   provider: string;
   model: string;
+  toolset?: string[];
   primarySkill?: string;
   auxiliarySkills?: string[];
 }
@@ -532,6 +539,7 @@ export interface OrchestratorAgentProfile {
   id: string;
   name: string;
   engine: string;
+  toolset: string[];
   primarySkill: string;
   auxiliarySkills: string[];
 }

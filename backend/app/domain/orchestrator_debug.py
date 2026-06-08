@@ -34,8 +34,9 @@ class OrchestratorPlanBridge:
                 "id": "manual-orchestrator",
                 "name": "手动调度器",
                 "engine": "manual_bridge",
+                "toolset": [],
                 "primarySkill": "orchestrator_planner",
-                "auxiliarySkills": ["task_decomposition", "agent_assignment", "dag_planning"],
+                "auxiliarySkills": [],
             },
             "candidateAgents": candidates,
             "prompt": build_plan_prompt(content, candidates),
@@ -69,6 +70,7 @@ class OrchestratorPlanBridge:
 
 def agent_payload(agent: AgentConfig) -> dict[str, Any]:
     auxiliary = decode_json_list(agent.auxiliary_skills)
+    toolset = decode_json_list(getattr(agent, "toolset", "[]"))
     engine = agent.cli_tool or "custom"
     return {
         "id": agent.id,
@@ -77,6 +79,7 @@ def agent_payload(agent: AgentConfig) -> dict[str, Any]:
         "engine": engine,
         "provider": engine,
         "model": agent.executable or engine,
+        "toolset": toolset,
         "primarySkill": agent.primary_skill or "general_coding",
         "primary_skill": agent.primary_skill or "general_coding",
         "auxiliarySkills": auxiliary,
@@ -104,5 +107,7 @@ def mock_agent(
         env_vars="{}",
         primary_skill=primary_skill,
         auxiliary_skills=json.dumps(auxiliary_skills, ensure_ascii=False),
+        toolset=json.dumps(auxiliary_skills, ensure_ascii=False),
         context_policy="planning_only",
+        avatar="",
     )

@@ -36,9 +36,11 @@ class AgentConfigCreate(BaseModel):
     executable: str | None = None
     init_args: list[str] = Field(default_factory=list, alias="initArgs")
     env_vars: dict[str, str] = Field(default_factory=dict, alias="envVars")
+    toolset: list[str] = Field(default_factory=list)
     primary_skill: str = Field("general_coding", alias="primarySkill")
     auxiliary_skills: list[str] = Field(default_factory=list, alias="auxiliarySkills")
     context_policy: str = Field("workspace_coding", alias="contextPolicy")
+    avatar: str = ""
 
     model_config = {"populate_by_name": True}
 
@@ -53,9 +55,11 @@ class AgentConfigUpdate(BaseModel):
     executable: str | None = None
     init_args: list[str] | None = Field(None, alias="initArgs")
     env_vars: dict[str, str] | None = Field(None, alias="envVars")
+    toolset: list[str] | None = None
     primary_skill: str | None = Field(None, alias="primarySkill")
     auxiliary_skills: list[str] | None = Field(None, alias="auxiliarySkills")
     context_policy: str | None = Field(None, alias="contextPolicy")
+    avatar: str | None = None
     is_active: bool | None = Field(None, alias="isActive")
 
     model_config = {"populate_by_name": True}
@@ -72,9 +76,11 @@ class AgentConfigRead(BaseModel):
     executable: str | None = None
     init_args: list[str] = Field(alias="initArgs")
     env_vars: dict[str, str] = Field(alias="envVars")
+    toolset: list[str] = Field(default_factory=list)
     primary_skill: str = Field(alias="primarySkill")
     auxiliary_skills: list[str] = Field(alias="auxiliarySkills")
     context_policy: str = Field(alias="contextPolicy")
+    avatar: str = ""
     status: str = "not_found"
     version: str | None = None
     executable_path: str | None = Field(None, alias="executablePath")
@@ -98,9 +104,11 @@ class AgentConfigRead(BaseModel):
             executable=agent.executable,
             init_args=decode_json_list(agent.init_args),
             env_vars=decode_json_dict(agent.env_vars, cli_tool=agent.cli_tool),
+            toolset=decode_json_list(getattr(agent, "toolset", "[]")),
             primary_skill=agent.primary_skill or "general_coding",
             auxiliary_skills=decode_json_list(agent.auxiliary_skills),
             context_policy=agent.context_policy or "workspace_coding",
+            avatar=getattr(agent, "avatar", "") or "",
             status=status.status,
             version=status.version,
             executable_path=status.executable_path,

@@ -1,8 +1,12 @@
 import {
   Code2,
   Cpu,
+  Database,
   MessagesSquare,
+  Palette,
   Sparkles,
+  Target,
+  Terminal,
   UserRound,
   type LucideIcon,
 } from "lucide-react";
@@ -12,7 +16,7 @@ import type { AgentConfig } from "../types";
 type AvatarSize = "sm" | "md" | "lg";
 
 interface Props {
-  agent?: Pick<AgentConfig, "name" | "cliTool" | "status"> | null;
+  agent?: Pick<AgentConfig, "name" | "cliTool" | "status" | "avatar"> | null;
   name?: string | null;
   kind?: "agent" | "user" | "group" | "system";
   size?: AvatarSize;
@@ -50,6 +54,57 @@ const BRAND_LOGOS: Record<string, { label: string; className: string; src: strin
   },
 };
 
+export const AGENT_AVATAR_PRESETS: Array<{
+  id: string;
+  label: string;
+  icon: LucideIcon;
+  className: string;
+}> = [
+  {
+    id: "preset:blue",
+    label: "蓝图",
+    icon: Code2,
+    className: "border-sky-200/35 bg-[linear-gradient(135deg,#0ea5e9,#2563eb)] text-white",
+  },
+  {
+    id: "preset:violet",
+    label: "灵感",
+    icon: Palette,
+    className: "border-violet-200/35 bg-[linear-gradient(135deg,#8b5cf6,#d946ef)] text-white",
+  },
+  {
+    id: "preset:amber",
+    label: "终端",
+    icon: Terminal,
+    className: "border-amber-200/35 bg-[linear-gradient(135deg,#f59e0b,#ef4444)] text-white",
+  },
+  {
+    id: "preset:green",
+    label: "数据",
+    icon: Database,
+    className: "border-emerald-200/35 bg-[linear-gradient(135deg,#10b981,#0f766e)] text-white",
+  },
+  {
+    id: "preset:rose",
+    label: "目标",
+    icon: Target,
+    className: "border-rose-200/35 bg-[linear-gradient(135deg,#f43f5e,#fb7185)] text-white",
+  },
+  {
+    id: "preset:slate",
+    label: "系统",
+    icon: Cpu,
+    className: "border-slate-200/35 bg-[linear-gradient(135deg,#475569,#111827)] text-white",
+  },
+];
+
+type ResolvedCustomAvatar = {
+  label: string;
+  icon: LucideIcon;
+  className: string;
+  src?: string;
+};
+
 const TOOL_LOOK: Record<string, { icon: LucideIcon; className: string }> = {
   custom: {
     icon: Cpu,
@@ -66,22 +121,25 @@ export function AgentAvatar({
   className = "",
 }: Props) {
   const displayName = agent?.name ?? name ?? "";
+  const customAvatar = kind === "agent" ? resolveCustomAvatar(agent?.avatar) : null;
   const brand = resolveBrand(agent?.cliTool, displayName, kind);
   const look = resolveLook(agent?.cliTool, displayName, kind);
-  const Icon = look.icon;
+  const Icon = customAvatar?.icon ?? look.icon;
   const showActive = active ?? agent?.status === "ready";
 
   return (
     <span className={`relative inline-flex shrink-0 ${SIZE_CLASS[size]} ${className}`}>
       <span
-        className={`flex h-full w-full items-center justify-center rounded-full border shadow-[inset_0_1px_0_rgba(255,255,255,0.12)] ${look.className}`}
-        title={displayName || look.label}
-        aria-label={displayName || look.label}
+        className={`flex h-full w-full items-center justify-center overflow-hidden rounded-full border shadow-[inset_0_1px_0_rgba(255,255,255,0.12)] ${customAvatar?.className ?? look.className}`}
+        title={displayName || customAvatar?.label || look.label}
+        aria-label={displayName || customAvatar?.label || look.label}
       >
-        {brand ? (
+        {customAvatar?.src ? (
+          <img src={customAvatar.src} alt="" className="h-full w-full object-cover" />
+        ) : brand && !customAvatar ? (
           <img src={brand.src} alt="" className="h-[72%] w-[72%] rounded-[35%] object-cover" />
         ) : (
-          <Icon size={ICON_SIZE[size]} strokeWidth={1.8} aria-hidden="true" />
+          <Icon size={ICON_SIZE[size]} strokeWidth={1.9} aria-hidden="true" />
         )}
       </span>
       {kind === "agent" && (
@@ -95,6 +153,20 @@ export function AgentAvatar({
       )}
     </span>
   );
+}
+
+function resolveCustomAvatar(value: string | undefined): ResolvedCustomAvatar | null {
+  const avatar = (value ?? "").trim();
+  if (!avatar) return null;
+  if (avatar.startsWith("data:image/")) {
+    return {
+      label: "自定义头像",
+      src: avatar,
+      icon: Code2,
+      className: "border-[color:var(--ah-border-strong)] bg-[color:var(--ah-card-soft)]",
+    };
+  }
+  return AGENT_AVATAR_PRESETS.find((preset) => preset.id === avatar) ?? null;
 }
 
 function svgDataUri(svg: string) {

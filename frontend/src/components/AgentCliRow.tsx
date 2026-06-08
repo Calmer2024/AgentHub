@@ -1,5 +1,6 @@
 import { Settings, Trash2 } from "lucide-react";
 import type { AgentConfig } from "../types";
+import { AgentAvatar } from "./AgentAvatar";
 
 export function AgentCliRow({
   agent,
@@ -13,6 +14,7 @@ export function AgentCliRow({
   return (
     <div className="agenthub-card rounded-2xl border p-3">
       <div className="flex items-start justify-between gap-3">
+        <AgentAvatar agent={agent} size="sm" />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span
@@ -21,8 +23,7 @@ export function AgentCliRow({
             <p className="agenthub-strong truncate text-sm font-medium">{agent.name}</p>
           </div>
           <p className="agenthub-muted mt-1 truncate text-xs">
-            Engine: {engineLabel(agent.cliTool)} · Skill: {agent.primarySkill || "general_coding"}
-            {agent.auxiliarySkills.length > 0 ? ` + ${agent.auxiliarySkills.length}` : ""}
+            Engine: {engineLabel(agent.cliTool)} · 工具集 {agent.toolset.length} 项
           </p>
           <p className="agenthub-muted mt-1 truncate text-xs">
             {agent.executable || "未配置 executable"} {agent.initArgs.join(" ")}

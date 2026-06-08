@@ -87,8 +87,10 @@ async def test_new_columns_exist(test_client):
         agent_cols = {row[1] for row in r.fetchall()}
         assert "primary_skill" in agent_cols
         assert "auxiliary_skills" in agent_cols
+        assert "toolset" in agent_cols
         assert "context_policy" in agent_cols
         assert "rules" in agent_cols
+        assert "avatar" in agent_cols
 
 
 @pytest.mark.asyncio

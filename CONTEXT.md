@@ -27,10 +27,10 @@
 - **Engine**：Agent 的底层执行引擎，例如 Claude Code、Codex、OpenCode 或自定义 CLI。Engine 负责真实进程、工具调用、文件读写和 stdout/stderr 输出；Engine 本身不是用户最终调度的 Agent。
 - **System Prompt**：用户为 Agent 定义的身份、业务边界和职责范围。
 - **Rules**：用户为 Agent 定义的长期行为规则、说话风格和基本原则，类似 Agent 自己的 `CLAUDE.md`。
-- **Skill**：可复用能力定义，包含能力标签、职责说明和 Prompt 片段，例如 `frontend_engineer`、`backend_engineer`、`code_reviewer`、`orchestrator_planner`。Skill 来自全局 Skill Pool，第一版可内置，后续支持目录扫描和用户自定义。Skill 只描述能力，不定义 Agent 身份。
-- **Agent / Agent Profile**：用户创建的"AI 联系人"。Agent = System Prompt + Rules + Skills + Context Policy + Runtime Config + Engine。比如“前端专家”可以是用户自定义 System Prompt + Rules + Claude Code Engine + `frontend_engineer` 主 Skill + `react/typescript` 辅助 Skill。Agent ≠ 模型厂商，也 ≠ 裸 CLI 工具。
+- **Skill / 本机工具**：用户本机 `SKILL.md` 定义的可复用工具条目。AgentHub 当前不再提供“API 设计 / UX 设计 / 前端工程师”等内置 Skill；这些职责改由 Agent 内置模板的 System Prompt、Rules 和能力配置承载。本机 Skill 可加入 Agent 的 `toolset`，作为可选 Prompt 补充。
+- **Agent / Agent Profile**：用户创建的"AI 联系人"。Agent = System Prompt + Rules + Toolset + Context Policy + Runtime Config + Engine。比如“前端工程师”是添加 Agent 面板里的完整模板，用户保存后才成为好友；它不再是“Claude Code Engine + 主 Skill + 辅助 Skill”的组合。Agent ≠ 模型厂商，也 ≠ 裸 CLI 工具。
 - **CLI Adapter**：底层执行适配器，每个 CLI 工具单独适配（`ClaudeCodeAdapter`、`CodexAdapter`、`OpenCodeAdapter`），各自理解该 CLI 的特定输出格式。Adapter 通过 PTY/subprocess 孵化进程、读取 stdout/stderr、做语义分层解析（文本→聊天消息、进度指示器→状态条、Diff/代码块→Artifact Card）、ANSI 清洗、交互式提示（y/n）拦截。Adapter 把 CLI 输出转为标准事件（`agent.output` / `artifact.detected` / `interactive_prompt`）。CLI 工具由用户在外部安装，AgentHub 只管理配置（executable 路径、init_args、env vars）。DeepSeek 仅作为系统模型用于中枢总结、标题生成和产物编辑辅助，不作为用户可聊天 Agent。
-- **Orchestrator Agent**：绑定 `orchestrator_planner` Skill 的特殊 Agent Profile，负责意图分析、任务拆解、DAG/Plan 生成和 Agent 分配建议。它本质上也是 Agent 的一种，第一版先产出计划，不直接执行子 Agent。
+- **Orchestrator Agent**：特殊 Agent Profile，负责意图分析、任务拆解、DAG/Plan 生成和 Agent 分配建议。它本质上也是 Agent 的一种，第一版先产出计划，不直接执行子 Agent。
 - **Scheduler / Executor**：读取 Orchestrator Agent 产出的 Plan/DAG，校验依赖关系，并启动对应 Agent Profile 的后端服务。它是执行机制，不是一个用户可聊天 Agent。
 - **Project（项目）**：AgentHub 的顶层组织实体。用户必须先创建 Project（新建空白文件夹，或通过系统原生目录选择器选择已有文件夹），然后在该 Project 下创建任意数量的私聊或群聊 Session。一个 Project 绑定一个 workspace 目录，Project 内所有 Session 共享此目录。所有聊天必须属于某个 Project，不存在"无 Project 的聊天"。详见 [ADR-0009](docs/adr/0009-project-workspace-model.md)。
 - **Workspace**：Project 绑定的物理或云端工作目录。MVP 版是本机 `workspace_path`（Project 创建时指定）；Project 内所有 CLI Agent 以该路径作为 `cwd` 执行。SaaS 版是云端隔离 workspace，由 sandbox/runner 挂载。详见 [PRD-06](docs/PRD/06-MVP_Local_Workspace_Delivery.md) 和 [PRD-07](docs/PRD/07-SaaS_Cloud_Workspace_Delivery.md)。
@@ -153,7 +153,7 @@ Phase 4-7 采用**功能板块制**：每板块独立完整交付。板块间按
 | ADR-0008 | [0008-revised-development-strategy.md](docs/adr/0008-revised-development-strategy.md) | 功能板块制 + Phase 4-7 路线图 + 文档治理 |
 | ADR-0009 | [0009-project-workspace-model.md](docs/adr/0009-project-workspace-model.md) | **🆕** Project-Workspace 模型 + CLI 适配策略 + 分层渲染 |
 | ADR-0010 | [0010-message-level-artifact-experience.md](docs/adr/0010-message-level-artifact-experience.md) | 消息级 Artifact 体验取代 P1 右侧 Drawer |
-| ADR-0011 | [0011-agent-engine-skill-model.md](docs/adr/0011-agent-engine-skill-model.md) | **🆕** Agent Profile = System Prompt + Rules + Skills + Context Policy + Runtime Config + Engine；调度器作为特殊 Agent |
+| ADR-0011 | [0011-agent-engine-skill-model.md](docs/adr/0011-agent-engine-skill-model.md) | **🆕** Agent Profile = System Prompt + Rules + Toolset + Context Policy + Runtime Config + Engine；调度器作为特殊 Agent |
 
 ### Specs — 功能规格（按 Phase）
 

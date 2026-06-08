@@ -1,4 +1,9 @@
+import json
+import uuid
+
 import pytest
+
+from app.models import AgentConfig
 
 
 class TestCreateAgent:
@@ -18,24 +23,26 @@ class TestCreateAgent:
         assert data["agentType"] == "cli_wrapper"
         assert data["cliTool"] == "claude_code"
         assert data["executable"] == "claude"
+        assert data["toolset"] == []
         assert data["primarySkill"] == "general_coding"
         assert data["auxiliarySkills"] == []
         assert data["contextPolicy"] == "workspace_coding"
+        assert data["avatar"] == ""
         assert "id" in data
 
-    async def test_create_with_skill_profile(self, test_client):
+    async def test_create_with_toolset_and_avatar(self, test_client):
         res = await test_client.post("/api/agents", json={
-            "name": "前端专家",
+            "name": "前端工程师",
             "cliTool": "claude_code",
             "executable": "claude",
-            "primarySkill": "frontend_engineer",
-            "auxiliarySkills": ["react", "workspace_editing", "react"],
+            "toolset": ["local-ui", "local-ui", "local-test"],
+            "avatar": "preset:blue",
             "contextPolicy": "workspace_coding",
         })
         assert res.status_code == 201
         data = res.json()
-        assert data["primarySkill"] == "frontend_engineer"
-        assert data["auxiliarySkills"] == ["react", "workspace_editing"]
+        assert data["toolset"] == ["local-ui", "local-test"]
+        assert data["avatar"] == "preset:blue"
         assert data["contextPolicy"] == "workspace_coding"
 
     async def test_create_defaults(self, test_client):
@@ -125,26 +132,24 @@ class TestListAgents:
         agents = res.json()
         names = {agent["name"] for agent in agents}
         assert {"Claude Code", "Codex", "OpenCode"}.issubset(names)
+        assert "Orchestrator 调度器" in names
         assert {
-            "Orchestrator 调度器",
             "产品经理",
+            "UX/UI设计师",
+            "测试工程师",
+            "前端工程师",
+            "后端工程师",
+            "数据库工程师",
+            "系统架构师",
             "需求分析师",
-            "架构师",
-            "后端专家",
-            "前端专家",
-            "测试专家",
             "文档专家",
-        }.issubset(names)
+        }.isdisjoint(names)
         claude = next(agent for agent in agents if agent["name"] == "Claude Code")
         assert "--verbose" in claude["initArgs"]
         assert claude["envVars"] == {}
-        assert claude["primarySkill"] == "general_coding"
-        assert "workspace_editing" in claude["auxiliarySkills"]
+        assert claude["toolset"] == []
         orchestrator = next(agent for agent in agents if agent["name"] == "Orchestrator 调度器")
         assert orchestrator["primarySkill"] == "orchestrator_planner"
-        frontend = next(agent for agent in agents if agent["name"] == "前端专家")
-        assert frontend["primarySkill"] == "frontend_engineer"
-        assert "ux_designer" in frontend["auxiliarySkills"]
         codex = next(agent for agent in agents if agent["name"] == "Codex")
         assert "--ignore-user-config" not in codex["initArgs"]
         assert "--dangerously-bypass-approvals-and-sandbox" in codex["initArgs"]
@@ -159,26 +164,67 @@ class TestListAgents:
         agents = second.json()
         names = [agent["name"] for agent in agents]
         assert names.count("Orchestrator 调度器") == 1
-        assert names.count("产品经理") == 1
+        assert names.count("产品经理") == 0
+        assert names.count("UX/UI设计师") == 0
         orchestrator = next(agent for agent in agents if agent["name"] == "Orchestrator 调度器")
         assert orchestrator["primarySkill"] == "orchestrator_planner"
         assert orchestrator["contextPolicy"] == "planning_only"
 
-    async def test_configure_builtin_agents_codex_keeps_roles(self, test_client):
+    async def test_seed_archives_old_template_agents_without_hiding_user_agent(self, test_client, db_session):
+        old_template = AgentConfig(
+            id=str(uuid.uuid4()),
+            name="前端工程师",
+            description="旧版本自动 seed 模板",
+            system_prompt="template",
+            rules="",
+            agent_type="cli_wrapper",
+            cli_tool="codex",
+            executable="codex",
+            init_args="[]",
+            env_vars="{}",
+            primary_skill="frontend_engineer",
+            auxiliary_skills="[]",
+            toolset=json.dumps(["react_typescript"], ensure_ascii=False),
+            context_policy="workspace_coding",
+            avatar="preset:blue",
+            is_active=True,
+        )
+        user_agent = AgentConfig(
+            id=str(uuid.uuid4()),
+            name="前端工程师",
+            description="用户手动创建的同名 Agent",
+            system_prompt="custom",
+            rules="",
+            agent_type="cli_wrapper",
+            cli_tool="custom",
+            executable="echo",
+            init_args="[]",
+            env_vars="{}",
+            primary_skill="general_coding",
+            auxiliary_skills="[]",
+            toolset="[]",
+            context_policy="workspace_coding",
+            avatar="preset:blue",
+            is_active=True,
+        )
+        db_session.add_all([old_template, user_agent])
+        await db_session.commit()
+
+        res = await test_client.post("/api/agents/seed-defaults")
+        assert res.status_code == 200
+        agents = res.json()
+        frontend_agents = [agent for agent in agents if agent["name"] == "前端工程师"]
+        assert [agent["id"] for agent in frontend_agents] == [user_agent.id]
+
+        await db_session.refresh(old_template)
+        assert old_template.is_active is False
+
+    async def test_configure_builtin_agents_codex_keeps_orchestrator_only(self, test_client):
         res = await test_client.post("/api/agents/configure-builtins-codex")
         assert res.status_code == 200
 
         agents = res.json()
-        role_names = {
-            "Orchestrator 调度器",
-            "产品经理",
-            "需求分析师",
-            "架构师",
-            "后端专家",
-            "前端专家",
-            "测试专家",
-            "文档专家",
-        }
+        role_names = {"Orchestrator 调度器"}
         role_agents = [agent for agent in agents if agent["name"] in role_names]
 
         assert {agent["name"] for agent in role_agents} == role_names
@@ -189,10 +235,8 @@ class TestListAgents:
         orchestrator = next(agent for agent in role_agents if agent["name"] == "Orchestrator 调度器")
         assert orchestrator["primarySkill"] == "orchestrator_planner"
         assert orchestrator["contextPolicy"] == "planning_only"
-
-        frontend = next(agent for agent in role_agents if agent["name"] == "前端专家")
-        assert frontend["primarySkill"] == "frontend_engineer"
-        assert "ux_designer" in frontend["auxiliarySkills"]
+        names = {agent["name"] for agent in agents}
+        assert "前端工程师" not in names
 
     async def test_list_after_create(self, test_client):
         res_before = await test_client.get("/api/agents")
@@ -213,16 +257,16 @@ class TestUpdateAgent:
         assert data["name"] == "新名称"
         assert data["initArgs"] == ["--verbose"]
 
-    async def test_update_skill_profile(self, test_client, test_agent):
+    async def test_update_toolset_and_avatar(self, test_client, test_agent):
         res = await test_client.patch(f"/api/agents/{test_agent.id}", json={
-            "primarySkill": "code_reviewer",
-            "auxiliarySkills": ["security", "workspace_editing"],
+            "toolset": ["local-review", "local-review", "local-security"],
+            "avatar": "preset:green",
             "contextPolicy": "review_only",
         })
         assert res.status_code == 200
         data = res.json()
-        assert data["primarySkill"] == "code_reviewer"
-        assert data["auxiliarySkills"] == ["security", "workspace_editing"]
+        assert data["toolset"] == ["local-review", "local-security"]
+        assert data["avatar"] == "preset:green"
         assert data["contextPolicy"] == "review_only"
 
     async def test_update_identity_and_rules(self, test_client, test_agent):
@@ -250,25 +294,13 @@ class TestDeleteAgent:
 
 
 class TestSkillsApi:
-    async def test_list_builtin_skills(self, test_client):
+    async def test_list_skills_exposes_filesystem_only(self, test_client):
         res = await test_client.get("/api/skills")
         assert res.status_code == 200
+        assert all(skill["source"] == "filesystem" for skill in res.json())
         skill_ids = {skill["id"] for skill in res.json()}
-        assert {
-            "general_coding",
-            "frontend_engineer",
-            "orchestrator_planner",
-            "product_manager",
-            "requirements_analyst",
-            "architect",
-            "api_designer",
-            "database_designer",
-            "test_engineer",
-            "technical_writer",
-            "ux_designer",
-        }.issubset(skill_ids)
-        general = next(skill for skill in res.json() if skill["id"] == "general_coding")
-        assert general["source"] == "builtin"
+        assert "api_designer" not in skill_ids
+        assert "ux_designer" not in skill_ids
 
     async def test_list_filesystem_skills(self, test_client, monkeypatch):
         monkeypatch.setenv("AGENTHUB_SKILL_ROOTS", "test_fixtures/skills")

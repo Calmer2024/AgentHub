@@ -10,11 +10,11 @@
 
 ## 1. 目标
 
-将用户本机安装的真实 CLI 工具（Claude Code、Codex、OpenCode）接入 AgentHub 的运行时。按 [ADR-0011](../../adr/0011-agent-engine-skill-model.md) 的新口径，这些 CLI 工具是 **Engine**，不是用户最终调度的 Agent 本体。用户可见 Agent Profile = System Prompt + Rules + Skills + Context Policy + Runtime Config + Engine；用户在 Project 下与某个 Agent Profile 发起私聊时，后端会为该 Profile 选择的 Engine 在 Project 目录中启动一个 CLI 实例。
+将用户本机安装的真实 CLI 工具（Claude Code、Codex、OpenCode）接入 AgentHub 的运行时。按 [ADR-0011](../../adr/0011-agent-engine-skill-model.md) 的新口径，这些 CLI 工具是 **Engine**，不是用户最终调度的 Agent 本体。用户可见 Agent Profile = System Prompt + Rules + Toolset + Context Policy + Runtime Config + Engine；用户在 Project 下与某个 Agent Profile 发起私聊时，后端会为该 Profile 选择的 Engine 在 Project 目录中启动一个 CLI 实例。
 
 本模块通过 PTY/subprocess 管理每个对话对应的 CLI 进程生命周期，实现 stdin/stdout 桥接、ANSI 清洗、交互式拦截，并把 CLI 输出转换为标准化事件（`agent.output` / `artifact.detected` / `interactive_prompt`），最终实现分层渲染——文本进消息气泡、进度进状态条、产物进 Artifact Card、交互进确认卡片。
 
-当前实现快照见 [CLI Adapter 交付文档](../../deliverables/phase6-cli-adapter/README.md)。截至 2026-06-05，真实本机 Claude Code、Codex、OpenCode 三条 CLI Engine 路径已接入后端和前端配置 UI；Codex 支持官方 OpenAI 与第三方中转 API，并由 AgentHub 托管本机 `CODEX_HOME` 下的稳定配置。Agent Profile 的 Skill 绑定与 Prompt Assembly 见 [03-agent-engine-skill-profile.md](03-agent-engine-skill-profile.md)。
+当前实现快照见 [CLI Adapter 交付文档](../../deliverables/phase6-cli-adapter/README.md)。截至 2026-06-05，真实本机 Claude Code、Codex、OpenCode 三条 CLI Engine 路径已接入后端和前端配置 UI；Codex 支持官方 OpenAI 与第三方中转 API，并由 AgentHub 托管本机 `CODEX_HOME` 下的稳定配置。Agent Profile 的工具集绑定与 Prompt Assembly 见 [03-agent-engine-skill-profile.md](03-agent-engine-skill-profile.md)。
 
 **成功标准**（可证伪）：
 
@@ -33,7 +33,7 @@
 ### 2.1 北极星链路位置
 
 ```text
-用户创建 Project → 在 Project 下配置 Agent Profile（Engine + Skills）
+用户创建 Project → 在 Project 下配置 Agent Profile（Engine + Toolset）
   → 创建私聊/群聊 → 发送消息
   → [本模块] 根据 Agent Profile 的 Engine 路由到对应 Adapter 子类（ClaudeCode/Codex/OpenCode）
   → PTY/subprocess 孵化 CLI 进程（cwd = Project.workspace_path）
@@ -186,7 +186,7 @@ interface InteractivePromptEvent {
 
 **Engine ≠ Agent Profile**。本模块负责接入用户本机安装的实际 CLI 工具实例（如 `claude`、`codex`、`opencode`），它们是 Engine。用户真正看到和调度的是 Agent Profile，例如“前端专家 = Claude Code Engine + frontend_engineer Skill”。用户打开一个私聊对话时，后端会为该 Agent Profile 启动对应 Engine 的 CLI 执行单元。执行单元生命周期由 Adapter 能力决定：短进程 Adapter 在本轮对话结束后退出；Claude Code 当前由 `CliSessionProcessRuntime` 维护一会话一常驻 stdin JSONL 进程，并通过 `--session-id` / 崩溃恢复时的 `--resume` 绑定同一个原生会话；Codex/OpenCode 当前由 `CliRpcSessionRuntime` 维护一会话一常驻 RPC 进程。不同 AgentHub 会话之间的 CLI 进程或 Engine session 互不共享状态。
 
-**好友列表**位于项目栏顶部（见 [00-workspace-runtime.md](00-workspace-runtime.md) §5.0 全局布局），展示已配置的 Agent Profile。每个 Agent Profile 显示：用户定义名称 + Engine + Skill 摘要 + 状态。
+**好友列表**位于项目栏顶部（见 [00-workspace-runtime.md](00-workspace-runtime.md) §5.0 全局布局），展示已配置的 Agent Profile。每个 Agent Profile 显示：用户定义名称 + Engine + 工具集摘要 + 状态。
 
 ### 5.1 好友列表与默认 Agent
 

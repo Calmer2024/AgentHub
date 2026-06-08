@@ -1,6 +1,5 @@
 import {
   AlertCircle,
-  Bot,
   CheckCircle2,
   CircleDot,
   KeyRound,
@@ -14,6 +13,7 @@ import {
   Sparkles,
   SlidersHorizontal,
   Terminal,
+  Upload,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -26,6 +26,8 @@ import {
   type CliTool,
 } from "./AgentCliPresets";
 import { UiSelect, type UiSelectOption } from "./UiSelect";
+import { AgentAvatar, AGENT_AVATAR_PRESETS } from "./AgentAvatar";
+import { AGENT_TEMPLATE_PRESETS, type AgentTemplatePreset } from "./AgentTemplatePresets";
 
 const CLI_TOOL_OPTIONS: UiSelectOption[] = [
   { value: "claude_code", label: "Claude Code" },
@@ -60,9 +62,9 @@ export function AgentCliForm({
   const [note, setNote] = useState(initial?.description ?? preset.description);
   const [systemPrompt, setSystemPrompt] = useState(initial?.systemPrompt ?? "");
   const [rules, setRules] = useState(initial?.rules ?? "");
+  const [avatar, setAvatar] = useState(initial?.avatar || "preset:blue");
   const [skills, setSkills] = useState<SkillDefinition[]>([]);
-  const [primarySkill, setPrimarySkill] = useState(initial?.primarySkill ?? "general_coding");
-  const [auxiliarySkills, setAuxiliarySkills] = useState<string[]>(initial?.auxiliarySkills ?? ["workspace_editing"]);
+  const [toolset, setToolset] = useState<string[]>(initial?.toolset ?? []);
   const [contextPolicy, setContextPolicy] = useState(initial?.contextPolicy ?? "workspace_coding");
   const [executable, setExecutable] = useState(initial?.executable ?? preset.executable);
   const [argsText, setArgsText] = useState((initial?.initArgs ?? preset.initArgs).join(" "));
@@ -82,6 +84,7 @@ export function AgentCliForm({
   const [checking, setChecking] = useState(false);
   const [checkResult, setCheckResult] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [selectedTemplateName, setSelectedTemplateName] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -123,8 +126,7 @@ export function AgentCliForm({
     setSystemPrompt("");
     setRules("");
     setExecutable(nextPreset.executable);
-    setPrimarySkill("general_coding");
-    setAuxiliarySkills(["workspace_editing"]);
+    setToolset([]);
     setContextPolicy("workspace_coding");
     setArgsText(nextPreset.initArgs.join(" "));
     setEnvText(formatEnv(nextPreset.envVars));
@@ -135,6 +137,25 @@ export function AgentCliForm({
     setCodexProviderId("agenthub_proxy");
     setCodexProviderName("AgentHub Codex Proxy");
     setCodexUseChatgptAuth(true);
+    setCheckResult(null);
+    setFormError(null);
+    setSelectedTemplateName(null);
+  };
+
+  const applyTemplate = (template: AgentTemplatePreset) => {
+    const codexPreset = CLI_PRESETS.codex;
+    setSelectedTemplateName(template.name);
+    setCliTool("codex");
+    setName(template.name);
+    setNote(template.description);
+    setSystemPrompt(template.systemPrompt);
+    setRules(template.rules);
+    setToolset(template.toolset);
+    setContextPolicy(template.contextPolicy);
+    setAvatar(template.avatar);
+    setExecutable(codexPreset.executable);
+    setArgsText(codexPreset.initArgs.join(" "));
+    setEnvText(formatEnv(codexPreset.envVars));
     setCheckResult(null);
     setFormError(null);
   };
@@ -197,9 +218,9 @@ export function AgentCliForm({
         executable: executable.trim(),
         initArgs: parseArgs(argsText),
         envVars: parseEnv(envText, cliTool),
-        primarySkill,
-        auxiliarySkills: auxiliarySkills.filter((skillId) => skillId !== primarySkill),
+        toolset,
         contextPolicy,
+        avatar,
       });
     } catch (error) {
       setFormError(error instanceof Error ? error.message : "保存失败");
@@ -216,14 +237,15 @@ export function AgentCliForm({
       >
         <div className="agenthub-header flex items-center justify-between gap-4 border-b px-5 py-4">
           <div className="flex min-w-0 items-center gap-3">
-            <div className="agenthub-status-info flex h-10 w-10 shrink-0 items-center justify-center rounded-full border">
-              <Bot size={20} />
-            </div>
+            <AgentAvatar
+              agent={{ name: name || "Agent", cliTool, status: "ready", avatar }}
+              size="md"
+            />
             <div className="min-w-0">
               <h2 className="agenthub-strong truncate text-base font-semibold">
                 {initial ? "智能体设置" : "添加命令行智能体"}
               </h2>
-              <p className="agenthub-muted truncate text-xs">Engine + Skills + 本机运行参数</p>
+              <p className="agenthub-muted truncate text-xs">身份 + 工具集 + 本机运行参数</p>
             </div>
           </div>
           <button
@@ -238,8 +260,82 @@ export function AgentCliForm({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-          <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
+          <div className="grid items-start gap-4 lg:grid-cols-2">
+            {!initial && (
+              <div className="lg:col-span-2">
+                <ConfigSection icon={Sparkles} title="模板" description="选择后会预填身份、规则和工具集">
+                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    {AGENT_TEMPLATE_PRESETS.map((template) => {
+                      const selected = selectedTemplateName === template.name;
+                      return (
+                        <button
+                          key={template.name}
+                          type="button"
+                          onClick={() => applyTemplate(template)}
+                          className={`agenthub-soft flex min-h-[76px] flex-col items-start justify-between rounded-2xl border px-3 py-2.5 text-left transition hover:border-[color:var(--ah-border-hover)] hover:bg-[color:var(--ah-card-soft)] ${
+                            selected ? "ring-2 ring-[color:var(--ah-accent-strong)] ring-offset-2 ring-offset-[color:var(--ah-card)]" : ""
+                          }`}
+                        >
+                          <span className="agenthub-strong text-sm font-medium">{template.name}</span>
+                          <span className="agenthub-muted mt-1 line-clamp-2 text-xs leading-5">{template.description}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </ConfigSection>
+              </div>
+            )}
+
+            <div className="lg:col-span-2">
             <ConfigSection icon={Settings2} title="基础信息" description="设置用户可见的智能体身份">
+              <FieldLabel label="头像">
+                <div className="flex flex-wrap items-center gap-2">
+                  {AGENT_AVATAR_PRESETS.slice(0, 6).map((presetAvatar) => {
+                    const Icon = presetAvatar.icon;
+                    const selected = avatar === presetAvatar.id;
+                    return (
+                      <button
+                        key={presetAvatar.id}
+                        type="button"
+                        onClick={() => setAvatar(presetAvatar.id)}
+                        className={`flex h-10 w-10 items-center justify-center rounded-full border transition ${
+                          selected ? "ring-2 ring-[color:var(--ah-accent-strong)] ring-offset-2 ring-offset-[color:var(--ah-card)]" : "hover:-translate-y-0.5"
+                        } ${presetAvatar.className}`}
+                        title={presetAvatar.label}
+                        aria-label={`选择${presetAvatar.label}头像`}
+                      >
+                        <Icon size={18} strokeWidth={1.9} />
+                      </button>
+                    );
+                  })}
+                  {avatar.startsWith("data:image/") && (
+                    <span
+                      className="agenthub-icon-button flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border"
+                      title="当前上传头像"
+                      aria-label="当前上传头像"
+                    >
+                      <img src={avatar} alt="" className="h-full w-full object-cover" />
+                    </span>
+                  )}
+                  <label className="agenthub-icon-button inline-flex h-10 cursor-pointer items-center gap-1.5 rounded-full border px-3 text-xs">
+                    <Upload size={14} />
+                    上传
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp,image/gif"
+                      className="sr-only"
+                      onChange={(event) => {
+                        const file = event.currentTarget.files?.[0] ?? null;
+                        event.currentTarget.value = "";
+                        if (!file) return;
+                        void readAvatarFile(file)
+                          .then(setAvatar)
+                          .catch((error) => setFormError(error instanceof Error ? error.message : "头像读取失败"));
+                      }}
+                    />
+                  </label>
+                </div>
+              </FieldLabel>
               <FieldLabel label="显示名称">
                 <input value={name} onChange={(event) => setName(event.target.value)} required className={inputClass} />
               </FieldLabel>
@@ -252,6 +348,7 @@ export function AgentCliForm({
                 />
               </FieldLabel>
             </ConfigSection>
+            </div>
 
             <div className="lg:col-span-2">
               <ConfigSection icon={ShieldCheck} title="身份与规则" description="System Prompt 定义身份/业务边界，Rules 定义长期行为原则">
@@ -260,7 +357,7 @@ export function AgentCliForm({
                     value={systemPrompt}
                     onChange={(event) => setSystemPrompt(event.target.value)}
                     rows={5}
-                    placeholder="例如：你是家庭资产管理项目的架构师，只负责技术方案、模块边界、数据模型和接口契约。"
+                    placeholder="例如：你是家庭资产管理项目的系统架构师，只负责技术方案、模块边界、数据模型和接口契约。"
                     className={`${inputClass} min-h-[140px] resize-y leading-5`}
                   />
                 </FieldLabel>
@@ -276,7 +373,7 @@ export function AgentCliForm({
               </ConfigSection>
             </div>
 
-            <ConfigSection icon={Sparkles} title="能力配置" description="Skills 描述能力，Engine 负责执行，供调度器匹配任务">
+            <ConfigSection icon={Sparkles} title="能力配置" description="工具集来自本机 Skill，Engine 负责真实执行">
               <FieldLabel label="命令行类型">
                 <UiSelect
                   ariaLabel="命令行类型"
@@ -285,39 +382,31 @@ export function AgentCliForm({
                   onValueChange={(next) => selectTool(next as CliTool)}
                 />
               </FieldLabel>
-              <FieldLabel label="主 Skill">
-                <UiSelect
-                  ariaLabel="主 Skill"
-                  value={primarySkill}
-                  options={skillOptions(skills).map((skill) => ({
-                    value: skill.id,
-                    label: skill.name,
-                    description: skill.source === "filesystem" ? "本机 Skill" : undefined,
-                  }))}
-                  onValueChange={setPrimarySkill}
-                />
-              </FieldLabel>
-              <FieldLabel label="辅助 Skills">
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {skillOptions(skills).filter((skill) => skill.id !== primarySkill).map((skill) => (
-                    <label key={skill.id} className="agenthub-soft flex min-w-0 items-center gap-2 rounded-xl border px-3 py-2 text-xs">
-                      <input
-                        type="checkbox"
-                        checked={auxiliarySkills.includes(skill.id)}
-                        onChange={() => setAuxiliarySkills((current) => toggleSkill(current, skill.id))}
-                        className="h-4 w-4 shrink-0 accent-[color:var(--ah-accent-strong)]"
-                      />
-                      <span className="min-w-0 flex-1 truncate" title={skill.path ? `${skill.description}\n${skill.path}` : skill.description}>
-                        {skill.name}
-                      </span>
-                      {skill.source === "filesystem" && (
-                        <span className="shrink-0 rounded bg-emerald-400/10 px-1.5 py-0.5 text-[10px] text-emerald-200">
+              <FieldLabel label="工具集">
+                {skills.length === 0 ? (
+                  <div className="agenthub-soft rounded-2xl border px-3 py-3 text-xs leading-5">
+                    未发现本机 Skill。可以先留空，Agent 会仅按 System Prompt、Rules 和当前任务工作。
+                  </div>
+                ) : (
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {skills.map((skill) => (
+                      <label key={skill.id} className="agenthub-soft flex min-w-0 items-center gap-2 rounded-xl border px-3 py-2 text-xs transition hover:border-[color:var(--ah-border-strong)] hover:bg-[color:var(--ah-card-soft)]">
+                        <input
+                          type="checkbox"
+                          checked={toolset.includes(skill.id)}
+                          onChange={() => setToolset((current) => toggleTool(current, skill.id))}
+                          className="h-4 w-4 shrink-0 accent-[color:var(--ah-accent-strong)]"
+                        />
+                        <span className="min-w-0 flex-1 truncate" title={skill.path ? `${skill.description}\n${skill.path}` : skill.description}>
+                          {skill.name}
+                        </span>
+                        <span className="shrink-0 rounded bg-emerald-400/10 px-1.5 py-0.5 text-[10px] text-emerald-700 dark:text-emerald-200">
                           本机
                         </span>
-                      )}
-                    </label>
-                  ))}
-                </div>
+                      </label>
+                    ))}
+                  </div>
+                )}
               </FieldLabel>
               <FieldLabel label="上下文策略">
                 <UiSelect
@@ -488,19 +577,27 @@ export function AgentCliForm({
 
 const parseArgs = (value: string) => value.split(/\s+/).map((item) => item.trim()).filter(Boolean);
 
-const FALLBACK_SKILLS: SkillDefinition[] = [
-  { id: "general_coding", name: "通用工程师", description: "处理常规代码实现、修复和项目内工程任务。", tags: [] },
-  { id: "workspace_editing", name: "Workspace 编辑", description: "负责在项目工作区中读写文件。", tags: [] },
-  { id: "orchestrator_planner", name: "调度器规划", description: "只负责需求拆解、DAG 计划和 Agent 分配建议。", tags: [] },
-];
-
-function skillOptions(skills: SkillDefinition[]) {
-  return skills.length > 0 ? skills : FALLBACK_SKILLS;
-}
-
-function toggleSkill(current: string[], skillId: string) {
+function toggleTool(current: string[], skillId: string) {
   if (current.includes(skillId)) return current.filter((id) => id !== skillId);
   return [...current, skillId];
+}
+
+function readAvatarFile(file: File): Promise<string> {
+  if (!file.type.startsWith("image/")) {
+    return Promise.reject(new Error("请选择图片文件"));
+  }
+  if (file.size > 512 * 1024) {
+    return Promise.reject(new Error("头像图片不能超过 512KB"));
+  }
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") resolve(reader.result);
+      else reject(new Error("头像读取失败"));
+    };
+    reader.onerror = () => reject(new Error("头像读取失败"));
+    reader.readAsDataURL(file);
+  });
 }
 
 function parseEnv(value: string, cliTool: CliTool): Record<string, string> {

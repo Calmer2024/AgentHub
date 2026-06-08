@@ -5,6 +5,7 @@
 
 import json
 import uuid
+from datetime import timedelta
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -86,8 +87,13 @@ class SessionService:
         self.db.add(session)
 
         if is_group and group_agent_ids:
-            for aid in group_agent_ids[:MAX_GROUP_MEMBERS]:
-                self.db.add(SessionMember(session_id=session.id, agent_config_id=aid))
+            joined_at = china_now()
+            for index, aid in enumerate(group_agent_ids[:MAX_GROUP_MEMBERS]):
+                self.db.add(SessionMember(
+                    session_id=session.id,
+                    agent_config_id=aid,
+                    joined_at=joined_at + timedelta(microseconds=index),
+                ))
 
         await self.db.commit()
         await self.db.refresh(session)
@@ -268,6 +274,7 @@ class SessionService:
     async def _get_member_rows(self, session_id: str) -> list[SessionMember]:
         result = await self.db.execute(
             select(SessionMember).where(SessionMember.session_id == session_id)
+            .order_by(SessionMember.joined_at.asc(), SessionMember.agent_config_id.asc())
         )
         return list(result.scalars().all())
 

@@ -93,7 +93,7 @@ class CliAgentService:
                 f"当前会话中的用户可见 Agent 名称: {agent.name}\n"
                 f"底层 Engine: {agent.cli_tool or 'custom'}\n"
                 "Agent 的身份和业务边界由 Agent System Prompt 定义；"
-                "Rules 定义长期行为规则；Skills 只补充可复用能力。"
+                "Rules 定义长期行为规则；工具集只补充可复用能力。"
                 "当用户询问你是什么角色时，回答 Agent Profile 身份，而不是只回答底层 Engine 名称。"
             )
         ]
@@ -104,14 +104,16 @@ class CliAgentService:
         if rules:
             parts.append(f"[Agent Rules]\n{rules}")
 
-        primary = self._skills.get(agent.primary_skill or "general_coding")
-        if primary:
-            parts.append(f"[Primary Skill: {primary.id}]\n{primary.prompt}")
-
-        for skill_id in decode_json_list(agent.auxiliary_skills):
-            skill = self._skills.get(skill_id)
+        toolset = decode_json_list(getattr(agent, "toolset", "[]"))
+        tag_only_tools: list[str] = []
+        for tool_id in toolset:
+            skill = self._skills.get(tool_id)
             if skill:
-                parts.append(f"[Auxiliary Skill: {skill.id}]\n{skill.prompt}")
+                parts.append(f"[Local Tool: {skill.id}]\n{skill.prompt}")
+            else:
+                tag_only_tools.append(tool_id)
+        if tag_only_tools:
+            parts.append(f"[Agent Toolset]\n{', '.join(tag_only_tools)}")
 
         policy = (agent.context_policy or "workspace_coding").strip()
         if policy:

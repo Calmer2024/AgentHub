@@ -107,13 +107,15 @@ async def seed_default_cli_agents(db: AsyncSession) -> None:
                 allowed_sensitive_keys=allowed_sensitive_env_keys_for_cli(cli_tool),
             ),
             primary_skill="general_coding",
-            auxiliary_skills=json.dumps(["workspace_editing"], ensure_ascii=False),
+            auxiliary_skills="[]",
+            toolset="[]",
             context_policy="workspace_coding",
+            avatar="preset:blue",
         )
         db.add(agent)
         defaults_by_tool[cli_tool] = agent
     await _ensure_orchestrator_agent(db, defaults_by_tool)
-    await _ensure_lifecycle_agents(db, defaults_by_tool)
+    await _archive_template_agents(db)
     await db.commit()
 
 
@@ -168,9 +170,13 @@ def _ensure_skill_profile(agent: AgentConfig) -> None:
     if not getattr(agent, "primary_skill", None):
         agent.primary_skill = "general_coding"
     if not getattr(agent, "auxiliary_skills", None):
-        agent.auxiliary_skills = json.dumps(["workspace_editing"], ensure_ascii=False)
+        agent.auxiliary_skills = "[]"
+    if not getattr(agent, "toolset", None):
+        agent.toolset = "[]"
     if not getattr(agent, "context_policy", None):
         agent.context_policy = "workspace_coding"
+    if getattr(agent, "avatar", None) is None:
+        agent.avatar = ""
 
 
 async def _ensure_orchestrator_agent(
@@ -190,14 +196,17 @@ async def _ensure_orchestrator_agent(
         existing.system_prompt = _orchestrator_system_prompt()
         existing.rules = _orchestrator_rules()
         existing.context_policy = "planning_only"
+        existing.toolset = "[]"
+        existing.avatar = "preset:violet"
+        _ensure_engine_defaults(existing, defaults_by_tool, "codex")
         return
 
     base = (
-        defaults_by_tool.get("claude_code")
-        or defaults_by_tool.get("codex")
+        defaults_by_tool.get("codex")
+        or defaults_by_tool.get("claude_code")
         or defaults_by_tool.get("opencode")
     )
-    defaults = DEFAULT_CLI_AGENTS.get(base.cli_tool if base else "claude_code", DEFAULT_CLI_AGENTS["claude_code"])
+    defaults = DEFAULT_CLI_AGENTS.get(base.cli_tool if base else "codex", DEFAULT_CLI_AGENTS["codex"])
     db.add(AgentConfig(
         id=str(uuid.uuid4()),
         name="Orchestrator 调度器",
@@ -210,72 +219,145 @@ async def _ensure_orchestrator_agent(
         init_args=base.init_args if base else json.dumps(defaults["init_args"], ensure_ascii=False),
         env_vars=base.env_vars if base else encode_cli_agent_env(
             defaults["env_vars"],
-            allowed_sensitive_keys=allowed_sensitive_env_keys_for_cli("claude_code"),
+            allowed_sensitive_keys=allowed_sensitive_env_keys_for_cli("codex"),
         ),
         primary_skill="orchestrator_planner",
-        auxiliary_skills=json.dumps(["architect"], ensure_ascii=False),
+        auxiliary_skills="[]",
+        toolset="[]",
         context_policy="planning_only",
+        avatar="preset:violet",
     ))
 
 
 LIFECYCLE_AGENT_SPECS = [
     {
         "name": "产品经理",
-        "description": "负责业务目标、角色权限、需求范围、优先级和验收标准。",
+        "aliases": [],
+        "description": "负责产品目标、用户场景、范围边界、优先级、验收标准和发布取舍。",
         "primary_skill": "product_manager",
-        "auxiliary_skills": ["requirements_analyst", "technical_writer"],
+        "toolset": ["product_strategy", "scope_control", "acceptance_criteria"],
         "context_policy": "planning_only",
-        "preferred_tool": "claude_code",
+        "avatar": "preset:rose",
+        "system_prompt": (
+            "你是 AgentHub 内置模板「产品经理」。你的职责是把模糊需求收敛为清晰、"
+            "可验收、可分工的产品定义。你关注用户、场景、约束、优先级和非目标，"
+            "不代替设计师画界面、不代替工程师写实现。"
+        ),
+        "rules": (
+            "输出先说明目标和范围，再给用户故事、业务规则、验收标准和风险。"
+            "遇到实现细节争议时只定义产品口径，把技术方案交给系统架构师或对应工程师。"
+            "中文需求下使用中文，避免把未确认假设写成已确定结论。"
+        ),
     },
     {
-        "name": "需求分析师",
-        "description": "负责需求澄清、业务规则、异常流程、权限矩阵和用例。",
-        "primary_skill": "requirements_analyst",
-        "auxiliary_skills": ["product_manager", "technical_writer"],
+        "name": "UX/UI设计师",
+        "aliases": [],
+        "description": "负责信息架构、任务流、界面布局、交互反馈、视觉一致性和可用性验收。",
+        "primary_skill": "ux_ui_designer",
+        "toolset": ["interaction_flow", "visual_system", "ux_state_coverage"],
         "context_policy": "planning_only",
-        "preferred_tool": "claude_code",
+        "avatar": "preset:violet",
+        "system_prompt": (
+            "你是 AgentHub 内置模板「UX/UI设计师」。你的职责是把产品目标转化为"
+            "清晰的信息架构、任务流、界面结构、交互状态和视觉规范。你关注用户是否"
+            "知道当前系统在做什么、自己能做什么、下一步会发生什么。"
+        ),
+        "rules": (
+            "输出必须覆盖空、加载、正常、完成、错误、边界六类体验状态。"
+            "设计建议要能被前端工程师直接实现，避免只给抽象审美词。"
+            "不代写业务 API 和数据库方案；需要实现时交给前端工程师。"
+        ),
     },
     {
-        "name": "架构师",
-        "description": "负责系统边界、技术方案、模块划分、数据模型和接口契约。",
-        "primary_skill": "architect",
-        "auxiliary_skills": ["api_designer", "database_designer", "technical_writer"],
-        "context_policy": "workspace_coding",
-        "preferred_tool": "claude_code",
-    },
-    {
-        "name": "后端专家",
-        "description": "负责服务端 API、数据库访问、业务逻辑、权限和后端测试。",
-        "primary_skill": "backend_engineer",
-        "auxiliary_skills": ["api_designer", "database_designer", "workspace_editing"],
-        "context_policy": "workspace_coding",
-        "preferred_tool": "codex",
-    },
-    {
-        "name": "前端专家",
-        "description": "负责前端页面、组件、交互、状态管理和 Web 预览。",
-        "primary_skill": "frontend_engineer",
-        "auxiliary_skills": ["ux_designer", "web_preview", "workspace_editing"],
-        "context_policy": "workspace_coding",
-        "preferred_tool": "claude_code",
-    },
-    {
-        "name": "测试专家",
-        "description": "负责测试策略、测试用例、集成测试、回归风险和验收报告。",
+        "name": "测试工程师",
+        "aliases": ["测试专家"],
+        "description": "负责测试策略、风险建模、用例设计、自动化验证、回归检查和验收报告。",
         "primary_skill": "test_engineer",
-        "auxiliary_skills": ["code_reviewer", "technical_writer"],
+        "toolset": ["risk_based_testing", "api_regression", "frontend_ux_testing"],
         "context_policy": "review_only",
-        "preferred_tool": "codex",
+        "avatar": "preset:green",
+        "system_prompt": (
+            "你是 AgentHub 内置模板「测试工程师」。你的职责是证明系统是否真的正确，"
+            "并主动寻找同类问题、边界条件和回归风险。"
+        ),
+        "rules": (
+            "输出优先给风险路径、测试矩阵、自动化命令和验收结论。"
+            "发现问题时描述可复现步骤、预期、实际和影响面。"
+            "不要把测试通过等同于人工体验通过；UI 相关任务必须覆盖 UX 状态。"
+        ),
     },
     {
-        "name": "文档专家",
-        "description": "负责 PRD、架构说明、接口文档、用户指南和交接文档。",
-        "primary_skill": "technical_writer",
-        "auxiliary_skills": ["product_manager", "architect"],
+        "name": "前端工程师",
+        "aliases": ["前端专家"],
+        "description": "负责 React 组件、状态管理、界面实现、交互细节、响应式布局和浏览器验证。",
+        "primary_skill": "frontend_engineer",
+        "toolset": ["react_typescript", "state_management", "responsive_ui"],
+        "context_policy": "workspace_coding",
+        "avatar": "preset:blue",
+        "system_prompt": (
+            "你是 AgentHub 内置模板「前端工程师」。你的职责是把产品与设计方案落实为"
+            "可维护的 React/TypeScript 前端实现，保持交互、状态、样式和可访问性一致。"
+        ),
+        "rules": (
+            "优先遵循现有组件、状态管理和样式系统。所有用户操作必须有反馈，"
+            "所有固定格式控件必须有稳定尺寸，移动端和桌面端都不能出现文字溢出或重叠。"
+            "不擅自改后端契约；需要接口变更时先说明字段和状态。"
+        ),
+    },
+    {
+        "name": "后端工程师",
+        "aliases": ["后端专家"],
+        "description": "负责 API 路由、业务服务、权限边界、数据校验、异步流程和后端集成测试。",
+        "primary_skill": "backend_engineer",
+        "toolset": ["fastapi_service", "domain_logic", "integration_testing"],
+        "context_policy": "workspace_coding",
+        "avatar": "preset:amber",
+        "system_prompt": (
+            "你是 AgentHub 内置模板「后端工程师」。你的职责是实现稳定、可测试、"
+            "符合分层边界的服务端能力，保证 API 契约、错误状态和持久化行为可靠。"
+        ),
+        "rules": (
+            "先明确请求/响应和异常状态，再写 Service 和路由。保持 async 代码一致，"
+            "Pydantic 字段与前端 camelCase 对齐。不要用临时 hack 绕过数据库、权限或输入校验。"
+        ),
+    },
+    {
+        "name": "数据库工程师",
+        "aliases": [],
+        "description": "负责数据模型、迁移脚本、索引约束、数据一致性、回滚策略和查询性能。",
+        "primary_skill": "database_engineer",
+        "toolset": ["schema_design", "migration_safety", "query_integrity"],
+        "context_policy": "workspace_coding",
+        "avatar": "preset:slate",
+        "system_prompt": (
+            "你是 AgentHub 内置模板「数据库工程师」。你的职责是把业务状态转化为"
+            "清晰可靠的数据结构、迁移策略、约束、索引和一致性规则。"
+        ),
+        "rules": (
+            "所有结构变更都必须考虑旧数据、幂等迁移、默认值、查询路径和测试覆盖。"
+            "不要把业务校验全部塞进数据库，也不要忽略数据库能自然保证的不变量。"
+        ),
+    },
+    {
+        "name": "系统架构师",
+        "aliases": ["架构师"],
+        "description": "负责系统边界、模块拆分、接口契约、技术取舍、演进路径和跨端一致性。",
+        "primary_skill": "architect",
+        "toolset": ["system_boundary", "contract_design", "architecture_decision"],
         "context_policy": "planning_only",
-        "preferred_tool": "claude_code",
+        "avatar": "preset:blue",
+        "system_prompt": (
+            "你是 AgentHub 内置模板「系统架构师」。你的职责是定义系统边界、模块关系、"
+            "接口契约、数据流、风险和演进路径，让后续工程实现有清晰跑道。"
+        ),
+        "rules": (
+            "输出要解释为什么现在这样设计、替代方案是什么、会影响哪些模块。"
+            "只在需要验证架构假设时建议小型实现，不代替前端、后端或数据库工程师完成全部代码。"
+        ),
     },
 ]
+
+RETIRED_BUILTIN_ROLE_AGENT_NAMES = ["需求分析师", "文档专家"]
 
 BUILTIN_ROLE_AGENT_NAMES = [
     "Orchestrator 调度器",
@@ -287,44 +369,40 @@ async def _ensure_lifecycle_agents(
     db: AsyncSession,
     defaults_by_tool: dict[str, AgentConfig],
 ) -> None:
+    """兼容旧调用：不再把专家模板写入好友列表。"""
+    await _archive_template_agents(db)
+    return
+
+
+async def _archive_template_agents(db: AsyncSession) -> None:
+    """隐藏旧版本自动 seed 到好友列表里的专家模板。"""
+    await _archive_retired_builtin_roles(db)
     for spec in LIFECYCLE_AGENT_SPECS:
+        names = [str(spec["name"]), *[str(name) for name in spec.get("aliases", [])]]
         result = await db.execute(
             select(AgentConfig).where(
-                AgentConfig.primary_skill == spec["primary_skill"],
-                AgentConfig.name == spec["name"],
+                AgentConfig.name.in_(names),
+                AgentConfig.primary_skill == str(spec["primary_skill"]),
                 AgentConfig.is_active == True,
-            ).limit(1)
+            )
         )
-        existing = result.scalars().first()
-        if existing:
-            existing.description = spec["description"]
-            existing.system_prompt = _lifecycle_system_prompt(spec["name"])
-            existing.rules = _lifecycle_rules()
-            existing.auxiliary_skills = json.dumps(spec["auxiliary_skills"], ensure_ascii=False)
-            existing.context_policy = spec["context_policy"]
-            _ensure_engine_defaults(existing, defaults_by_tool, spec["preferred_tool"])
-            continue
+        for existing in result.scalars().all():
+            existing.is_active = False
 
-        base = _preferred_engine(defaults_by_tool, spec["preferred_tool"])
-        db.add(AgentConfig(
-            id=str(uuid.uuid4()),
-            name=spec["name"],
-            description=spec["description"],
-            system_prompt=_lifecycle_system_prompt(spec["name"]),
-            rules=_lifecycle_rules(),
-            agent_type="cli_wrapper",
-            cli_tool=base.cli_tool,
-            executable=base.executable,
-            init_args=base.init_args,
-            env_vars=base.env_vars,
-            primary_skill=spec["primary_skill"],
-            auxiliary_skills=json.dumps(spec["auxiliary_skills"], ensure_ascii=False),
-            context_policy=spec["context_policy"],
-        ))
+
+async def _archive_retired_builtin_roles(db: AsyncSession) -> None:
+    result = await db.execute(
+        select(AgentConfig).where(
+            AgentConfig.name.in_(RETIRED_BUILTIN_ROLE_AGENT_NAMES),
+            AgentConfig.is_active == True,
+        )
+    )
+    for agent in result.scalars().all():
+        agent.is_active = False
 
 
 async def configure_builtin_role_agents_as_codex(db: AsyncSession) -> int:
-    """把内置角色 Agent 统一切到 Codex 引擎，保留角色技能配置。"""
+    """把内置模板 Agent 统一切到 Codex 引擎，保留身份与工具集配置。"""
     await seed_default_cli_agents(db)
     result = await db.execute(
         select(AgentConfig).where(
@@ -368,16 +446,10 @@ def _ensure_engine_defaults(
     preferred_tool: str,
 ) -> None:
     base = _preferred_engine(defaults_by_tool, preferred_tool)
-    if not agent.cli_tool or agent.cli_tool == "custom":
-        agent.cli_tool = base.cli_tool
-    if not agent.executable:
-        agent.executable = base.executable
-    if not agent.init_args:
-        agent.init_args = base.init_args
-    if not agent.env_vars:
-        agent.env_vars = base.env_vars
-    if not agent.system_prompt:
-        agent.system_prompt = _lifecycle_system_prompt(agent.name)
+    agent.cli_tool = base.cli_tool
+    agent.executable = base.executable
+    agent.init_args = base.init_args
+    agent.env_vars = base.env_vars
     if getattr(agent, "rules", None) is None:
         agent.rules = ""
 
@@ -400,23 +472,9 @@ def _fallback_engine() -> AgentConfig:
         ),
         primary_skill="general_coding",
         auxiliary_skills="[]",
+        toolset="[]",
         context_policy="workspace_coding",
-    )
-
-
-def _lifecycle_system_prompt(agent_name: str) -> str:
-    return (
-        f"你是 AgentHub 默认产品生命周期小队中的「{agent_name}」。"
-        "不要宣称自己只是底层 CLI Engine；当用户询问身份时，回答这个 Agent 身份。"
-    )
-
-
-def _lifecycle_rules() -> str:
-    return (
-        "请严格按当前 Agent Profile 的主 Skill 与辅助 Skills 工作。"
-        "输出语言默认跟随用户需求与上游交接语言；中文需求下，文档、交接说明、UI 文案和必要注释都使用中文。"
-        "用户要的正式项目文档、代码、配置和测试应沉淀到项目 workspace；"
-        "任务工作包只保存草稿、过程笔记和下游交接副本。"
+        avatar="preset:blue",
     )
 
 
@@ -431,7 +489,7 @@ def _orchestrator_rules() -> str:
     return (
         "你只输出调用方要求的 JSON，不直接修改文件、不执行子任务。"
         "当调用方要求 steward routing 时，输出 route_type/reply/selected_agent_ids 等决策 JSON；"
-        "当用户明确 @ 你生成计划或跟进计划时，输出符合 orchestrator_planner skill 契约的 draft plan JSON。"
+        "当用户明确 @ 你生成计划或跟进计划时，输出符合 AgentHub draft plan 契约的 JSON。"
         "任务交付物只描述类型、目录层级或建议位置，除非用户明确指定，不要强制精确文件名。"
         "当用户要求正式项目文档时，计划应建议写入项目 docs/，不要把任务工作包当成最终交付目录。"
         "输出语言默认跟随用户需求；中文需求下，计划标题、目标、验收标准和交接要求都用中文。"

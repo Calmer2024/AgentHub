@@ -25,12 +25,12 @@ const SAMPLE = "我们要给公司开发一个基础的员工报销单管理系�
 const DEFAULT_AGENT_NAMES = [
   "Orchestrator 调度器",
   "产品经理",
-  "需求分析师",
-  "架构师",
-  "后端专家",
-  "前端专家",
-  "测试专家",
-  "文档专家",
+  "UX/UI设计师",
+  "测试工程师",
+  "前端工程师",
+  "后端工程师",
+  "数据库工程师",
+  "系统架构师",
 ];
 
 export function OrchestratorDebugPanel({ agents, onAgentsChanged }: Props) {
@@ -211,7 +211,7 @@ export function OrchestratorDebugPanel({ agents, onAgentsChanged }: Props) {
               <div>
                 <h3 className="text-sm font-semibold text-[#30362f]">默认 Agent 小队</h3>
                 <p className="mt-1 text-xs leading-5 text-[#697166]">
-                  一键创建/更新 Orchestrator、产品、需求、架构、前后端、测试和文档 Agent。
+                  一键创建/更新 Orchestrator、产品、设计、测试、前端、后端、数据库和架构 Agent。
                 </p>
               </div>
               <span className="shrink-0 bg-[#eef0e8] px-2 py-1 text-[11px] font-semibold text-[#4f594f]">
@@ -548,9 +548,9 @@ function BridgeInputSummary({ bridgeInput }: { bridgeInput: BuildOrchestratorInp
         <p className="text-[11px] uppercase tracking-[0.14em] text-[#6f766d]">Orchestrator Profile</p>
         <h3 className="mt-1 text-xl font-semibold text-[#1f2421]">{bridgeInput.orchestratorAgent.name}</h3>
         <p className="mt-2 text-xs text-[#697166]">
-          {bridgeInput.orchestratorAgent.engine} · {bridgeInput.orchestratorAgent.primarySkill}
+          {bridgeInput.orchestratorAgent.engine} · 工具集
         </p>
-        <TagRow tags={bridgeInput.orchestratorAgent.auxiliarySkills} />
+        <TagRow tags={bridgeInput.orchestratorAgent.toolset} />
       </section>
       <AgentSnapshot agents={bridgeInput.candidateAgents} />
     </div>
@@ -739,9 +739,9 @@ function AgentSnapshot({ agents, compact = false }: { agents: OrchestratorDebugA
             <p className="text-sm font-semibold text-[#30362f]">{agent.name}</p>
             {!compact && <p className="mt-1 text-xs leading-5 text-[#697166]">{agent.description}</p>}
             <p className="mt-1 text-[11px] text-[#6f766d]">
-              {agent.id} · {agent.primarySkill ?? "unknown"}
+              {agent.id} · {agent.provider}
             </p>
-            <TagRow tags={agent.auxiliarySkills ?? []} />
+            <TagRow tags={agent.toolset ?? []} />
           </div>
         ))}
       </div>
@@ -751,11 +751,11 @@ function AgentSnapshot({ agents, compact = false }: { agents: OrchestratorDebugA
 
 function MockAgentRoster() {
   const roster = [
-    ["架构专家", "架构设计、方案拆解"],
-    ["前端专家", "React、UI、组件"],
-    ["后端专家", "Python、API、数据库"],
-    ["审查专家", "测试、安全、质量评估"],
-    ["研究专家", "调研、分析、总结"],
+    ["系统架构师", "边界、契约、演进路径"],
+    ["UX/UI设计师", "流程、界面、交互状态"],
+    ["前端工程师", "React、状态、组件实现"],
+    ["后端工程师", "API、服务、集成测试"],
+    ["测试工程师", "风险、回归、验收报告"],
   ];
   return (
     <div className="grid gap-1 border-t border-[#ecece4] pt-3">

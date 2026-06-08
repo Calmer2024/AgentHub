@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useChatStore, type CollabSnapshot } from "./stores/chatStore";
 import { SessionList } from "./components/SessionList";
 import { MemoChatWindow as ChatWindow } from "./components/ChatWindow";
@@ -19,7 +19,7 @@ import {
 import { useSendMessage } from "./hooks/useSendMessage";
 import { useWorkspaceRuntime } from "./hooks/useWorkspaceRuntime";
 import { useToastStore } from "./stores/toastStore";
-import type { Message } from "./types";
+import type { AgentConfig, Message } from "./types";
 
 /** 从 store 读取当前会话的协作状态（零值 = 空快照）。 */
 function emptyCollab(): CollabSnapshot {
@@ -82,8 +82,15 @@ function App() {
 
   const [showGroupCreator, setShowGroupCreator] = useState(false);
   const [agentModal, setAgentModal] = useState<{ mode: "create" | "edit"; agentId?: string } | null>(null);
+  const [appRoute, setAppRoute] = useState(() => window.location.hash || "#/");
   const handleSend = useSendMessage();
   const pushToast = useToastStore((state) => state.pushToast);
+
+  useEffect(() => {
+    const syncRoute = () => setAppRoute(window.location.hash || "#/");
+    window.addEventListener("hashchange", syncRoute);
+    return () => window.removeEventListener("hashchange", syncRoute);
+  }, []);
 
   const notifyError = useCallback((title: string, error: unknown) => {
     pushToast({
@@ -169,6 +176,15 @@ function App() {
       setArtifactsForSession(currentSessionId, await fetchArtifacts(currentSessionId));
     } catch { /* */ }
   }, [currentSessionId, setArtifactsForSession]);
+
+  if (appRoute === "#/dev/orchestrator") {
+    return (
+      <>
+        <DeveloperToolsPage agents={agents} onAgentsChanged={loadData} />
+        <ToastViewport />
+      </>
+    );
+  }
 
   return (
     <div className="agenthub-shell flex h-[100dvh] min-w-0 w-full max-w-full flex-col overflow-hidden md:flex-row">
@@ -259,11 +275,7 @@ function App() {
         </div>
       </div>
 
-      {sidebarTab === "debug" ? (
-        <div className="min-h-0 min-w-0 flex-1">
-          <OrchestratorDebugPanel agents={agents} onAgentsChanged={loadData} />
-        </div>
-      ) : currentSessionId ? (
+      {currentSessionId ? (
         <ChatWindow
           messages={messages} isStreaming={isStreaming}
           artifacts={artifacts}
@@ -341,3 +353,28 @@ function App() {
 }
 
 export default App;
+
+function DeveloperToolsPage({
+  agents,
+  onAgentsChanged,
+}: {
+  agents: AgentConfig[];
+  onAgentsChanged: () => Promise<void>;
+}) {
+  return (
+    <div className="agenthub-shell h-[100dvh] overflow-hidden">
+      <div className="agenthub-header flex items-center justify-between border-b px-4 py-3">
+        <div>
+          <p className="agenthub-faint text-xs">开发者页面</p>
+          <h1 className="agenthub-strong text-base font-semibold">调度器手动桥接</h1>
+        </div>
+        <a href="#/" className="agenthub-icon-button rounded-full px-4 py-2 text-sm">
+          返回对话
+        </a>
+      </div>
+      <div className="min-h-0 h-[calc(100dvh-65px)]">
+        <OrchestratorDebugPanel agents={agents} onAgentsChanged={onAgentsChanged} />
+      </div>
+    </div>
+  );
+}
