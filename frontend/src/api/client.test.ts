@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   configureBuiltinAgentsCodex,
+  createProject,
+  createTeam,
+  createWorkspaceSnapshot,
   createProjectBuildPreview,
   createProjectPreview,
   createChatStream,
@@ -10,6 +13,8 @@ import {
   fetchArtifacts,
   fetchProjectBuildLogs,
   fetchProjectBuilds,
+  fetchWorkspace,
+  importWorkspaceGithub,
   projectBuildExportUrl,
   projectSourceExportUrl,
   readProjectFile,
@@ -518,6 +523,81 @@ describe("artifact APIs", () => {
       path: "src/app.ts",
       content: "new",
     });
+  });
+});
+
+describe("phase9 cloud workspace APIs", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("创建云端项目和团队请求带开发态登录 header", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        id: "t1",
+        name: "研发团队",
+        role: "owner",
+        memberCount: 1,
+        createdAt: "",
+      }), { status: 201 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        id: "p1",
+        name: "云端",
+        workspaceMode: "cloud",
+        workspaceId: "w1",
+        workspacePath: null,
+        status: "ready",
+        fileCount: 0,
+        totalSizeBytes: 0,
+        createdAt: "",
+      }), { status: 201 }));
+
+    await createTeam("研发团队");
+    await createProject({ name: "云端", workspaceMode: "cloud", teamId: "t1" });
+
+    const teamInit = vi.mocked(globalThis.fetch).mock.calls[0][1] as RequestInit;
+    const projectInit = vi.mocked(globalThis.fetch).mock.calls[1][1] as RequestInit;
+    expect((teamInit.headers as Record<string, string>)["X-AgentHub-User-Email"]).toBe("demo@agenthub.local");
+    expect((projectInit.headers as Record<string, string>)["X-AgentHub-User-Email"]).toBe("demo@agenthub.local");
+    expect(JSON.parse(String(projectInit.body))).toMatchObject({
+      workspaceMode: "cloud",
+      teamId: "t1",
+    });
+  });
+
+  it("读取 workspace、创建快照并排队 GitHub 导入", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        id: "w1",
+        projectId: "p1",
+        provider: "cloud",
+        status: "ready",
+        storageUri: "cloud://agenthub/workspaces/w1",
+        snapshots: [],
+        imports: [],
+        restores: [],
+        createdAt: "",
+        updatedAt: "",
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        id: "snap1",
+        workspaceId: "w1",
+        label: "手动快照",
+        storageUri: "cloud://agenthub/workspaces/w1/snapshots/snap1",
+        createdAt: "",
+      }), { status: 201 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        importId: "imp1",
+        status: "queued",
+      }), { status: 202 }));
+
+    await fetchWorkspace("w1");
+    await createWorkspaceSnapshot("w1", "手动快照");
+    await importWorkspaceGithub("w1", { repoUrl: "https://github.com/example/repo", branch: "main" });
+
+    expect(vi.mocked(globalThis.fetch).mock.calls[0][0]).toBe("/api/workspaces/w1");
+    expect(vi.mocked(globalThis.fetch).mock.calls[1][0]).toBe("/api/workspaces/w1/snapshots");
+    expect(vi.mocked(globalThis.fetch).mock.calls[2][0]).toBe("/api/workspaces/w1/imports/github");
   });
 });
 

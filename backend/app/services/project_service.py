@@ -13,10 +13,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
 from ..event_bus.event_types import EventType
-from ..models import Artifact, Message, Project, Session as DBSession, SessionMember
+from ..models import (
+    Artifact,
+    Message,
+    Project,
+    Session as DBSession,
+    SessionMember,
+    User,
+    Workspace,
+    WorkspaceImport,
+    WorkspaceRestore,
+    WorkspaceSnapshot,
+)
+from .audit_service import AuditService
+from .cloud_workspace_provider import CloudWorkspaceProvider
 from .file_change_detector import FileChangeDetector
 from .preview_service import PreviewService
 from .schemas import ProjectCreate, ProjectRead
+from .team_service import PermissionDeniedError, TeamService
 from .workspace_provider import (
     LocalWorkspaceProvider,
     WorkspaceFileTooLargeError,
@@ -61,11 +75,21 @@ class ProjectService:
         self.provider = provider or LocalWorkspaceProvider()
         self.detector = detector or FileChangeDetector()
         self.preview = preview or PreviewService(self.provider)
+        self.cloud_provider = CloudWorkspaceProvider(db, event_bus=event_bus)
+        self.team_service = TeamService(db, event_bus=event_bus)
+        self.audit = AuditService(db, event_bus=event_bus)
 
-    async def create_project(self, data: ProjectCreate) -> ProjectRead:
+    async def create_project(self, data: ProjectCreate, actor: User | None = None) -> ProjectRead:
         name = data.name.strip()
         if not name:
             raise ProjectValidationError("project name must not be empty")
+        mode = data.workspace_mode or "local"
+        if mode not in {"local", "cloud"}:
+            raise ProjectValidationError("unsupported workspace mode")
+        if mode == "cloud":
+            if not actor:
+                raise PermissionDeniedError("cloud project requires login")
+            return await self._create_cloud_project(name, data, actor)
 
         workspace_path = self._resolve_workspace_path(
             name,
@@ -80,6 +104,9 @@ class ProjectService:
             project = existing
             project.name = name
             project.workspace_path = str(workspace_path)
+            project.workspace_mode = "local"
+            project.workspace_id = None
+            project.team_id = None
             project.project_type = "existing"
             project.status = "ready"
             project.metadata_json = json.dumps({}, ensure_ascii=False)
@@ -88,6 +115,7 @@ class ProjectService:
                 id=str(uuid.uuid4()),
                 name=name,
                 workspace_path=str(workspace_path),
+                workspace_mode="local",
                 project_type="existing",
                 status="ready",
                 metadata_json=json.dumps({}, ensure_ascii=False),
@@ -102,6 +130,59 @@ class ProjectService:
             "projectId": project.id,
             "name": project.name,
             "workspacePath": project.workspace_path,
+            "workspaceMode": "local",
+        })
+        return await self._to_read(project, include_stats=False)
+
+    async def _create_cloud_project(
+        self,
+        name: str,
+        data: ProjectCreate,
+        actor: User,
+    ) -> ProjectRead:
+        if data.workspace_path or data.folder_token:
+            raise ProjectValidationError("cloud project must not include local workspace path")
+        await self.team_service.assert_project_create_allowed(data.team_id, actor)
+        project_id = str(uuid.uuid4())
+        project = Project(
+            id=project_id,
+            name=name,
+            workspace_path=f"cloud://agenthub/pending/{project_id}",
+            workspace_mode="cloud",
+            project_type="cloud",
+            status="ready",
+            team_id=data.team_id,
+            owner_user_id=actor.id,
+            metadata_json=json.dumps({"template": data.template or "blank"}, ensure_ascii=False),
+        )
+        self.db.add(project)
+        await self.db.flush()
+        workspace = await self.cloud_provider.create_workspace(
+            project_id=project.id,
+            project_name=project.name,
+            actor=actor,
+            team_id=project.team_id,
+            template=data.template,
+        )
+        project.workspace_id = workspace.id
+        project.workspace_path = workspace.storage_uri
+        await self.audit.record(
+            actor_user_id=actor.id,
+            team_id=project.team_id,
+            project_id=project.id,
+            action="project.created",
+            resource_type="project",
+            resource_id=project.id,
+            metadata={"workspaceMode": "cloud", "workspaceId": workspace.id},
+        )
+        await self.db.commit()
+        await self.db.refresh(project)
+        await self._publish(EventType.PROJECT_CREATED, {
+            "projectId": project.id,
+            "name": project.name,
+            "workspaceMode": "cloud",
+            "workspaceId": workspace.id,
+            "teamId": project.team_id,
         })
         return await self._to_read(project, include_stats=False)
 
@@ -120,6 +201,8 @@ class ProjectService:
     async def archive_project(self, project_id: str) -> dict:
         project = await self._get_project(project_id)
         project.status = "archived"
+        if project.workspace_mode == "cloud" and project.workspace_id:
+            await self.cloud_provider.mark_workspace_archived(project.workspace_id)
         await self.db.commit()
         return {"status": "archived"}
 
@@ -133,16 +216,39 @@ class ProjectService:
         await self.db.commit()
         await self.db.refresh(project)
 
-        self._write_project_metadata(project)
+        if project.workspace_mode == "local":
+            self._write_project_metadata(project)
         return await self._to_read(project, include_stats=False)
 
-    async def delete_project(self, project_id: str, delete_files: bool = False) -> dict:
+    async def delete_project(
+        self,
+        project_id: str,
+        delete_files: bool = False,
+        actor: User | None = None,
+    ) -> dict:
         project = await self._get_project(project_id)
+        if project.workspace_mode == "cloud":
+            if not actor:
+                raise PermissionDeniedError("cloud project requires login")
+            await self.team_service.assert_project_delete_allowed(project, actor)
+            if project.workspace_id:
+                await self.cloud_provider.mark_workspace_deleted(project.workspace_id)
+            return await self._delete_project_rows(project, delete_files=False)
+
         workspace_path = Path(project.workspace_path).expanduser().resolve()
 
         if delete_files:
             self._ensure_workspace_can_be_deleted(project, workspace_path)
 
+        result = await self._delete_project_rows(project, delete_files=delete_files)
+
+        if delete_files:
+            shutil.rmtree(workspace_path)
+
+        return result
+
+    async def _delete_project_rows(self, project: Project, delete_files: bool) -> dict:
+        workspace_path = project.workspace_path
         session_ids = await self._project_session_ids(project.id)
         if session_ids:
             await self.db.execute(
@@ -158,30 +264,44 @@ class ProjectService:
                 delete(DBSession).where(DBSession.id.in_(session_ids))
             )
         await self.db.execute(delete(Artifact).where(Artifact.project_id == project.id))
+        if project.workspace_mode == "cloud" and project.workspace_id:
+            workspace_id = project.workspace_id
+            project.workspace_id = None
+            await self.db.flush()
+            await self.db.execute(
+                delete(WorkspaceRestore).where(WorkspaceRestore.workspace_id == workspace_id)
+            )
+            await self.db.execute(
+                delete(WorkspaceImport).where(WorkspaceImport.workspace_id == workspace_id)
+            )
+            await self.db.execute(
+                delete(WorkspaceSnapshot).where(WorkspaceSnapshot.workspace_id == workspace_id)
+            )
+            await self.db.execute(delete(Workspace).where(Workspace.id == workspace_id))
         await self.db.delete(project)
         await self.db.commit()
-
-        if delete_files:
-            shutil.rmtree(workspace_path)
 
         return {
             "status": "deleted",
             "filesDeleted": delete_files,
-            "workspacePath": str(workspace_path),
+            "workspacePath": None if str(workspace_path).startswith("cloud://") else str(workspace_path),
         }
 
     async def get_tree(self, project_id: str, subpath: str | None = None) -> list[dict]:
         project = await self._get_project(project_id)
+        self._ensure_local_project(project)
         entries = self.provider.list_tree(project.workspace_path, subpath)
         return [entry.__dict__ for entry in entries]
 
     async def read_file(self, project_id: str, path: str) -> dict:
         project = await self._get_project(project_id)
+        self._ensure_local_project(project)
         content, size = self.provider.read_text_file(project.workspace_path, path)
         return {"path": path.replace("\\", "/"), "content": content, "size": size}
 
     async def write_file(self, project_id: str, path: str, content: str) -> dict:
         project = await self._get_project(project_id)
+        self._ensure_local_project(project)
         target = self.provider.safe_resolve(project.workspace_path, path)
         workspace_root = Path(project.workspace_path).expanduser().resolve()
         if target == workspace_root or (target.exists() and target.is_dir()):
@@ -197,6 +317,7 @@ class ProjectService:
 
     async def create_snapshot(self, project_id: str, label: str) -> dict:
         project = await self._get_project(project_id)
+        self._ensure_local_project(project)
         clean_label = label.strip()
         if not clean_label:
             raise ProjectValidationError("snapshot label must not be empty")
@@ -209,6 +330,7 @@ class ProjectService:
 
     async def get_diff(self, project_id: str, base_ref: str) -> dict:
         project = await self._get_project(project_id)
+        self._ensure_local_project(project)
         changes = self.detector.diff_from_snapshot(project.workspace_path, base_ref)
         await self._publish(EventType.WORKSPACE_FILE_CHANGED, {
             "projectId": project.id,
@@ -228,6 +350,7 @@ class ProjectService:
         entry_path: str | None = None,
     ) -> dict:
         project = await self._get_project(project_id)
+        self._ensure_local_project(project)
         if preview_type not in {"static", "vite-react"}:
             raise ProjectValidationError("unsupported preview type")
         result = self.preview.create_static_preview(project.id, project.workspace_path, entry_path)
@@ -240,6 +363,7 @@ class ProjectService:
 
     async def start_build(self, project_id: str) -> dict:
         project = await self._get_project(project_id)
+        self._ensure_local_project(project)
         build_id = str(uuid.uuid4())
         project.status = "building"
         await self.db.commit()
@@ -255,6 +379,7 @@ class ProjectService:
         if not session or not session.project_id:
             raise ProjectNotFoundError("session has no project")
         project = await self._get_project(session.project_id)
+        self._ensure_local_project(project)
         return project.workspace_path
 
     async def ensure_default_project(self) -> Project:
@@ -322,7 +447,7 @@ class ProjectService:
     async def _to_read(self, project: Project, include_stats: bool) -> ProjectRead:
         file_count = 0
         total_size = 0
-        if include_stats:
+        if include_stats and project.workspace_mode == "local":
             try:
                 entries = self.provider.list_tree(project.workspace_path)
                 file_entries = [e for e in entries if e.type == "file"]
@@ -333,7 +458,10 @@ class ProjectService:
         return ProjectRead(
             id=project.id,
             name=project.name,
-            workspace_path=project.workspace_path,
+            workspace_path=project.workspace_path if project.workspace_mode == "local" else None,
+            workspace_mode=project.workspace_mode or "local",
+            workspace_id=project.workspace_id,
+            team_id=project.team_id,
             status=project.status,
             file_count=file_count,
             total_size_bytes=total_size,
@@ -378,9 +506,14 @@ class ProjectService:
             "projectId": project.id,
             "name": project.name,
             "workspacePath": project.workspace_path,
+            "workspaceMode": project.workspace_mode or "local",
             "createdAt": utc_iso(),
             "createdBy": "agenthub",
         }
+
+    def _ensure_local_project(self, project: Project) -> None:
+        if project.workspace_mode == "cloud":
+            raise ProjectValidationError("cloud workspace file operations are available from Phase 10")
 
     async def _publish(self, event_type: EventType, payload: dict[str, Any]) -> None:
         if self.event_bus:

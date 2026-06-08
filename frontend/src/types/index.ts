@@ -84,7 +84,10 @@ export interface SessionMember {
 export interface Project {
   id: string;
   name: string;
-  workspacePath: string;
+  workspacePath?: string | null;
+  workspaceMode: "local" | "cloud";
+  workspaceId?: string | null;
+  teamId?: string | null;
   status: "creating" | "ready" | "building" | "error" | "archived";
   fileCount: number;
   totalSizeBytes: number;
@@ -95,6 +98,9 @@ export interface ProjectCreateInput {
   name: string;
   workspacePath?: string;
   folderToken?: string;
+  workspaceMode?: "local" | "cloud";
+  teamId?: string | null;
+  template?: string | null;
 }
 
 export interface ProjectUpdateInput {
@@ -104,7 +110,7 @@ export interface ProjectUpdateInput {
 export interface ProjectDeleteResult {
   status: "deleted";
   filesDeleted: boolean;
-  workspacePath: string;
+  workspacePath?: string | null;
 }
 
 export interface FolderPickResult {
@@ -299,6 +305,90 @@ export interface ProjectPreviewResult {
   previewId: string;
   url: string;
   source: "workspace" | "build" | string;
+}
+
+export type TeamRole = "owner" | "admin" | "member" | "viewer";
+
+export interface CurrentUser {
+  id: string;
+  email: string;
+  displayName: string;
+  avatarUrl?: string | null;
+  createdAt: string;
+}
+
+export interface Team {
+  id: string;
+  name: string;
+  role: TeamRole;
+  memberCount: number;
+  createdAt: string;
+}
+
+export interface TeamMember {
+  id: string;
+  teamId: string;
+  userId: string;
+  email: string;
+  displayName: string;
+  role: TeamRole;
+  createdAt: string;
+}
+
+export interface WorkspaceSnapshot {
+  id: string;
+  workspaceId: string;
+  label?: string | null;
+  storageUri: string;
+  createdBy?: string | null;
+  createdAt: string;
+}
+
+export interface WorkspaceImport {
+  id: string;
+  workspaceId: string;
+  source: "zip" | "github";
+  status: string;
+  detail: string;
+  metadata: Record<string, unknown>;
+  createdBy?: string | null;
+  createdAt: string;
+  completedAt?: string | null;
+}
+
+export interface WorkspaceRestore {
+  id: string;
+  workspaceId: string;
+  snapshotId: string;
+  strategy: "replace" | "branch";
+  status: string;
+  createdAt: string;
+  completedAt?: string | null;
+}
+
+export interface CloudWorkspace {
+  id: string;
+  projectId: string;
+  provider: string;
+  status: string;
+  storageUri: string;
+  snapshots: WorkspaceSnapshot[];
+  imports: WorkspaceImport[];
+  restores: WorkspaceRestore[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AuditLog {
+  id: string;
+  actorUserId?: string | null;
+  teamId?: string | null;
+  projectId?: string | null;
+  action: string;
+  resourceType: string;
+  resourceId: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
 }
 
 export interface ArtifactVersion {

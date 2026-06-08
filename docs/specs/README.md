@@ -17,10 +17,10 @@ specs/
 ├── phase4/                      ← Phase 4: 消息交互闭环 ✅
 ├── phase5/                      ← Phase 5: 产物工作台能力 ✅
 ├── phase6/                      ← Phase 6: Workspace Runtime + CLI Engine + Agent Profile + 产物入口桥接 ✅
-├── phase7/                      ← Phase 7: 任务可控性 + 审批 + 环境体检 + IM 体验 + 演示闭环 + 上下文缓存策略 + 单聊/群聊常驻进程 🚧
-├── phase8/                      ← Phase 8: P1 发布候选收口 📋
-├── phase9/                      ← Phase 9: Cloud Workspace Foundation 📋
-├── phase10/                     ← Phase 10: Sandbox Runner 与云端 Agent Runtime 📋
+├── phase7/                      ← Phase 7: 任务可控性 + 审批 + 环境体检 + IM 体验 + 演示闭环 + 上下文缓存策略 + 单聊/群聊常驻进程 ✅
+├── phase8/                      ← Phase 8: P1 发布候选收口 ✅
+├── phase9/                      ← Phase 9: Cloud Workspace Foundation ✅
+├── phase10/                     ← Phase 10: Sandbox Runner 与云端 Agent Runtime 🔜
 ├── phase11/                     ← Phase 11: Cloud Preview 与 Deployment 📋
 ├── phase12/                     ← Phase 12: 协作、多端与高级 Artifact 📋
 └── planning/                    ← 历史规划文档（参考）
@@ -40,10 +40,10 @@ specs/
 | [Phase 4](phase4/) | 消息交互闭环 | ✅ | Reply/Regenerate/Pin、全文搜索 FTS5 |
 | [Phase 5](phase5/) | 产物工作台能力 | ✅ | 对已有 Artifact 提供版本链 + Diff、在线编辑；不宣称上游产物生成入口已完整打通 |
 | [Phase 6](phase6/) | Workspace Runtime + CLI Engine + Agent Profile + 产物入口桥接 | ✅ | 本机 workspace 创建/绑定、真实 CLI Agent、Agent = Engine + Toolset 建模、执行轨迹、消息级 Artifact Card、文件编辑器、代码引用、版本管理 |
-| [Phase 7](phase7/) | 任务可控性 + 审批 + 环境体检 + IM 体验 + 演示闭环 | 🚧 | v1.0 本机 MVP 基线已覆盖运行控制、审批、体检、IM 会话基线和 UI 加固；7E Engine Session / 上下文包策略与 7F Claude Code stdin JSONL、Codex/OpenCode 常驻 RPC 已记录并实现基线；群聊已同步单聊 runtime 与 workspace Artifact 链路；真实 CLI 完整自动化演示脚本待补 |
-| [Phase 8](phase8/) | P1 发布候选收口 | 📋 | 收敛真实 CLI E2E、本地 Build/Export/Preview、Context Pack、Orchestrator 审批续跑、Store 拆分和截图审计 |
-| [Phase 9](phase9/) | Cloud Workspace Foundation | 📋 | 建立 P2 用户/团队/RBAC、CloudWorkspaceProvider、workspace 快照/导入/审计日志基础 |
-| [Phase 10](phase10/) | Sandbox Runner 与云端 Agent Runtime | 📋 | 在云端隔离 sandbox 中运行真实 CLI Agent，保持 P1 CLI 事件契约兼容，并补齐配额、secret、日志脱敏 |
+| [Phase 7](phase7/) | 任务可控性 + 审批 + 环境体检 + IM 体验 + 演示闭环 | ✅ | v1.0 本机 MVP 基线已覆盖运行控制、审批、体检、IM 会话基线和 UI 加固；7E Engine Session / 上下文包策略与 7F Claude Code stdin JSONL、Codex/OpenCode 常驻 RPC 已记录并实现基线；群聊已同步单聊 runtime 与 workspace Artifact 链路 |
+| [Phase 8](phase8/) | P1 发布候选收口 | ✅ | 真实 CLI E2E、本地 Build/Export/Preview、Context Pack、Orchestrator 审批续跑、Store 拆分和截图审计门禁已完成 |
+| [Phase 9](phase9/) | Cloud Workspace Foundation | ✅ | 已建立 P2 用户/团队/RBAC、CloudWorkspaceProvider、workspace 导入/快照/恢复、审计日志基础，并完成 P1 local 回归 |
+| [Phase 10](phase10/) | Sandbox Runner 与云端 Agent Runtime | 🔜 | 下一阶段：在云端隔离 sandbox 中运行真实 CLI Agent，保持 P1 CLI 事件契约兼容，并补齐配额、secret、日志脱敏 |
 | [Phase 11](phase11/) | Cloud Preview 与 Deployment | 📋 | 为云端 Artifact 提供 preview URL、Deployment pipeline、部署日志、发布 URL、重试和回滚 |
 | [Phase 12](phase12/) | 协作、多端与高级 Artifact | 📋 | 补齐团队评论/通知、移动端审批预览、附件/图片输入、PPT/文档 Artifact、Git sync、对话式 Agent 创建 |
 

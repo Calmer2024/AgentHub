@@ -153,7 +153,7 @@ Debug 不是"让 bug 消失"，而是"让系统更正确"：
 
 ## 阶段感知
 
-当前处于 **Phase 7（任务可控性 + 审批 + 环境体检 + IM 体验 + 演示闭环）— v1.0 baseline 发布后加固**。Phase 6 Workspace Runtime、CLI Adapter、Artifact Bridge 已完成并通过验收；Phase 7A-7C 的运行取消/恢复、审批卡片、环境体检已验收；Phase 7D 的会话置顶/归档/未读/免打扰/转发/多选、消息右键菜单、明亮主题与圆角布局、执行过程全屏已实现；Phase 7E/7F 已落地 Engine Session Adapter 与单聊会话级常驻进程基线：Claude Code 通过 stdin JSONL 常驻进程复用同一物理进程，Codex/OpenCode 通过 MCP/ACP 常驻 RPC 进程复用。真实 CLI 完整自动化演示脚本、截图审计、Context Pack Builder 和 Store 领域拆分继续作为后续增强项沉淀。
+当前处于 **Phase 10（Sandbox Runner 与云端 Agent Runtime）准备期**。Phase 8 P1 发布候选收口已完成并通过真实服务验收；Phase 9 Cloud Workspace Foundation 已落地 P2 用户/团队/RBAC、CloudWorkspaceProvider、workspace 导入/快照/恢复、审计日志，并完成 P1 local 零回归验收。下一阶段只能在 Phase 9 的 `workspaceId` / RBAC / audit 基座上接入云端 sandbox 与真实 CLI Runtime，不能回退到裸 HTTP LLM API，也不能破坏 P1 本地 `workspace_path` 主路径。
 
 完整 Phase 状态表见 [CONTEXT.md §开发阶段](CONTEXT.md)。
 
@@ -162,8 +162,8 @@ Debug 不是"让 bug 消失"，而是"让系统更正确"：
 | 优先级 | 产品形态 | 架构 | 一键部署 |
 |--------|---------|------|---------|
 | **P1（当前）** | **桌面版**：桌面端（Tauri/Node.js）= 本地无头服务器 + 本地特权执行引擎；Web 端（浏览器）= 主力 UI | 浏览器 → localhost 后端 → 本机文件系统 + 本机 CLI Agent | ❌ |
-| **P2（远期）** | **SaaS 云版**：Web 浏览器 + 云端后端 + 云端容器沙箱 | 浏览器 → 云端后端 → 云端沙箱 + 云端 CLI Agent → 云端 URL | ✅ |
+| **P2（正在铺设基座）** | **SaaS 云版**：Web 浏览器 + 云端后端 + 云端容器沙箱 | 浏览器 → 云端后端 → 云端沙箱 + 云端 CLI Agent → 云端 URL | ✅ |
 
-**Project-first 工作流**：用户必须先创建 Project（新建空白 workspace 目录，或通过系统原生目录选择器选择已有目录），然后在 Project 下创建私聊或群聊。所有聊天必须属于某个 Project。Project 不再暴露“静态网页 / Vite React / 已有项目”等用户可选属性。Project 内所有 Agent 共享 `Project.workspace_path` 作为 `cwd`。详见 [ADR-0009](docs/adr/0009-project-workspace-model.md)。
+**Project-first 工作流**：用户必须先创建 Project，然后在 Project 下创建私聊或群聊。P1 本地 Project 使用新建空白 workspace 目录或系统原生目录选择器绑定已有目录，Project 内所有本地 Agent 共享 `Project.workspace_path` 作为 `cwd`；P2 云端 Project 使用 `workspaceId` 和 `cloud://agenthub/workspaces/{id}` 逻辑 URI，前端不应看到服务器或用户本机物理路径。Project 不再暴露“静态网页 / Vite React / 已有项目”等用户可选属性。详见 [ADR-0009](docs/adr/0009-project-workspace-model.md) 与 [Phase 9 Spec](docs/specs/phase9/README.md)。
 
 > 完整的 P1/P2 定义、Workspace 位置、运行环境、安全边界见 [CONTEXT.md §产品交付阶段](CONTEXT.md)。

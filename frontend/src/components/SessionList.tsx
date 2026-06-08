@@ -307,7 +307,11 @@ export function SessionList({
             </span>
             <div className="min-w-0 flex-1">
               <h2 className="agenthub-strong truncate text-sm font-semibold">{project.name}</h2>
-              <p className="agenthub-muted mt-0.5 truncate text-xs">{project.workspacePath}</p>
+              <p className="agenthub-muted mt-0.5 truncate text-xs">
+                {project.workspaceMode === "cloud"
+                  ? `云端 · ${project.workspaceId ?? "workspace 未创建"}`
+                  : `本机 · ${project.workspacePath ?? "未绑定"}`}
+              </p>
             </div>
           </div>
         ) : (

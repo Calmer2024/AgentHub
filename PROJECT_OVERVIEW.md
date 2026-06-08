@@ -23,7 +23,7 @@
 | 阶段 | 产品形态 | 架构 | 一键部署 |
 |------|---------|------|---------|
 | **P1（当前）** | **桌面版**：桌面端（Tauri/Node.js）= 本地无头服务器 + 本地特权执行引擎；Web 端（浏览器）= 主力 UI | 浏览器 → localhost 后端 → 本机文件系统 + 本机 CLI Agent | ❌ |
-| **P2（远期）** | **SaaS 云版**：Web 浏览器 + 云端后端 + 云端容器沙箱 | 浏览器 → 云端后端 → 云端沙箱 + 云端 CLI Agent → 部署到云端 URL | ✅ |
+| **P2（基座已启动，完整形态后续）** | **SaaS 云版**：Web 浏览器 + 云端后端 + 云端容器沙箱 | 浏览器 → 云端后端 → 云端沙箱 + 云端 CLI Agent → 部署到云端 URL | ✅ |
 
 **P1 为什么不能一键部署？** CLI Agent 进程直接在用户本机运行，读写本地文件系统。没有远程服务器可"部署"到。一键部署是 P2 云版（有沙箱环境）才具备的能力。
 
@@ -75,7 +75,7 @@ AgentHub/
 
 ## 已经做完了什么？
 
-项目按 Phase 1-7 推进，目前 Phase 1-6 核心闭环已完成并通过验收；Phase 7A-7C 的运行任务可控性、审批卡片和环境体检也已通过验收；Phase 7D 的 IM 会话基线、明亮主题和 v1.0 UI 加固已实现，继续补真实 Claude Code E2E 演示脚本与完整回归矩阵。
+项目已完成 Phase 1-9。Phase 1-7 打通 P1 本机 IM + CLI Agent + Artifact + 运行控制与 UI 基线；Phase 8 完成 P1 发布候选收口；Phase 9 完成 P2 Cloud Workspace Foundation，并通过 P1 local 零回归与 P2 cloud slice 真实服务验收。下一阶段是 Phase 10：Sandbox Runner 与云端 Agent Runtime。
 
 ### Phase 1：单聊全链路 ✅
 
@@ -136,7 +136,7 @@ Phase 3 聚焦多 Agent 协作基础设施与 Orchestrator 深化。
 
 ---
 
-## 接下来要做什么？（v1.0 收尾）
+## 接下来要做什么？（Phase 10）
 
 ### Phase 6：Workspace Runtime + CLI Agent 适配器 + 产物入口桥接 ✅
 
@@ -145,13 +145,33 @@ Phase 3 聚焦多 Agent 协作基础设施与 Orchestrator 深化。
 - CLI 输出、消息代码块和 workspace diff 已由 ArtifactOutputBridge 转为真实 Artifact，并在对应消息下方以 ArtifactCard 展示。
 - 文件编辑器、代码片段引用、Artifact 版本管理和会话文件入口已通过本轮验收。
 
-### Phase 7：任务可控性 + 审批 + 环境体检 + IM 体验 + 演示闭环 🚧
+### Phase 7：任务可控性 + 审批 + 环境体检 + IM 体验 + 演示闭环 ✅
 
 - ✅ 运行任务可控性：run/task/process 状态持久化、取消真实 CLI 进程、停止后明确提示并解锁输入框。
 - ✅ Human-in-the-loop 审批卡片：确认继续、驳回并携带 Artifact/代码引用回到 ChatInput。
 - ✅ 统一环境体检：CLI、Node/Python、workspace、DeepSeek 系统模型、活跃进程状态，发送前可阻断不可执行环境。
 - ✅ IM 基线与 UI 加固：会话搜索、置顶、归档箱、未读数、免打扰、转发、多选、消息右键菜单、明亮主题纯白辅色、执行过程全屏。
-- 🚧 v1.0 收尾：跑通 workspace 绑定 → 输入任务 → Agent 输出消息级 Artifact → 编辑/引用/版本管理 → 审批继续 → 中枢总结的真实 cc 演示脚本，并补截图审计。
+- ✅ v1.0 收尾基线：运行控制、审批、体检、IM、Engine Session、常驻进程和群聊 runtime/Artifact 同步已完成。
+
+### Phase 8：P1 发布候选收口 ✅
+
+- 本地构建、构建日志、workspace/build preview、源码导出、构建产物导出已完成。
+- Context Pack Builder、Orchestrator plan resume 和 P1 真实服务 E2E/截图审计门禁已完成。
+- Phase 8 的目标是证明 P1 本地版可发布候选，不负责 SaaS 云端多租户。
+
+### Phase 9：Cloud Workspace Foundation ✅
+
+- 用户、团队、成员、角色、Team/RBAC 与审计日志已落库。
+- `workspaceMode = "cloud"` 的 Project 会返回 `workspaceId`，前端不再假设所有 Project 都有 `workspacePath`。
+- CloudWorkspaceProvider 已支持创建、导入记录、snapshot、restore 和审计闭环。
+- P1 本地版继续使用本机 `workspace_path`；SaaS 云端版使用 `workspaceId` 与 `cloud://agenthub/workspaces/{id}` 逻辑 URI。
+
+### Phase 10：Sandbox Runner 与云端 Agent Runtime 🔜
+
+- 在云端隔离 sandbox 中挂载 Phase 9 workspace。
+- 启动真实 Claude Code / Codex / OpenCode CLI Agent，并复用 P1 的标准事件契约。
+- 补齐云端配额、secret 注入、runtime logs 和日志脱敏。
+- 继续执行 P1 local CLI runtime、build/preview/export 零回归门禁。
 
 ---
 
@@ -196,6 +216,14 @@ API 路由层 (FastAPI)
 | `run_tasks` | Phase 7 run 下的 Agent/task 状态 |
 | `run_processes` | Phase 7 CLI 进程与 run/task 的绑定 |
 | `approval_checkpoints` | Phase 7 人工审批断点 |
+| `users` | Phase 9 开发态用户与后续 SaaS 用户基座 |
+| `teams` | Phase 9 团队 |
+| `team_members` | Phase 9 团队成员与角色 |
+| `workspaces` | Phase 9 云端 workspace 元数据 |
+| `workspace_snapshots` | Phase 9 云端 workspace 快照记录 |
+| `workspace_imports` | Phase 9 zip/GitHub 导入记录 |
+| `workspace_restores` | Phase 9 快照恢复记录 |
+| `audit_logs` | Phase 9 团队、Project、workspace 操作审计 |
 | `messages_fts` | FTS5 全文搜索虚拟表 |
 
 `sessions` 当前还承担 IM 状态：`is_pinned`、`archived_at`、`unread_count`、`last_read_at`、`is_muted`。
@@ -245,6 +273,22 @@ DELETE /api/messages/{id}/pin         取消 Pin
 
 ```
 GET    /api/messages/search?session_id=&q=&limit=   消息搜索
+```
+
+### Phase 9 云端工作区
+
+```
+GET    /api/auth/me                              当前开发态用户
+GET    /api/teams                                团队列表
+POST   /api/teams                                创建团队
+POST   /api/teams/{teamId}/members              添加团队成员
+POST   /api/projects                             创建 local/cloud Project
+GET    /api/workspaces/{workspaceId}             查询 cloud workspace
+POST   /api/workspaces/{workspaceId}/imports/zip     zip 导入
+POST   /api/workspaces/{workspaceId}/imports/github  GitHub 导入占位
+POST   /api/workspaces/{workspaceId}/snapshots        创建快照
+POST   /api/workspaces/{workspaceId}/snapshots/{snapshotId}/restore  恢复快照
+GET    /api/audit-logs                           查询审计日志
 ```
 
 ---
@@ -309,6 +353,7 @@ python e2e/full_ui_audit.py
 | **Phase 6 Spec** | `docs/specs/phase6/README.md` | Workspace Runtime、CLI Adapter、Artifact Bridge 核心闭环验收记录 |
 | **Phase 7 运行控制交付快照** | `docs/deliverables/phase7-runtime-control/README.md` | 运行控制、审批卡片、环境体检实现与验收记录 |
 | **Phase 7 IM 加固交付快照** | `docs/deliverables/phase7-im-hardening/README.md` | 会话 IM 基线、右键菜单、明亮主题、执行过程全屏与 v1.0 UI 加固 |
+| **Phase 9 Cloud Workspace 交付快照** | `docs/deliverables/phase9-cloud-workspace/README.md` | 用户/团队/RBAC、云端 workspace 元数据、导入/快照/恢复、审计与 P1/P2 验收 |
 | **Docs Index** | `docs/README.md` | 查看所有文档入口 |
 
 ### 按需查阅

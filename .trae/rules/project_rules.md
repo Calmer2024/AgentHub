@@ -22,8 +22,8 @@
 
 ## 当前开发阶段
 
-**Phase 7: 任务可控性 + 审批 + 环境体检 + IM 体验 + 演示闭环** — v1.0 baseline 发布 (2026-06-07)
+**Phase 10: Sandbox Runner 与云端 Agent Runtime** — Phase 9 云端 workspace 基座完成后的下一阶段 (2026-06-08)
 
-范围：运行取消/恢复、审批卡片、环境体检、消息级 Artifact 体验、会话 IM 基线、明亮主题与圆角布局、真实 Claude Code 演示脚本。
+范围：在 Phase 9 的 `workspaceId`、Team/RBAC 和 audit log 基座上接入云端 sandbox runner 与真实 CLI Agent Runtime，同时保持 P1 本地 `workspace_path`、本机 CLI、build/preview/export 主路径零回归。
 
-Phase 1-6 核心闭环已验收通过；Phase 7A-7C 已验收；Phase 7D 的会话置顶/归档/未读/免打扰/转发/多选、消息右键菜单、执行过程全屏已实现。真实 cc 完整自动化 E2E、截图审计和 Store 领域拆分作为后续增强继续沉淀。
+Phase 1-8 P1 核心闭环已验收通过；Phase 9 已完成用户/团队/RBAC、CloudWorkspaceProvider、workspace 导入/快照/恢复、审计日志与 P1/P2 真实服务验收。Phase 10 不得把 cloud Agent 降级为裸 HTTP LLM API，也不得让本地版必须依赖云端登录或云端 workspace。

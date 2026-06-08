@@ -363,7 +363,7 @@ ChatWorkspace
 
 | 依赖模块 | 需要的接口 | 当前状态 |
 |---------|-----------|---------|
-| Phase 9 CloudWorkspaceProvider | workspaceId、mount/storage_uri、snapshot | 📋 计划中 |
+| Phase 9 CloudWorkspaceProvider | workspaceId、mount/storage_uri、snapshot | ✅ 已就绪（元数据基座；真实挂载由 Phase 10 实现） |
 | Phase 8 ContextPackBuilder | `approval_resume`、`send` context pack | 📋 计划中 |
 | CLI Adapter contracts | stdout/stderr 解析、interactive prompt、取消 | ✅ P1 基线 |
 | EventBus | 标准事件发布和前端流式消费 | ✅ P1 基线 |

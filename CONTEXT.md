@@ -89,10 +89,10 @@
 | **Phase 4** | 消息交互闭环 | ✅ | Reply / Regenerate / Pin、FTS5 全文搜索、Reply/Pin prompt 注入 |
 | **Phase 5** | 产物工作台能力 | ✅ | 版本链 + Diff + 在线编辑（Tool Calling）；上游产物生成入口由 Phase 6/7 补齐 |
 | **Phase 6** | Workspace Runtime + CLI Engine + Agent Profile + 产物入口桥接 | ✅ | 6A Workspace Runtime、6B-6E CLI Adapter、6F Artifact Bridge 与 Agent Profile 建模均已落地；Orchestrator Plan-first 真实执行已阶段性通过 |
-| **Phase 7** | 任务可控性 + 审批 + 环境体检 + IM 体验 + 演示闭环 | 🚧 | v1.0 本机 MVP 基线已覆盖运行控制、审批、体检、IM 会话基线、UI 加固、群聊调度器管家路由、Engine Session 与常驻进程基线；群聊已同步单聊的 Agent runtime 与 workspace Artifact 链路；真实 cc 完整自动化演示脚本待沉淀 |
-| **Phase 8** | P1 发布候选收口 | 📋 | 收敛真实 CLI E2E、本地 Build/Export/Preview、Context Pack、Orchestrator 审批续跑、Store 拆分和截图审计 |
-| **Phase 9** | Cloud Workspace Foundation | 📋 | 建立 P2 用户/团队/RBAC、CloudWorkspaceProvider、workspace 快照/导入/审计日志基础 |
-| **Phase 10** | Sandbox Runner 与云端 Agent Runtime | 📋 | 在云端隔离 sandbox 中运行真实 CLI Agent，保持 P1 CLI 事件契约兼容，并补齐配额、secret、日志脱敏 |
+| **Phase 7** | 任务可控性 + 审批 + 环境体检 + IM 体验 + 演示闭环 | ✅ | v1.0 本机 MVP 基线已覆盖运行控制、审批、体检、IM 会话基线、UI 加固、群聊调度器管家路由、Engine Session 与常驻进程基线；群聊已同步单聊的 Agent runtime 与 workspace Artifact 链路 |
+| **Phase 8** | P1 发布候选收口 | ✅ | 真实服务 E2E、本地 Build/Export/Preview、Context Pack、Orchestrator 审批续跑、Store 拆分和截图审计门禁已完成 |
+| **Phase 9** | Cloud Workspace Foundation | ✅ | P2 用户/团队/RBAC、CloudWorkspaceProvider、workspace 快照/导入/恢复、审计日志基础已完成；P1 local 真实服务回归通过 |
+| **Phase 10** | Sandbox Runner 与云端 Agent Runtime | 🔜 | 下一阶段：在云端隔离 sandbox 中运行真实 CLI Agent，保持 P1 CLI 事件契约兼容，并补齐配额、secret、日志脱敏 |
 | **Phase 11** | Cloud Preview 与 Deployment | 📋 | 为云端 Artifact 提供 preview URL、Deployment pipeline、部署日志、发布 URL、重试和回滚 |
 | **Phase 12** | 协作、多端与高级 Artifact | 📋 | 补齐团队评论/通知、移动端审批预览、附件/图片输入、PPT/文档 Artifact、Git sync、对话式 Agent 创建 |
 
@@ -103,7 +103,7 @@ Phase 4-12 采用**功能板块制**：每板块独立完整交付。板块间�
 | 优先级 | 产品形态 | 工作区位置 | Agent CLI 运行位置 | 部署 |
 |--------|---------|-----------|-------------------|------|
 | **P1（当前）** | **桌面版** — Web UI + 本地无头服务器（Tauri/Node.js 进程作为本地特权执行引擎） | 本机文件系统 | 用户主机 | ❌ 不支持一键部署 |
-| **P2（远期）** | **SaaS 云版** — Web UI + 云端后端 + 云端沙箱 | 云端隔离沙箱 | 云端容器 | ✅ 一键部署到云端 URL |
+| **P2（基座已启动，完整形态后续）** | **SaaS 云版** — Web UI + 云端后端 + 云端沙箱 | 云端隔离沙箱 | 云端容器 | ✅ 一键部署到云端 URL |
 
 **P1 数据流**：`用户浏览器 → localhost 后端 → 本机文件系统 + 本机 CLI Agent 进程`
 
@@ -181,7 +181,7 @@ PRD 系列与早期核心设计文档共同构成需求权威。早期设计定�
 | Phase 6 | [specs/phase6/](docs/specs/phase6/) | [README](docs/specs/phase6/README.md) + [Workspace Runtime](docs/specs/phase6/00-workspace-runtime.md) + [CLI 适配器](docs/specs/phase6/01-cli-adapter.md) + [产物桥接](docs/specs/phase6/02-artifact-output-bridge.md) + [Agent Profile](docs/specs/phase6/03-agent-engine-skill-profile.md) |
 | Phase 7 | [specs/phase7/](docs/specs/phase7/) | [README](docs/specs/phase7/README.md) + [运行控制交付快照](docs/deliverables/phase7-runtime-control/README.md) + [IM 加固交付快照](docs/deliverables/phase7-im-hardening/README.md) + [上下文包与缓存策略](docs/specs/phase7/05-context-pack-and-cache-strategy.md) + [CLI Session Process Runtime](docs/specs/phase7/06-cli-session-process-runtime.md) + 运行可控性 + 审批 + 环境体检 + IM 体验 + 演示加固 |
 | Phase 8 | [specs/phase8/](docs/specs/phase8/) | [README](docs/specs/phase8/README.md) + P1 发布候选收口 |
-| Phase 9 | [specs/phase9/](docs/specs/phase9/) | [README](docs/specs/phase9/README.md) + Cloud Workspace Foundation |
+| Phase 9 | [specs/phase9/](docs/specs/phase9/) | [README](docs/specs/phase9/README.md) + [Cloud Workspace 交付快照](docs/deliverables/phase9-cloud-workspace/README.md) |
 | Phase 10 | [specs/phase10/](docs/specs/phase10/) | [README](docs/specs/phase10/README.md) + Sandbox Runner 与云端 Agent Runtime |
 | Phase 11 | [specs/phase11/](docs/specs/phase11/) | [README](docs/specs/phase11/README.md) + Cloud Preview 与 Deployment |
 | Phase 12 | [specs/phase12/](docs/specs/phase12/) | [README](docs/specs/phase12/README.md) + 协作、多端与高级 Artifact |
@@ -205,6 +205,7 @@ PRD 系列与早期核心设计文档共同构成需求权威。早期设计定�
 | [Phase 6 Dev Log](docs/dev-logs/phase6-dev-log.md) | Phase 6A Project-first workspace runtime、系统目录选择器、人工验收记录 |
 | [Orchestrator 真实 Agent 执行复盘](docs/specs/phase3/02-orchestrator/10-real-agent-execution/README.md) | 2026-06-06 真实 CLI Agent DAG 执行样本、问题清单、合并后续计划 |
 | [Phase 7 Dev Log](docs/dev-logs/phase7-dev-log.md) | Phase 7A-7F 运行控制、审批、环境体检、IM 基线、Engine Session、常驻进程、群聊 runtime/Artifact 同步与 v1.0 UI 加固记录 |
+| [Phase 9 Dev Log](docs/dev-logs/phase9-dev-log.md) | Phase 9 Cloud Workspace Foundation：P2 用户/团队/RBAC、云端 workspace 元数据、导入/快照/恢复、审计与 P1/P2 真实服务验收 |
 
 ### Skills — AI 能力复用
 

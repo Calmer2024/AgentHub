@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,11 +31,13 @@ from ..services.project_service import (
 )
 from ..services.preview_service import PreviewError
 from ..services.schemas import ProjectCreate, ProjectRead, ProjectUpdate
+from ..services.team_service import PermissionDeniedError
 from ..services.workspace_provider import (
     WorkspaceFileTooLargeError,
     WorkspaceNotFoundError,
     WorkspaceSecurityError,
 )
+from .auth import require_user_from_header_values
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -121,13 +123,29 @@ async def pick_folder():
 
 
 @router.post("", response_model=ProjectRead, status_code=201)
-async def create_project(data: ProjectCreate, db: AsyncSession = Depends(get_db)):
+async def create_project(
+    data: ProjectCreate,
+    db: AsyncSession = Depends(get_db),
+    x_agenthub_user_email: str | None = Header(default=None),
+    x_agenthub_user_name: str | None = Header(default=None),
+    x_agenthub_user_avatar: str | None = Header(default=None),
+):
     try:
-        return await _svc(db).create_project(data)
+        actor = None
+        if data.workspace_mode == "cloud" or data.team_id:
+            actor = await require_user_from_header_values(
+                db,
+                x_agenthub_user_email,
+                display_name=x_agenthub_user_name,
+                avatar_url=x_agenthub_user_avatar,
+            )
+        return await _svc(db).create_project(data, actor=actor)
     except ProjectValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except ProjectConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
 
 
 @router.get("", response_model=list[ProjectRead])
@@ -148,13 +166,30 @@ async def delete_project(
     project_id: str,
     deleteFiles: bool = False,
     db: AsyncSession = Depends(get_db),
+    x_agenthub_user_email: str | None = Header(default=None),
+    x_agenthub_user_name: str | None = Header(default=None),
+    x_agenthub_user_avatar: str | None = Header(default=None),
 ):
     try:
-        return await _svc(db).delete_project(project_id, delete_files=deleteFiles)
+        actor = None
+        try:
+            project = await _svc(db)._get_project(project_id)
+        except ProjectNotFoundError:
+            raise
+        if project.workspace_mode == "cloud" or project.team_id:
+            actor = await require_user_from_header_values(
+                db,
+                x_agenthub_user_email,
+                display_name=x_agenthub_user_name,
+                avatar_url=x_agenthub_user_avatar,
+            )
+        return await _svc(db).delete_project(project_id, delete_files=deleteFiles, actor=actor)
     except ProjectNotFoundError:
         raise HTTPException(status_code=404, detail="project not found")
     except ProjectDeleteSafetyError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
 
 
 @router.post("/{project_id}/archive")
@@ -193,6 +228,8 @@ async def get_tree(
         raise HTTPException(status_code=404, detail="project not found")
     except PreviewError:
         raise HTTPException(status_code=404, detail="workspace not found")
+    except ProjectValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     except WorkspaceSecurityError:
         raise HTTPException(status_code=403, detail="无权访问此路径")
     except WorkspaceNotFoundError:
@@ -205,6 +242,8 @@ async def read_file(project_id: str, path: str, db: AsyncSession = Depends(get_d
         return await _svc(db).read_file(project_id, path)
     except ProjectNotFoundError:
         raise HTTPException(status_code=404, detail="project not found")
+    except ProjectValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     except WorkspaceSecurityError:
         raise HTTPException(status_code=403, detail="无权访问此路径")
     except WorkspaceFileTooLargeError:
@@ -247,6 +286,8 @@ async def get_diff(project_id: str, baseRef: str, db: AsyncSession = Depends(get
         return await _svc(db).get_diff(project_id, baseRef)
     except ProjectNotFoundError:
         raise HTTPException(status_code=404, detail="project not found")
+    except ProjectValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="snapshot not found")
 

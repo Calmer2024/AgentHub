@@ -36,6 +36,10 @@ async def _cleanup_db():
     async with engine.connect() as conn:
         await conn.execute(text("PRAGMA foreign_keys=OFF"))
         for t in (
+            "audit_logs",
+            "workspace_restores",
+            "workspace_imports",
+            "workspace_snapshots",
             "build_logs",
             "context_pack_snapshots",
             "orchestrator_plans",
@@ -49,7 +53,19 @@ async def _cleanup_db():
                 await conn.execute(text(f"DELETE FROM {t}"))
             except Exception:
                 pass
-        for t in ("engine_sessions", "session_members", "artifacts", "messages", "sessions", "agent_configs", "projects"):
+        for t in (
+            "engine_sessions",
+            "session_members",
+            "artifacts",
+            "messages",
+            "sessions",
+            "agent_configs",
+            "projects",
+            "workspaces",
+            "team_members",
+            "teams",
+            "users",
+        ):
             try:
                 await conn.execute(text(f"DELETE FROM {t}"))
             except Exception:

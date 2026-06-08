@@ -32,7 +32,7 @@ docs/
 **产品交付阶段**：P1 先做桌面版（Web UI + 本地无头服务器 → 本机文件系统 + 本机 CLI Agent），P2 再做 SaaS 云版（云端沙箱 + 一键部署）。详见 PRD-00 第 9 节。
 
 ### 我想了解项目现在的状态
-→ 看 [CONTEXT.md](../CONTEXT.md) 的 Phase 表格；Phase 6 进度看 [specs/phase6/README.md](specs/phase6/README.md) 与 [dev-logs/phase6-dev-log.md](dev-logs/phase6-dev-log.md)，Phase 7A-7C 看 [deliverables/phase7-runtime-control/](deliverables/phase7-runtime-control/)，Phase 7D IM 加固看 [deliverables/phase7-im-hardening/](deliverables/phase7-im-hardening/)，Phase 7E/7F 看 [specs/phase7/05-context-pack-and-cache-strategy.md](specs/phase7/05-context-pack-and-cache-strategy.md) 与 [specs/phase7/06-cli-session-process-runtime.md](specs/phase7/06-cli-session-process-runtime.md)。P1 发布候选收口看 [specs/phase8/README.md](specs/phase8/README.md)，P2 云端化阶段看 [specs/phase9/README.md](specs/phase9/README.md) 到 [specs/phase12/README.md](specs/phase12/README.md)。历史 Phase 3 审计见 [audit/phase3-audit-report.md](audit/phase3-audit-report.md)。
+→ 看 [CONTEXT.md](../CONTEXT.md) 的 Phase 表格；Phase 6 进度看 [specs/phase6/README.md](specs/phase6/README.md) 与 [dev-logs/phase6-dev-log.md](dev-logs/phase6-dev-log.md)，Phase 7A-7C 看 [deliverables/phase7-runtime-control/](deliverables/phase7-runtime-control/)，Phase 7D IM 加固看 [deliverables/phase7-im-hardening/](deliverables/phase7-im-hardening/)，Phase 7E/7F 看 [specs/phase7/05-context-pack-and-cache-strategy.md](specs/phase7/05-context-pack-and-cache-strategy.md) 与 [specs/phase7/06-cli-session-process-runtime.md](specs/phase7/06-cli-session-process-runtime.md)。P1 发布候选收口看 [specs/phase8/README.md](specs/phase8/README.md)，P2 云端 workspace 基座看 [specs/phase9/README.md](specs/phase9/README.md) 与 [deliverables/phase9-cloud-workspace/](deliverables/phase9-cloud-workspace/)，后续云端 runtime/preview/协作看 [specs/phase10/README.md](specs/phase10/README.md) 到 [specs/phase12/README.md](specs/phase12/README.md)。历史 Phase 3 审计见 [audit/phase3-audit-report.md](audit/phase3-audit-report.md)。
 
 ### 我要了解当前 v1.0 发布边界
 → 先读 [deliverables/v1.0-release/](deliverables/v1.0-release/)，再读 [specs/phase7/README.md](specs/phase7/README.md)。7A-7C 运行控制/审批/体检交付快照见 [deliverables/phase7-runtime-control/](deliverables/phase7-runtime-control/)；7D 会话 IM 基线、右键菜单、明亮主题和执行过程全屏见 [deliverables/phase7-im-hardening/](deliverables/phase7-im-hardening/)；7E/7F 记录 Engine Session、上下文治理、Claude Code stdin JSONL 常驻进程、Codex/OpenCode 常驻 RPC 基线，以及群聊按 Agent 隔离 runtime 与 Artifact 归属。
@@ -95,9 +95,9 @@ docs/
 | [phase5/](specs/phase5/) | 产物工作台能力 | ✅ | 对已有 Artifact 做版本链 + Diff + 在线编辑；上游入口由 Phase 6/7 补齐 |
 | [phase6/](specs/phase6/) | Workspace Runtime + CLI Engine + Agent Profile + 产物入口桥接 | ✅ | 6A Workspace Runtime、6B-6E CLI Adapter、6F Artifact Bridge 与 Agent = Engine + Toolset 建模均已落地 |
 | [phase7/](specs/phase7/) | 任务可控性 + 审批 + 环境体检 + IM 体验 + 演示闭环 | 🚧 | v1.0 本机 MVP 基线已覆盖运行控制、审批、体检、IM 会话基线和 UI 加固；7E Engine Session / 上下文包策略与 7F Claude Code stdin JSONL、Codex/OpenCode 常驻 RPC 已记录并实现基线；群聊已同步单聊 runtime 与 workspace Artifact 链路；真实 CLI 完整自动化脚本待补 |
-| [phase8/](specs/phase8/) | P1 发布候选收口 | 📋 | 真实 CLI E2E、本地 Build/Export/Preview、Context Pack、Orchestrator 审批续跑、Store 拆分、截图审计 |
-| [phase9/](specs/phase9/) | Cloud Workspace Foundation | 📋 | 用户/团队/RBAC、CloudWorkspaceProvider、workspace 快照/导入/审计日志 |
-| [phase10/](specs/phase10/) | Sandbox Runner 与云端 Agent Runtime | 📋 | 云端 sandbox、真实 CLI Agent 运行、P1 事件契约兼容、配额、secret、日志脱敏 |
+| [phase8/](specs/phase8/) | P1 发布候选收口 | ✅ | 真实 CLI E2E、本地 Build/Export/Preview、Context Pack、Orchestrator 审批续跑、Store 拆分、截图审计 |
+| [phase9/](specs/phase9/) | Cloud Workspace Foundation | ✅ | 用户/团队/RBAC、CloudWorkspaceProvider、workspace 导入/快照/恢复、审计日志 |
+| [phase10/](specs/phase10/) | Sandbox Runner 与云端 Agent Runtime | 🔜 | 云端 sandbox、真实 CLI Agent 运行、P1 事件契约兼容、配额、secret、日志脱敏 |
 | [phase11/](specs/phase11/) | Cloud Preview 与 Deployment | 📋 | preview URL、Deployment pipeline、部署日志、发布 URL、重试和回滚 |
 | [phase12/](specs/phase12/) | 协作、多端与高级 Artifact | 📋 | 团队评论/通知、移动端审批预览、附件/图片输入、PPT/文档 Artifact、Git sync、对话式 Agent 创建 |
 
@@ -114,6 +114,7 @@ docs/
 | [phase7-runtime-control/](deliverables/phase7-runtime-control/) | Phase 7A-7C 验收快照：运行控制、审批卡片、环境体检与取消回退修复 |
 | [phase7-im-hardening/](deliverables/phase7-im-hardening/) | Phase 7D 验收快照：会话置顶/归档/未读/免打扰/转发/多选、消息右键菜单、明亮主题与执行过程全屏 |
 | [v1.0-release/](deliverables/v1.0-release/) | v1.0.0 发布摘要：本机 MVP 基线、Phase 7D 本轮总结、验证记录与后续风险 |
+| [phase9-cloud-workspace/](deliverables/phase9-cloud-workspace/) | Phase 9 验收快照：P2 用户/团队/RBAC、CloudWorkspaceProvider、导入/快照/恢复、审计与 P1/P2 真实服务验收 |
 
 每个 Phase 目录下都有独立的 `README.md`，包含验收标准清单和子模块索引。
 
@@ -133,6 +134,7 @@ docs/
 | [phase6-dev-log.md](dev-logs/phase6-dev-log.md) | Phase 6A: Project-first workspace runtime；Phase 6B-6E: 真实本机 CLI Agent；6F: Artifact Bridge、消息级产物卡片、文件编辑器与版本管理 |
 | [phase6-cli-adapter-dev-log.md](dev-logs/phase6-cli-adapter-dev-log.md) | Phase 6 CLI Adapter 专项交接日志：真实 CLI 验证、Codex 中转修复、执行轨迹 UI 与剩余工作 |
 | [phase7-dev-log.md](dev-logs/phase7-dev-log.md) | Phase 7A-7F: run/task/process 运行控制、审批 checkpoint、环境体检、IM 基线、Engine Session、Claude Code stdin JSONL 常驻进程、Codex/OpenCode 常驻 RPC、群聊 runtime/Artifact 同步和 v1.0 UI 加固 |
+| [phase9-dev-log.md](dev-logs/phase9-dev-log.md) | Phase 9: Cloud Workspace Foundation、P2 用户/团队/RBAC、云端 workspace 元数据、导入/快照/恢复、审计与 P1/P2 验收 |
 
 ### audit/ — 审计报告
 

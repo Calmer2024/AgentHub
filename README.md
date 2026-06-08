@@ -70,7 +70,10 @@ AgentHub/
 | Phase 4 | 消息交互闭环（Reply/Regenerate/Pin/Search） | ✅ 已完成 |
 | Phase 5 | 产物工作台能力（版本链 + Diff + 在线编辑） | ✅ 已完成 |
 | Phase 6 | Workspace Runtime + CLI Agent 适配器 + 产物入口桥接 | ✅ 核心闭环验收通过 |
-| Phase 7 | 任务可控性 + 审批 + 环境体检 + IM 体验 + 演示闭环 | 🚧 7A-7D 验收基线已完成，7E Engine Session 已实现；7F 已接入 Claude Code stdin JSONL 常驻进程与 Codex/OpenCode 常驻 RPC，真实 CLI 脚本待补 |
+| Phase 7 | 任务可控性 + 审批 + 环境体检 + IM 体验 + 演示闭环 | ✅ 已完成 |
+| Phase 8 | P1 发布候选收口 | ✅ 已完成：本地 Build/Preview/Export、Context Pack、Orchestrator resume、截图审计门禁 |
+| Phase 9 | Cloud Workspace Foundation | ✅ 已完成：用户/团队/RBAC、CloudWorkspaceProvider、导入/快照/恢复、审计日志 |
+| Phase 10 | Sandbox Runner 与云端 Agent Runtime | 🔜 下一阶段 |
 
 ### Phase 4 能力
 
@@ -91,7 +94,7 @@ AgentHub/
 | DeepSeek system model tool calling + 上下文降级 | ✅ |
 | ArtifactService 接入 EventBus (`artifact.created` / `artifact.version_created`) | ✅ |
 
-Phase 5 的边界也已经在文档中明确：它完成的是“对已有 Artifact 的工作台能力”。Phase 6 已补齐 Project-first workspace runtime、真实 CLI 执行和 Artifact Bridge：CLI 产物会以消息下方卡片出现，并可继续编辑、引用和版本管理。Phase 7 已完成运行取消/恢复、审批卡片、环境体检、IM 会话基线、v1.0 UI 加固、Engine Session Adapter，以及 Claude Code / Codex / OpenCode 单聊一会话一常驻进程基线；后续继续补真实演示脚本和完整回归矩阵。
+Phase 5 的边界也已经在文档中明确：它完成的是“对已有 Artifact 的工作台能力”。Phase 6 已补齐 Project-first workspace runtime、真实 CLI 执行和 Artifact Bridge：CLI 产物会以消息下方卡片出现，并可继续编辑、引用和版本管理。Phase 7 已完成运行取消/恢复、审批卡片、环境体检、IM 会话基线、v1.0 UI 加固、Engine Session Adapter，以及 Claude Code / Codex / OpenCode 单聊一会话一常驻进程基线。Phase 8 已完成 P1 发布候选收口；Phase 9 已建立 P2 Cloud Workspace Foundation。
 
 ### Phase 6 能力
 
@@ -121,7 +124,28 @@ Phase 5 的边界也已经在文档中明确：它完成的是“对已有 Artif
 | Claude Code / Codex / OpenCode Engine Session Adapter | ✅ |
 | Claude Code 单聊一会话一常驻 stdin JSONL 进程 | ✅ |
 | Codex / OpenCode 单聊一会话一常驻 RPC 进程 | ✅ |
-| 真实 Claude Code 完整 E2E 演示脚本 | 🚧 |
+
+### Phase 8 能力
+
+| 能力 | 状态 |
+|------|------|
+| 本地构建 API、构建日志、构建状态持久化 | ✅ |
+| workspace preview、build preview、源码导出、构建产物导出 | ✅ |
+| Context Pack Builder 与审批续跑上下文 | ✅ |
+| Orchestrator plan resume 最小状态机 | ✅ |
+| P1 真实服务 E2E 与截图审计门禁 | ✅ |
+
+### Phase 9 能力
+
+| 能力 | 状态 |
+|------|------|
+| 开发态登录 `/api/auth/me` | ✅ |
+| Team / TeamMember / owner-admin-member-viewer RBAC | ✅ |
+| cloud Project 创建，返回 `workspaceId` 且不暴露本机路径 | ✅ |
+| CloudWorkspaceProvider 元数据基座 | ✅ |
+| zip 导入、GitHub 导入占位、snapshot、restore | ✅ |
+| Audit log 查询 | ✅ |
+| P1 local Project、Session、build/preview/export 零回归 | ✅ |
 
 ## 测试
 
@@ -147,6 +171,14 @@ backend\venv\Scripts\python.exe e2e\phase5_real_acceptance.py
 ```bash
 cd backend && .\venv\Scripts\python.exe -m pytest test_api/test_phase7_runtime.py -q
 cd frontend && npx vitest run src/components/ChatWindow.test.tsx src/stores/chat.test.ts
+```
+
+### Phase 9 验收入口
+
+```bash
+cd backend && .\venv\Scripts\python.exe -m pytest test_api\ -q
+cd backend && .\venv\Scripts\python.exe -m pytest test_unit\ -q
+cd frontend && npx tsc --noEmit && npx vitest run
 ```
 
 ## 每轮结束服务交接
@@ -185,6 +217,10 @@ cd frontend && npx vitest run src/components/ChatWindow.test.tsx src/stores/chat
 | Phase 7 MVP 演示闭环、Engine Session 与常驻进程 | [docs/specs/phase7/README.md](docs/specs/phase7/README.md) |
 | Phase 7 运行控制/审批/体检交付 | [docs/deliverables/phase7-runtime-control/README.md](docs/deliverables/phase7-runtime-control/README.md) |
 | Phase 7 IM 与 UI 加固交付 | [docs/deliverables/phase7-im-hardening/README.md](docs/deliverables/phase7-im-hardening/README.md) |
+| Phase 8 P1 发布候选收口 | [docs/specs/phase8/README.md](docs/specs/phase8/README.md) |
+| Phase 9 Cloud Workspace Foundation | [docs/specs/phase9/README.md](docs/specs/phase9/README.md) |
+| Phase 9 交付快照 | [docs/deliverables/phase9-cloud-workspace/README.md](docs/deliverables/phase9-cloud-workspace/README.md) |
+| Phase 9 开发日志 | [docs/dev-logs/phase9-dev-log.md](docs/dev-logs/phase9-dev-log.md) |
 | Orchestrator 设计 | [docs/specs/phase3/02-orchestrator/](docs/specs/phase3/02-orchestrator/) |
 | 测试协议 | [docs/TEST_PROTOCOL.md](docs/TEST_PROTOCOL.md) |
 | Git 规范 | [docs/GIT_PROTOCOL.md](docs/GIT_PROTOCOL.md) |

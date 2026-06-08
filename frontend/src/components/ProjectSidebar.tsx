@@ -1,12 +1,14 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import {
   Archive,
   Bot,
   ChevronDown,
   ChevronUp,
+  Cloud,
   Moon,
   Folder,
   FolderOpen,
+  HardDrive,
   MessageCircle,
   MoreHorizontal,
   Pencil,
@@ -17,7 +19,7 @@ import {
   Users,
   type LucideIcon,
 } from "lucide-react";
-import type { AgentConfig, Project } from "../types";
+import type { AgentConfig, CurrentUser, Project, Team } from "../types";
 import { AgentAvatar } from "./AgentAvatar";
 import { ConfirmDialog } from "./ConfirmDialog";
 import type { SidebarTab } from "../stores/sessionStore";
@@ -28,10 +30,16 @@ interface Props {
   currentProjectId: string | null;
   agents: AgentConfig[];
   activePanel: SidebarTab;
+  currentUser: CurrentUser | null;
+  teams: Team[];
+  currentTeamId: string | null;
   creating: boolean;
   loading?: boolean;
   onSelectProject: (id: string) => void;
+  onSelectTeam: (id: string | null) => void;
+  onCreateTeam: (name: string) => Promise<void>;
   onCreateBlankProject: (name?: string) => Promise<void>;
+  onCreateCloudProject: (name: string, teamId?: string | null) => Promise<void>;
   onPickExistingFolder: () => Promise<void>;
   onArchiveProject: (id: string) => Promise<void>;
   onRenameProject: (id: string, name: string) => Promise<void>;
@@ -70,10 +78,16 @@ export function ProjectSidebar({
   currentProjectId,
   agents,
   activePanel,
+  currentUser,
+  teams,
+  currentTeamId,
   creating,
   loading = false,
   onSelectProject,
+  onSelectTeam,
+  onCreateTeam,
   onCreateBlankProject,
+  onCreateCloudProject,
   onPickExistingFolder,
   onArchiveProject,
   onRenameProject,
@@ -89,8 +103,13 @@ export function ProjectSidebar({
   const [projectMenuOpen, setProjectMenuOpen] = useState<string | null>(null);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [createName, setCreateName] = useState("新项目");
+  const [createMode, setCreateMode] = useState<"local" | "cloud">("local");
+  const [createTeamId, setCreateTeamId] = useState<string | null>(currentTeamId);
   const [renamingProjectId, setRenamingProjectId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  const [teamMenuOpen, setTeamMenuOpen] = useState(false);
+  const [teamName, setTeamName] = useState("");
+  const [teamCreating, setTeamCreating] = useState(false);
   const [agentsExpanded, setAgentsExpanded] = useState(false);
   const [projectsExpanded, setProjectsExpanded] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
@@ -98,6 +117,7 @@ export function ProjectSidebar({
   const menuRef = useRef<HTMLDivElement>(null);
   const agentMenuRef = useRef<HTMLDivElement>(null);
   const projectMenuRef = useRef<HTMLDivElement>(null);
+  const teamMenuRef = useRef<HTMLDivElement>(null);
   const activeAgents = agents.filter((agent) => agent.isActive);
   const nativeCliAgents = activeAgents
     .filter(isNativeCliAgent)
@@ -123,23 +143,56 @@ export function ProjectSidebar({
     return () => window.removeEventListener("mousedown", close);
   }, [menuOpen, agentMenuOpen, projectMenuOpen]);
 
+  useEffect(() => {
+    setCreateTeamId(currentTeamId);
+  }, [currentTeamId]);
+
+  useEffect(() => {
+    if (!teamMenuOpen) return;
+    const close = (event: MouseEvent) => {
+      if (!teamMenuRef.current?.contains(event.target as Node)) setTeamMenuOpen(false);
+    };
+    window.addEventListener("mousedown", close);
+    return () => window.removeEventListener("mousedown", close);
+  }, [teamMenuOpen]);
+
   const runCreateAction = async (action: () => Promise<void>) => {
     setMenuOpen(false);
     await action();
     onOpenPanel("sessions");
   };
 
-  const openCreateProjectDialog = () => {
+  const openCreateProjectDialog = (mode: "local" | "cloud" = "local") => {
     setMenuOpen(false);
     setCreateName("新项目");
+    setCreateMode(mode);
+    setCreateTeamId(currentTeamId);
     setCreateModalOpen(true);
   };
 
   const submitCreateProject = async () => {
     const name = createName.trim();
     if (!name) return;
+    if (createMode === "cloud" && !currentUser) return;
     setCreateModalOpen(false);
-    await onCreateBlankProject(name);
+    if (createMode === "cloud") {
+      await onCreateCloudProject(name, createTeamId);
+    } else {
+      await onCreateBlankProject(name);
+    }
+  };
+
+  const submitCreateTeam = async () => {
+    const name = teamName.trim();
+    if (!name) return;
+    setTeamCreating(true);
+    try {
+      await onCreateTeam(name);
+      setTeamName("");
+      setTeamMenuOpen(false);
+    } finally {
+      setTeamCreating(false);
+    }
   };
 
   const submitProjectRename = async (project: Project) => {
@@ -242,11 +295,30 @@ export function ProjectSidebar({
     <aside className="agenthub-rail w-full md:w-[260px] h-[34dvh] md:h-full flex flex-col shrink-0 border-r transition-colors duration-300">
       <div className="px-3 py-3 space-y-3">
         <ThemeToggle theme={theme} onChange={setTheme} />
+        <TeamSwitcher
+          currentUser={currentUser}
+          teams={teams}
+          currentTeamId={currentTeamId}
+          teamName={teamName}
+          teamCreating={teamCreating}
+          menuOpen={teamMenuOpen}
+          menuRef={teamMenuRef}
+          onToggle={() => setTeamMenuOpen((value) => !value)}
+          onSelectTeam={onSelectTeam}
+          onTeamNameChange={setTeamName}
+          onCreateTeam={() => void submitCreateTeam()}
+        />
         <NavButton
           icon={MessageCircle}
           label="对话"
           active={activePanel === "sessions"}
           onClick={() => onOpenPanel("sessions")}
+        />
+        <NavButton
+          icon={Settings}
+          label="工作区设置"
+          active={activePanel === "workspace"}
+          onClick={() => onOpenPanel("workspace")}
         />
         <NavButton icon={Bot} label="添加 Agent" onClick={onCreateAgent} />
       </div>
@@ -320,7 +392,12 @@ export function ProjectSidebar({
                 <MenuItem
                   icon={Plus}
                   label="新建空白项目"
-                  onClick={openCreateProjectDialog}
+                  onClick={() => openCreateProjectDialog("local")}
+                />
+                <MenuItem
+                  icon={Cloud}
+                  label="新建云端项目"
+                  onClick={() => openCreateProjectDialog("cloud")}
                 />
                 <MenuItem
                   icon={Folder}
@@ -360,7 +437,7 @@ export function ProjectSidebar({
                 >
                   <div className="flex items-center gap-2">
                     <span className="agenthub-project-icon agenthub-soft flex h-8 w-8 shrink-0 items-center justify-center rounded-full border agenthub-muted">
-                      <Folder size={15} />
+                      {project.workspaceMode === "cloud" ? <Cloud size={15} /> : <Folder size={15} />}
                     </span>
                     <span className="min-w-0 flex-1">
                       {isRenaming ? (
@@ -379,7 +456,9 @@ export function ProjectSidebar({
                       ) : (
                         <>
                           <span className="block truncate text-sm font-medium">{project.name}</span>
-                          <span className="agenthub-faint mt-0.5 block truncate text-xs">{projectStatusLabel(project.status)}</span>
+                          <span className="agenthub-faint mt-0.5 block truncate text-xs">
+                            {project.workspaceMode === "cloud" ? "云端" : "本机"} · {projectStatusLabel(project.status)}
+                          </span>
                         </>
                       )}
                     </span>
@@ -418,7 +497,7 @@ export function ProjectSidebar({
                     />
                     <MenuItem
                       icon={Trash2}
-                      label="删除目录"
+                      label={project.workspaceMode === "cloud" ? "删除项目" : "删除目录"}
                       danger
                       onClick={() => {
                         setProjectMenuOpen(null);
@@ -426,8 +505,10 @@ export function ProjectSidebar({
                           kind: "project",
                           id: project.id,
                           title: "删除项目",
-                          description: `永久删除「${project.name}」并删除本机目录：\n${project.workspacePath}`,
-                          confirmLabel: "删除目录",
+                          description: project.workspaceMode === "cloud"
+                            ? `永久删除云端项目「${project.name}」及其 workspace 元数据。`
+                            : `永久删除「${project.name}」并删除本机目录：\n${project.workspacePath ?? ""}`,
+                          confirmLabel: project.workspaceMode === "cloud" ? "删除项目" : "删除目录",
                         });
                       }}
                     />
@@ -462,8 +543,28 @@ export function ProjectSidebar({
               </span>
               <div>
                 <h2 id="blank-project-title" className="agenthub-strong text-base font-semibold">新建项目</h2>
-                <p className="agenthub-muted mt-0.5 text-xs">为空项目选择一个名称。</p>
+                <p className="agenthub-muted mt-0.5 text-xs">选择本机或云端工作区。</p>
               </div>
+            </div>
+            <div className="mb-4 grid grid-cols-2 rounded-full border p-1" style={{ borderColor: "var(--ah-border)" }}>
+              <button
+                type="button"
+                onClick={() => setCreateMode("local")}
+                data-active={createMode === "local"}
+                className="agenthub-theme-choice inline-flex h-9 items-center justify-center gap-1.5 rounded-full text-xs font-medium transition"
+              >
+                <HardDrive size={14} />
+                本机
+              </button>
+              <button
+                type="button"
+                onClick={() => setCreateMode("cloud")}
+                data-active={createMode === "cloud"}
+                className="agenthub-theme-choice inline-flex h-9 items-center justify-center gap-1.5 rounded-full text-xs font-medium transition"
+              >
+                <Cloud size={14} />
+                云端
+              </button>
             </div>
             <label className="agenthub-muted block text-xs font-medium" htmlFor="blank-project-name">
               项目名称
@@ -479,6 +580,27 @@ export function ProjectSidebar({
               className="agenthub-composer agenthub-textarea mt-2 h-11 w-full rounded-2xl border px-3 text-sm outline-none transition focus:ring-2 focus:ring-[color:var(--ah-accent-soft)]"
               autoFocus
             />
+            {createMode === "cloud" && (
+              <div className="mt-4 space-y-2">
+                <label className="agenthub-muted block text-xs font-medium" htmlFor="cloud-project-team">
+                  团队空间
+                </label>
+                <select
+                  id="cloud-project-team"
+                  value={createTeamId ?? ""}
+                  onChange={(event) => setCreateTeamId(event.target.value || null)}
+                  className="agenthub-composer h-10 w-full rounded-2xl border px-3 text-sm outline-none"
+                >
+                  <option value="">个人空间</option>
+                  {teams.map((team) => (
+                    <option key={team.id} value={team.id}>{team.name}</option>
+                  ))}
+                </select>
+                {!currentUser && (
+                  <p className="text-xs text-[color:var(--ah-danger)]">云端登录态未就绪</p>
+                )}
+              </div>
+            )}
             <div className="mt-5 flex justify-end gap-2">
               <button
                 type="button"
@@ -490,10 +612,10 @@ export function ProjectSidebar({
               <button
                 type="button"
                 onClick={() => void submitCreateProject()}
-                disabled={!createName.trim() || creating}
+                disabled={!createName.trim() || creating || (createMode === "cloud" && !currentUser)}
                 className="agenthub-primary-button h-10 rounded-full px-5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50"
               >
-                创建
+                {createMode === "cloud" ? "创建云端项目" : "创建"}
               </button>
             </div>
           </div>
@@ -538,6 +660,110 @@ function AgentGroup({
         <span>{count}</span>
       </div>
       {children}
+    </div>
+  );
+}
+
+function TeamSwitcher({
+  currentUser,
+  teams,
+  currentTeamId,
+  teamName,
+  teamCreating,
+  menuOpen,
+  menuRef,
+  onToggle,
+  onSelectTeam,
+  onTeamNameChange,
+  onCreateTeam,
+}: {
+  currentUser: CurrentUser | null;
+  teams: Team[];
+  currentTeamId: string | null;
+  teamName: string;
+  teamCreating: boolean;
+  menuOpen: boolean;
+  menuRef: RefObject<HTMLDivElement>;
+  onToggle: () => void;
+  onSelectTeam: (id: string | null) => void;
+  onTeamNameChange: (value: string) => void;
+  onCreateTeam: () => void;
+}) {
+  const activeTeam = teams.find((team) => team.id === currentTeamId) ?? null;
+  const label = activeTeam?.name ?? "个人空间";
+  return (
+    <div className="relative" ref={menuRef}>
+      <button
+        type="button"
+        onClick={onToggle}
+        className="agenthub-nav-idle flex w-full items-center gap-2 rounded-2xl px-2.5 py-2 text-left text-sm transition"
+        aria-label="团队空间"
+      >
+        <span className="agenthub-soft agenthub-muted flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-[11px]">
+          {activeTeam ? activeTeam.name.slice(0, 1) : "个"}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate">{label}</span>
+          <span className="agenthub-faint block truncate text-[11px]">
+            {currentUser ? currentUser.email : "云端登录态加载中"}
+          </span>
+        </span>
+        <ChevronDown size={14} className="agenthub-muted" />
+      </button>
+      {menuOpen && (
+        <div className="agenthub-menu absolute left-0 top-12 z-50 w-60 rounded-2xl border p-2">
+          <button
+            type="button"
+            onClick={() => onSelectTeam(null)}
+            className={`flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left text-sm transition ${
+              !currentTeamId ? "agenthub-nav-active" : "agenthub-nav-idle"
+            }`}
+          >
+            <HardDrive size={14} className="agenthub-muted" />
+            个人空间
+          </button>
+          {teams.length === 0 ? (
+            <div className="agenthub-faint px-2 py-2 text-xs">暂无团队</div>
+          ) : teams.map((team) => (
+            <button
+              key={team.id}
+              type="button"
+              onClick={() => onSelectTeam(team.id)}
+              className={`flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-left text-sm transition ${
+                currentTeamId === team.id ? "agenthub-nav-active" : "agenthub-nav-idle"
+              }`}
+            >
+              <span className="min-w-0 truncate">{team.name}</span>
+              <span className="agenthub-faint shrink-0 text-[11px]">{team.role}</span>
+            </button>
+          ))}
+          <div className="mt-2 border-t pt-2" style={{ borderColor: "var(--ah-border)" }}>
+            <label className="agenthub-muted text-[11px]" htmlFor="team-name-input">创建团队</label>
+            <div className="mt-1 flex gap-1.5">
+              <input
+                id="team-name-input"
+                value={teamName}
+                onChange={(event) => onTeamNameChange(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") onCreateTeam();
+                }}
+                className="agenthub-composer min-w-0 flex-1 rounded-xl border px-2 py-1.5 text-xs outline-none"
+                placeholder="团队名称"
+              />
+              <button
+                type="button"
+                onClick={onCreateTeam}
+                disabled={!teamName.trim() || teamCreating}
+                className="agenthub-primary-button inline-flex h-8 w-8 items-center justify-center rounded-full disabled:opacity-50"
+                title="创建团队"
+                aria-label="创建团队"
+              >
+                <Plus size={13} />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

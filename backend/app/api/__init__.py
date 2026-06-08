@@ -12,9 +12,17 @@ from .runs import router as runs_router
 from .approvals import router as approvals_router
 from .context import router as context_router
 from .system import router as system_router
+from .auth import router as auth_router
+from .teams import router as teams_router
+from .workspaces import router as workspaces_router
+from .audit_logs import router as audit_logs_router
 
 api_router = APIRouter(prefix="/api")
+api_router.include_router(auth_router)
+api_router.include_router(teams_router)
 api_router.include_router(projects_router)
+api_router.include_router(workspaces_router)
+api_router.include_router(audit_logs_router)
 api_router.include_router(sessions_router)
 api_router.include_router(chat_router)
 api_router.include_router(agents_router)

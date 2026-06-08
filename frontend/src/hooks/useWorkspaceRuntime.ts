@@ -3,16 +3,19 @@ import {
   addGroupMember,
   archiveProject,
   archiveSession,
+  createTeam,
   createGroupSession,
   createProject,
   createSession,
   deleteProject,
   deleteSession,
   fetchAgents,
+  fetchCurrentUser,
   fetchApprovals,
   fetchArtifacts,
   fetchMessages,
   fetchProjects,
+  fetchTeams,
   fetchRunTasks,
   fetchRuns,
   fetchSessionMembers,
@@ -30,7 +33,7 @@ import { WSClient } from "../api/wsClient";
 import { useChatStore } from "../stores/chatStore";
 import { useSessionStore } from "../stores/sessionStore";
 import type {
-  AgentConfig, ApprovalCheckpoint, Artifact, ExecutionTraceItem, ProjectCreateInput, RunRead, Session, TaskRead,
+  AgentConfig, ApprovalCheckpoint, Artifact, CurrentUser, ExecutionTraceItem, ProjectCreateInput, RunRead, Session, TaskRead, Team,
 } from "../types";
 import { chinaNowIso, formatChinaDateTime } from "../utils/time";
 
@@ -111,6 +114,9 @@ export function useWorkspaceRuntime() {
   const [initialLoading, setInitialLoading] = useState(true);
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [sessionHydrating, setSessionHydrating] = useState(false);
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [currentTeamId, setCurrentTeamId] = useState<string | null>(null);
 
   const replaceSessionEverywhere = useCallback((updated: Session, source = useSessionStore.getState().sessions) => {
     const withoutUpdated = source.filter((session) => session.id !== updated.id);
@@ -395,6 +401,10 @@ export function useWorkspaceRuntime() {
         fetchProjects(),
         fetchAgents(),
       ]);
+      const [loadedUser, loadedTeams] = await Promise.allSettled([
+        fetchCurrentUser(),
+        fetchTeams(),
+      ]);
       if (loadedProjects.status === "fulfilled") {
         setProjects(loadedProjects.value);
         const activeProjectId = useSessionStore.getState().currentProjectId;
@@ -426,6 +436,11 @@ export function useWorkspaceRuntime() {
         }
       }
       if (loadedAgents.status === "fulfilled") setAgents(loadedAgents.value);
+      if (loadedUser.status === "fulfilled") setCurrentUser(loadedUser.value);
+      if (loadedTeams.status === "fulfilled") {
+        setTeams(loadedTeams.value);
+        setCurrentTeamId((current) => current ?? loadedTeams.value[0]?.id ?? null);
+      }
     } catch { /* ignore bootstrap failures */ }
     finally {
       bootstrappedRef.current = true;
@@ -519,6 +534,21 @@ export function useWorkspaceRuntime() {
       minute: "2-digit",
     })}`;
     await handleCreateProject({ name });
+  };
+
+  const handleCreateCloudProject = async (name: string, teamId?: string | null) => {
+    await handleCreateProject({
+      name,
+      workspaceMode: "cloud",
+      teamId: teamId ?? currentTeamId,
+      template: "blank",
+    });
+  };
+
+  const handleCreateTeam = async (name: string) => {
+    const team = await createTeam(name);
+    setTeams((items) => [team, ...items]);
+    setCurrentTeamId(team.id);
   };
 
   const handlePickExistingFolder = async () => {
@@ -708,11 +738,17 @@ export function useWorkspaceRuntime() {
     sessionMembersLoading,
     currentAgent,
     currentMode,
+    currentUser,
+    teams,
+    currentTeamId,
+    setCurrentTeamId,
     setSidebarTab,
     loadData,
     handleSelectProject,
     handleCreateProject,
     handleCreateBlankProject,
+    handleCreateCloudProject,
+    handleCreateTeam,
     handlePickExistingFolder,
     handleArchiveProject,
     handleRenameProject,

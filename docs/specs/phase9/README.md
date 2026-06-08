@@ -1,8 +1,8 @@
 # Phase 9：Cloud Workspace Foundation
 
-**版本**: v1.1
+**版本**: v1.2
 **创建日期**: 2026-06-08  
-**状态**: Draft  
+**状态**: Completed  
 **关联 ADR/PRD**: [AgentHub-多Agent协作平台设计](../../archive/AgentHub-多Agent协作平台设计.md)、[ADR-0005](../../adr/0005-target-architecture.md)、[ADR-0009](../../adr/0009-project-workspace-model.md)、[PRD-00](../../PRD/00-Master_Hub.md)、[PRD-04](../../PRD/04-Data_API_Contracts.md)、[PRD-07](../../PRD/07-SaaS_Cloud_Workspace_Delivery.md)  
 **依赖模块**: Phase 8 P1 发布候选收口、Project-first workspace model、Artifact metadata baseline
 
@@ -18,13 +18,15 @@ Phase 9 解决 P1 本地 workspace 与 P2 云端 workspace 之间的架构断层
 
 **成功标准**（可证伪）：
 
-- [ ] 同一套 Project API 可创建 `workspaceMode = "local"` 或 `"cloud"` 的 Project，前端展示一致但字段边界清晰。
-- [ ] 云端 Project 返回 `workspaceId`，不向前端暴露服务器文件系统路径。
-- [ ] 用户、团队、成员、角色、Project 权限和审计日志可持久化。
-- [ ] 云端 workspace 支持创建、归档、删除、快照、恢复、源码 zip 导入、GitHub 导入占位流程。
-- [ ] P1 本机 Project、会话、Artifact、本地 build/preview/export 在真实服务上保持可用。
-- [ ] 本阶段 SaaS 最小可运行切片为：登录态 → 创建团队 → 创建 cloud Project → 导入/快照/恢复 workspace 元数据闭环。
-- [ ] 不通过标准：为了云端能力改坏 P1 本地 workspace；或在本阶段启动云端 CLI/sandbox 执行。
+- [x] 同一套 Project API 可创建 `workspaceMode = "local"` 或 `"cloud"` 的 Project，前端展示一致但字段边界清晰。
+- [x] 云端 Project 返回 `workspaceId`，不向前端暴露服务器文件系统路径。
+- [x] 用户、团队、成员、角色、Project 权限和审计日志可持久化。
+- [x] 云端 workspace 支持创建、归档、删除、快照、恢复、源码 zip 导入、GitHub 导入占位流程。
+- [x] P1 本机 Project、会话、Artifact、本地 build/preview/export 在真实服务上保持可用。
+- [x] 本阶段 SaaS 最小可运行切片为：登录态 → 创建团队 → 创建 cloud Project → 导入/快照/恢复 workspace 元数据闭环。
+- [x] 不通过标准已守住：没有改坏 P1 本地 workspace，也没有在本阶段启动云端 CLI/sandbox 执行。
+
+**实现说明**：Phase 9 已交付的是 P2 云端 workspace 的元数据和权限基座。`cloud://agenthub/workspaces/{workspaceId}` 是逻辑 URI，不代表本机物理目录；真实云端文件系统、sandbox 挂载、云端 CLI 执行、preview URL 与部署仍按 Phase 10-11 进入。
 
 ---
 
@@ -295,16 +297,16 @@ WorkspaceSettingsPage
 
 ## 7. 验收标准
 
-- [ ] AC-P9-01: 登录用户可通过 `/api/auth/me` 获取当前用户，未登录返回 401。
-- [ ] AC-P9-02: 用户可创建团队、邀请成员并设置角色；viewer 不能创建或删除 Project。
-- [ ] AC-P9-03: 创建 cloud Project 后返回 `workspaceMode: "cloud"` 和 `workspaceId`，不返回本机绝对路径。
-- [ ] AC-P9-04: `LocalWorkspaceProvider` 的 P1 行为保持不变，P1 E2E 不回归。
-- [ ] AC-P9-05: cloud workspace 可创建 snapshot，并能恢复到指定 snapshot。
-- [ ] AC-P9-06: zip 导入和 GitHub 导入占位流程有状态、错误和审计日志。
-- [ ] AC-P9-07: Project/Workspace/Team/Audit API 均验证租户权限。
-- [ ] AC-P9-08: 前端 TeamSwitcher、Workspace 设置页覆盖空/加载/正常/完成/错误/边界六态。
-- [ ] AC-P9-09: P1 local Project 创建、会话创建、Artifact 查询、本地 build/preview/export 真实服务回归通过。
-- [ ] AC-P9-10: Phase 9 cloud slice 在真实服务上完成创建团队、创建 cloud Project、导入、snapshot、restore 流程。
+- [x] AC-P9-01: 登录用户可通过 `/api/auth/me` 获取当前用户，未登录返回 401。
+- [x] AC-P9-02: 用户可创建团队、邀请成员并设置角色；viewer 不能创建或删除 Project。
+- [x] AC-P9-03: 创建 cloud Project 后返回 `workspaceMode: "cloud"` 和 `workspaceId`，不返回本机绝对路径。
+- [x] AC-P9-04: `LocalWorkspaceProvider` 的 P1 行为保持不变，P1 E2E 不回归。
+- [x] AC-P9-05: cloud workspace 可创建 snapshot，并能恢复到指定 snapshot。
+- [x] AC-P9-06: zip 导入和 GitHub 导入占位流程有状态、错误和审计日志。
+- [x] AC-P9-07: Project/Workspace/Team/Audit API 均验证租户权限。
+- [x] AC-P9-08: 前端 TeamSwitcher、Workspace 设置页覆盖空/加载/正常/完成/错误/边界六态。
+- [x] AC-P9-09: P1 local Project 创建、会话创建、Artifact 查询、本地 build/preview/export 真实服务回归通过。
+- [x] AC-P9-10: Phase 9 cloud slice 在真实服务上完成创建团队、创建 cloud Project、导入、snapshot、restore 流程。
 
 ---
 
@@ -354,11 +356,11 @@ WorkspaceSettingsPage
 
 | 依赖模块 | 需要的接口 | 当前状态 |
 |---------|-----------|---------|
-| Phase 8 WorkspaceProvider 边界 | local provider contract、Project API 兼容 | 📋 计划中 |
+| Phase 8 WorkspaceProvider 边界 | local provider contract、Project API 兼容 | ✅ 已就绪 |
 | ProjectService | create/list/archive/delete/rename | ✅ 已有 P1 基线 |
 | Artifact metadata | artifact/project/session 关联 | ✅ 已有 P1 基线 |
-| Object storage adapter | storage_uri 读写 | ❌ 未开始 |
-| Auth session provider | CurrentUser 注入 | ❌ 未开始 |
+| Object storage adapter | storage_uri 读写 | ⏭️ Phase 10-11 接入真实云端存储 |
+| Auth session provider | CurrentUser 注入 | ✅ Phase 9 已提供开发态 Header Auth；正式 SaaS 登录后续替换 |
 
 ---
 
@@ -383,5 +385,14 @@ WorkspaceSettingsPage
 | Project 创建 UI | 只选本地目录或空白 workspace | 增加 local/cloud 与团队作用域 | 默认仍推荐 local，云端入口在 P2 环境显示 |
 
 > **版本历史**
+> - v1.2 (2026-06-08): 标记 Phase 9 完成，补充实现边界、验收结果和依赖状态。
 > - v1.1 (2026-06-08): 增加 Phase 9 起 P1/P2 双运行时兼容门禁，明确 P1 local 零回归和 cloud slice 真实服务验收。
 > - v1.0 (2026-06-08): 按 `SPEC_TEMPLATE.md` 创建 Phase 9 独立 Spec。
+
+---
+
+## Phase 9 文档审计记录
+
+- 发现问题：Phase 9 实现完成后，Spec、CONTEXT、docs 索引、根 README、PROJECT_OVERVIEW、AGENTS/CLAUDE 阶段感知仍有“Draft / 📋 / Phase 7 当前阶段”等旧描述。
+- 已执行修复：新增 `docs/deliverables/phase9-cloud-workspace/` 交付快照与 `docs/dev-logs/phase9-dev-log.md`；同步更新 Phase 状态、验收入口、P1/P2 工作目录边界和 Phase 10 依赖状态。
+- 口径确认：Phase 9 只完成 cloud workspace 元数据/RBAC/审计基座；本地版继续使用本机 `workspace_path`，SaaS 版只向前端暴露 `workspaceId` 和逻辑 `cloud://` URI。

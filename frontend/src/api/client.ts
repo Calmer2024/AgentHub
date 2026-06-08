@@ -8,6 +8,7 @@ import type {
   PreviewResult, WorkspaceFile,
   BuildList, BuildLogs, BuildQueuedResult, ProjectPreviewResult,
   ExecutionTraceItem,
+  CurrentUser, Team, TeamMember, TeamRole, CloudWorkspace, WorkspaceSnapshot, AuditLog,
   CodexLocalConfig, CodexLocalConfigUpdate,
   SkillDefinition,
   BuildOrchestratorInputRequest, BuildOrchestratorInputResult,
@@ -21,6 +22,18 @@ import { parseDagPhases, parseTasks } from "./orchestratorEvents";
 import { chinaNowIso } from "../utils/time";
 
 const API_BASE = "/api";
+const DEV_CLOUD_USER_HEADERS: Record<string, string> = {
+  "X-AgentHub-User-Email": "demo@agenthub.local",
+  "X-AgentHub-User-Name": "AgentHub Demo",
+};
+
+function cloudHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  return { ...extra, ...DEV_CLOUD_USER_HEADERS };
+}
+
+function cloudJsonHeaders(): Record<string, string> {
+  return cloudHeaders({ "Content-Type": "application/json" });
+}
 
 async function readApiError(res: Response, fallback: string) {
   try {
@@ -130,6 +143,43 @@ export async function replyToInteractivePrompt(
   if (!res.ok) throw new Error("Failed to reply to interactive prompt");
 }
 
+export async function fetchCurrentUser(): Promise<CurrentUser> {
+  const res = await fetch(`${API_BASE}/auth/me`, { headers: cloudHeaders() });
+  if (!res.ok) throw new Error(await readApiError(res, "请先登录后继续"));
+  return res.json();
+}
+
+export async function fetchTeams(): Promise<Team[]> {
+  const res = await fetch(`${API_BASE}/teams`, { headers: cloudHeaders() });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to fetch teams"));
+  const data = await res.json() as { items?: Team[] };
+  return Array.isArray(data.items) ? data.items : [];
+}
+
+export async function createTeam(name: string): Promise<Team> {
+  const res = await fetch(`${API_BASE}/teams`, {
+    method: "POST",
+    headers: cloudJsonHeaders(),
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to create team"));
+  return res.json();
+}
+
+export async function addTeamMember(
+  teamId: string,
+  email: string,
+  role: TeamRole,
+): Promise<TeamMember> {
+  const res = await fetch(`${API_BASE}/teams/${teamId}/members`, {
+    method: "POST",
+    headers: cloudJsonHeaders(),
+    body: JSON.stringify({ email, role }),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to add team member"));
+  return res.json();
+}
+
 export async function fetchProjects(): Promise<Project[]> {
   const res = await fetch(`${API_BASE}/projects`);
   if (!res.ok) throw new Error("Failed to fetch projects");
@@ -137,12 +187,15 @@ export async function fetchProjects(): Promise<Project[]> {
 }
 
 export async function createProject(data: ProjectCreateInput): Promise<Project> {
+  const headers = data.workspaceMode === "cloud" || data.teamId
+    ? cloudJsonHeaders()
+    : { "Content-Type": "application/json" };
   const res = await fetch(`${API_BASE}/projects`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify(data),
   });
-  if (!res.ok) throw new Error("Failed to create project");
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to create project"));
   return res.json();
 }
 
@@ -266,6 +319,7 @@ export async function deleteProject(
   const params = new URLSearchParams({ deleteFiles: String(deleteFiles) });
   const res = await fetch(`${API_BASE}/projects/${projectId}?${params.toString()}`, {
     method: "DELETE",
+    headers: cloudHeaders(),
   });
   if (!res.ok) {
     let detail = "Failed to delete project";
@@ -276,6 +330,81 @@ export async function deleteProject(
     throw new Error(detail);
   }
   return res.json();
+}
+
+export async function fetchWorkspace(workspaceId: string): Promise<CloudWorkspace> {
+  const res = await fetch(`${API_BASE}/workspaces/${workspaceId}`, { headers: cloudHeaders() });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to fetch workspace"));
+  return res.json();
+}
+
+export async function createWorkspaceSnapshot(
+  workspaceId: string,
+  label?: string,
+): Promise<WorkspaceSnapshot> {
+  const res = await fetch(`${API_BASE}/workspaces/${workspaceId}/snapshots`, {
+    method: "POST",
+    headers: cloudJsonHeaders(),
+    body: JSON.stringify({ label: label || undefined }),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to create workspace snapshot"));
+  return res.json();
+}
+
+export async function restoreWorkspaceSnapshot(
+  workspaceId: string,
+  snapshotId: string,
+  strategy: "replace" | "branch" = "replace",
+): Promise<{ restoreId: string }> {
+  const res = await fetch(`${API_BASE}/workspaces/${workspaceId}/snapshots/${snapshotId}/restore`, {
+    method: "POST",
+    headers: cloudJsonHeaders(),
+    body: JSON.stringify({ strategy }),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to restore workspace snapshot"));
+  return res.json();
+}
+
+export async function importWorkspaceZip(
+  workspaceId: string,
+  file: File,
+): Promise<{ importId: string; status: string }> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const res = await fetch(`${API_BASE}/workspaces/${workspaceId}/imports/zip`, {
+    method: "POST",
+    headers: cloudHeaders(),
+    body: formData,
+  });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to import workspace zip"));
+  return res.json();
+}
+
+export async function importWorkspaceGithub(
+  workspaceId: string,
+  input: { repoUrl: string; branch?: string | null },
+): Promise<{ importId: string; status: string }> {
+  const res = await fetch(`${API_BASE}/workspaces/${workspaceId}/imports/github`, {
+    method: "POST",
+    headers: cloudJsonHeaders(),
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to import GitHub repo"));
+  return res.json();
+}
+
+export async function fetchAuditLogs(input: {
+  projectId?: string | null;
+  teamId?: string | null;
+}): Promise<AuditLog[]> {
+  const params = new URLSearchParams();
+  if (input.projectId) params.set("projectId", input.projectId);
+  if (input.teamId) params.set("teamId", input.teamId);
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  const res = await fetch(`${API_BASE}/audit-logs${suffix}`, { headers: cloudHeaders() });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to fetch audit logs"));
+  const data = await res.json() as { items?: AuditLog[] };
+  return Array.isArray(data.items) ? data.items : [];
 }
 
 export async function fetchSessions(projectId?: string, includeArchived = false): Promise<Session[]> {

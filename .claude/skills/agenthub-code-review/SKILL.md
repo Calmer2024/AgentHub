@@ -84,3 +84,9 @@ description: AgentHub 项目标准代码审查流程。当用户完成模块开�
 ### 结论
 [APPROVED] / [CHANGES REQUESTED]
 ```
+
+## Phase 9 审计 (2026-06-08)
+
+- 引用仍有效：`CLAUDE.md`、`docs/TEST_PROTOCOL.md`、`docs/GIT_PROTOCOL.md`、`docs/testing/UX_TEST_SPEC.md`、`docs/specs/phase9/README.md` 均存在。
+- 审查 Phase 9/后续 P2 代码时必须检查：local Project 是否仍不要求登录；cloud Project 是否通过 RBAC；API 是否用 camelCase alias；cloud 响应是否隐藏 `workspacePath`。
+- Git 审查新增关注：Phase 9 验收截图位于 `e2e/screenshots/` 且被 `.gitignore` 排除，不应误提交截图、日志、数据库或真实用户 workspace 文件。

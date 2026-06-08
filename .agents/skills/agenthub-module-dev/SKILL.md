@@ -94,3 +94,9 @@ description: AgentHub 项目标准模块开发流程。当用户要求开发新�
 - 引用仍有效：`docs/specs/`、`docs/TEST_PROTOCOL.md`、`docs/testing/UX_TEST_SPEC.md`、`docs/GIT_PROTOCOL.md`、`AGENTS.md` 均存在。
 - 测试说明已从“内存数据库”修正为项目当前协议要求的真实迁移文件数据库。
 - 新增提醒：IM 能力（置顶、归档、未读、免打扰、转发、多选）必须走真实 API/持久化状态；Reply/Pin 仍必须影响 Agent 上下文。
+
+## Phase 9 审计 (2026-06-08)
+
+- 引用仍有效：`docs/specs/phase9/README.md`、`docs/TEST_PROTOCOL.md`、`docs/GIT_PROTOCOL.md`、`AGENTS.md` 均存在。
+- 流程补充：Phase 9 起模块开发必须同时验证 P1 local 零回归与 P2 cloud slice，不得只跑新增 cloud API 测试。
+- 新增提醒：cloud Project 不能暴露本机或服务器物理路径；前端类型必须把 `workspacePath` 视为 local-only 可选字段，把 `workspaceId` 视为 cloud 主锚点。

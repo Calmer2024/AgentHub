@@ -417,7 +417,7 @@ App
 
 | 依赖模块 | 需要的接口 | 当前状态 |
 |---------|-----------|---------|
-| Phase 9 Team/RBAC | team members、roles、audit logs | 📋 计划中 |
+| Phase 9 Team/RBAC | team members、roles、audit logs | ✅ 已就绪 |
 | Phase 10 Runtime | run status、approval、artifact detection | 📋 计划中 |
 | Phase 11 Preview/Deployment | preview/deploy URL、deployment events | 📋 计划中 |
 | Agent Profile model | System Prompt、Rules、Toolset、Engine | ✅ P1 基线 |

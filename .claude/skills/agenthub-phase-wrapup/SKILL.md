@@ -49,7 +49,7 @@ description: AgentHub 阶段收尾标准流程。当用户说"阶段验收通过
 
 ### 2.1 日志结构
 
-创建 `docs/phase{N}-dev-log.md`，包含：
+创建 `docs/dev-logs/phase{N}-dev-log.md`，包含：
 
 ```markdown
 # Phase N 开发日志：[阶段名称]
@@ -79,7 +79,7 @@ description: AgentHub 阶段收尾标准流程。当用户说"阶段验收通过
 ```
 
 ### 2.2 交付物
-- `docs/phase{N}-dev-log.md`
+- `docs/dev-logs/phase{N}-dev-log.md`
 
 ---
 
@@ -145,7 +145,7 @@ description: AgentHub 阶段收尾标准流程。当用户说"阶段验收通过
 - 文档数量: 从 N 个精简到 M 个
 
 ### 开发日志
-- 文件: docs/phase{N}-dev-log.md
+- 文件: docs/dev-logs/phase{N}-dev-log.md
 - 记录 Bug: X 个
 - 沉淀方法: X 条
 
@@ -169,3 +169,9 @@ description: AgentHub 阶段收尾标准流程。当用户说"阶段验收通过
 - 引用修复：主 Skill 目录以 `.agents/skills/` 为准，`.claude/skills/` 作为镜像同步审计对象。
 - 阶段收尾本轮新增文档入口：`docs/deliverables/phase7-im-hardening/`。
 - 暂不新建 Skill/Rule：本轮 IM 能力属于 Phase 7D 规格内实现，现有 module-dev / code-review / qa-audit / phase-wrapup 四个 Skill 已能覆盖；后续若多次重复做“IM 真实服务截图审计”，再考虑单独沉淀。
+
+## Phase 9 审计 (2026-06-08)
+
+- 引用仍有效：`.agents/skills/` 与 `.claude/skills/` 镜像均存在，`docs/specs/phase9/README.md`、`docs/deliverables/phase9-cloud-workspace/`、`docs/dev-logs/phase9-dev-log.md` 已作为本阶段文档入口。
+- 阶段收尾新增硬口径：P2 SaaS 阶段的完成报告必须同时写出 P1 local 零回归与当前 cloud slice 真实服务结果。
+- 暂不新建独立 Skill/Rule：Phase 9 的可复用经验已并入 module-dev / code-review / qa-audit / phase-wrapup；若 Phase 10-11 多次重复 cloud runtime 验收脚本，再考虑沉淀专门 Skill。

@@ -335,3 +335,9 @@ netstat -ano | findstr ":5173"
 - 引用仍有效：`docs/TEST_PROTOCOL.md`、`docs/testing/UX_TEST_SPEC.md`、`CLAUDE.md`、`CONTEXT.md` 均存在。
 - 审计清单已补 Phase 7D IM 主链路：会话置顶/归档/未读/免打扰、消息右键菜单、转发/多选、执行过程全屏。
 - 真实服务验收需额外检查明亮主题纯白辅色、输入框外层透明、文件视图全屏布局和归档菜单层级遮挡问题。
+
+## Phase 9 审计 (2026-06-08)
+
+- 引用仍有效：`docs/TEST_PROTOCOL.md`、`docs/testing/UX_TEST_SPEC.md`、`CLAUDE.md`、`CONTEXT.md`、`docs/specs/phase9/README.md` 均存在。
+- Phase 9 起 QA 必须同时记录两条路径：P1 local regression（Project/Session/Artifact/build/preview/export）与 P2 cloud slice（Auth/Team/RBAC/cloud Project/import/snapshot/restore/audit）。
+- 浏览器冒烟需等待开发态登录邮箱渲染后再检查云端创建入口，避免把短暂加载态误判为登录失败。

@@ -342,7 +342,7 @@ ArtifactCard
 | 依赖模块 | 需要的接口 | 当前状态 |
 |---------|-----------|---------|
 | Phase 10 Sandbox/Runtime | build output、workspace files、artifact detection | 📋 计划中 |
-| Phase 9 Cloud Workspace | workspaceId、storage_uri、RBAC | 📋 计划中 |
+| Phase 9 Cloud Workspace | workspaceId、storage_uri、RBAC | ✅ 已就绪（元数据基座；真实 preview/deploy 产物存储由 Phase 11 接入） |
 | ArtifactService | artifact/version metadata | ✅ P1 基线 |
 | SecretProvider | deploy target secrets | 📋 Phase 10 |
 | Hosting provider adapter | static hosting publish/revoke | ❌ 未开始 |

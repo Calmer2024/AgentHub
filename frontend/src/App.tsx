@@ -5,6 +5,7 @@ import { MemoChatWindow as ChatWindow } from "./components/ChatWindow";
 import { ProjectSidebar } from "./components/ProjectSidebar";
 import { AgentPanel } from "./components/AgentPanel";
 import { GroupChatCreator } from "./components/GroupChatCreator";
+import { WorkspaceSettingsPage } from "./components/WorkspaceSettingsPage";
 import { ToastViewport } from "./components/ToastViewport";
 import { OrchestratorDebugPanel } from "./components/OrchestratorDebugPanel";
 import {
@@ -55,10 +56,11 @@ function App() {
     projects, currentProjectId, currentProject, sessions, agents, sidebarTab,
     creatingProject, initialLoading, sessionsLoading, sessionHydrating, sessionMembers, sessionMembersLoading,
     currentAgent, currentMode,
+    currentUser, teams, currentTeamId, setCurrentTeamId,
     setSidebarTab, loadData,
     handleSelectProject, handleArchiveProject,
     handleRenameProject, handleDeleteProject,
-    handleCreateBlankProject, handlePickExistingFolder,
+    handleCreateBlankProject, handleCreateCloudProject, handleCreateTeam, handlePickExistingFolder,
     handleSelectSession, handleNewSession, handleCreateGroup,
     handleAddGroupMember, handleRemoveGroupMember,
     handleDeleteSession, handleRenameSession, handlePinSession, handleArchiveSession,
@@ -194,13 +196,27 @@ function App() {
           currentProjectId={currentProjectId}
           agents={agents}
           activePanel={sidebarTab}
+          currentUser={currentUser}
+          teams={teams}
+          currentTeamId={currentTeamId}
           creating={creatingProject}
           loading={initialLoading}
           onSelectProject={handleSelectProject}
+          onSelectTeam={setCurrentTeamId}
+          onCreateTeam={(name) => runCrudAction(
+            () => handleCreateTeam(name),
+            "团队已创建",
+            "创建团队失败",
+          )}
           onCreateBlankProject={(name) => runCrudAction(
             () => handleCreateBlankProject(name),
             "项目已创建",
             "创建项目失败",
+          )}
+          onCreateCloudProject={(name, teamId) => runCrudAction(
+            () => handleCreateCloudProject(name, teamId),
+            "云端项目已创建",
+            "创建云端项目失败",
           )}
           onPickExistingFolder={() => runCrudAction(
             handlePickExistingFolder,
@@ -275,7 +291,14 @@ function App() {
         </div>
       </div>
 
-      {currentSessionId ? (
+      {sidebarTab === "workspace" ? (
+        <WorkspaceSettingsPage
+          project={currentProject}
+          currentUser={currentUser}
+          teams={teams}
+          onRefreshProjects={loadData}
+        />
+      ) : currentSessionId ? (
         <ChatWindow
           messages={messages} isStreaming={isStreaming}
           artifacts={artifacts}

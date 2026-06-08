@@ -8,6 +8,9 @@ const project: Project = {
   id: "p1",
   name: "大作业",
   workspacePath: "D:\\AgentHub\\workspaces\\homework",
+  workspaceMode: "local",
+  workspaceId: null,
+  teamId: null,
   status: "ready",
   fileCount: 0,
   totalSizeBytes: 0,
@@ -50,9 +53,20 @@ const renderSidebar = (overrides: Partial<ComponentProps<typeof ProjectSidebar>>
     currentProjectId="p1"
     agents={[]}
     activePanel="sessions"
+    currentUser={{
+      id: "u1",
+      email: "demo@agenthub.local",
+      displayName: "Demo",
+      createdAt: "",
+    }}
+    teams={[]}
+    currentTeamId={null}
     creating={false}
     onSelectProject={vi.fn()}
+    onSelectTeam={vi.fn()}
+    onCreateTeam={vi.fn().mockResolvedValue(undefined)}
     onCreateBlankProject={vi.fn().mockResolvedValue(undefined)}
+    onCreateCloudProject={vi.fn().mockResolvedValue(undefined)}
     onPickExistingFolder={vi.fn().mockResolvedValue(undefined)}
     onArchiveProject={vi.fn()}
     onRenameProject={vi.fn().mockResolvedValue(undefined)}
@@ -95,6 +109,23 @@ describe("ProjectSidebar", () => {
     fireEvent.click(screen.getByText("选择现有文件夹"));
 
     expect(onPickExistingFolder).toHaveBeenCalled();
+  });
+
+  it("云端项目入口按团队空间提交", () => {
+    const onCreateCloudProject = vi.fn().mockResolvedValue(undefined);
+
+    renderSidebar({
+      teams: [{ id: "t1", name: "研发团队", role: "owner", memberCount: 1, createdAt: "" }],
+      currentTeamId: "t1",
+      onCreateCloudProject,
+    });
+
+    fireEvent.click(screen.getByTitle("创建项目"));
+    fireEvent.click(screen.getByText("新建云端项目"));
+    fireEvent.change(screen.getByLabelText("项目名称"), { target: { value: "云项目" } });
+    fireEvent.click(screen.getByText("创建云端项目"));
+
+    expect(onCreateCloudProject).toHaveBeenCalledWith("云项目", "t1");
   });
 
   it("智能体设置按钮直接打开设置弹窗", () => {

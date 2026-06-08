@@ -1,4 +1,8 @@
 from .project import Project
+from .user import User
+from .team import Team, TeamMember
+from .workspace import Workspace, WorkspaceSnapshot, WorkspaceImport, WorkspaceRestore
+from .audit_log import AuditLog
 from .session import Session
 from .message import Message
 from .agent_config import AgentConfig
@@ -13,6 +17,14 @@ from .orchestrator_plan import OrchestratorPlanRecord
 
 __all__ = [
     "Project",
+    "User",
+    "Team",
+    "TeamMember",
+    "Workspace",
+    "WorkspaceSnapshot",
+    "WorkspaceImport",
+    "WorkspaceRestore",
+    "AuditLog",
     "Session",
     "Message",
     "AgentConfig",

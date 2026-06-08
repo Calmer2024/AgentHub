@@ -128,6 +128,9 @@ class ProjectCreate(BaseModel):
     name: str
     workspace_path: str | None = Field(default=None, alias="workspacePath")
     folder_token: str | None = Field(default=None, alias="folderToken")
+    workspace_mode: str = Field(default="local", alias="workspaceMode")
+    team_id: str | None = Field(default=None, alias="teamId")
+    template: str | None = None
 
     model_config = {"populate_by_name": True}
 
@@ -141,7 +144,10 @@ class ProjectUpdate(BaseModel):
 class ProjectRead(BaseModel):
     id: str
     name: str
-    workspace_path: str = Field(alias="workspacePath")
+    workspace_path: str | None = Field(default=None, alias="workspacePath")
+    workspace_mode: str = Field(default="local", alias="workspaceMode")
+    workspace_id: str | None = Field(default=None, alias="workspaceId")
+    team_id: str | None = Field(default=None, alias="teamId")
     status: str
     file_count: int = Field(default=0, alias="fileCount")
     total_size_bytes: int = Field(default=0, alias="totalSizeBytes")
