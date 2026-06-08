@@ -2,18 +2,19 @@
 
 **状态**: Implementation Baseline
 **创建日期**: 2026-06-07
+**更新日期**: 2026-06-08
 **关联**: [Phase 6 CLI Adapter](../phase6/01-cli-adapter.md)、[7A Runtime Control](01-runtime-task-control.md)、[7E Context Pack](05-context-pack-and-cache-strategy.md)、[ADR-0011 Agent Engine Skill Model](../../adr/0011-agent-engine-skill-model.md)
 
 ---
 
 ## 1. 目标
 
-本模块把 CLI 单聊的运行时能力拆成两层：底层 Engine 原生会话复用，以及真正的会话级常驻进程。只有 CLI 明确暴露可驱动的多 turn 长连接协议时，AgentHub 才声明“一个对话一个物理 CLI 进程”。
+本模块把 CLI 运行时能力拆成两层：底层 Engine 原生会话复用，以及真正的会话级常驻进程。只有 CLI 明确暴露可驱动的多 turn 长连接协议时，AgentHub 才声明“一个运行时作用域一个物理 CLI 进程”。
 
 目标语义：
 
 ```text
-一个 AgentHub 私聊 Session
+一个 AgentHub Agent 调用作用域
   -> Adapter 先声明能力：native engine session resume 或 persistent process
   -> persistent process: 后端长期持有 stdin/stdout/stderr
   -> 每轮用户消息作为一个 turn 写入对应协议
@@ -21,11 +22,14 @@
   -> 只有 persistent process 才承诺进程继续存活，等待下一轮 turn
 ```
 
-本模块不要求多个 AgentHub 会话共享同一个底层进程。相反，隔离原则是：
+本模块不要求多个 AgentHub 会话共享同一个底层进程。相反，隔离原则是按聊天形态确定 runtime scope：
 
 ```text
-one AgentHub session = one CLI session process
+单聊: one private Session + one Agent = one CLI session process
+群聊: one group Session + one Agent = one CLI session process
 ```
+
+群聊 runtime 不复用用户私聊常驻进程，也不让同一群聊里的多个 Agent 共用 stdin/stdout。群聊运行时使用稳定 `runtime_key`（当前形如 `{session_id}:agent:{agent_id}`）隔离底层 handle；`active_snapshots(sessionId)` 与 `terminate_session(sessionId)` 仍按真实 AgentHub session 聚合，保证运行控制和环境体检不需要理解底层 key。
 
 ---
 
@@ -114,7 +118,7 @@ Adapter 通过 `PersistentProcessPolicy` 声明是否支持常驻进程。
 ### 3.2 后续 turn
 
 ```text
-同一 AgentHub session 再发送消息
+同一 runtime scope 再发送消息
   -> Claude Code / Codex / OpenCode 会话运行时命中现有 process handle，不重启子进程
   -> 写入本轮 user message 或 JSON-RPC request
   -> SSE: agent.process.started { persistentProcess: true, reused: true }
@@ -126,7 +130,8 @@ Adapter 通过 `PersistentProcessPolicy` 声明是否支持常驻进程。
 ### 3.3 并发隔离
 
 - 不同 AgentHub session 使用不同子进程，互不共享 stdin/stdout。
-- 同一 AgentHub session 内使用 session lock 串行化 turn。
+- 同一 AgentHub session 的单聊 runtime 使用 session lock 串行化 turn。
+- 同一群聊 session 内的不同 Agent 使用不同 runtime key 和不同子进程；同一 Agent 的多轮 turn 串行化。
 - 第二轮请求到达时，如果第一轮仍未读到 turn 边界，第二轮等待，不与第一轮 prompt 交错写入 stdin。
 - 常驻进程 snapshot 暴露 `mode=session` / `mode=rpc_session`、`protocol`、`turnActive`、`reused/recovered` 等调试字段。
 
@@ -182,6 +187,9 @@ POST /api/runs/{runId}/cancel
 | `backend/app/agents/cli_rpc_session_runtime.py` | 会话级 JSON-RPC 常驻进程 lifecycle、MCP/ACP framing、request/response 关联、通知队列、turn lock |
 | `backend/app/agents/cli_runtime_registry.py` | 上层统一门面：active snapshots、interactive reply、terminate，覆盖短进程、stdin 常驻进程和 RPC 常驻进程 |
 | `backend/app/agents/cli_adapters.py` | Adapter 声明常驻能力，解析 stdout/stderr 为 `CliEvent` |
+| `backend/app/services/cli_agent_executor.py` | 群聊与 Orchestrator Agent 调用入口，按 `session_id + agent_id` 解析 EngineSession 与 runtime key，并把执行 metadata 交给群聊 finalizer |
+| `backend/app/services/group_chat_stream.py` | 合并群聊每个 Agent 的 runtime metadata、run/process 事件、Artifact scan 事件，保持 SSE 与前端消息占位一致 |
+| `backend/app/services/group_chat_finalizer.py` | 持久化每个 Agent 子消息，并基于其 workspace snapshot 调用 Artifact Bridge |
 | `backend/app/services/run_service.py` | 运行状态持久化与取消编排，不直接依赖某个具体运行时实现 |
 
 ### 4.2 事件
@@ -210,6 +218,8 @@ POST /api/runs/{runId}/cancel
 - [x] AC-7F-09: 业务层通过 `cli_runtime_registry` 终止/回复/查询进程，不直接绑定某个底层运行时。
 - [x] AC-7F-10: Codex Adapter 声明 MCP JSON-RPC 常驻能力，并通过 `codex` / `codex-reply` tool response 建立 turn 边界和 threadId 续轮。
 - [x] AC-7F-11: OpenCode Adapter 声明 ACP JSON-RPC 常驻能力，并通过 `session/new` / `session/prompt` 建立 turn 边界和 sessionId 续轮。
+- [x] AC-7F-12: 群聊同一 Agent 连续两轮使用同一个群聊内专属 runtime key 和同一 EngineSession，第二轮进入 resume/reused 语义。
+- [x] AC-7F-13: 群聊同一 session 内不同 Agent 不共享常驻进程；`terminate_session(sessionId)` 能按真实 session 聚合终止其全部 Agent runtime。
 
 ---
 
@@ -238,6 +248,12 @@ POST /api/runs/{runId}/cancel
 - run/process rows 能记录常驻 processId；
 - Engine session resume metadata 与常驻进程 metadata 可共存。
 
+`backend/test_api/test_group_chat.py` 覆盖：
+
+- 群聊同一 Agent 多轮复用群聊内专属 runtime key；
+- EngineSession 行按 `session_id + agent_config_id` 持久化，不复用用户私聊 session；
+- 群聊 Agent 消息 metadata 记录 `engineRuntime`、`engineSession` 与 workspace snapshot 信息。
+
 ### 6.3 仍需真实 CLI E2E
 
 自动化 fixture 只能证明 AgentHub 运行时逻辑正确。真实 Claude Code / Codex / OpenCode 仍需补本机 E2E：
@@ -256,7 +272,14 @@ POST /api/runs/{runId}/cancel
 ## 7. 非目标
 
 - 不让多个 AgentHub session 共享同一个 Claude Code 进程。
-- 不把群聊 DAG task 绑定到用户私聊常驻进程。
+- 不把群聊 DAG task 绑定到用户私聊常驻进程。群聊需要常驻能力时，只使用群聊内 `session_id + agent_id` 作用域。
 - 不承诺进程崩溃后恢复半轮未完成输出。
 - 不把 Codex/OpenCode 强行塞进 Claude stdin JSONL 运行时；二者只通过各自官方/公开协议入口接入。
 - 不把聊天 transcript 当成唯一上下文主干；Context Pack 仍是后续上下文治理方向。
+
+---
+
+## 8. 版本历史
+
+- v1.0 (2026-06-07): 定义单聊常驻进程与 EngineSession 基线。
+- v1.1 (2026-06-08): 同步群聊 runtime 作用域：同一群聊内每个 Agent 独立复用 EngineSession 与常驻进程，运行控制按真实 session 聚合。

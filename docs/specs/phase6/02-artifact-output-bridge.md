@@ -1,9 +1,9 @@
 # Spec: Phase 6F — CLI 输出到 Artifact 桥接
 
-**版本**: v3.5
+**版本**: v3.6
 **创建日期**: 2026-06-03
-**更新日期**: 2026-06-06
-**状态**: ✅ 本轮验收通过（消息内 Artifact 卡片、文件编辑、片段引用、版本管理已落地；Phase 7 审批继续）
+**更新日期**: 2026-06-08
+**状态**: ✅ 本轮验收通过（消息内 Artifact 卡片、文件编辑、片段引用、版本管理已落地；群聊 Agent 子消息 workspace diff 归属已同步）
 **关联 ADR/PRD**: [PRD-01](../../PRD/01-Architecture_Adapter.md) §3.4、[PRD-03](../../PRD/03-User_Experience.md) §3.3-3.4、[PRD-05](../../PRD/05-End_to_End_Product_Flow.md)、[PRD-06](../../PRD/06-MVP_Local_Workspace_Delivery.md)、[ADR-0005](../../adr/0005-target-architecture.md)、[ADR-0009](../../adr/0009-project-workspace-model.md)
 **依赖模块**: Phase 6A Workspace Runtime、Phase 6B-6E CLI Adapter、Phase 5 ArtifactService、当前 Telegram 风格 Chat UI
 
@@ -216,7 +216,7 @@ interface ArtifactScanEvent {
 
 - `POST /api/messages/{messageId}/artifacts/scan { force: true }` 可基于消息文本和 executionTrace 中的路径线索从当前 workspace 读取文件，作为自动扫描失败后的手动重试路径。
 - `manual_rescan` 与自动 `workspace_diff` 对同一 message/file/content hash 幂等，不重复落库。
-- 群聊路径在 finalizer 中扫描每个 Agent 子消息的文本/代码块，并把 Artifact 绑定到各自 messageId；workspace diff 的并行 Agent 精确归因仍保持谨慎，不把共享 diff 挂到最终中枢总结。
+- 群聊路径在每个 Agent 调用前创建 workspace snapshot，并在 finalizer 中把 `workspacePath`、`workspaceSnapshotId`、`engineRuntime`、`engineSession` 和 execution trace 合并到对应 Agent 子消息 metadata；Artifact Bridge 随后扫描该 Agent 消息的 workspace diff、文本/代码块与轨迹，产物绑定各自 messageId/sourceId，不挂到 Orchestrator 总结或会话级全局位置。
 ```
 
 ### 4.2 检测输入与产物类型
@@ -458,6 +458,7 @@ SSE/API: scan completed with candidateCount > 0 and createdCount = 0
 - [x] AC-BR-20: Chat Header 搜索按钮旁提供会话文件入口，打开当前会话的文件、资产与变更管理界面。
 - [x] AC-BR-21: “Agent 正在回答”状态挪到左侧 Agent 头像区域旁边；搜索/文件按钮只保留明确图标按钮。
 - [x] AC-BR-22: Claude Code、Codex、OpenCode 三个 Agent 头像显示厂商 logo 图像，不使用 emoji 或文本占位。
+- [x] AC-BR-23: 群聊中两个 Agent 分别写入 workspace 文件时，生成的 `workspace_diff` `web_preview/code_diff` Artifact 分别绑定到各自 Agent 子消息，并可通过 `messageId -> sourceId` 追溯 Agent 身份。
 
 验收记录（2026-06-05）：
 
@@ -468,6 +469,7 @@ SSE/API: scan completed with candidateCount > 0 and createdCount = 0
 - UI 增强回归（2026-06-06）：`cd frontend && npx tsc --noEmit`，`npx vitest run src/components/MessageArtifactStrip.test.tsx src/components/ArtifactCard.test.tsx src/components/ChatInput.test.tsx src/api/client.test.ts` → 23 passed；`npm run build` → passed（仅 Vite chunk 体积告警）。
 - 后端增强回归（2026-06-06）：`cd backend && .\venv\Scripts\python.exe -m pytest test_api/test_chat.py test_api/test_group_chat.py test_api/test_artifact_output_bridge_phase6.py test_api/test_artifacts_phase5.py test_api/test_projects_phase6.py test_unit/test_cli_adapter_runtime.py test_unit/test_codex_local_config_service.py -q` → 98 passed。
 - 人工验收（2026-06-06）：确认产物工作台已移除，消息下方 Artifact 卡片、VS Code/GitHub 风格 diff、页面级弹窗、IDE 风格 CodeMirror 文件编辑器、代码片段引用、版本管理、会话文件入口和 CLI Agent logo 头像均通过本轮验收。交付快照见 [../../deliverables/phase6-artifact-bridge/README.md](../../deliverables/phase6-artifact-bridge/README.md)。
+- 群聊同步验收（2026-06-08）：`backend/test_api/test_group_chat.py` 与 `backend/test_api/test_artifact_output_bridge_phase6.py` 覆盖群聊同一 Agent runtime 复用、EngineSession 持久化、两个 Agent 分别写入 HTML 后各自生成 `workspace_diff` `web_preview/code_diff` Artifact；真实 HTTP 服务验收创建临时 Project + 群聊 + 两个 custom CLI Agent，得到 2 个 web preview、2 个 code diff，均绑定到对应 Agent 消息。
 
 ---
 
@@ -489,7 +491,7 @@ SSE/API: scan completed with candidateCount > 0 and createdCount = 0
 - workspace diff 路径：pre snapshot → 写 3 个文件 → post diff → 创建 `file_tree` Artifact。
 - 低置信路径：Markdown 候选 → 不落库 → message metadata 有 candidate。
 - 幂等路径：同一 message 调用 scan 两次 → Artifact 数量不增加。
-- 群聊路径：两个 Agent 各自产出文件 → 两个 messageId 下分别生成 Artifact。
+- 群聊路径：两个 Agent 各自写入 workspace 文件 → 两个 Agent messageId 下分别生成 `workspace_diff` Artifact，且 `message.sourceId` 对应写入 Agent。
 
 ### 8.3 E2E 测试
 
@@ -559,3 +561,4 @@ SSE/API: scan completed with candidateCount > 0 and createdCount = 0
 > - v3.3 (2026-06-05): 移除 Artifact 弹窗中的起始/变更版本选择，固定比较最新版本与上一版本；全屏弹层改为页面级 overlay，避免被消息气泡容器挤压
 > - v3.4 (2026-06-06): 增加产物/文件编辑器、代码片段引用、Artifact 专属版本管理、会话文件入口、Agent 状态位置调整和三类 CLI Agent logo 头像
 > - v3.5 (2026-06-06): 记录本轮人工验收通过，并补充 Phase 6F deliverables 交付快照
+> - v3.6 (2026-06-08): 同步群聊重构：每个 Agent 调用前创建 workspace snapshot，finalizer 按 Agent 子消息扫描 workspace diff 并绑定 Artifact

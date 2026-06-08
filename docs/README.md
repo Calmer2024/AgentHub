@@ -35,7 +35,7 @@ docs/
 → 看 [CONTEXT.md](../CONTEXT.md) 的 Phase 表格；Phase 6 进度看 [specs/phase6/README.md](specs/phase6/README.md) 与 [dev-logs/phase6-dev-log.md](dev-logs/phase6-dev-log.md)，Phase 7A-7C 看 [deliverables/phase7-runtime-control/](deliverables/phase7-runtime-control/)，Phase 7D IM 加固看 [deliverables/phase7-im-hardening/](deliverables/phase7-im-hardening/)，Phase 7E/7F 看 [specs/phase7/05-context-pack-and-cache-strategy.md](specs/phase7/05-context-pack-and-cache-strategy.md) 与 [specs/phase7/06-cli-session-process-runtime.md](specs/phase7/06-cli-session-process-runtime.md)。历史 Phase 3 审计见 [audit/phase3-audit-report.md](audit/phase3-audit-report.md)。
 
 ### 我要了解当前 v1.0 发布边界
-→ 先读 [deliverables/v1.0-release/](deliverables/v1.0-release/)，再读 [specs/phase7/README.md](specs/phase7/README.md)。7A-7C 运行控制/审批/体检交付快照见 [deliverables/phase7-runtime-control/](deliverables/phase7-runtime-control/)；7D 会话 IM 基线、右键菜单、明亮主题和执行过程全屏见 [deliverables/phase7-im-hardening/](deliverables/phase7-im-hardening/)；7E/7F 记录 Engine Session、上下文治理、Claude Code stdin JSONL 常驻进程，以及 Codex/OpenCode 常驻 RPC 基线。
+→ 先读 [deliverables/v1.0-release/](deliverables/v1.0-release/)，再读 [specs/phase7/README.md](specs/phase7/README.md)。7A-7C 运行控制/审批/体检交付快照见 [deliverables/phase7-runtime-control/](deliverables/phase7-runtime-control/)；7D 会话 IM 基线、右键菜单、明亮主题和执行过程全屏见 [deliverables/phase7-im-hardening/](deliverables/phase7-im-hardening/)；7E/7F 记录 Engine Session、上下文治理、Claude Code stdin JSONL 常驻进程、Codex/OpenCode 常驻 RPC 基线，以及群聊按 Agent 隔离 runtime 与 Artifact 归属。
 
 ### 我想理解为什么要这样设计
 → 进入 [adr/](adr/) 目录，按编号顺序阅读架构决策记录。
@@ -94,7 +94,7 @@ docs/
 | [phase4/](specs/phase4/) | 消息交互闭环 | ✅ | Reply/Regenerate/Pin + FTS5 搜索 |
 | [phase5/](specs/phase5/) | 产物工作台能力 | ✅ | 对已有 Artifact 做版本链 + Diff + 在线编辑；上游入口由 Phase 6/7 补齐 |
 | [phase6/](specs/phase6/) | Workspace Runtime + CLI Engine + Agent Profile + 产物入口桥接 | ✅ | 6A Workspace Runtime、6B-6E CLI Adapter、6F Artifact Bridge 与 Agent = Engine + Skills 建模均已落地 |
-| [phase7/](specs/phase7/) | 任务可控性 + 审批 + 环境体检 + IM 体验 + 演示闭环 | 🚧 | v1.0 本机 MVP 基线已覆盖运行控制、审批、体检、IM 会话基线和 UI 加固；7E Engine Session / 上下文包策略与 7F Claude Code stdin JSONL、Codex/OpenCode 常驻 RPC 已记录并实现基线；真实 CLI 完整自动化脚本待补 |
+| [phase7/](specs/phase7/) | 任务可控性 + 审批 + 环境体检 + IM 体验 + 演示闭环 | 🚧 | v1.0 本机 MVP 基线已覆盖运行控制、审批、体检、IM 会话基线和 UI 加固；7E Engine Session / 上下文包策略与 7F Claude Code stdin JSONL、Codex/OpenCode 常驻 RPC 已记录并实现基线；群聊已同步单聊 runtime 与 workspace Artifact 链路；真实 CLI 完整自动化脚本待补 |
 
 ### deliverables/ — 阶段性交付快照
 
@@ -126,7 +126,7 @@ docs/
 | [phase5-dev-log.md](dev-logs/phase5-dev-log.md) | Phase 5: 产物版本链、Diff、在线编辑、架构优化、真实 HTTP 验收 |
 | [phase6-dev-log.md](dev-logs/phase6-dev-log.md) | Phase 6A: Project-first workspace runtime；Phase 6B-6E: 真实本机 CLI Agent；6F: Artifact Bridge、消息级产物卡片、文件编辑器与版本管理 |
 | [phase6-cli-adapter-dev-log.md](dev-logs/phase6-cli-adapter-dev-log.md) | Phase 6 CLI Adapter 专项交接日志：真实 CLI 验证、Codex 中转修复、执行轨迹 UI 与剩余工作 |
-| [phase7-dev-log.md](dev-logs/phase7-dev-log.md) | Phase 7A-7F: run/task/process 运行控制、审批 checkpoint、环境体检、IM 基线、Engine Session、Claude Code stdin JSONL 常驻进程、Codex/OpenCode 常驻 RPC 和 v1.0 UI 加固 |
+| [phase7-dev-log.md](dev-logs/phase7-dev-log.md) | Phase 7A-7F: run/task/process 运行控制、审批 checkpoint、环境体检、IM 基线、Engine Session、Claude Code stdin JSONL 常驻进程、Codex/OpenCode 常驻 RPC、群聊 runtime/Artifact 同步和 v1.0 UI 加固 |
 
 ### audit/ — 审计报告
 

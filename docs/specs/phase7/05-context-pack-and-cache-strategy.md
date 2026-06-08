@@ -1,7 +1,8 @@
 # 05: Context Pack 与缓存策略
 
-**状态**: Draft（Claude Code / Codex / OpenCode Engine Session Adapter 闭环已落地；Claude Code stdin JSONL、Codex MCP、OpenCode ACP Session Process Runtime 已实现基线）
+**状态**: Draft（Claude Code / Codex / OpenCode Engine Session Adapter 闭环已落地；Claude Code stdin JSONL、Codex MCP、OpenCode ACP Session Process Runtime 已实现基线；群聊按 Agent 隔离 runtime 已同步）
 **创建日期**: 2026-06-07
+**更新日期**: 2026-06-08
 **关联**: [Phase 6 CLI Adapter](../phase6/01-cli-adapter.md)、[Phase 7 Runtime Control](01-runtime-task-control.md)、[ADR-0007 Orchestrator Architecture](../../adr/0007-orchestrator-architecture.md)、[ADR-0011 Agent Engine Skill Model](../../adr/0011-agent-engine-skill-model.md)
 
 ---
@@ -15,7 +16,7 @@
 - Engine Session Adapter：为 Claude Code / Codex / OpenCode 记录和复用底层 Engine session id；
 - CLI Session Process Runtime：为 Claude Code stdin JSONL、Codex MCP、OpenCode ACP 维护真正的会话级常驻进程、turn 边界和进程复用。
 
-因此本文后续的“每轮新进程”主要指历史基线、群聊 DAG task、未启用常驻进程的 CLI，以及常驻进程崩溃后的恢复性重启；Claude/Codex/OpenCode 单聊常驻路径不属于这个短进程模型。
+因此本文后续的“每轮新进程”主要指历史基线、未启用常驻进程的 CLI，以及常驻进程崩溃后的恢复性重启；Claude/Codex/OpenCode 单聊常驻路径和已同步的群聊 `session_id + agent_id` 常驻路径都不属于这个短进程模型。
 
 历史单聊短进程路径可概括为：
 
@@ -31,17 +32,17 @@
   -> CLI 进程结束
 ```
 
-当前群聊路径仍保持任务级进程隔离，可概括为：
+当前群聊路径保持 Agent 作用域隔离，可概括为：
 
 ```text
 用户发送群聊消息
   -> AgentHub 持久化用户消息
   -> 取群聊 history
   -> OrchestratorV2 组装上下文并选择 Agent / 规划执行模式
-  -> 每个被选 Agent 启动独立 CLI 进程
+  -> 每个被选 Agent 使用群聊内专属 runtime（支持常驻协议时复用，否则短进程）
   -> DAG/chain 后续任务通过 SharedContext 注入上游输出
   -> Agent 输出持久化并进入后续上下文
-  -> CLI 进程结束
+  -> 常驻 runtime 保留到下一轮，短进程在本轮结束
 ```
 
 这意味着：AgentHub 的上下文治理仍不能只寄希望于底层 CLI 的隐式记忆。单聊可以利用 Engine Session 和已确认协议的常驻进程降低重复上下文；群聊协作正确性仍必须依赖 AgentHub 自己的 Context Pack、task package、workspace 文件和可审计消息。
@@ -319,6 +320,7 @@ created_at / updated_at
 
 - Claude Code 单聊启用一会话一常驻 stdin JSONL 进程，并用原生 `--session-id` / 崩溃恢复时的 `--resume` 绑定底层会话；
 - Codex / OpenCode 单聊启用一会话一常驻 RPC 进程；
+- 群聊支持常驻协议的 Agent 按 `group session + agent` 使用独立 runtime key 与 EngineSession，不复用用户私聊进程；
 - `CliSessionProcessRuntime` 维护 stdin/stdout/stderr pump、turn line buffer 和 per-session lock；
 - `CliRpcSessionRuntime` 维护 JSON-RPC request/response、notification queue 和 per-session lock；
 - 进程 snapshot 暴露 `mode=session/rpc_session`、`protocol`、`turnActive`、`reused`、`recovered`；
@@ -500,12 +502,14 @@ cache_prefix_hash
 - 已新增 [06-cli-session-process-runtime.md](06-cli-session-process-runtime.md)。
 - 已完成 Claude Code stdin JSONL 单聊一会话一常驻进程、turn lock、`type=result` turn 边界、取消和死进程下一轮恢复。
 - 已完成 Codex MCP / OpenCode ACP 单聊一会话一常驻 RPC 进程、turn lock、JSON-RPC turn 边界、取消和死进程下一轮恢复。
+- 已完成群聊同一 Agent 多轮复用群聊内专属 EngineSession/runtime，并保留按 Agent 子消息构建 Context Pack 的后续空间。
 
 验收：
 
 - Claude Code/Codex/OpenCode 同一 session 两轮复用同一 processId；
 - 不同 session 使用不同 processId；
 - 同一 session 并发 turn 串行执行；
+- 群聊同一 session 的不同 Agent 使用不同 runtime，同一 Agent 连续两轮复用；
 - 子进程死亡后下一轮 `recovered=true`；
 - Claude Code metadata 同时记录同一 `engine_session_id` 与复用的常驻 `processId`。
 

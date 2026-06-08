@@ -402,6 +402,79 @@ class TestArtifactOutputBridgePhase6:
         assert all(message_by_id[item["messageId"]]["sourceType"] == "agent" for item in artifacts)
         assert not any(message_by_id[item["messageId"]]["sourceType"] == "orchestrator" for item in artifacts)
 
+    async def test_group_chat_workspace_artifacts_bind_each_agent_message(
+        self, test_client, db_session, test_session, monkeypatch,
+    ):
+        session = await db_session.get(Session, test_session)
+        session.mode = "group"
+        session.agent_config_id = None
+        agents = [
+            AgentConfig(
+                id=str(uuid.uuid4()),
+                name=f"文件 Agent {index}",
+                description="测试 workspace 文件产物",
+                system_prompt="",
+                agent_type="cli_wrapper",
+                cli_tool="custom",
+                executable=sys.executable,
+                init_args="[]",
+                env_vars="{}",
+            )
+            for index in range(2)
+        ]
+        db_session.add_all(agents)
+        await db_session.flush()
+        for agent in agents:
+            db_session.add(SessionMember(session_id=test_session, agent_config_id=agent.id))
+        await db_session.commit()
+
+        async def fake_stream(self, **kwargs):
+            from app.agents.cli_events import CliEvent
+
+            agent = kwargs["agent"]
+            rel_path = f"agent-{agent.id[:8]}.html"
+            Path(kwargs["workspace_path"], rel_path).write_text(
+                f"<!doctype html><html><body><main>{agent.name}</main></body></html>",
+                encoding="utf-8",
+            )
+            process_id = f"proc-{agent.id[:8]}"
+            yield CliEvent("agent.process.started", process_id)
+            yield CliEvent("agent.output", process_id, chunk=f"已写入 {rel_path}", chunk_type="text")
+            yield CliEvent("agent.process.completed", process_id, exit_code=0)
+
+        from app.services.cli_agent_service import CliAgentService
+        monkeypatch.setattr(CliAgentService, "stream", fake_stream)
+
+        resp = await test_client.post(
+            f"/api/sessions/{test_session}/chat",
+            json={
+                "content": "两个 Agent 各自写一个 HTML 文件",
+                "mentions": [agent.id for agent in agents],
+            },
+        )
+        async for _line in resp.aiter_lines():
+            pass
+
+        artifacts = (await test_client.get(f"/api/sessions/{test_session}/artifacts")).json()
+        messages = (await test_client.get(f"/api/sessions/{test_session}/messages")).json()
+        message_by_id = {item["id"]: item for item in messages}
+        workspace_artifacts = [
+            artifact for artifact in artifacts
+            if artifact["type"] == "web_preview" and artifact["source"] == "workspace_diff"
+        ]
+
+        assert {artifact["filePath"] for artifact in workspace_artifacts} == {
+            f"agent-{agent.id[:8]}.html" for agent in agents
+        }
+        assert all(message_by_id[item["messageId"]]["sourceType"] == "agent" for item in workspace_artifacts)
+        assert {message_by_id[item["messageId"]]["sourceId"] for item in workspace_artifacts} == {
+            agent.id for agent in agents
+        }
+        assert all(
+            message_by_id[item["messageId"]]["metadata"]["workspaceSnapshotId"]
+            for item in workspace_artifacts
+        )
+
     async def test_unclosed_code_block_is_ignored(self, db_session, test_session):
         message = Message(
             id=str(uuid.uuid4()),

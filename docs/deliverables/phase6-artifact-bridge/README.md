@@ -1,7 +1,7 @@
 # Phase 6F Artifact Bridge 交付文档
 
-**日期**: 2026-06-06
-**范围**: Phase 6F，CLI 输出到消息级 Artifact 卡片、文件编辑、代码引用与版本管理
+**日期**: 2026-06-06；2026-06-08 同步群聊链路
+**范围**: Phase 6F，CLI 输出到消息级 Artifact 卡片、文件编辑、代码引用与版本管理；群聊 Agent 子消息 workspace diff 归属
 **状态**: 验收通过
 
 本目录记录本轮 6F Artifact Bridge 的交付快照。长期规格仍以 [Phase 6F Spec](../../specs/phase6/02-artifact-output-bridge.md) 为准；这里面向验收、交接和后续 Phase 7 接续开发。
@@ -29,6 +29,8 @@ Phase 6F 已打通核心闭环：
 ```
 
 人工验收已确认：产物不再进入独立工作台，而是以具体卡片跟随对应对话；文件编辑器已升级为 IDE 风格 CodeMirror 编辑器，包含行号、语法高亮、选区捕获、保存和添加代码片段到对话。
+
+2026-06-08 群聊同步后，`GroupChatFinalizer` 会把每个 Agent 调用的 workspace snapshot、runtime metadata 和 execution trace 写入对应 Agent 子消息，再由 Artifact Bridge 扫描该消息的 workspace diff。群聊产物按 messageId/sourceId 追溯到具体 Agent，不挂到 Orchestrator 总结或会话级全局位置。
 
 ## 后续入口
 

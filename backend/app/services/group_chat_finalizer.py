@@ -27,9 +27,11 @@ class GroupChatFinalizer:
         agent_texts: dict[str, str], agent_errors: dict[str, str],
         agent_traces: dict[str, list[dict]] | None = None,
         persisted_keys: set[str] | None = None,
+        agent_metadata: dict[str, dict] | None = None,
     ) -> AsyncIterator[str]:
         agent_traces = agent_traces or {}
         persisted_keys = persisted_keys or set()
+        agent_metadata = agent_metadata or {}
         remaining_texts = {
             key: text for key, text in agent_texts.items()
             if key not in persisted_keys
@@ -39,7 +41,7 @@ class GroupChatFinalizer:
         elif remaining_texts:
             created_ids = self._add_agent_messages(
                 session_id, agent_names, agent_calls, msg_ids, remaining_texts,
-                agent_errors, agent_traces,
+                agent_errors, agent_traces, agent_metadata,
             )
             session.updated_at = china_now()
             SessionService.increment_unread(session, len(created_ids))
@@ -71,6 +73,7 @@ class GroupChatFinalizer:
         text: str,
         error: str | None,
         trace_items: list[dict] | None = None,
+        metadata: dict | None = None,
     ) -> AsyncIterator[str]:
         """单个 Agent 完成后立即落库，降低中断造成的可见消息丢失。"""
         message_id = msg_ids.get(key)
@@ -86,6 +89,7 @@ class GroupChatFinalizer:
             {key: text},
             {key: error} if error else {},
             {key: trace_items or []},
+            {key: metadata or {}},
         )
         session.updated_at = china_now()
         SessionService.increment_unread(session, len(created_ids))
@@ -95,16 +99,39 @@ class GroupChatFinalizer:
 
     def _add_agent_messages(
         self, session_id, agent_names, agent_calls, msg_ids, agent_texts,
-        agent_errors=None, agent_traces=None,
+        agent_errors=None, agent_traces=None, agent_metadata=None,
     ) -> list[str]:
         agent_errors = agent_errors or {}
         agent_traces = agent_traces or {}
+        agent_metadata = agent_metadata or {}
         created_ids: list[str] = []
         for key, text in agent_texts.items():
             call = agent_calls.get(key)
             trace_items = list(agent_traces.get(key) or [])
+            runtime_metadata = {
+                name: value
+                for name, value in dict(agent_metadata.get(key) or {}).items()
+                if name != "trace" and value is not None
+            }
             message_id = msg_ids.get(key, str(uuid.uuid4()))
             created_ids.append(message_id)
+            message_metadata = {
+                **runtime_metadata,
+                "task": call.task if call else None,
+                "role": call.role if call else None,
+                "phase": call.phase if call else None,
+                "executionTrace": {
+                    "status": "error" if agent_errors.get(key) else "completed",
+                    "agentName": agent_names.get(key, ""),
+                    "cliTool": getattr(call.agent, "cli_tool", None) if call else None,
+                    "workspacePath": runtime_metadata.get("workspacePath"),
+                    "startedAt": trace_items[0].get("timestamp") if trace_items else None,
+                    "completedAt": trace_items[-1].get("timestamp") if trace_items else None,
+                    "processId": _first_process_id(trace_items) or runtime_metadata.get("processId"),
+                    "exitCode": _last_exit_code(trace_items),
+                    "items": trace_items[-300:],
+                } if trace_items else None,
+            }
             self.db.add(DBMessage(
                 id=message_id,
                 session_id=session_id,
@@ -115,22 +142,7 @@ class GroupChatFinalizer:
                 source_type="agent",
                 source_id=call.agent.id if call else None,
                 source_name=agent_names.get(key, ""),
-                metadata_json=json.dumps({
-                    "task": call.task if call else None,
-                    "role": call.role if call else None,
-                    "phase": call.phase if call else None,
-                    "executionTrace": {
-                        "status": "error" if agent_errors.get(key) else "completed",
-                        "agentName": agent_names.get(key, ""),
-                        "cliTool": getattr(call.agent, "cli_tool", None) if call else None,
-                        "workspacePath": None,
-                        "startedAt": trace_items[0].get("timestamp") if trace_items else None,
-                        "completedAt": trace_items[-1].get("timestamp") if trace_items else None,
-                        "processId": _first_process_id(trace_items),
-                        "exitCode": _last_exit_code(trace_items),
-                        "items": trace_items[-300:],
-                    } if trace_items else None,
-                }, ensure_ascii=False),
+                metadata_json=json.dumps(message_metadata, ensure_ascii=False),
             ))
         return created_ids
 
@@ -153,12 +165,14 @@ class GroupChatFinalizer:
                 "done": False,
             })
             try:
+                metadata = _message_metadata(message)
                 result = await bridge.scan_completed_message(
                     session=session,
                     message=message,
+                    workspace_path=str(metadata.get("workspacePath") or "") or None,
                     visible_content=message.content,
                     execution_trace=_message_trace(message),
-                    snapshot_id=None,
+                    snapshot_id=str(metadata.get("workspaceSnapshotId") or "") or None,
                 )
                 for artifact in result.created:
                     payload = artifact_to_event_payload(artifact)
@@ -230,14 +244,17 @@ def _last_exit_code(items: list[dict]) -> int | None:
 
 
 def _message_trace(message: DBMessage) -> dict | None:
+    metadata = _message_metadata(message)
+    trace = metadata.get("executionTrace")
+    return trace if isinstance(trace, dict) else None
+
+
+def _message_metadata(message: DBMessage) -> dict:
     raw = getattr(message, "metadata_json", None)
     if not raw:
-        return None
+        return {}
     try:
         metadata = json.loads(raw)
     except json.JSONDecodeError:
-        return None
-    if not isinstance(metadata, dict):
-        return None
-    trace = metadata.get("executionTrace")
-    return trace if isinstance(trace, dict) else None
+        return {}
+    return metadata if isinstance(metadata, dict) else {}

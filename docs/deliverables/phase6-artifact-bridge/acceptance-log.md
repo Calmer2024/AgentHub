@@ -15,6 +15,7 @@
 - Artifact 版本管理界面支持撤销本次修改和跳转历史版本。
 - Chat Header 文件入口可打开当前会话的产物、资产和变更管理界面。
 - 三个内置 CLI Agent 头像已替换为具体厂商 logo 图像。
+- 群聊中每个 Agent 子消息可基于各自 workspace snapshot 生成 `workspace_diff` Artifact，并绑定到对应 Agent messageId/sourceId。
 
 ## 2. 自动测试记录
 
@@ -35,6 +36,22 @@ cd frontend && npm run build
 # passed; only Vite chunk-size warning remains
 ```
 
+2026-06-08 群聊同步回归：
+
+```powershell
+cd backend && .\venv\Scripts\python.exe -m pytest test_api\test_group_chat.py test_api\test_artifact_output_bridge_phase6.py test_api\test_phase7_runtime.py -q
+# 44 passed
+
+cd backend && .\venv\Scripts\python.exe -m pytest test_api/ -q
+# 153 passed
+
+cd frontend && npx tsc --noEmit
+# passed
+
+cd frontend && npx vitest run
+# 78 passed
+```
+
 ## 3. 真实服务验收
 
 ```powershell
@@ -50,8 +67,10 @@ cd backend && .\venv\Scripts\python.exe test_real_api_claude_artifact_bridge.py
 
 验收断言：最终 `done` SSE 前已经创建 `web_preview`、`file_tree`、`code_diff` 三类 Artifact，并且 `GET /api/sessions/{id}/artifacts` 可查询。
 
+2026-06-08 真实 HTTP 群聊验收：启动当前后端与前端服务后，通过 REST 创建临时 Project、群聊和两个 custom CLI Agent。两个 Agent 分别写入 `real-agent-a-*.html` 与 `real-agent-b-*.html`，`GET /api/sessions/{id}/artifacts` 返回 2 个 `workspace_diff` `web_preview` 与 2 个 `code_diff`，且每个 Artifact 的 `messageId` 对应各自 Agent 消息；`GET /api/agents/runtime/processes?sessionId=...` 返回空数组，未遗留活跃进程。
+
 ## 4. 剩余风险
 
 - 真实 CLI stdout/stderr 解析仍需继续收集 fixture，尤其是命令、工具参数和目标文件路径细节。
-- 群聊并行 workspace diff 无法完全从共享文件系统推断“哪个 Agent 写了哪个文件”，当前保持谨慎，只自动扫描各 Agent 子消息文本/代码块。
+- 群聊当前通过每个 Agent 调用前 snapshot 解决已支持执行路径的产物归属；若未来引入真正并行写同一 workspace，需要重新审计重叠写入与冲突合并策略。
 - 长任务取消、环境体检和审批卡片是 Phase 7 的继续工作。

@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy import select
 
-from app.models import AgentConfig, Message
+from app.models import AgentConfig, EngineSession, Message, Session, SessionMember
 from app.agents.cli_events import CliEvent
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
@@ -332,6 +332,104 @@ class TestGroupSession:
         for aid, text in agent_tokens.items():
             assert "Hello" in text, f"Agent {aid[:6]} missing 'Hello' in: {text[:50]}"
             assert "World" in text, f"Agent {aid[:6]} missing 'World' in: {text[:50]}"
+
+    async def test_group_chat_reuses_agent_scoped_cli_session_process_between_turns(
+        self, test_client, db_session, test_session, monkeypatch,
+    ):
+        """群聊同一 Agent 多轮复用群聊内专属常驻进程与 Engine session。"""
+        session = await db_session.get(Session, test_session)
+        session.mode = "group"
+        session.agent_config_id = None
+        agent = AgentConfig(
+            id=str(uuid.uuid4()),
+            name="Claude 群聊 Agent",
+            description="测试群聊常驻进程",
+            system_prompt="",
+            agent_type="cli_wrapper",
+            cli_tool="claude_code",
+            executable=sys.executable,
+            init_args="[]",
+            env_vars="{}",
+        )
+        db_session.add(agent)
+        await db_session.flush()
+        db_session.add(SessionMember(session_id=test_session, agent_config_id=agent.id))
+        await db_session.commit()
+
+        calls = []
+
+        async def fake_stream(self, **kwargs):
+            calls.append(kwargs)
+            process_id = "proc-group-claude"
+            yield CliEvent(
+                "agent.process.started",
+                process_id,
+                metadata={
+                    "persistentProcess": True,
+                    "reused": len(calls) > 1,
+                    "recovered": False,
+                    "engineSessionMode": kwargs.get("engine_session_mode"),
+                    "engineSessionId": kwargs.get("engine_session_id"),
+                },
+            )
+            yield CliEvent(
+                "agent.output",
+                process_id,
+                chunk=f"group-turn-{len(calls)}",
+                chunk_type="text",
+            )
+            yield CliEvent(
+                "agent.process.turn_completed",
+                process_id,
+                exit_code=0,
+                metadata={"persistentProcess": True},
+            )
+
+        from app.services.cli_agent_service import CliAgentService
+        monkeypatch.setattr(CliAgentService, "stream", fake_stream)
+
+        await test_client.post(
+            f"/api/sessions/{test_session}/chat",
+            json={"content": "@Claude 群聊 Agent 第一轮", "mentions": [agent.id]},
+        )
+        await test_client.post(
+            f"/api/sessions/{test_session}/chat",
+            json={"content": "@Claude 群聊 Agent 第二轮", "mentions": [agent.id]},
+        )
+
+        assert len(calls) == 2
+        assert calls[0]["persistent_process"] is True
+        assert calls[1]["persistent_process"] is True
+        assert calls[0]["runtime_session_id"] == f"{test_session}:agent:{agent.id}"
+        assert calls[1]["runtime_session_id"] == calls[0]["runtime_session_id"]
+        assert calls[0]["engine_session_mode"] == "start"
+        assert calls[0]["engine_session_id"]
+        assert calls[1]["engine_session_mode"] == "resume"
+        assert calls[1]["engine_session_id"] == calls[0]["engine_session_id"]
+
+        engine_rows = (await db_session.execute(
+            select(EngineSession).where(
+                EngineSession.session_id == test_session,
+                EngineSession.agent_config_id == agent.id,
+            )
+        )).scalars().all()
+        assert len(engine_rows) == 1
+        assert engine_rows[0].engine_session_id == calls[0]["engine_session_id"]
+
+        messages = (await test_client.get(f"/api/sessions/{test_session}/messages")).json()
+        assistant_messages = [
+            message for message in messages
+            if message["role"] == "assistant" and message["sourceId"] == agent.id
+        ]
+        assert len(assistant_messages) == 2
+        metadata = assistant_messages[-1]["metadata"]
+        assert metadata["engineRuntime"]["mode"] == "persistent_process"
+        assert metadata["engineRuntime"]["processScope"] == "one_group_session_agent_one_process"
+        assert metadata["engineRuntime"]["runtimeSessionId"] == calls[0]["runtime_session_id"]
+        assert metadata["engineRuntime"]["processKeptAlive"] is True
+        assert metadata["engineRuntime"]["reused"] is True
+        assert metadata["engineSession"]["mode"] == "resume"
+        assert metadata["engineSession"]["id"] == calls[0]["engine_session_id"]
 
     async def test_group_chat_no_agent_crash(self, test_client, test_agent, db_session):
         """所有 SSE 事件必须是合法 JSON，无 @ 普通消息至少有调度器可见回复。"""

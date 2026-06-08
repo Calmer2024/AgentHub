@@ -41,6 +41,7 @@ class CliRpcSessionConfig:
     cwd: str
     protocol: RpcProtocol
     cli_tool: str
+    runtime_key: str | None = None
 
 
 @dataclass
@@ -56,6 +57,7 @@ class CliRpcTurnRequest:
 @dataclass
 class RpcProcessHandle:
     process_id: str
+    runtime_key: str
     session_id: str
     agent_id: str
     executable: str
@@ -81,6 +83,7 @@ class RpcProcessHandle:
         return {
             "processId": self.process_id,
             "sessionId": self.session_id,
+            "runtimeKey": self.runtime_key,
             "agentId": self.agent_id,
             "executable": self.executable,
             "cwd": self.cwd,
@@ -103,15 +106,17 @@ class CliRpcSessionRuntime:
 
     def __init__(self):
         self._handles_by_process: dict[str, RpcProcessHandle] = {}
-        self._process_by_session: dict[str, str] = {}
-        self._locks_by_session: dict[str, asyncio.Lock] = {}
+        self._process_by_runtime_key: dict[str, str] = {}
+        self._locks_by_runtime_key: dict[str, asyncio.Lock] = {}
 
     def active_snapshots(self, session_id: str | None = None) -> list[dict]:
         if session_id is None:
             return [handle.snapshot() for handle in self._handles_by_process.values()]
-        process_id = self._process_by_session.get(session_id)
-        handle = self._handles_by_process.get(process_id or "")
-        return [handle.snapshot()] if handle else []
+        return [
+            handle.snapshot()
+            for handle in self._handles_by_process.values()
+            if handle.session_id == session_id or handle.runtime_key == session_id
+        ]
 
     async def stream_turn(
         self,
@@ -126,7 +131,8 @@ class CliRpcSessionRuntime:
             yield ProcessChunk("", event_type="error", error="workspace not found", persistent=True)
             return
 
-        lock = self._locks_by_session.setdefault(config.session_id, asyncio.Lock())
+        runtime_key = _runtime_key(config)
+        lock = self._locks_by_runtime_key.setdefault(runtime_key, asyncio.Lock())
         async with lock:
             command = resolve_cli_command(config.executable, config.args)
             handle, reused, recovered = await self._ensure_process(
@@ -256,11 +262,14 @@ class CliRpcSessionRuntime:
         await self._terminate_handle(handle)
 
     async def terminate_session(self, session_id: str) -> int:
-        process_id = self._process_by_session.get(session_id)
-        if not process_id:
-            return 0
-        await self.terminate(process_id)
-        return 1
+        process_ids = [
+            handle.process_id
+            for handle in list(self._handles_by_process.values())
+            if handle.session_id == session_id or handle.runtime_key == session_id
+        ]
+        for process_id in process_ids:
+            await self.terminate(process_id)
+        return len(process_ids)
 
     async def reply(self, process_id: str, reply: str) -> None:
         del reply
@@ -276,7 +285,8 @@ class CliRpcSessionRuntime:
         workspace: Path,
         event_bus,
     ) -> tuple[RpcProcessHandle, bool, bool]:
-        process_id = self._process_by_session.get(config.session_id)
+        runtime_key = _runtime_key(config)
+        process_id = self._process_by_runtime_key.get(runtime_key)
         handle = self._handles_by_process.get(process_id or "")
         if (
             handle
@@ -300,6 +310,7 @@ class CliRpcSessionRuntime:
         )
         new_handle = RpcProcessHandle(
             process_id=f"cli_{uuid.uuid4().hex}",
+            runtime_key=runtime_key,
             session_id=config.session_id,
             agent_id=config.agent_id,
             executable=config.executable,
@@ -314,7 +325,7 @@ class CliRpcSessionRuntime:
         new_handle.reader_task = asyncio.create_task(self._reader_loop(new_handle))
         new_handle.stderr_task = asyncio.create_task(self._stderr_loop(new_handle))
         self._handles_by_process[new_handle.process_id] = new_handle
-        self._process_by_session[config.session_id] = new_handle.process_id
+        self._process_by_runtime_key[runtime_key] = new_handle.process_id
         await self._initialize(new_handle)
         await self._publish_process_started(new_handle, event_bus, recovered=recovered)
         return new_handle, False, recovered
@@ -569,12 +580,12 @@ class CliRpcSessionRuntime:
     async def _cleanup_handle(self, handle: RpcProcessHandle) -> None:
         if self._handles_by_process.get(handle.process_id) is handle:
             self._handles_by_process.pop(handle.process_id, None)
-        if self._process_by_session.get(handle.session_id) == handle.process_id:
-            self._process_by_session.pop(handle.session_id, None)
-        if handle.session_id not in self._process_by_session:
-            lock = self._locks_by_session.get(handle.session_id)
+        if self._process_by_runtime_key.get(handle.runtime_key) == handle.process_id:
+            self._process_by_runtime_key.pop(handle.runtime_key, None)
+        if handle.runtime_key not in self._process_by_runtime_key:
+            lock = self._locks_by_runtime_key.get(handle.runtime_key)
             if lock and not lock.locked():
-                self._locks_by_session.pop(handle.session_id, None)
+                self._locks_by_runtime_key.pop(handle.runtime_key, None)
         for future in handle.pending.values():
             if not future.done():
                 future.cancel()
@@ -638,6 +649,10 @@ def _select_permission_option(options: list) -> str:
             if isinstance(option, dict) and option.get("kind") == preferred:
                 return str(option.get("optionId") or "")
     return ""
+
+
+def _runtime_key(config: CliRpcSessionConfig) -> str:
+    return config.runtime_key or config.session_id
 
 
 def _text_from_mcp_content(content: object) -> str:

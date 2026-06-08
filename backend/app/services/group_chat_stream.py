@@ -264,6 +264,7 @@ class GroupChatStream:
         agent_texts: dict[str, str] = {}
         agent_errors: dict[str, str] = {}
         agent_traces: dict[str, list[dict]] = {}
+        agent_metadata: dict[str, dict] = {}
         seen_calls: set[str] = set()
         persisted_calls: set[str] = set()
         shared_context = SharedContext(result.assembled_messages) \
@@ -278,6 +279,7 @@ class GroupChatStream:
             workspace_path=workspace_path,
         ):
             sse_items = []
+            self._merge_agent_metadata(agent_metadata, ev)
             async for item in self._event_to_sse(
                 ev, agent_names, msg_ids, agent_errors, seen_calls, agent_traces,
             ):
@@ -311,6 +313,7 @@ class GroupChatStream:
                         text=agent_texts.get(call_key, ""),
                         error=agent_errors.get(call_key),
                         trace_items=agent_traces.get(call_key),
+                        metadata=agent_metadata.get(call_key),
                     ):
                         yield item
                     if agent_texts.get(call_key):
@@ -319,6 +322,7 @@ class GroupChatStream:
         async for item in self._finalizer.finish(
             session_id, session, result, agent_names, agent_calls,
             msg_ids, agent_texts, agent_errors, agent_traces, persisted_calls,
+            agent_metadata,
         ):
             yield item
 
@@ -610,7 +614,7 @@ class GroupChatStream:
                 current_message_id=message_id,
             )
             yield self._run_status_changed(run)
-        elif ev.event_type == "agent.process.completed":
+        elif ev.event_type in {"agent.process.completed", "agent.process.turn_completed"}:
             process_id = ev.metadata.get("processId")
             exit_code = ev.metadata.get("exitCode")
             if process_id:
@@ -734,6 +738,31 @@ class GroupChatStream:
     @classmethod
     def _event_key(cls, ev) -> str:
         return cls._call_key(ev.agent_id, ev.metadata.get("task"), ev.metadata.get("phase"))
+
+    @classmethod
+    def _merge_agent_metadata(cls, by_key: dict[str, dict], ev) -> None:
+        if not ev.agent_id or not isinstance(ev.metadata, dict):
+            return
+        key = cls._event_key(ev)
+        target = by_key.setdefault(key, {})
+        for name in (
+            "agentType",
+            "cliTool",
+            "workspacePath",
+            "workspaceSnapshotId",
+            "snapshotError",
+            "engineSessionPolicy",
+            "engineSession",
+            "processId",
+            "token_count",
+        ):
+            value = ev.metadata.get(name)
+            if value is not None:
+                target[name] = value
+        runtime = ev.metadata.get("engineRuntime")
+        if isinstance(runtime, dict):
+            current = target.get("engineRuntime") if isinstance(target.get("engineRuntime"), dict) else {}
+            target["engineRuntime"] = {**current, **runtime}
 
     @staticmethod
     def _sse(obj: dict) -> str:

@@ -2,7 +2,8 @@
 
 **状态**: 已交付基线 / 已通过人工验收
 **创建日期**: 2026-06-07
-**关联**: [01-architecture.md](01-architecture.md)、[02-agent-selection.md](02-agent-selection.md)、[10-real-agent-execution](10-real-agent-execution/)、[Phase 7 Context Pack](../../phase7/05-context-pack-and-cache-strategy.md)
+**更新日期**: 2026-06-08
+**关联**: [01-architecture.md](01-architecture.md)、[02-agent-selection.md](02-agent-selection.md)、[10-real-agent-execution](10-real-agent-execution/)、[Phase 7 Context Pack](../../phase7/05-context-pack-and-cache-strategy.md)、[Phase 7 CLI Session Runtime](../../phase7/06-cli-session-process-runtime.md)
 
 ---
 
@@ -311,6 +312,29 @@ approved / revised / discarded
 - 验证 draft plan 后续 approve / revise / discard 都由 Orchestrator Agent 结构化输出驱动。
 - 验证 discarded 后下一条无 @ 消息重新进入管家四档分流。
 
+### Step 5：群聊 Agent 执行链路同步
+
+路由与 Plan-first 只决定“谁来做、是否需要计划/审批”。一旦进入普通 Agent 执行，群聊必须复用与单聊一致的 CLI runtime、EngineSession、运行控制和 Artifact Bridge 能力，但作用域不同：
+
+```text
+单聊 runtime scope = private session + agent
+群聊 runtime scope = group session + agent
+```
+
+当前实现要求：
+
+- `CliAgentExecutor` 接收真实 `AsyncSession`，通过 `EngineSessionService` 按 `session_id + agent_config_id` 解析或创建 EngineSession；
+- 支持常驻协议的 CLI 在群聊内使用稳定 `runtime_key = session_id:agent:agent_id`，同一群聊同一 Agent 多轮复用，不复用用户私聊进程；
+- 每个 Agent 调用前创建 workspace snapshot，并把 `workspaceSnapshotId`、`workspacePath`、`engineRuntime`、`engineSession`、`processId` 合并进 Agent 事件 metadata；
+- `GroupChatFinalizer` 持久化每个 Agent 子消息后，用该消息的 snapshot 调用 Artifact Bridge；
+- Artifact 绑定对应 Agent messageId，Agent 身份通过 `message.sourceId` 追溯，不挂到 Orchestrator 总结消息。
+
+验收：
+
+- 同一群聊同一 Agent 连续两轮，第二轮 `engineSession.mode=resume`，runtime metadata 标记复用语义；
+- 两个 Agent 在同一群聊中分别写入 workspace 文件时，产物分别挂到各自 Agent 消息；
+- `/api/agents/runtime/processes?sessionId=...` 能按真实群聊 session 聚合查看/清理活跃 runtime。
+
 ---
 
 ## 9. 非目标
@@ -350,3 +374,4 @@ draft_pending
 - 有待处理 draft plan 时，后续无 @ 的“允许执行/修改/取消/换话题”都交给 Orchestrator Agent 输出结构化动作；
 - 多个普通 @ 仍按 @ 顺序串行；多个 @ 中包含调度器时，调度器优先接管并生成/跟进 plan。
 - 显式 @ 已收敛为结构化 `mentionIds` 协议；手输正文里的 `@Orchestrator` 但未携带 `mentionIds` 时，按无 @ 管家分流处理。
+- 普通 Agent 执行已同步单聊 runtime/Artifact 链路：群聊内每个 Agent 拥有专属 EngineSession/runtime 和 workspace snapshot，产物绑定具体 Agent 子消息。

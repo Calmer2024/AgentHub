@@ -15,6 +15,8 @@
 
 幂等边界采用 `message_id + artifact_type + source + file_path/content_hash`，同一条消息重复自动扫描或手动重扫不会重复创建产物。
 
+2026-06-08 群聊链路已同步单聊桥接模型：`CliAgentExecutor` 在每个群聊 Agent 调用前创建 workspace snapshot，并把 `workspaceSnapshotId`、`workspacePath`、`engineRuntime`、`engineSession` 等 metadata 交给 `GroupChatStream`/`GroupChatFinalizer`；finalizer 持久化对应 Agent 子消息后调用 Artifact Bridge。这样同一群聊内多个 Agent 写出的文件会分别绑定到各自 Agent messageId/sourceId。
+
 ## 2. API 与事件
 
 新增或扩展的关键能力：

@@ -35,11 +35,13 @@ class CliSessionProcessConfig:
     env_vars: dict[str, str]
     cwd: str
     stdin_mode: str = "pipe"
+    runtime_key: str | None = None
 
 
 @dataclass
 class SessionProcessHandle:
     process_id: str
+    runtime_key: str
     session_id: str
     agent_id: str
     executable: str
@@ -59,6 +61,7 @@ class SessionProcessHandle:
         return {
             "processId": self.process_id,
             "sessionId": self.session_id,
+            "runtimeKey": self.runtime_key,
             "agentId": self.agent_id,
             "executable": self.executable,
             "cwd": self.cwd,
@@ -79,15 +82,17 @@ class CliSessionProcessRuntime:
 
     def __init__(self):
         self._handles_by_process: dict[str, SessionProcessHandle] = {}
-        self._process_by_session: dict[str, str] = {}
-        self._locks_by_session: dict[str, asyncio.Lock] = {}
+        self._process_by_runtime_key: dict[str, str] = {}
+        self._locks_by_runtime_key: dict[str, asyncio.Lock] = {}
 
     def active_snapshots(self, session_id: str | None = None) -> list[dict]:
         if session_id is None:
             return [handle.snapshot() for handle in self._handles_by_process.values()]
-        process_id = self._process_by_session.get(session_id)
-        handle = self._handles_by_process.get(process_id or "")
-        return [handle.snapshot()] if handle else []
+        return [
+            handle.snapshot()
+            for handle in self._handles_by_process.values()
+            if handle.session_id == session_id or handle.runtime_key == session_id
+        ]
 
     async def stream_turn(
         self,
@@ -103,7 +108,8 @@ class CliSessionProcessRuntime:
             yield ProcessChunk("", event_type="error", error="workspace not found")
             return
 
-        lock = self._locks_by_session.setdefault(config.session_id, asyncio.Lock())
+        runtime_key = _runtime_key(config)
+        lock = self._locks_by_runtime_key.setdefault(runtime_key, asyncio.Lock())
         async with lock:
             command = resolve_cli_command(config.executable, config.args)
             handle, reused, recovered = await self._ensure_process(
@@ -222,11 +228,14 @@ class CliSessionProcessRuntime:
         await self._terminate_handle(handle)
 
     async def terminate_session(self, session_id: str) -> int:
-        process_id = self._process_by_session.get(session_id)
-        if not process_id:
-            return 0
-        await self.terminate(process_id)
-        return 1
+        process_ids = [
+            handle.process_id
+            for handle in list(self._handles_by_process.values())
+            if handle.session_id == session_id or handle.runtime_key == session_id
+        ]
+        for process_id in process_ids:
+            await self.terminate(process_id)
+        return len(process_ids)
 
     async def _ensure_process(
         self,
@@ -237,7 +246,8 @@ class CliSessionProcessRuntime:
         event_bus,
         recovered_override: bool | None = None,
     ) -> tuple[SessionProcessHandle, bool, bool]:
-        process_id = self._process_by_session.get(config.session_id)
+        runtime_key = _runtime_key(config)
+        process_id = self._process_by_runtime_key.get(runtime_key)
         handle = self._handles_by_process.get(process_id or "")
         if (
             handle
@@ -265,6 +275,7 @@ class CliSessionProcessRuntime:
         output_queue: asyncio.Queue[tuple[str, str | None]] = asyncio.Queue()
         new_handle = SessionProcessHandle(
             process_id=f"cli_{uuid.uuid4().hex}",
+            runtime_key=runtime_key,
             session_id=config.session_id,
             agent_id=config.agent_id,
             executable=config.executable,
@@ -278,7 +289,7 @@ class CliSessionProcessRuntime:
             ],
         )
         self._handles_by_process[new_handle.process_id] = new_handle
-        self._process_by_session[config.session_id] = new_handle.process_id
+        self._process_by_runtime_key[runtime_key] = new_handle.process_id
         await self._publish_process_started(new_handle, event_bus, recovered=recovered)
         return new_handle, False, recovered
 
@@ -385,12 +396,12 @@ class CliSessionProcessRuntime:
     async def _cleanup_handle(self, handle: SessionProcessHandle, *, unblock: bool) -> None:
         if self._handles_by_process.get(handle.process_id) is handle:
             self._handles_by_process.pop(handle.process_id, None)
-        if self._process_by_session.get(handle.session_id) == handle.process_id:
-            self._process_by_session.pop(handle.session_id, None)
-        if handle.session_id not in self._process_by_session:
-            lock = self._locks_by_session.get(handle.session_id)
+        if self._process_by_runtime_key.get(handle.runtime_key) == handle.process_id:
+            self._process_by_runtime_key.pop(handle.runtime_key, None)
+        if handle.runtime_key not in self._process_by_runtime_key:
+            lock = self._locks_by_runtime_key.get(handle.runtime_key)
             if lock and not lock.locked():
-                self._locks_by_session.pop(handle.session_id, None)
+                self._locks_by_runtime_key.pop(handle.runtime_key, None)
         if unblock:
             await handle.output_queue.put(("stdout", None))
             await handle.output_queue.put(("stderr", None))
@@ -514,6 +525,10 @@ def _resolve_stdin(stdin_mode: str):
     if stdin_mode == "inherit":
         return None
     return asyncio.subprocess.PIPE
+
+
+def _runtime_key(config: CliSessionProcessConfig) -> str:
+    return config.runtime_key or config.session_id
 
 
 def _subprocess_not_supported_message() -> str:

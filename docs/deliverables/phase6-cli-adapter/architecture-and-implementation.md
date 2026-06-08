@@ -1,6 +1,6 @@
 # CLI Adapter 架构与技术实现原理
 
-**日期**: 2026-06-05
+**日期**: 2026-06-05；2026-06-08 同步 Phase 7F 群聊 runtime 基线
 **状态**: 实现基线
 **主要代码路径**: `backend/app/agents/`、`backend/app/services/*cli*`、`frontend/src/components/*Agent*`、`frontend/src/components/ExecutionTracePanel.tsx`
 
@@ -18,6 +18,8 @@ Project -> Session -> Agent Profile -> CLI Engine process
 
 每个 Session 必须归属于一个 Project。CLI 进程启动时使用 `cwd = Project.workspace_path`，因此 Agent 创建和修改的文件会真实落在用户选择的本机项目目录里。
 
+Phase 7F 后，支持常驻协议的 CLI 不再只有“每轮短进程”一种形态。单聊按 `private session + agent` 复用 EngineSession 与物理进程；群聊按 `group session + agent` 复用群聊内专属 runtime，不复用用户私聊进程，也不让同一群聊的多个 Agent 共用 stdin/stdout。
+
 ## 2. 运行流程
 
 ```text
@@ -26,8 +28,8 @@ POST /api/sessions/{sessionId}/chat
   -> SingleCliChatStream 或 GroupChatStream
   -> CliAgentService
   -> 对应 CLI Adapter
-  -> CliProcessManager
-  -> 在 Project workspace 中启动真实 subprocess
+  -> CliProcessManager | CliSessionProcessRuntime | CliRpcSessionRuntime
+  -> 在 Project workspace 中启动真实 subprocess 或复用常驻 process
   -> stdout/stderr pump
   -> StreamSanitizer
   -> PromptInterceptor
@@ -48,10 +50,13 @@ Adapter 层不直接创建业务 Artifact。它负责输出文本、过程、错
 | `backend/app/services/cli_agent_registry.py` | 校验 CLI Agent 配置，检查 executable，序列化/反序列化 args/env，并避免普通 API 响应泄漏敏感环境变量。 |
 | `backend/app/services/cli_agent_service.py` | 将聊天上下文渲染为 CLI prompt，并交给对应 adapter 执行。 |
 | `backend/app/services/single_cli_chat_stream.py` | 负责单聊消息持久化、SSE 流式输出与执行轨迹 metadata。 |
-| `backend/app/services/cli_agent_executor.py` | 让群聊和 Orchestrator 复用同一套 CLI Agent 执行能力。 |
+| `backend/app/services/cli_agent_executor.py` | 让群聊和 Orchestrator 复用同一套 CLI Agent 执行能力；群聊按 `session_id + agent_id` 解析 EngineSession、runtime key 与 workspace snapshot。 |
 | `backend/app/services/artifact_output_bridge.py` | CLI 消息完成后扫描回复、执行轨迹和 workspace diff，生成 Artifact 候选并交给 ArtifactService。 |
 | `backend/app/services/artifact_service.py` | 负责 Artifact 版本链、Diff、编辑和从 bridge detection 幂等创建 v1 Artifact。 |
-| `backend/app/agents/cli_runtime.py` | 管理真实进程创建、cwd 校验、stdin 写入、stdout/stderr 读取、进程注册表、超时、交互回复和终止。 |
+| `backend/app/agents/cli_runtime.py` | 管理一次性真实进程创建、cwd 校验、stdin 写入、stdout/stderr 读取、进程注册表、超时、交互回复和终止。 |
+| `backend/app/agents/cli_session_runtime.py` | 管理 stdin JSONL 常驻进程，当前用于 Claude Code 会话级 turn 复用。 |
+| `backend/app/agents/cli_rpc_session_runtime.py` | 管理 JSON-RPC 常驻进程，当前用于 Codex MCP server 与 OpenCode ACP。 |
+| `backend/app/agents/cli_runtime_registry.py` | 统一查询、回复与终止短进程和常驻进程，供运行控制、环境体检和交互回复 API 使用。 |
 | `backend/app/agents/cli_adapters.py` | 实现基础 adapter，以及 Claude Code、Codex、OpenCode 的专属适配逻辑。 |
 | `backend/app/agents/cli_output_parser.py` | 保存单次执行的 parser 状态，处理 JSONL、raw fallback、HTML 错误压缩和 stderr 噪声过滤。 |
 | `backend/app/agents/cli_stream.py` | 清理 ANSI/TUI 控制字符，并识别交互式确认提示。 |
@@ -152,7 +157,7 @@ OpenCode 会规整掉旧的不兼容参数模式。Adapter 会在需要时把用
 
 ## 7. 进程生命周期
 
-`CliProcessManager` 负责生命周期边界：
+`CliProcessManager` 只负责短进程生命周期边界：
 
 - 校验 workspace 存在且是目录；
 - 兼容 Windows `.cmd`、`.bat`、`.ps1` 启动方式；
@@ -164,7 +169,22 @@ OpenCode 会规整掉旧的不兼容参数模式。Adapter 会在需要时把用
 - 支持 `POST /api/sessions/{id}/interactive_reply` 写回 `y`/`n`；
 - 对静默超时进程执行终止。
 
-这个服务只处理进程 I/O 和生命周期。每个 CLI 输出的语义解释留在 adapter 与 parser 中。
+这个服务只处理一次 invocation 的 I/O 和生命周期。每个 CLI 输出的语义解释留在 adapter 与 parser 中。
+
+支持常驻协议的 CLI 由 Phase 7F runtime 层接管：
+
+- `CliSessionProcessRuntime`：Claude Code stdin JSONL，读取到明确 turn 边界后保留进程等待下一轮；
+- `CliRpcSessionRuntime`：Codex MCP / OpenCode ACP JSON-RPC，按 request/response 边界结束一轮；
+- `cli_runtime_registry`：对上层暴露统一 `active_snapshots()`、`reply()`、`terminate()`、`terminate_session()`。
+
+作用域规则：
+
+```text
+单聊: one private session + one agent = one runtime
+群聊: one group session + one agent = one runtime
+```
+
+群聊 runtime 使用稳定 runtime key 隔离同一群聊内的不同 Agent；运行控制仍按真实 sessionId 聚合查询和终止。
 
 ## 8. 输出与执行轨迹策略
 
@@ -193,6 +213,7 @@ AgentHub 刻意区分“用户可见 Agent 身份”和“提供商密钥”：
 6F 核心闭环已落地：
 
 - 单聊 CLI 完成后，在最终 `done` 前扫描 workspace snapshot diff、消息代码块和执行轨迹；
+- 群聊每个 Agent 调用前创建 workspace snapshot，Agent 子消息持久化后扫描该消息的 workspace diff、文本代码块和执行轨迹；
 - `web_preview`、`file_tree`、`code_diff`、`document` 四类 Artifact 统一进入 ArtifactService 创建；
 - 低置信候选写入 message metadata，不污染用户的产物列表；
 - `POST /api/messages/{messageId}/artifacts/scan` 支持手动重扫，且对同一 message/file/hash 幂等；
@@ -204,5 +225,5 @@ AgentHub 刻意区分“用户可见 Agent 身份”和“提供商密钥”：
 
 - 三个 CLI 的执行轨迹解析仍需要持续补充真实 stdout/stderr fixture，特别是命令和文件操作细节；
 - 长任务取消应成为一等 UI 操作，而不只是后端运行时能力；
-- 群聊并行 workspace diff 的“每个文件由哪个 Agent 写入”不能完全从共享文件系统推断，当前只自动扫描每个 Agent 子消息的文本/代码块，避免把共享 diff 误挂到总结消息；
+- 群聊当前通过每个 Agent 调用前 snapshot 归属 workspace diff；若后续引入真正并行写同一 workspace，需要补冲突检测与重叠 diff 合并策略；
 - 真实 smoke 依赖用户本机 CLI 安装和认证状态，CI 暂时只能覆盖 parser/runtime fixture，除非准备专用 runner。

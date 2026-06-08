@@ -13,6 +13,8 @@ import asyncio
 import logging
 from typing import AsyncIterator
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from ..domain.execution_planner import AgentCall, DAGPhase
 from ..infrastructure.stream_merger import StreamMerger
 from .cli_agent_executor import CliAgentCallRunner
@@ -31,10 +33,10 @@ class AgentExecutor:
       - chain:    链式调用，角色 Prompt 注入 + 中断处理
     """
 
-    def __init__(self, event_bus=None):
+    def __init__(self, db: AsyncSession | None = None, event_bus=None):
         self.event_bus = event_bus
         self.merger = StreamMerger()
-        self._cli_runner = CliAgentCallRunner(event_bus=event_bus)
+        self._cli_runner = CliAgentCallRunner(db=db, event_bus=event_bus)
 
     async def execute(
         self, calls: list[AgentCall], mode: str,

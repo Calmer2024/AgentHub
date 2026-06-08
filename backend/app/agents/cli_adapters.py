@@ -217,6 +217,7 @@ class CliAgentAdapter:
         *,
         agent: AgentConfig,
         session_id: str,
+        runtime_session_id: str | None = None,
         cwd: str,
         user_prompt: str,
         system_prompt: str = "",
@@ -254,6 +255,7 @@ class CliAgentAdapter:
             async for event in self._stream_rpc_persistent_turn(
                 agent=agent,
                 session_id=session_id,
+                runtime_session_id=runtime_session_id,
                 executable=executable,
                 args=args,
                 env_vars=env_vars,
@@ -280,6 +282,7 @@ class CliAgentAdapter:
             async for chunk in cli_session_process_runtime.stream_turn(
                 config=CliSessionProcessConfig(
                     session_id=session_id,
+                    runtime_key=runtime_session_id,
                     agent_id=agent.id,
                     executable=executable,
                     args=args,
@@ -382,6 +385,7 @@ class CliAgentAdapter:
         *,
         agent: AgentConfig,
         session_id: str,
+        runtime_session_id: str | None = None,
         executable: str,
         args: list[str],
         env_vars: dict[str, str],
@@ -411,6 +415,7 @@ class CliAgentAdapter:
             async for chunk in cli_rpc_session_runtime.stream_turn(
                 config=CliRpcSessionConfig(
                     session_id=session_id,
+                    runtime_key=runtime_session_id,
                     agent_id=agent.id,
                     executable=executable,
                     args=rpc_args,
@@ -440,6 +445,9 @@ class CliAgentAdapter:
                             "persistentProtocol": protocol,
                             "reused": chunk.reused,
                             "recovered": chunk.recovered,
+                            "engineSessionMode": engine_session_mode
+                            if engine_session_id else None,
+                            "engineSessionId": engine_session_id,
                         },
                     )
                     continue
@@ -903,6 +911,7 @@ class CodexAdapter(CliAgentAdapter):
         *,
         agent: AgentConfig,
         session_id: str,
+        runtime_session_id: str | None = None,
         cwd: str,
         user_prompt: str,
         system_prompt: str = "",
@@ -921,6 +930,7 @@ class CodexAdapter(CliAgentAdapter):
         async for event in super().stream_persistent_turn(
             agent=agent_for_run,
             session_id=session_id,
+            runtime_session_id=runtime_session_id,
             cwd=cwd,
             user_prompt=user_prompt,
             system_prompt=system_prompt,

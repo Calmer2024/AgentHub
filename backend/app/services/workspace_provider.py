@@ -11,7 +11,14 @@ from typing import Any
 
 from ..core.timezone import china_now_iso
 
-EXCLUDED_NAMES = {".agenthub", ".git", "node_modules", "__pycache__", ".pytest_cache"}
+EXCLUDED_NAMES = {
+    ".agenthub",
+    ".agenthub-cli-stdin.txt",
+    ".git",
+    "node_modules",
+    "__pycache__",
+    ".pytest_cache",
+}
 MAX_FILE_READ_BYTES = 10 * 1024 * 1024
 
 

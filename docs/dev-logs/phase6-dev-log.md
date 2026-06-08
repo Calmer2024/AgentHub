@@ -128,7 +128,7 @@ cd backend && .\venv\Scripts\python.exe test_real_api_codex_smoke.py
 - 支持 `web_preview`、`file_tree`、`code_diff`、`document` 四类产物，其中 workspace 多文件变更可同时创建 `file_tree` 和合并 `code_diff`。
 - 新增 `POST /api/messages/{messageId}/artifacts/scan` 调试/重试入口；`force=true` 可基于消息与 executionTrace 中的路径线索读取当前 workspace 文件，且不会重复创建自动扫描已经落库的同一产物。
 - 单聊路径接入执行前 snapshot，CLI 完成后发出 `artifact.scan.started`、`artifact.created`、`artifact.scan.completed`，再发最终 `done`。
-- 群聊 finalizer 扫描每个 Agent 子消息的文本/代码块，Artifact 绑定各自 messageId，不挂到最终 Orchestrator 总结消息。
+- 群聊 finalizer 最初只扫描每个 Agent 子消息的文本/代码块；2026-06-08 Phase 7F 同步后，群聊每个 Agent 调用前会创建 workspace snapshot，finalizer 持久化对应 Agent 子消息后按该 snapshot 扫描 workspace diff，Artifact 仍绑定各自 messageId/sourceId，不挂到最终 Orchestrator 总结消息。
 - 前端接入 artifact SSE：`useSendMessage` upsert Artifact、更新消息局部 scan 状态；`MessageArtifactStrip` 展示扫描中、失败、低置信候选，并在消息下方直接渲染完整 ArtifactCard 卡片流。
 - 移除单独的右侧产物工作台和移动端底部产物 dock；产物、文件变更和代码 diff 都跟随具体 assistant 消息上下文呈现。
 - `DiffViewer` 改为统一 VS Code/GitHub 风格 diff 表格，取消“左右/上下”模式；`file_tree` 文件行 hover 显示具体 diff 小卡，点击卡片弹窗展示完整文件 diff。

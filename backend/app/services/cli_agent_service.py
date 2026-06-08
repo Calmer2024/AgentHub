@@ -28,6 +28,7 @@ class CliAgentService:
         *,
         agent: AgentConfig,
         session_id: str,
+        runtime_session_id: str | None = None,
         workspace_path: str,
         messages: list[dict],
         system_prompt: str,
@@ -45,16 +46,28 @@ class CliAgentService:
 
         adapter = get_cli_adapter(agent.cli_tool)
         prompt = adapter.render_prompt_messages(messages)
-        stream = (
-            adapter.stream_persistent_turn if persistent_process and adapter.supports_persistent_process
-            else adapter.stream
-        )
-        async for event in stream(
+        assembled_system_prompt = self._assemble_system_prompt(agent, system_prompt)
+        if persistent_process and adapter.supports_persistent_process:
+            async for event in adapter.stream_persistent_turn(
+                agent=agent,
+                session_id=session_id,
+                runtime_session_id=runtime_session_id,
+                cwd=workspace_path,
+                user_prompt=prompt,
+                system_prompt=assembled_system_prompt,
+                engine_session_id=engine_session_id,
+                engine_session_mode=engine_session_mode,
+                event_bus=self.event_bus,
+            ):
+                yield event
+            return
+
+        async for event in adapter.stream(
             agent=agent,
             session_id=session_id,
             cwd=workspace_path,
             user_prompt=prompt,
-            system_prompt=self._assemble_system_prompt(agent, system_prompt),
+            system_prompt=assembled_system_prompt,
             engine_session_id=engine_session_id,
             engine_session_mode=engine_session_mode,
             event_bus=self.event_bus,

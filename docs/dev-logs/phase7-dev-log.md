@@ -1,8 +1,8 @@
 # Phase 7 Dev Log
 
-**日期**: 2026-06-06 ~ 2026-06-07
+**日期**: 2026-06-06 ~ 2026-06-08
 **阶段**: Phase 7A-7F
-**状态**: 7A 运行任务可控性、7B 人工审批断点、7C 环境体检实现基线已通过人工验收；7D 已完成 IM 基线、明亮主题与 v1.0 UI 加固；7E 已落地 Claude Code / Codex / OpenCode Engine Session Adapter 闭环；7F 已落地 Claude Code stdin JSONL 常驻进程与 Codex MCP / OpenCode ACP 常驻 RPC 基线，真实 CLI E2E 脚本仍待沉淀
+**状态**: 7A 运行任务可控性、7B 人工审批断点、7C 环境体检实现基线已通过人工验收；7D 已完成 IM 基线、明亮主题与 v1.0 UI 加固；7E 已落地 Claude Code / Codex / OpenCode Engine Session Adapter 闭环；7F 已落地 Claude Code stdin JSONL 常驻进程与 Codex MCP / OpenCode ACP 常驻 RPC 基线；2026-06-08 已完成群聊 runtime 与 Artifact 链路同步，真实 CLI E2E 脚本仍待沉淀
 
 ---
 
@@ -113,6 +113,20 @@
 - 如果常驻子进程已退出，下一轮会清理旧 handle、重启新进程并标记 `recovered=true`；当前不承诺恢复崩溃前未完成的半轮输出。
 - 新增 [06-cli-session-process-runtime.md](../specs/phase7/06-cli-session-process-runtime.md)，把常驻进程模式、取消、交互提示、恢复和非目标写成正式规格。
 
+## 2.6 群聊 runtime 与 Artifact 链路同步
+
+2026-06-08 针对“单聊已拥有一会话一 Agent runtime 与完整 Artifact 链路，但群聊仍停留在旧执行/finalizer 路径”的问题，完成一次横向重构：
+
+- `CliSessionProcessRuntime` / `CliRpcSessionRuntime` 从只按 `session_id` 管理 handle 改为按 `runtime_key` 管理，同时 `active_snapshots(sessionId)` 与 `terminate_session(sessionId)` 仍按真实 session 聚合。
+- `CliAgentAdapter.stream_persistent_turn()`、RPC persistent 路径与 `CliAgentService.stream()` 增加可选 `runtime_session_id`，单聊不传时保持原行为，群聊传入 `session_id:agent:agent_id`。
+- `CliAgentExecutor` 接收真实 DB session，使用 `EngineSessionService` 为群聊 Agent 调用解析 start/resume 策略；支持常驻协议时传递 `engine_session_id`、`engine_session_mode`、`persistent_process` 与 `runtime_session_id`。
+- 群聊同一 Agent 多轮复用群聊内专属 EngineSession/runtime，不复用用户私聊进程；同一群聊内不同 Agent 不共享 stdin/stdout。
+- 每个群聊 Agent 调用前创建 workspace snapshot，并把 `workspaceSnapshotId`、`workspacePath`、`engineRuntime`、`engineSession`、`processId` 合并到事件 metadata。
+- `GroupChatStream` 汇总每个 Agent 的 runtime metadata，并把 `agent.process.turn_completed` 纳入 run/process 完成语义。
+- `GroupChatFinalizer` 持久化每个 Agent 子消息时合并 runtime metadata，随后基于该消息的 snapshot 调用 Artifact Bridge；workspace diff 产物绑定具体 Agent messageId/sourceId，不挂到 Orchestrator 总结消息。
+- `workspace_provider` 排除 `.agenthub-cli-stdin.txt`，避免 AgentHub 内部 stdin scratch 文件污染 workspace diff 产物列表。
+- 前端不需要新增分支：现有 `useSendMessage` 已按 messageId 处理 group `artifact.created`、trace、run、approval 事件；后端补齐 messageId/sourceId 后即可复用同一 UI 链路。
+
 ## 3. 关键决策
 
 - run/task/process 属于运行时控制层，不放进 ArtifactService，也不只保存在前端 streaming boolean。
@@ -122,6 +136,8 @@
 - Phase 7D 的 IM 能力必须尽量落到真实 API/数据库状态，不能只做前端装饰；Reply/Pin 继续保留真实 Agent 上下文注入。
 - 明亮主题的辅色基线改为纯白，彩色只保留在读者需要区分信息层级的可视化卡片中。
 - Engine resume 和 Session Process Runtime 是 Adapter 能力，不是 AgentHub 协作正确性的基础；单聊可用 Claude Code 自己的会话记忆和常驻进程，群聊仍优先依赖显式 task package、workspace 文件和可审计消息。
+- 群聊 runtime 不能复用用户私聊进程；正确作用域是“群聊 session + Agent”。这样既吃到 CLI Engine 上下文能力，又保留群聊消息、workspace snapshot、Artifact 归属的可审计性。
+- 群聊 workspace diff 归属不再靠最终共享 diff 猜测，而是由每个 Agent 调用前 snapshot 建立边界；未来若引入真正并行写同一 workspace，需要单独设计冲突检测。
 - 群聊无 @ 的默认心智改为“发给调度器管家”，但不强约束每条消息都必须生成计划；能记录上下文或单 Agent 处理的轻量消息保持轻便。
 - 小型多 Agent 协作不再走临时执行链路，统一复用 Plan-first 的输入、输出、依赖和验收约束，避免职责越界。
 - Phase 7D-7F 真实 CLI 演示脚本、UI 截图审计、Context Pack Builder 和 Store 进一步按领域拆分仍是 v1.0 后续风险项，不阻塞已完成的 IM/Engine Session/Session Process/群聊调度器基线说明。
@@ -163,6 +179,7 @@
   - draft plan 的无 @ 批准、放弃、修改均绕过 steward，交给 Plan-first follow-up；
   - 多 Agent DAG 执行按任务依赖推进，文档专家和架构师等下游职责不会被上游 Agent 代做。
   - 裸文本 `@Orchestrator` 但缺少 `mentionIds` 时按普通无 @ 管家分流处理，不硬编码识别为调度器提及。
+  - 群聊同一 Agent 多轮复用群聊内专属 runtime/EngineSession。
 - `backend/test_api/test_sessions.py`
   - 免打扰、标记已读、消息转发 API。
 - `backend/test_unit/test_session_service.py`
@@ -185,6 +202,8 @@
   - Claude Code 没有返回 result metadata 时，成功路径仍会持久化 AgentHub 分配的 session id 并进入第二轮 resume。
 - `backend/test_unit/test_migration_runner.py`
   - `engine_sessions` 迁移表存在性。
+- `backend/test_api/test_artifact_output_bridge_phase6.py`
+  - 两个群聊 Agent 各自写入 HTML 文件时，分别生成各自 messageId/sourceId 下的 `workspace_diff` `web_preview` Artifact。
 
 本轮验证命令：
 
@@ -211,6 +230,37 @@ cd backend; python -m pytest test_unit/ test_api/ -q
 cd frontend; npx tsc --noEmit; npx vitest run; npm run build
 ```
 
+群聊 runtime/Artifact 同步回归命令（2026-06-08）：
+
+```powershell
+cd backend; .\venv\Scripts\python.exe -m pytest test_unit\test_cli_adapter_runtime.py -q
+# 59 passed
+
+cd backend; .\venv\Scripts\python.exe -m pytest test_api\test_group_chat.py test_api\test_artifact_output_bridge_phase6.py test_api\test_phase7_runtime.py -q
+# 44 passed
+
+cd backend; .\venv\Scripts\python.exe -m pytest test_api/ -q
+# 153 passed
+
+cd frontend; npx tsc --noEmit
+# passed
+
+cd frontend; npx vitest run
+# 78 passed
+```
+
+真实服务验收（2026-06-08）：
+
+```text
+启动当前后端 127.0.0.1:8000 与前端 127.0.0.1:5173
+  -> REST 创建临时 Project
+  -> REST 创建含两个 custom CLI Agent 的群聊
+  -> 两个 Agent 分别写入 real-agent-a-*.html / real-agent-b-*.html
+  -> GET /api/sessions/{id}/artifacts 返回 2 个 web_preview + 2 个 code_diff
+  -> 每个 Artifact.messageId 指向对应 Agent 消息，message.sourceId 指向写入 Agent
+  -> GET /api/agents/runtime/processes?sessionId=... 返回空数组
+```
+
 ## 5. 交接入口
 
 后续接手优先从这些文件开始：
@@ -222,6 +272,8 @@ cd frontend; npx tsc --noEmit; npx vitest run; npm run build
 - `backend/app/services/system_health_service.py`
 - `backend/app/services/single_cli_chat_stream.py`
 - `backend/app/services/group_chat_stream.py`
+- `backend/app/services/group_chat_finalizer.py`
+- `backend/app/services/cli_agent_executor.py`
 - `backend/app/services/orchestrator_steward_chat.py`
 - `backend/app/services/orchestrator_plan_chat.py`
 - `frontend/src/components/RuntimeControlStrip.tsx`
@@ -236,4 +288,4 @@ cd frontend; npx tsc --noEmit; npx vitest run; npm run build
 - `backend/app/services/session_service.py`
 - `docs/deliverables/phase7-im-hardening/README.md`
 
-Phase 7F 之后的下一步是把真实 Claude Code 演示脚本、截图审计和完整回归矩阵补齐，并继续推进 Context Pack Builder 与 Store 领域拆分；常驻进程真实长跑验收应单独记录。
+Phase 7F 之后的下一步是把真实 Claude Code 演示脚本、截图审计和完整回归矩阵补齐，并继续推进 Context Pack Builder 与 Store 领域拆分；常驻进程真实长跑验收与真正并行群聊 workspace 写入冲突策略应单独记录。
