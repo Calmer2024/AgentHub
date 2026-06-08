@@ -10,7 +10,7 @@
 
 ## 1. 目标
 
-将用户本机安装的真实 CLI 工具（Claude Code、Codex、OpenCode）接入 AgentHub 的运行时。按 [ADR-0011](../../adr/0011-agent-engine-skill-model.md) 的新口径，这些 CLI 工具是 **Engine**，不是用户最终调度的 Agent 本体。用户可见 Agent Profile = Engine + Skills + Context Policy；用户在 Project 下与某个 Agent Profile 发起私聊时，后端会为该 Profile 选择的 Engine 在 Project 目录中启动一个 CLI 实例。
+将用户本机安装的真实 CLI 工具（Claude Code、Codex、OpenCode）接入 AgentHub 的运行时。按 [ADR-0011](../../adr/0011-agent-engine-skill-model.md) 的新口径，这些 CLI 工具是 **Engine**，不是用户最终调度的 Agent 本体。用户可见 Agent Profile = System Prompt + Rules + Skills + Context Policy + Runtime Config + Engine；用户在 Project 下与某个 Agent Profile 发起私聊时，后端会为该 Profile 选择的 Engine 在 Project 目录中启动一个 CLI 实例。
 
 本模块通过 PTY/subprocess 管理每个对话对应的 CLI 进程生命周期，实现 stdin/stdout 桥接、ANSI 清洗、交互式拦截，并把 CLI 输出转换为标准化事件（`agent.output` / `artifact.detected` / `interactive_prompt`），最终实现分层渲染——文本进消息气泡、进度进状态条、产物进 Artifact Card、交互进确认卡片。
 

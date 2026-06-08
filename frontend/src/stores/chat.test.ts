@@ -5,6 +5,7 @@ import type { AgentConfig, Artifact } from "../types";
 
 const mockAgent: AgentConfig = {
   id: "a1", name: "测试 Agent", description: "", systemPrompt: "",
+  rules: "",
   agentType: "cli_wrapper", cliTool: "claude_code", executable: "claude",
   initArgs: ["-p"], envVars: {}, status: "ready",
   primarySkill: "general_coding", auxiliarySkills: ["workspace_editing"],

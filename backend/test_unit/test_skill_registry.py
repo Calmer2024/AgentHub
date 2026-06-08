@@ -25,6 +25,7 @@ def test_cli_agent_service_injects_filesystem_skill_prompts():
         name="本机前端专家",
         description="",
         system_prompt="Prefer small focused changes.",
+        rules="回答先给结论，再列风险。",
         agent_type="cli_wrapper",
         cli_tool="custom",
         executable="echo",
@@ -42,5 +43,9 @@ def test_cli_agent_service_injects_filesystem_skill_prompts():
     assert "[Primary Skill: local-fixture-skill]" in prompt
     assert "Use fixture skill instructions." in prompt
     assert "[Auxiliary Skill: workspace_editing]" in prompt
-    assert "Prefer small focused changes." in prompt
+    assert "[Agent System Prompt]\nPrefer small focused changes." in prompt
+    assert "[Agent Rules]\n回答先给结论，再列风险。" in prompt
     assert "[Context Policy: workspace_coding]" in prompt
+    assert prompt.index("[Agent System Prompt]") < prompt.index("[Agent Rules]")
+    assert prompt.index("[Agent Rules]") < prompt.index("[Primary Skill: local-fixture-skill]")
+    assert prompt.index("[Primary Skill: local-fixture-skill]") < prompt.index("[Auxiliary Skill: workspace_editing]")

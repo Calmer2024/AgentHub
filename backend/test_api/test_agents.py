@@ -6,6 +6,7 @@ class TestCreateAgent:
         res = await test_client.post("/api/agents", json={
             "name": "代码审查员",
             "systemPrompt": "你是代码审查专家。",
+            "rules": "回答先列风险，再给建议。",
             "cliTool": "claude_code",
             "executable": "claude",
         })
@@ -13,6 +14,7 @@ class TestCreateAgent:
         data = res.json()
         assert data["name"] == "代码审查员"
         assert data["systemPrompt"] == "你是代码审查专家。"
+        assert data["rules"] == "回答先列风险，再给建议。"
         assert data["agentType"] == "cli_wrapper"
         assert data["cliTool"] == "claude_code"
         assert data["executable"] == "claude"
@@ -43,6 +45,8 @@ class TestCreateAgent:
         assert data["agentType"] == "cli_wrapper"
         assert data["cliTool"] == "custom"
         assert data["initArgs"] == []
+        assert data["systemPrompt"] == ""
+        assert data["rules"] == ""
 
     async def test_rejects_legacy_http_agent_type(self, test_client):
         res = await test_client.post("/api/agents", json={
@@ -220,6 +224,16 @@ class TestUpdateAgent:
         assert data["primarySkill"] == "code_reviewer"
         assert data["auxiliarySkills"] == ["security", "workspace_editing"]
         assert data["contextPolicy"] == "review_only"
+
+    async def test_update_identity_and_rules(self, test_client, test_agent):
+        res = await test_client.patch(f"/api/agents/{test_agent.id}", json={
+            "systemPrompt": "你是家庭资产管理项目的后端专家。",
+            "rules": "所有说明使用中文；不要扩大 MVP 范围。",
+        })
+        assert res.status_code == 200
+        data = res.json()
+        assert data["systemPrompt"] == "你是家庭资产管理项目的后端专家。"
+        assert data["rules"] == "所有说明使用中文；不要扩大 MVP 范围。"
 
     async def test_update_nonexistent(self, test_client):
         res = await test_client.patch("/api/agents/nonexistent", json={"name": "X"})

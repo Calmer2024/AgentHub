@@ -138,6 +138,7 @@ export interface AgentConfig {
   name: string;
   description: string;
   systemPrompt: string;
+  rules: string;
   agentType: "cli_wrapper";
   cliTool: "claude_code" | "codex" | "opencode" | "custom";
   executable: string | null;
@@ -158,6 +159,7 @@ export interface AgentConfigCreate {
   name: string;
   description?: string;
   systemPrompt?: string;
+  rules?: string;
   agentType?: "cli_wrapper";
   cliTool?: "claude_code" | "codex" | "opencode" | "custom";
   executable?: string | null;
@@ -172,6 +174,7 @@ export interface AgentConfigUpdate {
   name?: string;
   description?: string;
   systemPrompt?: string;
+  rules?: string;
   agentType?: "cli_wrapper";
   cliTool?: "claude_code" | "codex" | "opencode" | "custom";
   executable?: string | null;

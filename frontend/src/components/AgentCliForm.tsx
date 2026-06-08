@@ -39,6 +39,8 @@ export function AgentCliForm({
   const preset = CLI_PRESETS[cliTool];
   const [name, setName] = useState(initial?.name ?? preset.name);
   const [note, setNote] = useState(initial?.description ?? preset.description);
+  const [systemPrompt, setSystemPrompt] = useState(initial?.systemPrompt ?? "");
+  const [rules, setRules] = useState(initial?.rules ?? "");
   const [skills, setSkills] = useState<SkillDefinition[]>([]);
   const [primarySkill, setPrimarySkill] = useState(initial?.primarySkill ?? "general_coding");
   const [auxiliarySkills, setAuxiliarySkills] = useState<string[]>(initial?.auxiliarySkills ?? ["workspace_editing"]);
@@ -98,6 +100,9 @@ export function AgentCliForm({
     const nextPreset = CLI_PRESETS[next];
     setCliTool(next);
     setName(nextPreset.name);
+    setNote(nextPreset.description);
+    setSystemPrompt("");
+    setRules("");
     setExecutable(nextPreset.executable);
     setPrimarySkill("general_coding");
     setAuxiliarySkills(["workspace_editing"]);
@@ -166,7 +171,8 @@ export function AgentCliForm({
       await onSave({
         name: name.trim(),
         description: note.trim(),
-        systemPrompt: "",
+        systemPrompt: systemPrompt.trim(),
+        rules: rules.trim(),
         agentType: "cli_wrapper",
         cliTool,
         executable: executable.trim(),
@@ -228,7 +234,30 @@ export function AgentCliForm({
               </FieldLabel>
             </ConfigSection>
 
-            <ConfigSection icon={Sparkles} title="能力配置" description="Agent = Engine + Skills，供调度器匹配任务">
+            <div className="lg:col-span-2">
+              <ConfigSection icon={ShieldCheck} title="身份与规则" description="System Prompt 定义身份/业务边界，Rules 定义长期行为原则">
+                <FieldLabel label="System Prompt">
+                  <textarea
+                    value={systemPrompt}
+                    onChange={(event) => setSystemPrompt(event.target.value)}
+                    rows={5}
+                    placeholder="例如：你是家庭资产管理项目的架构师，只负责技术方案、模块边界、数据模型和接口契约。"
+                    className={`${inputClass} min-h-[140px] resize-y leading-5`}
+                  />
+                </FieldLabel>
+                <FieldLabel label="Rules">
+                  <textarea
+                    value={rules}
+                    onChange={(event) => setRules(event.target.value)}
+                    rows={5}
+                    placeholder="例如：所有文档使用中文；回答先给结论再给风险；正式产物写入项目 docs/；不要扩大用户确认过的范围。"
+                    className={`${inputClass} min-h-[140px] resize-y leading-5`}
+                  />
+                </FieldLabel>
+              </ConfigSection>
+            </div>
+
+            <ConfigSection icon={Sparkles} title="能力配置" description="Skills 描述能力，Engine 负责执行，供调度器匹配任务">
               <FieldLabel label="命令行类型">
                 <select value={cliTool} onChange={(event) => selectTool(event.target.value as CliTool)} className={inputClass}>
                   <option value="claude_code">Claude Code</option>

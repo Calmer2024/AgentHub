@@ -1,4 +1,4 @@
-﻿# ADR-0010: Agent = Engine + Skills 建模
+# ADR-0011: Agent Profile = System Prompt + Rules + Skills + Engine 建模
 
 **Date**: 2026-06-05
 **Status**: Proposed
@@ -31,7 +31,7 @@ Skill
   = 包含能力标签、职责说明、Prompt 片段、适用场景
 
 Agent Profile
-  = Engine + Skill Bindings + Context Policy + Runtime Config
+  = System Prompt + Rules + Skill Bindings + Context Policy + Runtime Config + Engine
   = 用户可见的“AI 好友 / 专家”
 ```
 
@@ -56,6 +56,8 @@ Orchestrator 不再被理解成一套完全特殊的硬编码能力，而是一�
 | Term | Meaning |
 |------|---------|
 | Engine | 底层执行引擎，如 `claude_code`、`codex`、`opencode`、`custom_cli` |
+| System Prompt | 用户定义的 Agent 身份、业务边界和职责范围 |
+| Rules | 用户定义的长期行为规则、说话风格和基本原则，类似 Agent 自己的 `CLAUDE.md` |
 | Skill Pool | 全局可复用 Skill 集合，第一版可以内置，后续支持目录扫描和用户自定义 |
 | Primary Skill | 一个 Agent 的主职责，决定它被调度时的主要身份 |
 | Auxiliary Skills | Agent 的辅助能力，用于补充框架、语言、审查、测试、预览等能力 |
@@ -72,6 +74,8 @@ Orchestrator 不再被理解成一套完全特殊的硬编码能力，而是一�
 {
   "id": "agent_claude_frontend",
   "name": "前端专家",
+  "system_prompt": "你是 AgentHub 项目中的前端专家，负责界面、交互、组件和浏览器端体验。",
+  "rules": "中文需求下默认使用中文；先给结论，再列风险；正式代码和文档沉淀到 workspace。",
   "engine": {
     "type": "claude_code",
     "executable": "claude",
@@ -89,6 +93,8 @@ Orchestrator 不再被理解成一套完全特殊的硬编码能力，而是一�
 {
   "id": "agent_orchestrator_planner",
   "name": "调度器",
+  "system_prompt": "你是 AgentHub 群聊中的 Orchestrator 调度器，负责计划、分流和调度建议。",
+  "rules": "只输出调用方要求的 JSON；不直接修改文件、不执行子任务。",
   "engine": {
     "type": "claude_code"
   },
@@ -104,15 +110,16 @@ Orchestrator 不再被理解成一套完全特殊的硬编码能力，而是一�
 
 ```text
 1. Engine base instruction
-2. Agent primary skill prompt
-3. Auxiliary skill prompts
-4. Agent custom system prompt / user note
-5. Project/session/context policy injection
-6. Task-specific instruction
-7. User message
+2. Agent System Prompt：身份、业务边界、职责范围
+3. Agent Rules：长期行为规则、说话风格、基本原则
+4. Agent primary skill prompt
+5. Auxiliary skill prompts
+6. Project/session/context policy injection
+7. Task-specific instruction
+8. User message
 ```
 
-第一版不要求 Skill 动态检索。Agent Profile 已绑定的 Skill 直接参与组装。
+第一版不要求 Skill 动态检索。Agent Profile 已绑定的 Skill 直接参与组装。Skill 只描述能力，不定义 Agent 身份；用户可编辑的 System Prompt 和 Rules 优先决定这个 Agent 是谁、如何说话、遵守哪些长期原则。
 
 ## Orchestrator Implications
 
@@ -146,9 +153,11 @@ PRD-02 中的 Orchestrator 输出 DAG/WBS 的核心方向保持不变，但 Plan
 - `primary_skill VARCHAR`
 - `auxiliary_skills TEXT`，JSON array
 - `context_policy VARCHAR`
+- `rules TEXT`
 
 保留现有 CLI 字段：
 
+- `system_prompt`
 - `cli_tool`
 - `executable`
 - `init_args`
@@ -175,6 +184,8 @@ Agent 设置面板从“CLI 好友配置”升级为“Agent Profile 配置”�
 
 - Engine：Claude Code / Codex / OpenCode / Custom
 - Display Name：前端专家、架构专家、调度器
+- System Prompt：身份、业务边界、职责范围
+- Rules：说话风格、长期行为规则、基本原则
 - Primary Skill：单选
 - Auxiliary Skills：多选
 - Context Policy：下拉或默认
@@ -224,4 +235,4 @@ Agent 设置面板从“CLI 好友配置”升级为“Agent Profile 配置”�
 
 ## Status Notes
 
-本 ADR 是对 ADR-0009 的补充，而不是否定。ADR-0009 解决“Agent 如何作为 CLI 进程运行”；ADR-0010 解决“用户可见 Agent 如何由 Engine + Skills 构成”。
+本 ADR 是对 ADR-0009 的补充，而不是否定。ADR-0009 解决“Agent 如何作为 CLI 进程运行”；ADR-0011 解决“用户可见 Agent 如何由 System Prompt、Rules、Skills、Context Policy、Runtime Config 和 Engine 构成”。

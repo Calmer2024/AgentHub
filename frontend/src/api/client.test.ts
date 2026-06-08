@@ -478,6 +478,7 @@ describe("agent debug APIs", () => {
         name: "Orchestrator 调度器",
         description: "",
         systemPrompt: "",
+        rules: "",
         agentType: "cli_wrapper",
         cliTool: "codex",
         executable: "codex",

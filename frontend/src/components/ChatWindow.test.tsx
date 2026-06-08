@@ -22,6 +22,7 @@ const agent: AgentConfig = {
   name: "验收 Agent",
   description: "",
   systemPrompt: "",
+  rules: "",
   agentType: "cli_wrapper",
   cliTool: "claude_code",
   executable: "claude",

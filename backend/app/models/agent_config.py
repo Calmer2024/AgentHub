@@ -15,6 +15,7 @@ class AgentConfig(Base):
     name = Column(String, nullable=False)
     description = Column(String, nullable=False, default="")
     system_prompt = Column(String, nullable=False, default="")
+    rules = Column(Text, nullable=False, default="")
     agent_type = Column(String, nullable=False, default="cli_wrapper")
     cli_tool = Column(String, nullable=False, default="custom")
     executable = Column(String, nullable=True)

@@ -13,7 +13,7 @@
 
 Phase 5 完成了"已有 Artifact 的工作台能力"（版本链、Diff、在线编辑），但产物是哪里来的？Agent 在哪个目录执行的？如何从 CLI 输出变成聊天里的产物卡片？
 
-Phase 6 回答这三个问题。它引入 **Project** 作为顶层组织实体，实现三个 CLI 工具的专属适配器，并把产品概念从“裸 CLI 好友”升级为 **Agent Profile = Engine + Skills + Context Policy**，最终打通从 Agent 输出到 Artifact Card 的完整链路。
+Phase 6 回答这三个问题。它引入 **Project** 作为顶层组织实体，实现三个 CLI 工具的专属适配器，并把产品概念从“裸 CLI 好友”升级为 **Agent Profile = System Prompt + Rules + Skills + Context Policy + Runtime Config + Engine**，最终打通从 Agent 输出到 Artifact Card 的完整链路。
 
 当前进度：**6A Workspace Runtime、6B-6E CLI Adapter 与 6F Artifact Bridge 核心闭环均已落地**。已落地 Project-first 三栏 UI、Project CRUD、系统目录选择器、Session→Project workspace 查询、文件树、文件读取安全校验、snapshot/diff、静态 preview；同时已接入真实本机 Claude Code / Codex / OpenCode CLI 进程、CLI-only Agent 配置、Codex 官方/中转配置托管、执行轨迹块与 Agent 设置弹窗。6F 已在 CLI 消息完成后扫描回复、执行轨迹和 workspace diff，创建 `web_preview` / `file_tree` / `code_diff` / `document` Artifact，并接入消息下方的 MessageArtifactStrip/ArtifactCard 卡片流；同时补齐文件编辑器、代码片段引用、Artifact 版本管理、会话文件入口和三类 CLI Agent logo 头像。Phase 7F 已把群聊同步到同一产物链路：每个 Agent 子消息拥有独立 workspace snapshot，产物按 messageId/sourceId 绑定，不再只依赖文本扫描。
 
@@ -22,7 +22,7 @@ Phase 6 回答这三个问题。它引入 **Project** 作为顶层组织实体�
   → 在 Project 下创建私聊/群聊 Session
   → 用户输入 / Orchestrator 子任务
   → 路由到 Agent Profile
-  → 解析 Engine + Skill bindings + Context Policy
+  → 解析 System Prompt + Rules + Skill bindings + Context Policy + Engine Runtime
   → Engine Adapter: ClaudeCodeAdapter | CodexAdapter | OpenCodeAdapter
   → CLI Engine 以 Project.workspace_path 为 cwd 执行
   → stdout/stderr 语义解析 → 分层渲染（文本/进度/产物/交互）
@@ -48,7 +48,7 @@ Phase 6 完成后，AgentHub 能明确回答：
 | **6A: Workspace Runtime** | [00-workspace-runtime.md](00-workspace-runtime.md) | ✅ Project 实体 + workspace 目录管理 + 文件树/Diff/静态预览 + 路径安全 + 项目创建菜单 |
 | **6B-6E: CLI Adapter** | [01-cli-adapter.md](01-cli-adapter.md) | ✅ ClaudeCodeAdapter / CodexAdapter / OpenCodeAdapter + subprocess 进程管理 + ANSI 清洗 + Codex 官方/中转配置 + 执行轨迹分层渲染 |
 | **6F: Artifact Bridge** | [02-artifact-output-bridge.md](02-artifact-output-bridge.md) | ✅ CLI 消息完成后自动扫描回复、执行轨迹和 workspace diff，创建 Artifact，并接入消息下方产物卡片流 |
-| **6G: Agent Profile** | [03-agent-engine-skill-profile.md](03-agent-engine-skill-profile.md) | ✅ Agent = Engine + Skills 建模、内置 Skill Registry、Prompt Assembly、Skill-based AgentSelector |
+| **6G: Agent Profile** | [03-agent-engine-skill-profile.md](03-agent-engine-skill-profile.md) | ✅ Agent Profile 建模、内置 Skill Registry、Prompt Assembly、Skill-based AgentSelector |
 | **CLI Adapter 交付快照** | [../../deliverables/phase6-cli-adapter/README.md](../../deliverables/phase6-cli-adapter/README.md) | CLI Adapter 架构原理、使用指南、阶段开发日志 |
 | **Artifact Bridge 交付快照** | [../../deliverables/phase6-artifact-bridge/README.md](../../deliverables/phase6-artifact-bridge/README.md) | 消息级 Artifact 卡片、文件编辑器、代码引用、版本管理与验收日志 |
 
@@ -60,7 +60,7 @@ Phase 6 完成后，AgentHub 能明确回答：
 |------|------|
 | Project 是顶层组织实体，所有聊天必须归属 Project | ADR-0009 §核心规则 1 |
 | 一个 Project 绑定一个 workspace 目录，Project 内所有 Session 共享 | ADR-0009 §核心规则 2-3 |
-| CLI Wrapper 是 AgentHub 唯一的 Engine 执行模式；用户可见 Agent = Engine + Skills | ADR-0011 |
+| CLI Wrapper 是 AgentHub 唯一的 Engine 执行模式；用户可见 Agent = System Prompt + Rules + Skills + Context Policy + Runtime Config + Engine | ADR-0011 |
 | 每个 CLI 工具单独适配（子类化 CliAgentAdapter） | ADR-0009 §配套决策 B |
 | CLI 工具由用户在外部安装，AgentHub 只管理配置 | ADR-0009 §配套决策 A |
 | stdout 语义分层解析：文本→消息、进度→状态条、产物→Card、交互→卡片 | ADR-0009 §配套决策 C |
@@ -74,7 +74,7 @@ Phase 6 完成后，AgentHub 能明确回答：
 ```
 用户发送消息
   → ChatService 路由到 Agent Profile
-  → Prompt Assembly 注入 primary/auxiliary skills
+  → Prompt Assembly 注入 System Prompt、Rules、primary/auxiliary skills
   → Engine Adapter 启动 CLI 进程（cwd = Project.workspace_path）
   → stdout → StreamSanitizer → PromptInterceptor → 分层解析
   → SSE: agent.output (text) → 前端消息气泡
@@ -134,9 +134,9 @@ Phase 6 完成后，AgentHub 能明确回答：
 
 ### Agent Profile（详见 [03-agent-engine-skill-profile.md](03-agent-engine-skill-profile.md) §10）
 
-- AC-PROFILE-01: `GET /api/agents` 返回 `primarySkill / auxiliarySkills / contextPolicy`
-- AC-PROFILE-02: Agent 设置面板能配置 Engine、Primary Skill、Auxiliary Skills、Context Policy
-- AC-PROFILE-03: Prompt Assembly 注入 primary skill 和 auxiliary skill prompt
+- AC-PROFILE-01: `GET /api/agents` 返回 `systemPrompt / rules / primarySkill / auxiliarySkills / contextPolicy`
+- AC-PROFILE-02: Agent 设置面板能配置 System Prompt、Rules、Engine、Primary Skill、Auxiliary Skills、Context Policy
+- AC-PROFILE-03: Prompt Assembly 注入 System Prompt、Rules、primary skill 和 auxiliary skill prompt
 - AC-PROFILE-04: AgentSelector 优先按 Skill 匹配，再 fallback 到 name/description/systemPrompt
 - AC-PROFILE-05: 调度器被建模为 `orchestrator_planner` Skill 的特殊 Agent Profile，不再作为孤立概念
 

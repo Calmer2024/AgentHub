@@ -30,6 +30,7 @@ class AgentConfigCreate(BaseModel):
     name: str
     description: str = ""
     system_prompt: str = Field("", alias="systemPrompt")
+    rules: str = ""
     agent_type: str = Field("cli_wrapper", alias="agentType")
     cli_tool: str = Field("custom", alias="cliTool")
     executable: str | None = None
@@ -46,6 +47,7 @@ class AgentConfigUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
     system_prompt: str | None = Field(None, alias="systemPrompt")
+    rules: str | None = None
     agent_type: str | None = Field(None, alias="agentType")
     cli_tool: str | None = Field(None, alias="cliTool")
     executable: str | None = None
@@ -64,6 +66,7 @@ class AgentConfigRead(BaseModel):
     name: str
     description: str
     system_prompt: str = Field(alias="systemPrompt")
+    rules: str = ""
     agent_type: str = Field(alias="agentType")
     cli_tool: str = Field(alias="cliTool")
     executable: str | None = None
@@ -89,6 +92,7 @@ class AgentConfigRead(BaseModel):
             name=agent.name,
             description=agent.description,
             system_prompt=agent.system_prompt,
+            rules=getattr(agent, "rules", "") or "",
             agent_type=agent.agent_type or "cli_wrapper",
             cli_tool=agent.cli_tool or "custom",
             executable=agent.executable,

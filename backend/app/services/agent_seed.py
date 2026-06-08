@@ -97,6 +97,7 @@ async def seed_default_cli_agents(db: AsyncSession) -> None:
             name=defaults["name"],
             description=defaults["description"],
             system_prompt="",
+            rules="",
             agent_type="cli_wrapper",
             cli_tool=cli_tool,
             executable=defaults["executable"],
@@ -187,6 +188,7 @@ async def _ensure_orchestrator_agent(
         existing.name = existing.name or "Orchestrator 调度器"
         existing.description = existing.description or "负责需求拆解、DAG 计划和 Agent 分配建议。"
         existing.system_prompt = _orchestrator_system_prompt()
+        existing.rules = _orchestrator_rules()
         existing.context_policy = "planning_only"
         return
 
@@ -201,6 +203,7 @@ async def _ensure_orchestrator_agent(
         name="Orchestrator 调度器",
         description="负责需求拆解、DAG 计划和 Agent 分配建议；只输出计划，不直接执行子任务。",
         system_prompt=_orchestrator_system_prompt(),
+        rules=_orchestrator_rules(),
         agent_type="cli_wrapper",
         cli_tool=base.cli_tool if base else "claude_code",
         executable=base.executable if base else defaults["executable"],
@@ -296,6 +299,7 @@ async def _ensure_lifecycle_agents(
         if existing:
             existing.description = spec["description"]
             existing.system_prompt = _lifecycle_system_prompt(spec["name"])
+            existing.rules = _lifecycle_rules()
             existing.auxiliary_skills = json.dumps(spec["auxiliary_skills"], ensure_ascii=False)
             existing.context_policy = spec["context_policy"]
             _ensure_engine_defaults(existing, defaults_by_tool, spec["preferred_tool"])
@@ -307,6 +311,7 @@ async def _ensure_lifecycle_agents(
             name=spec["name"],
             description=spec["description"],
             system_prompt=_lifecycle_system_prompt(spec["name"]),
+            rules=_lifecycle_rules(),
             agent_type="cli_wrapper",
             cli_tool=base.cli_tool,
             executable=base.executable,
@@ -373,6 +378,8 @@ def _ensure_engine_defaults(
         agent.env_vars = base.env_vars
     if not agent.system_prompt:
         agent.system_prompt = _lifecycle_system_prompt(agent.name)
+    if getattr(agent, "rules", None) is None:
+        agent.rules = ""
 
 
 def _fallback_engine() -> AgentConfig:
@@ -382,6 +389,7 @@ def _fallback_engine() -> AgentConfig:
         name=defaults["name"],
         description=defaults["description"],
         system_prompt="",
+        rules="",
         agent_type="cli_wrapper",
         cli_tool="claude_code",
         executable=defaults["executable"],
@@ -399,8 +407,13 @@ def _fallback_engine() -> AgentConfig:
 def _lifecycle_system_prompt(agent_name: str) -> str:
     return (
         f"你是 AgentHub 默认产品生命周期小队中的「{agent_name}」。"
-        "请严格按当前 Agent Profile 的主 Skill 与辅助 Skills 工作。"
         "不要宣称自己只是底层 CLI Engine；当用户询问身份时，回答这个 Agent 身份。"
+    )
+
+
+def _lifecycle_rules() -> str:
+    return (
+        "请严格按当前 Agent Profile 的主 Skill 与辅助 Skills 工作。"
         "输出语言默认跟随用户需求与上游交接语言；中文需求下，文档、交接说明、UI 文案和必要注释都使用中文。"
         "用户要的正式项目文档、代码、配置和测试应沉淀到项目 workspace；"
         "任务工作包只保存草稿、过程笔记和下游交接副本。"
@@ -410,8 +423,13 @@ def _lifecycle_system_prompt(agent_name: str) -> str:
 def _orchestrator_system_prompt() -> str:
     return (
         "你是 AgentHub 群聊中的 Orchestrator 调度器。用户没有 @ 任何成员时，"
-        "这条消息默认先交给你判断：记录上下文、分派单个 Agent、分派 2-3 个 Agent 小协作，"
-        "或升级为 draft plan。你只输出调用方要求的 JSON，不直接修改文件、不执行子任务。"
+        "这条消息默认先交给你判断。你负责计划、分流和调度建议，不直接执行子任务。"
+    )
+
+
+def _orchestrator_rules() -> str:
+    return (
+        "你只输出调用方要求的 JSON，不直接修改文件、不执行子任务。"
         "当调用方要求 steward routing 时，输出 route_type/reply/selected_agent_ids 等决策 JSON；"
         "当用户明确 @ 你生成计划或跟进计划时，输出符合 orchestrator_planner skill 契约的 draft plan JSON。"
         "任务交付物只描述类型、目录层级或建议位置，除非用户明确指定，不要强制精确文件名。"

@@ -52,7 +52,7 @@ BUILTIN_SKILLS: tuple[SkillDefinition, ...] = (
         description="处理常规代码实现、修复和项目内工程任务。",
         tags=("code", "workspace", "implementation", "工程", "代码"),
         prompt=(
-            "你是通用工程师 Agent。你负责理解用户需求，在当前项目工作区中"
+            "你具备通用工程能力，负责理解用户需求，在当前项目工作区中"
             "进行必要的代码实现、修复、说明和验证。"
         ),
     ),
@@ -62,7 +62,7 @@ BUILTIN_SKILLS: tuple[SkillDefinition, ...] = (
         description="负责前端界面、交互、组件和样式实现。",
         tags=("frontend", "react", "ui", "css", "前端", "组件", "界面"),
         prompt=(
-            "你是前端工程师 Agent。你专注于 UI、交互、组件结构、样式系统、"
+            "你具备前端工程能力，专注于 UI、交互、组件结构、样式系统、"
             "前端状态管理和浏览器端体验。"
         ),
     ),
@@ -72,7 +72,7 @@ BUILTIN_SKILLS: tuple[SkillDefinition, ...] = (
         description="负责 API、数据库、服务端逻辑和后端集成。",
         tags=("backend", "api", "database", "python", "后端", "数据库", "接口"),
         prompt=(
-            "你是后端工程师 Agent。你专注于 API 设计、数据库模型、服务端逻辑、"
+            "你具备后端工程能力，专注于 API 设计、数据库模型、服务端逻辑、"
             "数据一致性、错误处理和后端测试。"
         ),
     ),
@@ -82,7 +82,7 @@ BUILTIN_SKILLS: tuple[SkillDefinition, ...] = (
         description="负责业务目标、用户角色、流程边界、优先级和验收口径。",
         tags=("product", "prd", "requirements", "scope", "acceptance", "产品", "需求", "验收"),
         prompt=(
-            "你是产品经理 Agent。你负责把模糊想法收敛成可执行产品需求：明确目标用户、"
+            "你具备产品管理能力，负责把模糊想法收敛成可执行产品需求：明确目标用户、"
             "业务流程、权限边界、功能优先级、非目标、验收标准和风险。你不直接做技术实现，"
             "输出应服务于后续架构、设计、开发和测试。"
         ),
@@ -93,7 +93,7 @@ BUILTIN_SKILLS: tuple[SkillDefinition, ...] = (
         description="负责需求澄清、业务规则、异常流程、权限矩阵和用例。",
         tags=("requirements", "analysis", "use_case", "permission", "需求", "业务规则", "权限"),
         prompt=(
-            "你是需求分析 Agent。你专注识别隐藏规则、异常流程、角色权限、状态流转、"
+            "你具备需求分析能力，专注识别隐藏规则、异常流程、角色权限、状态流转、"
             "业务术语和边界条件。遇到不明确处先列出澄清问题；若必须推进，明确写出假设。"
         ),
     ),
@@ -103,7 +103,7 @@ BUILTIN_SKILLS: tuple[SkillDefinition, ...] = (
         description="负责方案、架构、数据模型、边界和技术决策。",
         tags=("architecture", "design", "schema", "plan", "架构", "设计", "方案"),
         prompt=(
-            "你是架构师 Agent。你负责拆解需求、识别边界、设计模块关系、"
+            "你具备架构设计能力，负责拆解需求、识别边界、设计模块关系、"
             "定义数据模型和接口契约。除非明确要求，不直接写具体业务代码。"
         ),
     ),
@@ -113,7 +113,7 @@ BUILTIN_SKILLS: tuple[SkillDefinition, ...] = (
         description="负责接口契约、请求响应结构、错误码、权限和兼容性。",
         tags=("api", "openapi", "contract", "rest", "接口", "契约", "错误码"),
         prompt=(
-            "你是 API 设计 Agent。你负责定义稳定清晰的接口契约，包括资源模型、请求响应、"
+            "你具备 API 设计能力，负责定义稳定清晰的接口契约，包括资源模型、请求响应、"
             "错误码、分页筛选、鉴权权限、幂等性和向后兼容。优先输出 OpenAPI/Markdown 契约。"
         ),
     ),
@@ -123,7 +123,7 @@ BUILTIN_SKILLS: tuple[SkillDefinition, ...] = (
         description="负责实体关系、表结构、索引、约束、迁移和数据一致性。",
         tags=("database", "schema", "sql", "migration", "数据模型", "表结构", "索引"),
         prompt=(
-            "你是数据库设计 Agent。你负责实体关系、表结构、字段约束、索引、迁移策略、"
+            "你具备数据库设计能力，负责实体关系、表结构、字段约束、索引、迁移策略、"
             "审计字段和数据一致性。输出要能支撑 API 契约和业务状态流转。"
         ),
     ),
@@ -133,7 +133,7 @@ BUILTIN_SKILLS: tuple[SkillDefinition, ...] = (
         description="负责审查、测试、安全、质量和回归风险。",
         tags=("review", "test", "security", "quality", "审查", "测试", "安全"),
         prompt=(
-            "你是代码审查 Agent。你优先发现 bug、回归风险、缺失测试、"
+            "你具备代码审查能力，优先发现 bug、回归风险、缺失测试、"
             "安全隐患和架构不一致，输出清晰可执行的审查意见。"
         ),
     ),
@@ -143,7 +143,7 @@ BUILTIN_SKILLS: tuple[SkillDefinition, ...] = (
         description="负责测试策略、用例设计、集成测试、回归测试和验收报告。",
         tags=("test", "qa", "e2e", "integration", "regression", "测试", "验收", "回归"),
         prompt=(
-            "你是测试工程师 Agent。你负责制定测试策略、识别高风险路径、设计正常/异常/权限/"
+            "你具备测试工程能力，负责制定测试策略、识别高风险路径、设计正常/异常/权限/"
             "并发用例，推动单元测试、集成测试、端到端测试和回归验证。输出应包含可执行测试清单。"
         ),
     ),
@@ -153,7 +153,7 @@ BUILTIN_SKILLS: tuple[SkillDefinition, ...] = (
         description="负责 PRD、接口文档、架构说明、用户指南和交接文档。",
         tags=("docs", "documentation", "prd", "handoff", "readme", "文档", "说明", "交接"),
         prompt=(
-            "你是技术文档 Agent。你负责把产品、架构、接口、测试和交付信息整理成清晰文档。"
+            "你具备技术文档能力，负责把产品、架构、接口、测试和交付信息整理成清晰文档。"
             "优先结构化输出，区分事实、假设、决策和待办，避免把未确认内容写成定论。"
         ),
     ),
@@ -163,7 +163,7 @@ BUILTIN_SKILLS: tuple[SkillDefinition, ...] = (
         description="负责用户流程、信息架构、交互状态、可用性和界面验收口径。",
         tags=("ux", "ui", "interaction", "flow", "prototype", "交互", "用户体验", "流程"),
         prompt=(
-            "你是 UX 设计 Agent。你负责用户流程、信息架构、页面状态、交互反馈、空状态/"
+            "你具备 UX 设计能力，负责用户流程、信息架构、页面状态、交互反馈、空状态/"
             "错误状态和可用性验收。你可以给前端 Agent 提供页面结构和交互规格。"
         ),
     ),
@@ -193,7 +193,7 @@ BUILTIN_SKILLS: tuple[SkillDefinition, ...] = (
         description="只负责需求拆解、DAG 计划和 Agent 分配建议。",
         tags=("orchestrator", "dag", "plan", "assignment", "调度", "计划", "分配"),
         prompt=(
-            "你是 AgentHub 的 Orchestrator Planner Agent。你的唯一职责是把用户需求拆解为"
+            "你具备 AgentHub 调度规划能力。该能力的职责是把用户需求拆解为"
             "plan-only DAG 调度计划，不直接改文件、不执行任务、不调用子 Agent。\n\n"
             "工作原则：\n"
             "1. 任务拆到模块/交付物级，不拆到创建文件、安装依赖、写函数这类代码步骤级。\n"
