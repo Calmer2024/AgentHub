@@ -7,6 +7,9 @@ from .artifact import Artifact
 from .run import Run, RunTask, RunProcess
 from .approval import ApprovalCheckpoint
 from .engine_session import EngineSession
+from .build import BuildRun, BuildLog
+from .context_pack import ContextPackSnapshot
+from .orchestrator_plan import OrchestratorPlanRecord
 
 __all__ = [
     "Project",
@@ -20,4 +23,8 @@ __all__ = [
     "RunProcess",
     "ApprovalCheckpoint",
     "EngineSession",
+    "BuildRun",
+    "BuildLog",
+    "ContextPackSnapshot",
+    "OrchestratorPlanRecord",
 ]

@@ -1,12 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import type { Artifact, ArtifactDiff, ArtifactVersion } from "../types";
+import type { Artifact, ArtifactDiff, ArtifactVersion, BuildLogChunk, BuildRun } from "../types";
 import {
+  createProjectBuildPreview,
   createProjectPreview,
   fetchArtifactDiff,
   fetchArtifactVersions,
+  fetchProjectBuildLogs,
+  fetchProjectBuilds,
+  projectBuildExportUrl,
+  projectSourceExportUrl,
+  startProjectBuild,
 } from "../api/client";
 import {
+  Download,
+  Eye,
   ExternalLink,
   FilePenLine,
   FileCode2,
@@ -14,9 +22,12 @@ import {
   Files,
   GitCompareArrows,
   Globe2,
+  Hammer,
   History,
   Loader2,
   Maximize2,
+  PackageOpen,
+  ScrollText,
   X,
 } from "lucide-react";
 import { DiffViewer } from "./DiffViewer";
@@ -59,6 +70,21 @@ function statusClass(status: Artifact["status"]) {
   if (status === "rendering") return "agenthub-status-warning";
   if (status === "error") return "agenthub-status-error";
   return "agenthub-status-success";
+}
+
+function buildStatusText(status: BuildRun["status"]) {
+  if (status === "queued") return "排队中";
+  if (status === "running") return "构建中";
+  if (status === "succeeded") return "构建成功";
+  if (status === "failed") return "构建失败";
+  if (status === "cancelled") return "已取消";
+  return String(status || "未知");
+}
+
+function buildStatusClass(status: BuildRun["status"]) {
+  if (status === "succeeded") return "agenthub-status-success";
+  if (status === "failed" || status === "cancelled") return "agenthub-status-error";
+  return "agenthub-status-warning";
 }
 
 function normalizeDiffContent(content: string) {
@@ -116,6 +142,14 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [builds, setBuilds] = useState<BuildRun[]>([]);
+  const [buildsLoading, setBuildsLoading] = useState(false);
+  const [buildRunning, setBuildRunning] = useState(false);
+  const [buildMessage, setBuildMessage] = useState<string | null>(null);
+  const [buildError, setBuildError] = useState<string | null>(null);
+  const [buildLogs, setBuildLogs] = useState<BuildLogChunk[]>([]);
+  const [buildLogsOpen, setBuildLogsOpen] = useState(false);
+  const [buildLogsLoading, setBuildLogsLoading] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -192,6 +226,28 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
     return () => { alive = false; };
   }, [artifact.filePath, artifact.projectId, artifact.type]);
 
+  useEffect(() => {
+    if (!artifact.projectId) {
+      setBuilds([]);
+      setBuildsLoading(false);
+      return;
+    }
+    let alive = true;
+    setBuildsLoading(true);
+    fetchProjectBuilds(artifact.projectId)
+      .then((result) => {
+        if (!alive) return;
+        setBuilds(Array.isArray(result.items) ? result.items : []);
+      })
+      .catch(() => {
+        if (alive) setBuilds([]);
+      })
+      .finally(() => {
+        if (alive) setBuildsLoading(false);
+      });
+    return () => { alive = false; };
+  }, [artifact.projectId]);
+
   const displayedContent = useMemo(() => {
     return latestVersion?.content ?? artifact.content;
   }, [artifact.content, latestVersion?.content]);
@@ -208,10 +264,155 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
     artifact.type !== "code_diff" || Boolean(artifact.projectId && artifact.filePath)
   );
   const canManageVersions = true;
+  const latestBuild = builds[0] ?? null;
+  const latestSucceededBuild = builds.find((build) => build.status === "succeeded") ?? null;
+  const projectActionsEnabled = Boolean(artifact.projectId);
 
   const openExternalPreview = () => {
     if (previewUrl) window.open(previewUrl, "_blank", "noopener,noreferrer");
   };
+
+  const refreshBuilds = async () => {
+    if (!artifact.projectId) return [];
+    const result = await fetchProjectBuilds(artifact.projectId);
+    const items = Array.isArray(result.items) ? result.items : [];
+    setBuilds(items);
+    return items;
+  };
+
+  const handleStartBuild = async () => {
+    if (!artifact.projectId) {
+      setBuildError("当前产物未绑定 Project，无法构建。");
+      return;
+    }
+    setBuildRunning(true);
+    setBuildError(null);
+    setBuildMessage("正在执行本机构建...");
+    try {
+      const result = await startProjectBuild(artifact.projectId);
+      const items = await refreshBuilds();
+      const build = items.find((item) => item.id === result.buildId) ?? items[0] ?? null;
+      const status = build?.status ?? result.status;
+      setBuildMessage(buildStatusText(status));
+      if (status === "succeeded" && artifact.type === "web_preview") {
+        const preview = await createProjectBuildPreview(artifact.projectId, {
+          source: "build",
+          buildId: result.buildId,
+        });
+        setPreviewUrl(preview.url);
+        setPreviewError(null);
+      }
+    } catch (error) {
+      setBuildError(error instanceof Error ? error.message : "构建失败");
+      setBuildMessage(null);
+    } finally {
+      setBuildRunning(false);
+    }
+  };
+
+  const handleOpenLogs = async () => {
+    if (!artifact.projectId || !latestBuild) return;
+    setBuildLogsOpen(true);
+    setBuildLogsLoading(true);
+    setBuildError(null);
+    try {
+      const result = await fetchProjectBuildLogs(artifact.projectId, latestBuild.id);
+      setBuildLogs(Array.isArray(result.chunks) ? result.chunks : []);
+    } catch (error) {
+      setBuildError(error instanceof Error ? error.message : "日志加载失败");
+      setBuildLogs([]);
+    } finally {
+      setBuildLogsLoading(false);
+    }
+  };
+
+  const openSourceExport = () => {
+    if (!artifact.projectId) return;
+    window.open(projectSourceExportUrl(artifact.projectId), "_blank", "noopener,noreferrer");
+  };
+
+  const openBuildExport = () => {
+    if (!artifact.projectId || !latestSucceededBuild) return;
+    window.open(
+      projectBuildExportUrl(artifact.projectId, latestSucceededBuild.id),
+      "_blank",
+      "noopener,noreferrer",
+    );
+  };
+
+  const openBuildPreview = async () => {
+    if (!artifact.projectId || !latestSucceededBuild) return;
+    setPreviewLoading(true);
+    setPreviewError(null);
+    try {
+      const preview = await createProjectBuildPreview(artifact.projectId, {
+        source: "build",
+        buildId: latestSucceededBuild.id,
+      });
+      setPreviewUrl(preview.url);
+    } catch (error) {
+      setPreviewError(error instanceof Error ? error.message : "构建预览加载失败");
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+  const renderBuildActions = () => (
+    <div className="flex items-center gap-1">
+      <button
+        type="button"
+        onClick={handleStartBuild}
+        disabled={!projectActionsEnabled || buildRunning}
+        className="agenthub-icon-button inline-flex h-8 w-8 items-center justify-center rounded-md disabled:cursor-not-allowed disabled:opacity-45"
+        aria-label="执行项目构建"
+        title="执行项目构建"
+      >
+        {buildRunning ? <Loader2 size={14} className="animate-spin" aria-hidden="true" /> : <Hammer size={14} aria-hidden="true" />}
+      </button>
+      <button
+        type="button"
+        onClick={handleOpenLogs}
+        disabled={!projectActionsEnabled || !latestBuild}
+        className="agenthub-icon-button inline-flex h-8 w-8 items-center justify-center rounded-md disabled:cursor-not-allowed disabled:opacity-45"
+        aria-label="查看构建日志"
+        title="查看构建日志"
+      >
+        <ScrollText size={14} aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        onClick={openSourceExport}
+        disabled={!projectActionsEnabled}
+        className="agenthub-icon-button inline-flex h-8 w-8 items-center justify-center rounded-md disabled:cursor-not-allowed disabled:opacity-45"
+        aria-label="下载源码包"
+        title="下载源码包"
+      >
+        <Download size={14} aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        onClick={openBuildExport}
+        disabled={!projectActionsEnabled || !latestSucceededBuild}
+        className="agenthub-icon-button inline-flex h-8 w-8 items-center justify-center rounded-md disabled:cursor-not-allowed disabled:opacity-45"
+        aria-label="下载构建产物"
+        title="下载构建产物"
+      >
+        <PackageOpen size={14} aria-hidden="true" />
+      </button>
+      {artifact.type === "web_preview" && (
+        <button
+          type="button"
+          onClick={openBuildPreview}
+          disabled={!projectActionsEnabled || !latestSucceededBuild}
+          className="agenthub-icon-button inline-flex h-8 w-8 items-center justify-center rounded-md disabled:cursor-not-allowed disabled:opacity-45"
+          aria-label="打开构建预览"
+          title="打开构建预览"
+        >
+          <Eye size={14} aria-hidden="true" />
+        </button>
+      )}
+    </div>
+  );
 
   const fullscreenDialog = fullscreen && typeof document !== "undefined"
     ? createPortal(
@@ -240,6 +441,7 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
               {artifact.filePath && <p className="agenthub-faint mt-0.5 truncate font-mono text-xs">{artifact.filePath}</p>}
             </div>
             <div className="flex items-center gap-2">
+              {projectActionsEnabled && renderBuildActions()}
               {previewUrl && artifact.type === "web_preview" && (
                 <button
                   type="button"
@@ -318,6 +520,57 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
     )
     : null;
 
+  const buildLogsDialog = buildLogsOpen && typeof document !== "undefined"
+    ? createPortal(
+      <div
+        className="agenthub-backdrop fixed inset-0 z-[1000] flex items-center justify-center p-3 md:p-6"
+        role="dialog"
+        aria-modal="true"
+        aria-label="构建日志"
+        onClick={() => setBuildLogsOpen(false)}
+      >
+        <div
+          className="agenthub-modal flex max-h-[82dvh] w-full max-w-4xl flex-col overflow-hidden rounded-lg border"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="agenthub-header flex items-center justify-between gap-3 border-b px-4 py-3">
+            <div className="min-w-0">
+              <div className="agenthub-muted flex items-center gap-2 text-[11px]">
+                <ScrollText size={14} aria-hidden="true" />
+                <span>构建日志</span>
+                {latestBuild && (
+                  <span className={`rounded-md px-1.5 py-0.5 ${buildStatusClass(latestBuild.status)}`}>
+                    {buildStatusText(latestBuild.status)}
+                  </span>
+                )}
+              </div>
+              {latestBuild && <p className="agenthub-faint mt-1 truncate font-mono text-xs">{latestBuild.id}</p>}
+            </div>
+            <button
+              type="button"
+              onClick={() => setBuildLogsOpen(false)}
+              className="agenthub-icon-button inline-flex h-8 w-8 items-center justify-center rounded-md"
+              aria-label="关闭构建日志"
+              title="关闭"
+            >
+              <X size={15} aria-hidden="true" />
+            </button>
+          </div>
+          <div className="min-h-0 flex-1 overflow-auto p-3">
+            <pre className="agenthub-code-surface min-h-64 whitespace-pre-wrap rounded-lg border p-3 text-xs leading-5">
+              {buildLogsLoading
+                ? "正在加载日志..."
+                : buildLogs.length > 0
+                  ? buildLogs.map((chunk) => `[${chunk.stream}] ${chunk.text}`).join("")
+                  : "暂无日志"}
+            </pre>
+          </div>
+        </div>
+      </div>,
+      document.body,
+    )
+    : null;
+
   return (
     <>
       <article className="agenthub-card group/card relative min-w-0 max-w-full overflow-visible rounded-2xl border transition hover:border-[color:var(--ah-border-hover)]">
@@ -344,6 +597,7 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
             )}
           </button>
           <div className="flex shrink-0 items-center gap-1">
+            {projectActionsEnabled && renderBuildActions()}
             {canManageVersions && (
               <button
                 type="button"
@@ -378,6 +632,26 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
           </div>
         </div>
 
+        {projectActionsEnabled && (
+          <div className="agenthub-muted flex min-h-8 items-center gap-2 border-b px-3 py-1.5 text-[11px]" style={{ borderColor: "var(--ah-border)" }}>
+            {buildsLoading && <Loader2 size={12} className="animate-spin" aria-hidden="true" />}
+            {buildError ? (
+              <span className="agenthub-status-error rounded-md px-1.5 py-0.5">{buildError}</span>
+            ) : buildMessage ? (
+              <span className="agenthub-status-info rounded-md px-1.5 py-0.5">{buildMessage}</span>
+            ) : latestBuild ? (
+              <span className={`rounded-md px-1.5 py-0.5 ${buildStatusClass(latestBuild.status)}`}>
+                {buildStatusText(latestBuild.status)}
+              </span>
+            ) : (
+              <span className="agenthub-faint">暂无构建记录</span>
+            )}
+            {latestBuild?.artifactPath && (
+              <span className="agenthub-faint truncate font-mono">{latestBuild.artifactPath}</span>
+            )}
+          </div>
+        )}
+
         <div className="min-w-0 p-3">
           <ArtifactPreview
             artifact={artifact}
@@ -392,6 +666,7 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
         </div>
       </article>
       {fullscreenDialog}
+      {buildLogsDialog}
       <FileEditorModal
         open={editorOpen}
         artifact={artifact}

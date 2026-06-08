@@ -9,6 +9,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db
 from ..models import AgentConfig, Message as DBMessage, Session
 from ..services.orchestrator_execution import PlanExecutionError, execution_registry
+from ..services.orchestrator_plan_service import (
+    InvalidOrchestratorPlanStateError,
+    OrchestratorPlanNotFoundError,
+    OrchestratorPlanService,
+    plan_to_read,
+)
+from ..services.phase8_schemas import OrchestratorPlanRead, OrchestratorPlanResumeRequest
 from ..services.run_service import RunService
 
 router = APIRouter(prefix="/orchestrator", tags=["orchestrator"])
@@ -19,6 +26,11 @@ class ExecutePlanBody(BaseModel):
     normalized_plan: dict[str, Any] = Field(..., alias="normalizedPlan")
 
     model_config = {"populate_by_name": True}
+
+
+def _plan_svc(db: AsyncSession) -> OrchestratorPlanService:
+    from ..main import _event_bus
+    return OrchestratorPlanService(db, event_bus=_event_bus)
 
 
 @router.post("/plans/execute")
@@ -83,8 +95,34 @@ async def execute_orchestrator_plan(
         run_id=run.id,
         task_id_by_orchestrator_task_id=runtime_task_ids,
     )
+    persistent_plan = dict(data.normalized_plan)
+    persistent_plan.setdefault("planId", execution["planId"])
+    await _plan_svc(db).create_or_update_from_normalized_plan(
+        session_id=data.session_id,
+        normalized_plan=persistent_plan,
+        run_id=run.id,
+    )
     execution_registry.start_execution(execution["executionId"])
     return execution_registry.get_execution(execution["executionId"]) or execution
+
+
+@router.post("/plans/{plan_id}/resume", response_model=OrchestratorPlanRead)
+async def resume_orchestrator_plan(
+    plan_id: str,
+    data: OrchestratorPlanResumeRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        record = await _plan_svc(db).resume(
+            plan_id,
+            approval_id=data.approval_id,
+            message=data.message,
+        )
+        return plan_to_read(record)
+    except OrchestratorPlanNotFoundError:
+        raise HTTPException(status_code=404, detail="Plan 不存在")
+    except InvalidOrchestratorPlanStateError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
 
 
 @router.get("/executions/{execution_id}")

@@ -35,7 +35,16 @@ async def _cleanup_db():
     from sqlalchemy import text
     async with engine.connect() as conn:
         await conn.execute(text("PRAGMA foreign_keys=OFF"))
-        for t in ("approval_checkpoints", "run_processes", "run_tasks", "runs"):
+        for t in (
+            "build_logs",
+            "context_pack_snapshots",
+            "orchestrator_plans",
+            "build_runs",
+            "approval_checkpoints",
+            "run_processes",
+            "run_tasks",
+            "runs",
+        ):
             try:
                 await conn.execute(text(f"DELETE FROM {t}"))
             except Exception:

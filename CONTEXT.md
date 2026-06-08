@@ -13,9 +13,10 @@
 | 1 | [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) | **新成员首选** — 项目是什么、技术栈、目录结构 |
 | 2 | [CONTEXT.md](CONTEXT.md)（本文件） | 领域术语、架构总览、Phase 状态、完整文档索引 |
 | 3 | [CLAUDE.md](CLAUDE.md) | AI Agent 行为规则：架构约束、代码规则、禁止事项、Debug 守则 |
-| 4 | [docs/PRD/](docs/PRD/) | 产品需求文档（8 篇）— 北极星指标、CLI 适配器、Orchestrator、UX 设计、数据契约、端到端闭环、MVP/SaaS Workspace |
-| 5 | [docs/adr/](docs/adr/) | 架构决策记录 — 关键决策及原因 |
-| 6 | [docs/specs/](docs/specs/) | 功能规格 — 各 Phase 的具体功能定义与验收标准（Phase 1-7） |
+| 4 | [AgentHub-多Agent协作平台设计](docs/archive/AgentHub-多Agent协作平台设计.md) | 核心启动需求源 — IM、多 Agent 协作、Artifact、预览/编辑/部署、多端协作 |
+| 5 | [docs/PRD/](docs/PRD/) | 产品需求拆解文档（8 篇）— 北极星指标、CLI 适配器、Orchestrator、UX 设计、数据契约、端到端闭环、MVP/SaaS Workspace |
+| 6 | [docs/adr/](docs/adr/) | 架构决策记录 — 关键决策及原因 |
+| 7 | [docs/specs/](docs/specs/) | 功能规格 — 各 Phase 的具体功能定义与验收标准（Phase 1-12） |
 
 ---
 
@@ -48,7 +49,7 @@
 - **产物 (Artifact)**：Agent 生成的富媒体内容，类型包括 `code_diff`、`web_preview`、`document`、`file_tree`。Phase 5 已完成已有 Artifact 的版本历史、Diff 和在线编辑；Phase 6 已补齐 Agent 输出入口、消息级 Artifact Card、文件编辑器、代码引用和版本管理；Phase 7 已补齐运行可控性、审批回流、环境体检、IM 会话基线、v1.0 UI 加固，以及群聊中每个 Agent 消息的 workspace diff 产物归属。
 - **Artifact Card**：聊天流中的产物卡片，由标准 `artifact.created` 事件驱动，绑定 `artifact_id / message_id / task_id / version`，不是前端临时扫描 Markdown 得到的装饰。
 - **消息级 Artifact 体验**：P1 当前产物体验基线。Artifact 与代码变更跟随具体 assistant 消息，通过 `MessageArtifactStrip` 与 `ArtifactCard` 展示；预览、编辑、版本管理使用页面级弹窗，不恢复独立产物工作台或右侧 Drawer。详见 [ADR-0010](docs/adr/0010-message-level-artifact-experience.md)。
-- **北极星链路**：AgentHub MVP 必须打通的端到端链路：创建 Project + 绑定 workspace → 在 Project 下创建私聊/群聊 → 用户输入 → Orchestrator/Agent 执行 → Agent 读写 workspace → Artifact 创建 → 聊天流消息级 Artifact Card → 预览/编辑/版本化 → 审批继续调度 → 中枢总结。权威定义见 [PRD-05](docs/PRD/05-End_to_End_Product_Flow.md)，P1 Artifact 体验修订见 [ADR-0010](docs/adr/0010-message-level-artifact-experience.md)。
+- **北极星链路**：AgentHub MVP 必须打通的端到端链路：创建 Project + 绑定 workspace → 在 Project 下创建私聊/群聊 → 用户输入 → Orchestrator/Agent 执行 → Agent 读写 workspace → Artifact 创建 → 聊天流消息级 Artifact Card → 预览/编辑/版本化 → 审批继续调度 → 中枢总结。核心需求源见 [AgentHub-多Agent协作平台设计](docs/archive/AgentHub-多Agent协作平台设计.md)，阶段化定义见 [PRD-05](docs/PRD/05-End_to_End_Product_Flow.md)，P1 Artifact 体验修订见 [ADR-0010](docs/adr/0010-message-level-artifact-experience.md)。
 
 ### 方法论术语
 
@@ -89,8 +90,13 @@
 | **Phase 5** | 产物工作台能力 | ✅ | 版本链 + Diff + 在线编辑（Tool Calling）；上游产物生成入口由 Phase 6/7 补齐 |
 | **Phase 6** | Workspace Runtime + CLI Engine + Agent Profile + 产物入口桥接 | ✅ | 6A Workspace Runtime、6B-6E CLI Adapter、6F Artifact Bridge 与 Agent Profile 建模均已落地；Orchestrator Plan-first 真实执行已阶段性通过 |
 | **Phase 7** | 任务可控性 + 审批 + 环境体检 + IM 体验 + 演示闭环 | 🚧 | v1.0 本机 MVP 基线已覆盖运行控制、审批、体检、IM 会话基线、UI 加固、群聊调度器管家路由、Engine Session 与常驻进程基线；群聊已同步单聊的 Agent runtime 与 workspace Artifact 链路；真实 cc 完整自动化演示脚本待沉淀 |
+| **Phase 8** | P1 发布候选收口 | 📋 | 收敛真实 CLI E2E、本地 Build/Export/Preview、Context Pack、Orchestrator 审批续跑、Store 拆分和截图审计 |
+| **Phase 9** | Cloud Workspace Foundation | 📋 | 建立 P2 用户/团队/RBAC、CloudWorkspaceProvider、workspace 快照/导入/审计日志基础 |
+| **Phase 10** | Sandbox Runner 与云端 Agent Runtime | 📋 | 在云端隔离 sandbox 中运行真实 CLI Agent，保持 P1 CLI 事件契约兼容，并补齐配额、secret、日志脱敏 |
+| **Phase 11** | Cloud Preview 与 Deployment | 📋 | 为云端 Artifact 提供 preview URL、Deployment pipeline、部署日志、发布 URL、重试和回滚 |
+| **Phase 12** | 协作、多端与高级 Artifact | 📋 | 补齐团队评论/通知、移动端审批预览、附件/图片输入、PPT/文档 Artifact、Git sync、对话式 Agent 创建 |
 
-Phase 4-7 采用**功能板块制**：每板块独立完整交付。板块间按用户可感知价值排序。详见 [ADR-0008](docs/adr/0008-revised-development-strategy.md)。
+Phase 4-12 采用**功能板块制**：每板块独立完整交付。板块间按用户可感知价值排序。详见 [ADR-0008](docs/adr/0008-revised-development-strategy.md)。
 
 ### 产品交付阶段
 
@@ -126,7 +132,15 @@ Phase 4-7 采用**功能板块制**：每板块独立完整交付。板块间按
 
 ## 文档索引
 
-### PRD — 产品需求文档（最高权威）
+### 核心设计 — 启动需求源
+
+| 文档 | 内容 |
+|------|------|
+| [AgentHub-多Agent协作平台设计](docs/archive/AgentHub-多Agent协作平台设计.md) | 虽然位于 `archive/`，但仍是 IM、多 Agent 协作、Artifact、预览/编辑/部署、多端协作等产品骨架的权威核心需求源 |
+
+### PRD — 产品需求拆解文档（最高权威）
+
+PRD 系列与早期核心设计文档共同构成需求权威。早期设计定义产品骨架，PRD 负责拆解、边界收缩和阶段化落地。
 
 | 文档 | 内容 |
 |------|------|
@@ -166,6 +180,11 @@ Phase 4-7 采用**功能板块制**：每板块独立完整交付。板块间按
 | Phase 5 | [specs/phase5/](docs/specs/phase5/) | [README](docs/specs/phase5/README.md) + [版本/Diff](docs/specs/phase5/01-artifact-versioning.md) + [在线编辑](docs/specs/phase5/02-artifact-editing.md) |
 | Phase 6 | [specs/phase6/](docs/specs/phase6/) | [README](docs/specs/phase6/README.md) + [Workspace Runtime](docs/specs/phase6/00-workspace-runtime.md) + [CLI 适配器](docs/specs/phase6/01-cli-adapter.md) + [产物桥接](docs/specs/phase6/02-artifact-output-bridge.md) + [Agent Profile](docs/specs/phase6/03-agent-engine-skill-profile.md) |
 | Phase 7 | [specs/phase7/](docs/specs/phase7/) | [README](docs/specs/phase7/README.md) + [运行控制交付快照](docs/deliverables/phase7-runtime-control/README.md) + [IM 加固交付快照](docs/deliverables/phase7-im-hardening/README.md) + [上下文包与缓存策略](docs/specs/phase7/05-context-pack-and-cache-strategy.md) + [CLI Session Process Runtime](docs/specs/phase7/06-cli-session-process-runtime.md) + 运行可控性 + 审批 + 环境体检 + IM 体验 + 演示加固 |
+| Phase 8 | [specs/phase8/](docs/specs/phase8/) | [README](docs/specs/phase8/README.md) + P1 发布候选收口 |
+| Phase 9 | [specs/phase9/](docs/specs/phase9/) | [README](docs/specs/phase9/README.md) + Cloud Workspace Foundation |
+| Phase 10 | [specs/phase10/](docs/specs/phase10/) | [README](docs/specs/phase10/README.md) + Sandbox Runner 与云端 Agent Runtime |
+| Phase 11 | [specs/phase11/](docs/specs/phase11/) | [README](docs/specs/phase11/README.md) + Cloud Preview 与 Deployment |
+| Phase 12 | [specs/phase12/](docs/specs/phase12/) | [README](docs/specs/phase12/README.md) + 协作、多端与高级 Artifact |
 | 模板 | [SPEC_TEMPLATE.md](docs/specs/SPEC_TEMPLATE.md) | 新建模块 Spec 的标准模板 |
 | 历史 | [specs/planning/](docs/specs/planning/) | 旧规划文档（参考） |
 
@@ -174,7 +193,7 @@ Phase 4-7 采用**功能板块制**：每板块独立完整交付。板块间按
 | 文档 | 内容 |
 |------|------|
 | [Phase 3 审计报告](docs/audit/phase3-audit-report.md) | PRD 符合性矩阵、架构偏离分析、模块完成度、文档债 |
-| [PRD/Spec 覆盖审计](docs/audit/prd-spec-coverage-audit.md) | 启动文档 → PRD → Spec 覆盖审计 |
+| [PRD/Spec 覆盖审计](docs/audit/prd-spec-coverage-audit.md) | 启动/核心设计文档 → PRD → Spec 覆盖审计 |
 | [Git 协议](docs/GIT_PROTOCOL.md) | 分支策略（phase/main 唯一集成分支）、Commit 格式、AI 提交规则 |
 | [测试协议](docs/TEST_PROTOCOL.md) | 测试金字塔、工具链、环境、Bug 修复流程 |
 | [UX 测试规范](docs/testing/UX_TEST_SPEC.md) | UX 交互体验：6 状态模型、检查清单、P0-P3 分级 |
@@ -203,5 +222,5 @@ Phase 4-7 采用**功能板块制**：每板块独立完整交付。板块间按
 1. **Phase 结束时审计** — 检查所有 `docs/` 下的交叉引用是否有效。
 2. **ADR 编号与文件名一致** — `NNNN-title.md` 内部标题必须是 `ADR-NNNN`。
 3. **Spec 文件必须被索引** — 不被本文件索引的 Spec = 无效文档。
-4. **旧文档立即归档或删除** — 不再适用的文档移入 `docs/archive/`。
+4. **旧文档状态必须显式标注** — 不再适用的文档移入 `docs/archive/`；归档位置不等于需求失效，仍具权威性的归档文档必须在索引中说明当前用途。
 5. **一个事实一个权威源** — 同一信息不出现在两个地方。引用用链接，不复制。

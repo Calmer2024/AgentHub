@@ -15,6 +15,7 @@ from .message_service_sqlalchemy import (
     SqlAlchemyMessageService,
     build_reply_reference_metadata,
 )
+from .context_pack_service import ContextPackService
 from .run_service import RunService, run_to_read, task_to_read
 from .session_service import SessionService
 from .session_title_service import SessionTitleService
@@ -94,8 +95,11 @@ class ChatServiceImpl:
             "done": False,
         })
 
-        # 取历史消息
-        history, pinned_ids = await self._messages.history_for_session(session_id)
+        history, pinned_ids = await ContextPackService(
+            self.db,
+            event_bus=self.event_bus,
+            context_manager=self._context_manager,
+        ).runtime_context(session_id, purpose="send")
 
         # 群聊: 通过 Pipeline 决定路由和执行计划
         if session.mode == "group":

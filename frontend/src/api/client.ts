@@ -6,6 +6,7 @@ import type {
   ArtifactScanResult,
   Project, ProjectCreateInput, ProjectUpdateInput, ProjectDeleteResult, FolderPickResult,
   PreviewResult, WorkspaceFile,
+  BuildList, BuildLogs, BuildQueuedResult, ProjectPreviewResult,
   ExecutionTraceItem,
   CodexLocalConfig, CodexLocalConfigUpdate,
   SkillDefinition,
@@ -189,6 +190,52 @@ export async function createProjectPreview(
     throw new Error(detail);
   }
   return res.json();
+}
+
+export async function startProjectBuild(
+  projectId: string,
+  input: { command?: string | null; installCommand?: string | null; artifactPath?: string | null } = {},
+): Promise<BuildQueuedResult> {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/builds`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to start project build"));
+  return res.json();
+}
+
+export async function fetchProjectBuilds(projectId: string): Promise<BuildList> {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/builds`);
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to fetch project builds"));
+  return res.json();
+}
+
+export async function fetchProjectBuildLogs(projectId: string, buildId: string): Promise<BuildLogs> {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/builds/${buildId}/logs`);
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to fetch project build logs"));
+  return res.json();
+}
+
+export async function createProjectBuildPreview(
+  projectId: string,
+  input: { source: "workspace" | "build"; path?: string | null; buildId?: string | null },
+): Promise<ProjectPreviewResult> {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/previews`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to create project preview"));
+  return res.json();
+}
+
+export function projectSourceExportUrl(projectId: string): string {
+  return `${API_BASE}/projects/${projectId}/exports/source`;
+}
+
+export function projectBuildExportUrl(projectId: string, buildId: string): string {
+  return `${API_BASE}/projects/${projectId}/exports/builds/${buildId}`;
 }
 
 export async function readProjectFile(projectId: string, path: string): Promise<WorkspaceFile> {

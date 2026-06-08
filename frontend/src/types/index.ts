@@ -259,6 +259,48 @@ export interface PreviewResult {
   previewUrl: string;
 }
 
+export type BuildStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
+
+export interface BuildRun {
+  id: string;
+  projectId: string;
+  status: BuildStatus | string;
+  command: string;
+  installCommand?: string | null;
+  artifactPath?: string | null;
+  exitCode?: number | null;
+  errorSummary?: string | null;
+  createdAt: string;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+}
+
+export interface BuildList {
+  items: BuildRun[];
+}
+
+export interface BuildQueuedResult {
+  buildId: string;
+  status: BuildStatus | string;
+}
+
+export interface BuildLogChunk {
+  sequence: number;
+  stream: "stdout" | "stderr" | string;
+  text: string;
+  createdAt: string;
+}
+
+export interface BuildLogs {
+  chunks: BuildLogChunk[];
+}
+
+export interface ProjectPreviewResult {
+  previewId: string;
+  url: string;
+  source: "workspace" | "build" | string;
+}
+
 export interface ArtifactVersion {
   id: string;
   version: number;

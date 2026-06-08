@@ -1,9 +1,26 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
+from urllib.parse import quote
 
 from ..database import get_db
+from ..services.build_service import (
+    BuildConflictError,
+    BuildNotFoundError,
+    BuildNotReadyError,
+    BuildService,
+    BuildValidationError,
+)
+from ..services.phase8_schemas import (
+    BuildCreate,
+    BuildListRead,
+    BuildLogsRead,
+    BuildQueuedRead,
+    BuildRunRead,
+    ProjectPreviewCreate,
+    ProjectPreviewRead,
+)
 from ..services.project_service import (
     ProjectConflictError,
     ProjectDeleteSafetyError,
@@ -26,6 +43,11 @@ router = APIRouter(prefix="/projects", tags=["projects"])
 def _svc(db: AsyncSession) -> ProjectService:
     from ..main import _event_bus
     return ProjectService(db, event_bus=_event_bus)
+
+
+def _build_svc(db: AsyncSession) -> BuildService:
+    from ..main import _event_bus
+    return BuildService(db, event_bus=_event_bus)
 
 
 class TreeRead(BaseModel):
@@ -247,12 +269,139 @@ async def create_preview(
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+@router.post("/{project_id}/builds", response_model=BuildQueuedRead, status_code=202)
+async def create_project_build(
+    project_id: str,
+    data: BuildCreate,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        build = await _build_svc(db).run_build(
+            project_id,
+            command=data.command,
+            install_command=data.install_command,
+            artifact_path=data.artifact_path,
+        )
+        return BuildQueuedRead(build_id=build.id, status=build.status)
+    except (BuildNotFoundError, ProjectNotFoundError):
+        raise HTTPException(status_code=404, detail="project not found")
+    except BuildConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except (BuildValidationError, WorkspaceNotFoundError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except WorkspaceSecurityError:
+        raise HTTPException(status_code=403, detail="无权访问此路径")
+
+
+@router.get("/{project_id}/builds", response_model=BuildListRead)
+async def list_project_builds(project_id: str, db: AsyncSession = Depends(get_db)):
+    try:
+        return BuildListRead(items=await _build_svc(db).list_builds(project_id))
+    except BuildNotFoundError:
+        raise HTTPException(status_code=404, detail="project not found")
+
+
+@router.get("/{project_id}/builds/{build_id}", response_model=BuildRunRead)
+async def get_project_build(
+    project_id: str,
+    build_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        build = await _build_svc(db).get_build(project_id, build_id)
+        from ..services.build_service import build_to_read
+        return build_to_read(build)
+    except BuildNotFoundError:
+        raise HTTPException(status_code=404, detail="build not found")
+
+
+@router.get("/{project_id}/builds/{build_id}/logs", response_model=BuildLogsRead)
+async def get_project_build_logs(
+    project_id: str,
+    build_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        return BuildLogsRead(chunks=await _build_svc(db).get_logs(project_id, build_id))
+    except BuildNotFoundError:
+        raise HTTPException(status_code=404, detail="build not found")
+
+
+@router.get("/{project_id}/exports/source")
+async def export_project_source(project_id: str, db: AsyncSession = Depends(get_db)):
+    try:
+        data, filename = await _build_svc(db).export_source(project_id)
+        return _zip_response(data, filename)
+    except BuildNotFoundError:
+        raise HTTPException(status_code=404, detail="project not found")
+    except BuildConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except WorkspaceSecurityError:
+        raise HTTPException(status_code=403, detail="无权访问此路径")
+    except WorkspaceNotFoundError:
+        raise HTTPException(status_code=404, detail="workspace not found")
+
+
+@router.get("/{project_id}/exports/builds/{build_id}")
+async def export_project_build(
+    project_id: str,
+    build_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        data, filename = await _build_svc(db).export_build(project_id, build_id)
+        return _zip_response(data, filename)
+    except BuildNotFoundError:
+        raise HTTPException(status_code=404, detail="build not found")
+    except BuildNotReadyError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except WorkspaceSecurityError:
+        raise HTTPException(status_code=403, detail="无权访问此路径")
+    except WorkspaceNotFoundError:
+        raise HTTPException(status_code=404, detail="workspace not found")
+
+
+@router.post("/{project_id}/previews", response_model=ProjectPreviewRead)
+async def create_project_preview(
+    project_id: str,
+    data: ProjectPreviewCreate,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        return await _build_svc(db).create_preview(
+            project_id,
+            source=data.source,
+            path=data.path,
+            build_id=data.build_id,
+        )
+    except BuildNotFoundError:
+        raise HTTPException(status_code=404, detail="project or build not found")
+    except BuildNotReadyError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except BuildValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except WorkspaceSecurityError:
+        raise HTTPException(status_code=403, detail="无权访问此路径")
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="未找到可预览的文件")
+
+
 @router.post("/{project_id}/build")
 async def start_build(project_id: str, db: AsyncSession = Depends(get_db)):
     try:
-        return await _svc(db).start_build(project_id)
-    except ProjectNotFoundError:
+        build = await _build_svc(db).run_build(
+            project_id,
+            command=None,
+            install_command=None,
+            artifact_path=None,
+        )
+        return {"buildId": build.id, "status": build.status}
+    except BuildNotFoundError:
         raise HTTPException(status_code=404, detail="project not found")
+    except BuildConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except BuildValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @router.get("/{project_id}/preview/{preview_id}/{asset_path:path}")
@@ -291,3 +440,16 @@ def _pick_folder_dialog() -> str | None:
         return selected or None
     finally:
         root.destroy()
+
+
+def _zip_response(data: bytes, filename: str) -> Response:
+    encoded_filename = quote(filename)
+    return Response(
+        content=data,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="agenthub-export.zip"; filename*=UTF-8\'\'{encoded_filename}'
+            ),
+        },
+    )

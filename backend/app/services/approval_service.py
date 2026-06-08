@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.timezone import china_now
 from ..models import ApprovalCheckpoint, Artifact, Message, RunTask
+from .context_pack_service import ContextPackService
 from .run_service import RunService
 from .runtime_schemas import ApprovalCheckpointRead
 
@@ -125,6 +126,11 @@ class ApprovalService:
                 "approvalStatus": "approved",
             },
         )
+        await ContextPackService(self.db, event_bus=self.event_bus).build(
+            checkpoint.session_id,
+            purpose="approval_resume",
+            persist=True,
+        )
         await self.db.commit()
         await self.db.refresh(checkpoint)
         return checkpoint
@@ -171,6 +177,11 @@ class ApprovalService:
                 "approvalStatus": "rejected",
                 "approvalRejectReason": reason.strip(),
             },
+        )
+        await ContextPackService(self.db, event_bus=self.event_bus).build(
+            checkpoint.session_id,
+            purpose="approval_resume",
+            persist=True,
         )
         await self.db.commit()
         await self.db.refresh(checkpoint)

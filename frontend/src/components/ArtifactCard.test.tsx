@@ -238,6 +238,86 @@ describe("ArtifactCard", () => {
     await vi.waitFor(() => expect(iframe.getAttribute("src")).toContain("/api/projects/proj-1/preview/p1/pages/demo.html"));
   });
 
+  it("网页产物提供构建、日志、导出与构建预览操作", async () => {
+    const webArtifact: Artifact = {
+      ...artifact,
+      id: "web-a1",
+      type: "web_preview",
+      title: "demo.html",
+      content: "<html><body>fallback</body></html>",
+      projectId: "proj-1",
+      filePath: "pages/demo.html",
+      version: 1,
+      parentArtifactId: null,
+    };
+    let buildListCalls = 0;
+    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+    vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
+      const url = String(input);
+      const method = (init as RequestInit | undefined)?.method ?? "GET";
+      if (url.endsWith("/versions")) {
+        return jsonResponse([{ id: "web-a1", version: 1, content: webArtifact.content, createdAt: "" }]);
+      }
+      if (url.endsWith("/preview")) {
+        return jsonResponse({
+          previewId: "p1",
+          previewUrl: "/api/projects/proj-1/preview/p1/pages/demo.html",
+        });
+      }
+      if (url.endsWith("/builds") && method === "POST") {
+        return jsonResponse({ buildId: "b1", status: "succeeded" });
+      }
+      if (url.endsWith("/builds")) {
+        buildListCalls += 1;
+        return jsonResponse({
+          items: buildListCalls > 1
+            ? [{
+              id: "b1",
+              projectId: "proj-1",
+              status: "succeeded",
+              command: "npm run build",
+              artifactPath: "dist",
+              createdAt: "",
+            }]
+            : [],
+        });
+      }
+      if (url.endsWith("/previews")) {
+        return jsonResponse({
+          previewId: "p-build",
+          url: "/api/projects/proj-1/preview/p-build/dist/index.html",
+          source: "build",
+        });
+      }
+      if (url.endsWith("/logs")) {
+        return jsonResponse({
+          chunks: [{ sequence: 1, stream: "stdout", text: "build done", createdAt: "" }],
+        });
+      }
+      return jsonResponse({});
+    });
+
+    render(<ArtifactCard artifact={webArtifact} />);
+
+    await screen.findByText("暂无构建记录");
+    fireEvent.click(screen.getByRole("button", { name: "执行项目构建" }));
+
+    await screen.findByText("构建成功");
+    const iframe = screen.getByTitle("preview") as HTMLIFrameElement;
+    await vi.waitFor(() => expect(iframe.getAttribute("src")).toContain("/api/projects/proj-1/preview/p-build/dist/index.html"));
+
+    fireEvent.click(screen.getByRole("button", { name: "查看构建日志" }));
+    await screen.findByRole("dialog", { name: "构建日志" });
+    await screen.findByText(/\[stdout\] build done/);
+
+    fireEvent.click(screen.getByRole("button", { name: "关闭构建日志" }));
+    fireEvent.click(screen.getByRole("button", { name: "下载源码包" }));
+    fireEvent.click(screen.getByRole("button", { name: "下载构建产物" }));
+
+    expect(openSpy).toHaveBeenCalledWith("/api/projects/proj-1/exports/source", "_blank", "noopener,noreferrer");
+    expect(openSpy).toHaveBeenCalledWith("/api/projects/proj-1/exports/builds/b1", "_blank", "noopener,noreferrer");
+  });
+
   it("file_tree 产物也提供版本管理入口", async () => {
     const fileTreeArtifact: Artifact = {
       ...artifact,

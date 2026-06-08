@@ -12,14 +12,14 @@ docs/
 ├── GIT_PROTOCOL.md              ← Git 协作规范
 ├── TEST_PROTOCOL.md             ← 通用测试协议
 │
-├── PRD/                         ← 产品需求文档 (权威需求源)
+├── PRD/                         ← 产品需求拆解文档（与核心设计共同构成权威需求源）
 ├── adr/                         ← 架构决策记录
 ├── specs/                       ← 功能规格文档 (按 Phase 组织)
 ├── deliverables/                 ← 阶段性交付快照、交接文档、使用指南
 ├── dev-logs/                    ← 开发日志
 ├── audit/                       ← 阶段性审计报告
 ├── testing/                     ← 测试规范
-└── archive/                     ← 已废弃的历史文档
+└── archive/                     ← 归档文档（含仍具权威性的早期核心设计）
 ```
 
 ---
@@ -27,12 +27,12 @@ docs/
 ## 快速导航
 
 ### 我想了解产品要做什么
-→ 从 [PRD/00-Master_Hub.md](PRD/00-Master_Hub.md) 开始，然后按编号阅读其余 7 篇。尤其不要跳过 [PRD/05-End_to_End_Product_Flow.md](PRD/05-End_to_End_Product_Flow.md)，它定义了启动文档需求追踪和端到端产品闭环。
+→ 先读 [archive/AgentHub-多Agent协作平台设计.md](archive/AgentHub-多Agent协作平台设计.md) 把握核心启动需求，再从 [PRD/00-Master_Hub.md](PRD/00-Master_Hub.md) 开始按编号阅读其余 7 篇。早期设计文档虽然位于 `archive/`，但仍是 IM、多 Agent 协作、Artifact、预览/编辑/部署、多端协作等核心需求的权威来源；PRD 系列负责拆解、收缩边界并阶段化落地。
 
 **产品交付阶段**：P1 先做桌面版（Web UI + 本地无头服务器 → 本机文件系统 + 本机 CLI Agent），P2 再做 SaaS 云版（云端沙箱 + 一键部署）。详见 PRD-00 第 9 节。
 
 ### 我想了解项目现在的状态
-→ 看 [CONTEXT.md](../CONTEXT.md) 的 Phase 表格；Phase 6 进度看 [specs/phase6/README.md](specs/phase6/README.md) 与 [dev-logs/phase6-dev-log.md](dev-logs/phase6-dev-log.md)，Phase 7A-7C 看 [deliverables/phase7-runtime-control/](deliverables/phase7-runtime-control/)，Phase 7D IM 加固看 [deliverables/phase7-im-hardening/](deliverables/phase7-im-hardening/)，Phase 7E/7F 看 [specs/phase7/05-context-pack-and-cache-strategy.md](specs/phase7/05-context-pack-and-cache-strategy.md) 与 [specs/phase7/06-cli-session-process-runtime.md](specs/phase7/06-cli-session-process-runtime.md)。历史 Phase 3 审计见 [audit/phase3-audit-report.md](audit/phase3-audit-report.md)。
+→ 看 [CONTEXT.md](../CONTEXT.md) 的 Phase 表格；Phase 6 进度看 [specs/phase6/README.md](specs/phase6/README.md) 与 [dev-logs/phase6-dev-log.md](dev-logs/phase6-dev-log.md)，Phase 7A-7C 看 [deliverables/phase7-runtime-control/](deliverables/phase7-runtime-control/)，Phase 7D IM 加固看 [deliverables/phase7-im-hardening/](deliverables/phase7-im-hardening/)，Phase 7E/7F 看 [specs/phase7/05-context-pack-and-cache-strategy.md](specs/phase7/05-context-pack-and-cache-strategy.md) 与 [specs/phase7/06-cli-session-process-runtime.md](specs/phase7/06-cli-session-process-runtime.md)。P1 发布候选收口看 [specs/phase8/README.md](specs/phase8/README.md)，P2 云端化阶段看 [specs/phase9/README.md](specs/phase9/README.md) 到 [specs/phase12/README.md](specs/phase12/README.md)。历史 Phase 3 审计见 [audit/phase3-audit-report.md](audit/phase3-audit-report.md)。
 
 ### 我要了解当前 v1.0 发布边界
 → 先读 [deliverables/v1.0-release/](deliverables/v1.0-release/)，再读 [specs/phase7/README.md](specs/phase7/README.md)。7A-7C 运行控制/审批/体检交付快照见 [deliverables/phase7-runtime-control/](deliverables/phase7-runtime-control/)；7D 会话 IM 基线、右键菜单、明亮主题和执行过程全屏见 [deliverables/phase7-im-hardening/](deliverables/phase7-im-hardening/)；7E/7F 记录 Engine Session、上下文治理、Claude Code stdin JSONL 常驻进程、Codex/OpenCode 常驻 RPC 基线，以及群聊按 Agent 隔离 runtime 与 Artifact 归属。
@@ -47,9 +47,9 @@ docs/
 
 ## 各目录详解
 
-### PRD/ — 产品需求文档
+### PRD/ — 产品需求拆解文档
 
-**权威级别**: 最高。所有功能开发的最终依据。
+**权威级别**: 最高。PRD 系列与早期核心设计文档共同构成需求权威；早期设计定义产品骨架，PRD 负责拆解、边界收缩和阶段化交付。
 
 | 文件 | 内容 | 读者 |
 |------|------|------|
@@ -95,6 +95,13 @@ docs/
 | [phase5/](specs/phase5/) | 产物工作台能力 | ✅ | 对已有 Artifact 做版本链 + Diff + 在线编辑；上游入口由 Phase 6/7 补齐 |
 | [phase6/](specs/phase6/) | Workspace Runtime + CLI Engine + Agent Profile + 产物入口桥接 | ✅ | 6A Workspace Runtime、6B-6E CLI Adapter、6F Artifact Bridge 与 Agent = Engine + Toolset 建模均已落地 |
 | [phase7/](specs/phase7/) | 任务可控性 + 审批 + 环境体检 + IM 体验 + 演示闭环 | 🚧 | v1.0 本机 MVP 基线已覆盖运行控制、审批、体检、IM 会话基线和 UI 加固；7E Engine Session / 上下文包策略与 7F Claude Code stdin JSONL、Codex/OpenCode 常驻 RPC 已记录并实现基线；群聊已同步单聊 runtime 与 workspace Artifact 链路；真实 CLI 完整自动化脚本待补 |
+| [phase8/](specs/phase8/) | P1 发布候选收口 | 📋 | 真实 CLI E2E、本地 Build/Export/Preview、Context Pack、Orchestrator 审批续跑、Store 拆分、截图审计 |
+| [phase9/](specs/phase9/) | Cloud Workspace Foundation | 📋 | 用户/团队/RBAC、CloudWorkspaceProvider、workspace 快照/导入/审计日志 |
+| [phase10/](specs/phase10/) | Sandbox Runner 与云端 Agent Runtime | 📋 | 云端 sandbox、真实 CLI Agent 运行、P1 事件契约兼容、配额、secret、日志脱敏 |
+| [phase11/](specs/phase11/) | Cloud Preview 与 Deployment | 📋 | preview URL、Deployment pipeline、部署日志、发布 URL、重试和回滚 |
+| [phase12/](specs/phase12/) | 协作、多端与高级 Artifact | 📋 | 团队评论/通知、移动端审批预览、附件/图片输入、PPT/文档 Artifact、Git sync、对话式 Agent 创建 |
+
+历史规划见 [specs/planning/](specs/planning/)，仅用于追溯旧 Phase 3 模块化计划。
 
 ### deliverables/ — 阶段性交付快照
 
@@ -107,7 +114,6 @@ docs/
 | [phase7-runtime-control/](deliverables/phase7-runtime-control/) | Phase 7A-7C 验收快照：运行控制、审批卡片、环境体检与取消回退修复 |
 | [phase7-im-hardening/](deliverables/phase7-im-hardening/) | Phase 7D 验收快照：会话置顶/归档/未读/免打扰/转发/多选、消息右键菜单、明亮主题与执行过程全屏 |
 | [v1.0-release/](deliverables/v1.0-release/) | v1.0.0 发布摘要：本机 MVP 基线、Phase 7D 本轮总结、验证记录与后续风险 |
-| [planning/](specs/planning/) | 历史规划 | 📦 | 旧的 Phase 3 模块化计划 (已被 ADR-0008 取代) |
 
 每个 Phase 目录下都有独立的 `README.md`，包含验收标准清单和子模块索引。
 
@@ -143,14 +149,14 @@ docs/
 |------|------|
 | [UX_TEST_SPEC.md](testing/UX_TEST_SPEC.md) | UX 交互测试：6 状态模型 (空/加载/正常/完成/错误/边界)、Chat 检查清单、P0-P3 缺陷分级 |
 
-### archive/ — 历史文档归档
+### archive/ — 归档文档
 
-存放已被取代或不再适用的文档，仅作历史参考。
+`archive/` 表示文档位置归档，不自动代表需求废弃。部分文档仍可能具有权威性，必须以表格中的“当前用途”为准。
 
-| 文件 | 原用途 | 取代者 |
-|------|--------|--------|
-| AgentHub-多Agent协作平台设计.md | 早期课题设计文档 | PRD/ 目录，特别是 PRD-05 的需求追踪矩阵 |
-| Trae.md | Trae IDE 使用说明 | 不再维护 |
+| 文件 | 当前用途 | 说明 |
+|------|----------|------|
+| [AgentHub-多Agent协作平台设计.md](archive/AgentHub-多Agent协作平台设计.md) | 核心启动需求源 | 仍作为 IM、多 Agent 协作、Artifact、预览/编辑/部署、多端协作等产品骨架的权威来源；PRD 系列负责拆解和阶段化，不替代其需求事实 |
+| Trae.md | 历史参考 | Trae IDE 使用说明，不再维护 |
 
 ---
 

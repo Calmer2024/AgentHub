@@ -1,15 +1,21 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   configureBuiltinAgentsCodex,
+  createProjectBuildPreview,
   createProjectPreview,
   createChatStream,
   editArtifact,
   fetchArtifactDiff,
   fetchArtifactVersions,
   fetchArtifacts,
+  fetchProjectBuildLogs,
+  fetchProjectBuilds,
+  projectBuildExportUrl,
+  projectSourceExportUrl,
   readProjectFile,
   restoreArtifactVersion,
   saveArtifactContent,
+  startProjectBuild,
   writeProjectFile,
 } from "./client";
 
@@ -352,6 +358,55 @@ describe("artifact APIs", () => {
       type: "static",
       filePath: "pages/demo.html",
     });
+  });
+
+  it("启动项目构建并读取构建列表与日志", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        buildId: "b1",
+        status: "succeeded",
+      }), { status: 202 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        items: [{ id: "b1", projectId: "p1", status: "succeeded", command: "npm run build", createdAt: "" }],
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        chunks: [{ sequence: 1, stream: "stdout", text: "done", createdAt: "" }],
+      }), { status: 200 }));
+
+    await startProjectBuild("p1", { artifactPath: "dist" });
+    await fetchProjectBuilds("p1");
+    await fetchProjectBuildLogs("p1", "b1");
+
+    const startInit = vi.mocked(globalThis.fetch).mock.calls[0][1] as RequestInit;
+    expect(vi.mocked(globalThis.fetch).mock.calls[0][0]).toBe("/api/projects/p1/builds");
+    expect(JSON.parse(String(startInit.body))).toMatchObject({ artifactPath: "dist" });
+    expect(vi.mocked(globalThis.fetch).mock.calls[1][0]).toBe("/api/projects/p1/builds");
+    expect(vi.mocked(globalThis.fetch).mock.calls[2][0]).toBe("/api/projects/p1/builds/b1/logs");
+  });
+
+  it("为构建产物创建预览并生成导出 URL", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      previewId: "p-build",
+      url: "/api/projects/p1/preview/p-build/dist/index.html",
+      source: "build",
+    }), { status: 200 }));
+
+    const result = await createProjectBuildPreview("p1", {
+      source: "build",
+      buildId: "b1",
+      path: "index.html",
+    });
+
+    expect(result.url).toContain("dist/index.html");
+    const [url, init] = vi.mocked(globalThis.fetch).mock.calls[0];
+    expect(url).toBe("/api/projects/p1/previews");
+    expect(JSON.parse(String((init as RequestInit).body))).toMatchObject({
+      source: "build",
+      buildId: "b1",
+      path: "index.html",
+    });
+    expect(projectSourceExportUrl("p1")).toBe("/api/projects/p1/exports/source");
+    expect(projectBuildExportUrl("p1", "b1")).toBe("/api/projects/p1/exports/builds/b1");
   });
 
   it("加载产物版本链", async () => {
