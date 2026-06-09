@@ -32,6 +32,7 @@ async def _cloud_project_session(test_client, *, title: str = "Phase12 会话"):
     session = (await test_client.post(
         "/api/sessions",
         json={"title": title, "projectId": project["id"]},
+        headers=OWNER,
     )).json()
     return project, session
 
@@ -79,6 +80,7 @@ async def test_comments_notifications_and_permission_gate(test_client, db_sessio
     session = (await test_client.post(
         "/api/sessions",
         json={"title": "Phase12 评论", "projectId": project["id"]},
+        headers=OWNER,
     )).json()
     message, _artifact = await _persist_message_and_artifact(db_session, project["id"], session["id"])
 

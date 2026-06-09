@@ -181,3 +181,9 @@ description: AgentHub 阶段收尾标准流程。当用户说"阶段验收通过
 - 引用仍有效：`.agents/skills/` 与 `.claude/skills/` 镜像均存在，`docs/specs/phase10/README.md`、`docs/deliverables/phase10-cloud-runtime/`、`docs/dev-logs/phase10-dev-log.md` 已作为本阶段文档入口。
 - 阶段收尾新增硬口径：Phase 10+ 完成报告必须写明当前 runner 隔离级别、Secret 脱敏证据、runtime logs 查询证据和 `runtime=local` 零回归证据。
 - 暂不新建独立 Skill/Rule：本阶段经验已沉淀到 module-dev / code-review / qa-audit / phase-wrapup；生产级 runner/KMS/Preview 的专门 Skill 留待 Phase 11 视重复度决定。
+
+## Phase 14 审计 (2026-06-09)
+
+- 引用仍有效：`.agents/skills/` 与 `.claude/skills/` 镜像均存在，`docs/specs/phase14/README.md`、`docs/dev-logs/phase14-dev-log.md` 已作为本阶段文档入口。
+- 阶段收尾新增硬口径：生产 Auth 阶段完成报告必须写明 dev header 禁用证据、TenantScope 覆盖范围、SaaS/Mobile 登录门、本地桌面端不强制登录和权限拒绝 audit log 证据。
+- 暂不新建独立 Skill/Rule：Phase 14 经验已并入 module-dev / code-review / qa-audit / phase-wrapup；外部 SSO 或 KMS 若后续多次重复，再考虑沉淀专门 Skill。

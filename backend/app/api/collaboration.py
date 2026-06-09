@@ -174,18 +174,20 @@ async def mobile_approval_decision(
     db: AsyncSession = Depends(get_db),
     user=Depends(require_current_user),
 ):
-    del user
     try:
         checkpoint = await _svc(db).decide_mobile_approval(
             approval_id,
             decision=data.decision,
             comment=data.comment,
+            actor=user,
         )
         return approval_to_read(checkpoint)
     except ApprovalNotFoundError:
         raise HTTPException(status_code=404, detail="approval not found")
     except InvalidApprovalStateError:
         raise HTTPException(status_code=409, detail="APPROVAL_ALREADY_DECIDED")
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
 
 
 @router.get("/artifacts/{artifact_id}/render", response_model=RenderedArtifactRead)

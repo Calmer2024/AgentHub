@@ -2,7 +2,7 @@ import json
 import logging
 from collections.abc import AsyncIterator
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,7 +15,9 @@ from ..services.schemas import ChatRequest, MessageRead
 from ..services.message_service_sqlalchemy import SqlAlchemyMessageService
 from ..agents.cli_runtime import CliProcessNotFound
 from ..agents.cli_runtime_registry import cli_runtime_registry
-from .auth import require_user_from_header_values
+from ..services.auth_service import AuthService
+from ..services.team_service import PermissionDeniedError
+from ..services.tenant_guard import TenantGuard, tenant_scope_required_for_cloud
 
 router = APIRouter(prefix="", tags=["chat"])
 logger = logging.getLogger(__name__)
@@ -31,14 +33,39 @@ def _chat_svc(db: AsyncSession):
     return ChatServiceImpl(db, event_bus=_event_bus)
 
 
+async def _authorize_session(
+    request: Request,
+    db: AsyncSession,
+    session: DBSession,
+    *,
+    mode: str,
+):
+    project = await db.get(Project, session.project_id) if session.project_id else None
+    if not project:
+        return None, None
+    if project.workspace_mode != "cloud" and not tenant_scope_required_for_cloud():
+        return project, None
+    actor = await AuthService(db).resolve_request(request)
+    if not actor:
+        raise HTTPException(status_code=401, detail="请先登录后继续")
+    scope = await TenantGuard(db).scope_for_user(actor)
+    guard = TenantGuard(db)
+    try:
+        if mode == "read":
+            await guard.assert_project_read(scope, project)
+        else:
+            await guard.assert_project_write(scope, project)
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    return project, actor
+
+
 @router.post("/sessions/{session_id}/chat")
 async def chat(
     session_id: str,
     data: ChatRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    x_agenthub_user_email: str | None = Header(default=None),
-    x_agenthub_user_name: str | None = Header(default=None),
-    x_agenthub_user_avatar: str | None = Header(default=None),
 ):
     if not data.content.strip():
         raise HTTPException(status_code=400, detail="content must not be empty")
@@ -47,14 +74,8 @@ async def chat(
     if not session:
         raise HTTPException(status_code=404, detail="session not found")
 
-    project = await db.get(Project, session.project_id) if session.project_id else None
+    project, actor = await _authorize_session(request, db, session, mode="write")
     if project and project.workspace_mode == "cloud":
-        actor = await require_user_from_header_values(
-            db,
-            x_agenthub_user_email,
-            display_name=x_agenthub_user_name,
-            avatar_url=x_agenthub_user_avatar,
-        )
         from ..main import _event_bus
         runtime = CloudAgentRuntimeService(db, event_bus=_event_bus)
         return StreamingResponse(
@@ -81,7 +102,11 @@ async def chat(
 
 
 @router.get("/sessions/{session_id}/messages", response_model=list[MessageRead])
-async def list_messages(session_id: str, db: AsyncSession = Depends(get_db)):
+async def list_messages(session_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    session = await db.get(DBSession, session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="session not found")
+    await _authorize_session(request, db, session, mode="read")
     svc = SqlAlchemyMessageService(db)
     return await svc.get_session_messages(session_id, limit=500)
 

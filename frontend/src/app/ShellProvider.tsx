@@ -90,7 +90,7 @@ export function StaticShellProvider({
   useEffect(() => {
     configureApiClient({
       apiBaseUrl: capabilities.apiBaseUrl,
-      cloudAuthProvider: capabilities.edition === "saas" ? createDevCloudAuthProvider() : null,
+      cloudAuthProvider: null,
     });
   }, [capabilities]);
 

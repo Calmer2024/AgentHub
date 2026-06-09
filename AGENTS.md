@@ -153,7 +153,7 @@ Debug 不是"让 bug 消失"，而是"让系统更正确"：
 
 ## 阶段感知
 
-当前处于 **Phase 14-16（SaaS 生产化收口）规划期**。Phase 9-12 已在 P1 本地版基线上递增出 P2 SaaS cloud workspace、sandbox runtime、cloud preview/deployment、协作通知、移动端审批预览、附件和高级 Artifact 的最小可运行切片；Phase 13 已把本地版、SaaS 版和移动端拆成独立 shell、独立构建命令、独立能力矩阵和独立验收闭环。Phase 14-16 将分别收口生产 Auth 与租户隔离、真实云 sandbox/runtime、真实一键部署 provider。后续开发不得让本地版依赖云端登录/团队，也不得让移动端承载本机 CLI 或完整桌面工作区设置。
+当前处于 **Phase 15-16（SaaS 生产化收口后半段）规划期**。Phase 9-12 已在 P1 本地版基线上递增出 P2 SaaS cloud workspace、sandbox runtime、cloud preview/deployment、协作通知、移动端审批预览、附件和高级 Artifact 的最小可运行切片；Phase 13 已把本地版、SaaS 版和移动端拆成独立 shell、独立构建命令、独立能力矩阵和独立验收闭环；Phase 14 已完成生产 Auth、跨端登录态、TenantScope、RBAC 与 cloud 资源租户隔离收口。Phase 15-16 将分别收口真实云 sandbox/runtime 与真实一键部署 provider。后续开发不得让本地版依赖云端登录/团队，也不得让移动端承载本机 CLI 或完整桌面工作区设置。
 
 完整 Phase 状态表见 [CONTEXT.md §开发阶段](CONTEXT.md)。
 

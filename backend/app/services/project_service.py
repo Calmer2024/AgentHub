@@ -31,6 +31,7 @@ from .file_change_detector import FileChangeDetector
 from .preview_service import PreviewService
 from .schemas import ProjectCreate, ProjectRead
 from .team_service import PermissionDeniedError, TeamService
+from .tenant_guard import TenantGuard, TenantScope, tenant_scope_required_for_cloud
 from .workspace_provider import (
     LocalWorkspaceProvider,
     WorkspaceFileTooLargeError,
@@ -186,12 +187,20 @@ class ProjectService:
         })
         return await self._to_read(project, include_stats=False)
 
-    async def list_projects(self) -> list[ProjectRead]:
-        result = await self.db.execute(
-            select(Project)
-            .where(Project.status != "archived")
-            .order_by(Project.updated_at.desc())
-        )
+    async def list_projects(self, scope: TenantScope | None = None) -> list[ProjectRead]:
+        stmt = select(Project).where(Project.status != "archived")
+        if tenant_scope_required_for_cloud():
+            if not scope:
+                raise PermissionDeniedError("cloud project list requires login")
+            stmt = stmt.where(TenantGuard(self.db).visible_project_filter(scope))
+        elif scope:
+            guard = TenantGuard(self.db)
+            stmt = stmt.where(
+                (Project.workspace_mode != "cloud") | guard.visible_project_filter(scope)
+            )
+        else:
+            stmt = stmt.where(Project.workspace_mode != "cloud")
+        result = await self.db.execute(stmt.order_by(Project.updated_at.desc()))
         return [await self._to_read(p, include_stats=False) for p in result.scalars().all()]
 
     async def get_project(self, project_id: str) -> ProjectRead:

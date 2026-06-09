@@ -96,7 +96,7 @@
 | **Phase 11** | Cloud Preview 与 Deployment | ✅ | 云端 Artifact preview URL、Deployment pipeline、部署日志、发布 URL、重试和回滚已完成 |
 | **Phase 12** | 协作、多端与高级 Artifact | ✅ | 团队评论/通知、移动端审批预览、附件/图片输入、Artifact 引用、Git sync、对话式 Agent 创建已完成 |
 | **Phase 13** | 多端产品壳拆分 | ✅ | Local Desktop、SaaS Web、Mobile 三端 shell、构建命令、能力矩阵、Tauri/Capacitor skeleton 和真实服务验收闭环已完成 |
-| **Phase 14** | 生产 Auth 与租户隔离收口 | 📋 | 将开发态请求头 auth 收口为生产登录、跨端用户、TenantScope、RBAC 和所有 cloud 资源租户过滤 |
+| **Phase 14** | 生产 Auth 与租户隔离收口 | ✅ | 已将开发态请求头 auth 收口为生产登录、跨端用户、TenantScope、RBAC 和所有 cloud 资源租户过滤 |
 | **Phase 15** | 真实云 Sandbox Runtime | 📋 | 将 Phase 10 的本机模拟 cloud runtime 替换为真实容器/K8s/microVM runner、隔离卷、资源限制和运行清理 |
 | **Phase 16** | 真实一键部署 Provider | 📋 | 将 Phase 11 的 preview/deployment 占位链路替换为真实 HTTPS 发布、provider、release、回滚和移动端审批 |
 
@@ -216,6 +216,7 @@ PRD 系列与早期核心设计文档共同构成需求权威。早期设计定�
 | [Phase 9 Dev Log](docs/dev-logs/phase9-dev-log.md) | Phase 9 Cloud Workspace Foundation：P2 用户/团队/RBAC、云端 workspace 元数据、导入/快照/恢复、审计与 P1/P2 真实服务验收 |
 | [Phase 10 Dev Log](docs/dev-logs/phase10-dev-log.md) | Phase 10 Sandbox Runner 与云端 Agent Runtime：cloud sandbox、真实 CLI、Artifact/logs、Secret 脱敏、配额与 P1/P2 验收 |
 | [Phase 13 Dev Log](docs/dev-logs/phase13-dev-log.md) | Phase 13 多端产品壳拆分：RuntimeCapabilities、Local/SaaS/Mobile shell、三端构建、native skeleton 与真实服务验收 |
+| [Phase 14 Dev Log](docs/dev-logs/phase14-dev-log.md) | Phase 14 生产 Auth 与租户隔离收口：AuthProvider、session token、TenantScope、RBAC、SaaS/Mobile 登录门与 cloud 资源权限回归 |
 
 ### Skills — AI 能力复用
 

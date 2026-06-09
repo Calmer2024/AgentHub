@@ -2,13 +2,13 @@
 
 from collections.abc import AsyncIterator
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
-from ..models import Message as DBMessage
+from ..models import Message as DBMessage, Project, Session as DBSession
 from ..services.artifact_output_bridge import (
     ArtifactOutputBridge,
     MessageNotFoundForScanError,
@@ -21,9 +21,43 @@ from ..services.message_service_sqlalchemy import (
     message_to_read,
 )
 from ..services.schemas import MessageCreate, MessageRead
+from ..services.auth_service import AuthService
+from ..services.team_service import PermissionDeniedError
+from ..services.tenant_guard import TenantGuard, tenant_scope_required_for_cloud
 from .artifacts import ArtifactRead
 
 router = APIRouter(prefix="/messages", tags=["messages"])
+
+
+async def _authorize_session_id(request: Request, db: AsyncSession, session_id: str, mode: str) -> None:
+    session = await db.get(DBSession, session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="session not found")
+    project = await db.get(Project, session.project_id) if session.project_id else None
+    if not project:
+        return
+    if project.workspace_mode != "cloud" and not tenant_scope_required_for_cloud():
+        return
+    actor = await AuthService(db).resolve_request(request)
+    if not actor:
+        raise HTTPException(status_code=401, detail="请先登录后继续")
+    scope = await TenantGuard(db).scope_for_user(actor)
+    guard = TenantGuard(db)
+    try:
+        if mode == "read":
+            await guard.assert_project_read(scope, project)
+        else:
+            await guard.assert_project_write(scope, project)
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+
+
+async def _authorize_message(request: Request, db: AsyncSession, message_id: str, mode: str) -> DBMessage:
+    message = await db.get(DBMessage, message_id)
+    if not message:
+        raise HTTPException(status_code=404, detail="message not found")
+    await _authorize_session_id(request, db, message.session_id, mode)
+    return message
 
 
 class ReplyRequest(BaseModel):
@@ -70,11 +104,10 @@ class ArtifactScanRead(BaseModel):
 async def reply_to_message(
     message_id: str,
     data: ReplyRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    parent = await db.get(DBMessage, message_id)
-    if not parent:
-        raise HTTPException(status_code=404, detail="message not found")
+    parent = await _authorize_message(request, db, message_id, "write")
     content = data.content.strip()
     if not content:
         raise HTTPException(status_code=400, detail="content must not be empty")
@@ -92,8 +125,10 @@ async def reply_to_message(
 @router.post("/{message_id}/regenerate")
 async def regenerate_message(
     message_id: str,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
+    await _authorize_message(request, db, message_id, "write")
     svc = SqlAlchemyMessageService(db)
 
     async def events() -> AsyncIterator[str]:
@@ -104,7 +139,8 @@ async def regenerate_message(
 
 
 @router.post("/{message_id}/pin", response_model=PinResponse)
-async def pin_message(message_id: str, db: AsyncSession = Depends(get_db)):
+async def pin_message(message_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    await _authorize_message(request, db, message_id, "write")
     svc = SqlAlchemyMessageService(db)
     try:
         await svc.pin_message(message_id)
@@ -114,7 +150,8 @@ async def pin_message(message_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.delete("/{message_id}/pin", response_model=PinResponse)
-async def unpin_message(message_id: str, db: AsyncSession = Depends(get_db)):
+async def unpin_message(message_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    await _authorize_message(request, db, message_id, "write")
     svc = SqlAlchemyMessageService(db)
     try:
         await svc.unpin_message(message_id)
@@ -125,11 +162,13 @@ async def unpin_message(message_id: str, db: AsyncSession = Depends(get_db)):
 
 @router.get("/search", response_model=list[MessageRead])
 async def search_messages(
+    request: Request,
     session_id: str = Query(...),
     q: str = Query(..., min_length=1),
     limit: int = Query(20, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
 ):
+    await _authorize_session_id(request, db, session_id, "read")
     svc = SqlAlchemyMessageService(db)
     return await svc.search_messages(session_id=session_id, query=q, limit=limit)
 
@@ -137,12 +176,14 @@ async def search_messages(
 @router.post("/{message_id}/artifacts/scan", response_model=ArtifactScanRead)
 async def scan_message_artifacts(
     message_id: str,
+    request: Request,
     data: ArtifactScanRequest | None = None,
     db: AsyncSession = Depends(get_db),
 ):
     from ..main import _event_bus
 
     try:
+        await _authorize_message(request, db, message_id, "write")
         result = await ArtifactOutputBridge(db, event_bus=_event_bus).scan_message(
             message_id,
             force=bool(data.force) if data else False,
@@ -169,8 +210,6 @@ async def scan_message_artifacts(
 
 
 @router.get("/{message_id}", response_model=MessageRead)
-async def get_message(message_id: str, db: AsyncSession = Depends(get_db)):
-    message = await db.get(DBMessage, message_id)
-    if not message:
-        raise HTTPException(status_code=404, detail="message not found")
+async def get_message(message_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    message = await _authorize_message(request, db, message_id, "read")
     return message_to_read(message)

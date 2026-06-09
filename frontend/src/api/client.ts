@@ -21,7 +21,7 @@ import type {
   StewardDecisionEvent,
   Comment, Attachment, ArtifactReference, Notification, MobileSessionSummary,
   RenderedArtifact, AgentTemplateSession, GitSyncJob,
-  RuntimeCapabilities,
+  RuntimeCapabilities, AuthProvider, AuthSession,
 } from "../types";
 import { parseDagPhases, parseTasks } from "./orchestratorEvents";
 import { chinaNowIso } from "../utils/time";
@@ -33,8 +33,11 @@ interface ApiClientConfig {
   cloudAuthProvider?: ApiAuthProvider | null;
 }
 
+const AUTH_SESSION_STORAGE_KEY = "agenthub.authSession";
+
 let activeApiBase = normalizeApiBase(import.meta.env.VITE_AGENTHUB_API_BASE);
 let activeCloudAuthProvider: ApiAuthProvider | null = null;
+let activeAuthSession: AuthSession | null = readStoredAuthSession();
 
 const API_BASE = {
   toString: () => activeApiBase,
@@ -71,6 +74,43 @@ export function createDevCloudAuthProvider(): ApiAuthProvider {
 export function resetApiClientForTests(): void {
   activeApiBase = "/api";
   activeCloudAuthProvider = null;
+  activeAuthSession = null;
+}
+
+export function getStoredAuthSession(): AuthSession | null {
+  return activeAuthSession;
+}
+
+function setAuthSession(session: AuthSession): void {
+  activeAuthSession = session;
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(session));
+}
+
+function clearAuthSession(): void {
+  activeAuthSession = null;
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
+}
+
+function readStoredAuthSession(): AuthSession | null {
+  if (typeof window === "undefined") return null;
+  const raw = window.localStorage.getItem(AUTH_SESSION_STORAGE_KEY);
+  if (!raw) return null;
+  try {
+    const data = JSON.parse(raw) as Partial<AuthSession>;
+    if (typeof data.accessToken !== "string" || typeof data.refreshToken !== "string") return null;
+    if (!data.user || typeof data.user !== "object") return null;
+    return {
+      accessToken: data.accessToken,
+      refreshToken: data.refreshToken,
+      tokenType: "bearer",
+      expiresAt: typeof data.expiresAt === "string" ? data.expiresAt : "",
+      user: data.user as CurrentUser,
+    };
+  } catch {
+    return null;
+  }
 }
 
 function normalizeApiBase(value?: string): string {
@@ -82,6 +122,9 @@ function normalizeApiBase(value?: string): string {
 }
 
 function cloudHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  if (activeAuthSession?.accessToken) {
+    return { ...extra, Authorization: `Bearer ${activeAuthSession.accessToken}` };
+  }
   return { ...extra, ...(activeCloudAuthProvider?.() ?? {}) };
 }
 
@@ -128,6 +171,60 @@ export async function fetchCapabilities(): Promise<RuntimeCapabilities> {
   const res = await fetch(`${API_BASE}/capabilities`);
   if (!res.ok) throw new Error(await readApiError(res, "能力矩阵加载失败"));
   return res.json();
+}
+
+export async function fetchAuthProviders(): Promise<AuthProvider[]> {
+  const res = await fetch(`${API_BASE}/auth/providers`);
+  if (!res.ok) throw new Error(await readApiError(res, "登录方式加载失败"));
+  const data = await res.json() as { items?: AuthProvider[] };
+  return Array.isArray(data.items) ? data.items : [];
+}
+
+export async function loginWithEmail(input: {
+  email: string;
+  password?: string;
+  displayName?: string;
+}): Promise<AuthSession> {
+  const res = await fetch(`${API_BASE}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      email: input.email,
+      password: input.password,
+      displayName: input.displayName,
+    }),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, "登录失败"));
+  const session = await res.json() as AuthSession;
+  setAuthSession(session);
+  return session;
+}
+
+export async function refreshAuthSession(): Promise<AuthSession> {
+  const refreshToken = activeAuthSession?.refreshToken;
+  const res = await fetch(`${API_BASE}/auth/refresh`, {
+    method: "POST",
+    headers: refreshToken ? { "Content-Type": "application/json" } : undefined,
+    body: refreshToken ? JSON.stringify({ refreshToken }) : undefined,
+  });
+  if (!res.ok) {
+    clearAuthSession();
+    throw new Error(await readApiError(res, "登录已过期"));
+  }
+  const session = await res.json() as AuthSession;
+  setAuthSession(session);
+  return session;
+}
+
+export async function logoutCurrentUser(): Promise<void> {
+  const refreshToken = activeAuthSession?.refreshToken;
+  const res = await fetch(`${API_BASE}/auth/logout`, {
+    method: "POST",
+    headers: cloudJsonHeaders(),
+    body: JSON.stringify({ refreshToken }),
+  });
+  clearAuthSession();
+  if (!res.ok && res.status !== 204) throw new Error(await readApiError(res, "退出登录失败"));
 }
 
 export async function createAgent(data: AgentConfigCreate): Promise<AgentConfig> {
@@ -205,7 +302,16 @@ export async function replyToInteractivePrompt(
 
 export async function fetchCurrentUser(): Promise<CurrentUser> {
   const res = await fetch(`${API_BASE}/auth/me`, { headers: cloudHeaders() });
-  if (!res.ok) throw new Error(await readApiError(res, "请先登录后继续"));
+  if (res.status === 401 && activeAuthSession?.refreshToken) {
+    await refreshAuthSession();
+    const retry = await fetch(`${API_BASE}/auth/me`, { headers: cloudHeaders() });
+    if (!retry.ok) throw new Error(await readApiError(retry, "请先登录后继续"));
+    return retry.json();
+  }
+  if (!res.ok) {
+    if (res.status === 401) clearAuthSession();
+    throw new Error(await readApiError(res, "请先登录后继续"));
+  }
   return res.json();
 }
 
@@ -241,7 +347,7 @@ export async function addTeamMember(
 }
 
 export async function fetchProjects(): Promise<Project[]> {
-  const res = await fetch(`${API_BASE}/projects`);
+  const res = await fetch(`${API_BASE}/projects`, { headers: cloudHeaders() });
   if (!res.ok) throw new Error("Failed to fetch projects");
   return res.json();
 }
@@ -271,7 +377,7 @@ export async function updateProject(
 ): Promise<Project> {
   const res = await fetch(`${API_BASE}/projects/${projectId}`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
+    headers: cloudJsonHeaders(),
     body: JSON.stringify(data),
   });
   if (!res.ok) throw new Error("Failed to update project");
@@ -279,7 +385,10 @@ export async function updateProject(
 }
 
 export async function archiveProject(projectId: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/projects/${projectId}/archive`, { method: "POST" });
+  const res = await fetch(`${API_BASE}/projects/${projectId}/archive`, {
+    method: "POST",
+    headers: cloudHeaders(),
+  });
   if (!res.ok) throw new Error("Failed to archive project");
 }
 
@@ -291,7 +400,7 @@ export async function createProjectPreview(
   if (filePath) body.filePath = filePath;
   const res = await fetch(`${API_BASE}/projects/${projectId}/preview`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: cloudJsonHeaders(),
     body: JSON.stringify(body),
   });
   if (!res.ok) {
@@ -311,7 +420,7 @@ export async function startProjectBuild(
 ): Promise<BuildQueuedResult> {
   const res = await fetch(`${API_BASE}/projects/${projectId}/builds`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: cloudJsonHeaders(),
     body: JSON.stringify(input),
   });
   if (!res.ok) throw new Error(await readApiError(res, "Failed to start project build"));
@@ -319,13 +428,13 @@ export async function startProjectBuild(
 }
 
 export async function fetchProjectBuilds(projectId: string): Promise<BuildList> {
-  const res = await fetch(`${API_BASE}/projects/${projectId}/builds`);
+  const res = await fetch(`${API_BASE}/projects/${projectId}/builds`, { headers: cloudHeaders() });
   if (!res.ok) throw new Error(await readApiError(res, "Failed to fetch project builds"));
   return res.json();
 }
 
 export async function fetchProjectBuildLogs(projectId: string, buildId: string): Promise<BuildLogs> {
-  const res = await fetch(`${API_BASE}/projects/${projectId}/builds/${buildId}/logs`);
+  const res = await fetch(`${API_BASE}/projects/${projectId}/builds/${buildId}/logs`, { headers: cloudHeaders() });
   if (!res.ok) throw new Error(await readApiError(res, "Failed to fetch project build logs"));
   return res.json();
 }
@@ -336,7 +445,7 @@ export async function createProjectBuildPreview(
 ): Promise<ProjectPreviewResult> {
   const res = await fetch(`${API_BASE}/projects/${projectId}/previews`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: cloudJsonHeaders(),
     body: JSON.stringify(input),
   });
   if (!res.ok) throw new Error(await readApiError(res, "Failed to create project preview"));
@@ -592,7 +701,7 @@ export function projectBuildExportUrl(projectId: string, buildId: string): strin
 
 export async function readProjectFile(projectId: string, path: string): Promise<WorkspaceFile> {
   const params = new URLSearchParams({ path });
-  const res = await fetch(`${API_BASE}/projects/${projectId}/files?${params.toString()}`);
+  const res = await fetch(`${API_BASE}/projects/${projectId}/files?${params.toString()}`, { headers: cloudHeaders() });
   if (!res.ok) throw new Error("Failed to read project file");
   return res.json();
 }
@@ -604,7 +713,7 @@ export async function writeProjectFile(
 ): Promise<WorkspaceFile> {
   const res = await fetch(`${API_BASE}/projects/${projectId}/files`, {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
+    headers: cloudJsonHeaders(),
     body: JSON.stringify({ path, content }),
   });
   if (!res.ok) throw new Error("Failed to write project file");
@@ -757,7 +866,7 @@ export async function fetchSessions(projectId?: string, includeArchived = false)
   if (projectId) params.set("projectId", projectId);
   if (includeArchived) params.set("includeArchived", "true");
   const suffix = params.toString() ? `?${params.toString()}` : "";
-  const res = await fetch(`${API_BASE}/sessions${suffix}`);
+  const res = await fetch(`${API_BASE}/sessions${suffix}`, { headers: cloudHeaders() });
   if (!res.ok) throw new Error("Failed to fetch sessions");
   return res.json();
 }
@@ -769,7 +878,7 @@ export async function createGroupSession(
 ): Promise<Session> {
   const res = await fetch(`${API_BASE}/sessions`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: cloudJsonHeaders(),
     body: JSON.stringify({ title: title || "群聊", mode: "group", agentConfigIds, projectId }),
   });
   if (!res.ok) throw new Error("Failed to create group session");
@@ -786,7 +895,7 @@ export async function createSession(
   if (projectId) body.projectId = projectId;
   const res = await fetch(`${API_BASE}/sessions`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: cloudJsonHeaders(),
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error("Failed to create session");
@@ -794,13 +903,13 @@ export async function createSession(
 }
 
 export async function deleteSession(sessionId: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/sessions/${sessionId}`, { method: "DELETE" });
+  const res = await fetch(`${API_BASE}/sessions/${sessionId}`, { method: "DELETE", headers: cloudHeaders() });
   if (!res.ok) throw new Error(await readApiError(res, "Failed to delete session"));
 }
 
 export async function renameSession(sessionId: string, title: string): Promise<Session> {
   const res = await fetch(`${API_BASE}/sessions/${sessionId}`, {
-    method: "PATCH", headers: { "Content-Type": "application/json" },
+    method: "PATCH", headers: cloudJsonHeaders(),
     body: JSON.stringify({ title }),
   });
   if (!res.ok) throw new Error(await readApiError(res, "Failed to rename session"));
@@ -810,7 +919,7 @@ export async function renameSession(sessionId: string, title: string): Promise<S
 export async function pinSession(sessionId: string, isPinned: boolean): Promise<Session> {
   const res = await fetch(`${API_BASE}/sessions/${sessionId}`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
+    headers: cloudJsonHeaders(),
     body: JSON.stringify({ isPinned }),
   });
   if (!res.ok) throw new Error("Failed to update session pin");
@@ -820,7 +929,7 @@ export async function pinSession(sessionId: string, isPinned: boolean): Promise<
 export async function archiveSession(sessionId: string, archived = true): Promise<Session> {
   const res = await fetch(`${API_BASE}/sessions/${sessionId}`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
+    headers: cloudJsonHeaders(),
     body: JSON.stringify({ archived }),
   });
   if (!res.ok) throw new Error("Failed to archive session");
@@ -830,7 +939,7 @@ export async function archiveSession(sessionId: string, archived = true): Promis
 export async function muteSession(sessionId: string, isMuted: boolean): Promise<Session> {
   const res = await fetch(`${API_BASE}/sessions/${sessionId}`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
+    headers: cloudJsonHeaders(),
     body: JSON.stringify({ isMuted }),
   });
   if (!res.ok) throw new Error("Failed to update session mute");
@@ -838,7 +947,7 @@ export async function muteSession(sessionId: string, isMuted: boolean): Promise<
 }
 
 export async function markSessionRead(sessionId: string): Promise<Session> {
-  const res = await fetch(`${API_BASE}/sessions/${sessionId}/read`, { method: "POST" });
+  const res = await fetch(`${API_BASE}/sessions/${sessionId}/read`, { method: "POST", headers: cloudHeaders() });
   if (!res.ok) throw new Error("Failed to mark session read");
   return res.json();
 }
@@ -849,7 +958,7 @@ export async function forwardMessages(
 ): Promise<{ messages: Message[] }> {
   const res = await fetch(`${API_BASE}/sessions/forward`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: cloudJsonHeaders(),
     body: JSON.stringify({ messageIds, targetSessionIds }),
   });
   if (!res.ok) throw new Error("Failed to forward messages");
@@ -857,7 +966,7 @@ export async function forwardMessages(
 }
 
 export async function fetchSessionMembers(sessionId: string): Promise<SessionMember[]> {
-  const res = await fetch(`${API_BASE}/sessions/${sessionId}/members`);
+  const res = await fetch(`${API_BASE}/sessions/${sessionId}/members`, { headers: cloudHeaders() });
   if (!res.ok) return [];
   return res.json();
 }
@@ -865,7 +974,7 @@ export async function fetchSessionMembers(sessionId: string): Promise<SessionMem
 export async function addGroupMember(sessionId: string, agentConfigId: string): Promise<SessionMember[]> {
   const res = await fetch(`${API_BASE}/sessions/${sessionId}/members`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: cloudJsonHeaders(),
     body: JSON.stringify({ agentConfigId }),
   });
   if (!res.ok) throw new Error(await readApiError(res, "Failed to add group member"));
@@ -875,19 +984,20 @@ export async function addGroupMember(sessionId: string, agentConfigId: string): 
 export async function removeGroupMember(sessionId: string, agentConfigId: string): Promise<SessionMember[]> {
   const res = await fetch(`${API_BASE}/sessions/${sessionId}/members/${encodeURIComponent(agentConfigId)}`, {
     method: "DELETE",
+    headers: cloudHeaders(),
   });
   if (!res.ok) throw new Error(await readApiError(res, "Failed to remove group member"));
   return res.json();
 }
 
 export async function fetchMessages(sessionId: string): Promise<Message[]> {
-  const res = await fetch(`${API_BASE}/sessions/${sessionId}/messages`);
+  const res = await fetch(`${API_BASE}/sessions/${sessionId}/messages`, { headers: cloudHeaders() });
   if (!res.ok) throw new Error("Failed to fetch messages");
   return res.json();
 }
 
 export async function fetchRuns(sessionId: string): Promise<RunRead[]> {
-  const res = await fetch(`${API_BASE}/sessions/${sessionId}/runs`);
+  const res = await fetch(`${API_BASE}/sessions/${sessionId}/runs`, { headers: cloudHeaders() });
   if (!res.ok) throw new Error("Failed to fetch runs");
   return res.json();
 }
@@ -895,7 +1005,7 @@ export async function fetchRuns(sessionId: string): Promise<RunRead[]> {
 export async function cancelRun(runId: string, reason?: string): Promise<RunRead> {
   const res = await fetch(`${API_BASE}/runs/${runId}/cancel`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: cloudJsonHeaders(),
     body: JSON.stringify({ reason: reason ?? "" }),
   });
   if (!res.ok) throw new Error("Failed to cancel run");
@@ -903,19 +1013,19 @@ export async function cancelRun(runId: string, reason?: string): Promise<RunRead
 }
 
 export async function fetchRunLogs(runId: string): Promise<RuntimeLogs> {
-  const res = await fetch(`${API_BASE}/runs/${runId}/logs`);
+  const res = await fetch(`${API_BASE}/runs/${runId}/logs`, { headers: cloudHeaders() });
   if (!res.ok) throw new Error(await readApiError(res, "Failed to fetch run logs"));
   return res.json();
 }
 
 export async function fetchRunTasks(runId: string): Promise<TaskRead[]> {
-  const res = await fetch(`${API_BASE}/runs/${runId}/tasks`);
+  const res = await fetch(`${API_BASE}/runs/${runId}/tasks`, { headers: cloudHeaders() });
   if (!res.ok) throw new Error("Failed to fetch run tasks");
   return res.json();
 }
 
 export async function fetchApprovals(sessionId: string): Promise<ApprovalCheckpoint[]> {
-  const res = await fetch(`${API_BASE}/sessions/${sessionId}/approvals`);
+  const res = await fetch(`${API_BASE}/sessions/${sessionId}/approvals`, { headers: cloudHeaders() });
   if (!res.ok) throw new Error("Failed to fetch approvals");
   return res.json();
 }
@@ -926,7 +1036,7 @@ export async function approveCheckpoint(
 ): Promise<ApprovalCheckpoint> {
   const res = await fetch(`${API_BASE}/approvals/${checkpointId}/approve`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: cloudJsonHeaders(),
     body: JSON.stringify(input),
   });
   if (!res.ok) throw new Error("Failed to approve checkpoint");
@@ -944,7 +1054,7 @@ export async function rejectCheckpoint(
 ): Promise<ApprovalCheckpoint> {
   const res = await fetch(`${API_BASE}/approvals/${checkpointId}/reject`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: cloudJsonHeaders(),
     body: JSON.stringify(input),
   });
   if (!res.ok) throw new Error("Failed to reject checkpoint");
@@ -1429,7 +1539,7 @@ export function createChatStream(
 export async function replyToMessage(messageId: string, content: string): Promise<Message> {
   const res = await fetch(`${API_BASE}/messages/${messageId}/reply`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: cloudJsonHeaders(),
     body: JSON.stringify({ content }),
   });
   if (!res.ok) throw new Error("Failed to reply to message");
@@ -1437,13 +1547,13 @@ export async function replyToMessage(messageId: string, content: string): Promis
 }
 
 export async function pinMessage(messageId: string): Promise<{ isPinned: boolean }> {
-  const res = await fetch(`${API_BASE}/messages/${messageId}/pin`, { method: "POST" });
+  const res = await fetch(`${API_BASE}/messages/${messageId}/pin`, { method: "POST", headers: cloudHeaders() });
   if (!res.ok) throw new Error("Failed to pin message");
   return res.json();
 }
 
 export async function unpinMessage(messageId: string): Promise<{ isPinned: boolean }> {
-  const res = await fetch(`${API_BASE}/messages/${messageId}/pin`, { method: "DELETE" });
+  const res = await fetch(`${API_BASE}/messages/${messageId}/pin`, { method: "DELETE", headers: cloudHeaders() });
   if (!res.ok) throw new Error("Failed to unpin message");
   return res.json();
 }
@@ -1454,13 +1564,13 @@ export async function searchMessages(
   limit = 20,
 ): Promise<Message[]> {
   const params = new URLSearchParams({ session_id: sessionId, q: query, limit: String(limit) });
-  const res = await fetch(`${API_BASE}/messages/search?${params.toString()}`);
+  const res = await fetch(`${API_BASE}/messages/search?${params.toString()}`, { headers: cloudHeaders() });
   if (!res.ok) throw new Error("Failed to search messages");
   return res.json();
 }
 
 export async function fetchMessage(messageId: string): Promise<Message> {
-  const res = await fetch(`${API_BASE}/messages/${messageId}`);
+  const res = await fetch(`${API_BASE}/messages/${messageId}`, { headers: cloudHeaders() });
   if (!res.ok) throw new Error("Failed to fetch message");
   return res.json();
 }
@@ -1474,6 +1584,7 @@ export function regenerateMessageStream(
   (async () => {
     const response = await fetch(`${API_BASE}/messages/${messageId}/regenerate`, {
       method: "POST",
+      headers: cloudHeaders(),
       signal: abortCtrl.signal,
     });
     if (!response.ok) {
@@ -1724,13 +1835,13 @@ function processStartText(agentName: string, data: Record<string, unknown>) {
 }
 
 export async function fetchArtifacts(sessionId: string): Promise<Artifact[]> {
-  const res = await fetch(`${API_BASE}/sessions/${sessionId}/artifacts`);
+  const res = await fetch(`${API_BASE}/sessions/${sessionId}/artifacts`, { headers: cloudHeaders() });
   if (!res.ok) throw new Error("Failed to fetch artifacts");
   return res.json();
 }
 
 export async function fetchArtifactVersions(artifactId: string): Promise<ArtifactVersion[]> {
-  const res = await fetch(`${API_BASE}/artifacts/${artifactId}/versions`);
+  const res = await fetch(`${API_BASE}/artifacts/${artifactId}/versions`, { headers: cloudHeaders() });
   if (!res.ok) throw new Error("Failed to fetch artifact versions");
   return res.json();
 }
@@ -1744,7 +1855,7 @@ export async function fetchArtifactDiff(
     v1: String(fromVersion),
     v2: String(toVersion),
   });
-  const res = await fetch(`${API_BASE}/artifacts/${artifactId}/diff?${params.toString()}`);
+  const res = await fetch(`${API_BASE}/artifacts/${artifactId}/diff?${params.toString()}`, { headers: cloudHeaders() });
   if (!res.ok) throw new Error("Failed to fetch artifact diff");
   return res.json();
 }
@@ -1755,7 +1866,7 @@ export async function editArtifact(
 ): Promise<ArtifactEditResult> {
   const res = await fetch(`${API_BASE}/artifacts/${artifactId}/edit`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: cloudJsonHeaders(),
     body: JSON.stringify(data),
   });
   if (!res.ok) throw new Error("Failed to edit artifact");
@@ -1836,7 +1947,7 @@ export async function saveArtifactContent(
   if (title) body.title = title;
   const res = await fetch(`${API_BASE}/artifacts/${artifactId}/save`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: cloudJsonHeaders(),
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error("Failed to save artifact");
@@ -1849,7 +1960,7 @@ export async function restoreArtifactVersion(
 ): Promise<Artifact> {
   const res = await fetch(`${API_BASE}/artifacts/${artifactId}/restore`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: cloudJsonHeaders(),
     body: JSON.stringify({ version, writeWorkspace: true }),
   });
   if (!res.ok) throw new Error("Failed to restore artifact version");
@@ -1862,7 +1973,7 @@ export async function scanMessageArtifacts(
 ): Promise<ArtifactScanResult> {
   const res = await fetch(`${API_BASE}/messages/${messageId}/artifacts/scan`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: cloudJsonHeaders(),
     body: JSON.stringify({ force }),
   });
   if (!res.ok) throw new Error("Failed to scan message artifacts");

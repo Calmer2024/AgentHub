@@ -11,6 +11,7 @@ import {
   createProjectBuildPreview,
   createProjectPreview,
   createChatStream,
+  fetchProjects,
   editArtifact,
   fetchArtifactDiff,
   fetchArtifactVersions,
@@ -28,6 +29,7 @@ import {
   startProjectBuild,
   retryDeployment,
   resetApiClientForTests,
+  loginWithEmail,
   writeProjectFile,
 } from "./client";
 
@@ -362,6 +364,8 @@ describe("createChatStream", () => {
 describe("artifact APIs", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    resetApiClientForTests();
+    localStorage.clear();
   });
 
   it("加载会话产物列表", async () => {
@@ -371,7 +375,7 @@ describe("artifact APIs", () => {
 
     const artifacts = await fetchArtifacts("s1");
 
-    expect(globalThis.fetch).toHaveBeenCalledWith("/api/sessions/s1/artifacts");
+    expect(vi.mocked(globalThis.fetch).mock.calls[0][0]).toBe("/api/sessions/s1/artifacts");
     expect(artifacts[0].version).toBe(2);
   });
 
@@ -515,7 +519,7 @@ describe("artifact APIs", () => {
 
     await fetchArtifactVersions("a1");
 
-    expect(globalThis.fetch).toHaveBeenCalledWith("/api/artifacts/a1/versions");
+    expect(vi.mocked(globalThis.fetch).mock.calls[0][0]).toBe("/api/artifacts/a1/versions");
   });
 
   it("按版本号请求 Diff", async () => {
@@ -617,6 +621,42 @@ describe("artifact APIs", () => {
       path: "src/app.ts",
       content: "new",
     });
+  });
+});
+
+describe("production auth headers", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    resetApiClientForTests();
+    localStorage.clear();
+  });
+
+  it("登录后用 bearer token 访问云端 API", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        accessToken: "access-1",
+        refreshToken: "refresh-1",
+        tokenType: "bearer",
+        expiresAt: "2026-06-09T12:00:00",
+        user: {
+          id: "u1",
+          email: "prod@example.com",
+          displayName: "Prod User",
+          createdAt: "2026-06-09T12:00:00",
+          status: "active",
+          teams: [],
+          defaultSpace: { kind: "personal", id: "u1", name: "个人空间" },
+        },
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify([]), { status: 200 }));
+
+    await loginWithEmail({ email: "prod@example.com", displayName: "Prod User" });
+    await fetchProjects();
+
+    const init = vi.mocked(globalThis.fetch).mock.calls[1][1] as RequestInit;
+    const headers = init.headers as Record<string, string>;
+    expect(headers.Authorization).toBe("Bearer access-1");
+    expect(headers["X-AgentHub-User-Email"]).toBeUndefined();
   });
 });
 

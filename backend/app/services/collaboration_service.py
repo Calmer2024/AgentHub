@@ -325,7 +325,16 @@ class CollaborationService:
         *,
         decision: str,
         comment: str | None,
+        actor: User,
     ):
+        checkpoint = await self.db.get(ApprovalCheckpoint, approval_id)
+        if not checkpoint:
+            raise CollaborationNotFoundError("approval not found")
+        session = await self.db.get(Session, checkpoint.session_id)
+        if not session or not session.project_id:
+            raise CollaborationNotFoundError("approval session not found")
+        project = await self._get_project(session.project_id)
+        await self.team_service.assert_workspace_write_allowed(project, actor)
         service = ApprovalService(self.db, event_bus=self.event_bus)
         if decision == "approve":
             return await service.approve(approval_id, comment=comment)

@@ -325,10 +325,10 @@ netstat -ano | findstr ":5173"
 
 ## 关联文档
 
-- [TEST_PROTOCOL.md](../../docs/TEST_PROTOCOL.md) — 测试金字塔、工具链、Mock 规范
-- [UX_TEST_SPEC.md](../../docs/testing/UX_TEST_SPEC.md) — 6 状态模型、体验三定律
-- [CLAUDE.md](../../CLAUDE.md) — 项目规则（自动化优先、禁止项）
-- [CONTEXT.md](../../CONTEXT.md) — 领域术语定义
+- [TEST_PROTOCOL.md](../../../docs/TEST_PROTOCOL.md) — 测试金字塔、工具链、Mock 规范
+- [UX_TEST_SPEC.md](../../../docs/testing/UX_TEST_SPEC.md) — 6 状态模型、体验三定律
+- [CLAUDE.md](../../../CLAUDE.md) — 项目规则（自动化优先、禁止项）
+- [CONTEXT.md](../../../CONTEXT.md) — 领域术语定义
 
 ## Phase 7D 审计 (2026-06-07)
 
@@ -347,3 +347,9 @@ netstat -ano | findstr ":5173"
 - 引用仍有效：`docs/TEST_PROTOCOL.md`、`docs/testing/UX_TEST_SPEC.md`、`CLAUDE.md`、`CONTEXT.md`、`docs/specs/phase10/README.md` 均存在。
 - Phase 10 QA 必须额外验证 cloud Project → sandbox ready → CLI stdout → Artifact Card → run terminal → `/api/runs/{runId}/logs`，并确认 Secret 原文不出现在 UI/日志/事件。
 - P1 local regression 必须继续覆盖本机 Project、chat stream、run cancel、Artifact Bridge、build/preview/export，不得只跑 cloud runtime 测试。
+
+## Phase 14 审计 (2026-06-09)
+
+- 引用修复：Skill 内关联文档链接改为相对当前 skill 目录的 `../../../` 路径，避免 Markdown 断链。
+- Phase 14 QA 必须额外验证生产配置禁用开发请求头 auth、SaaS/Mobile 未登录返回 401、跨租户 Project 列表过滤、详情/写操作越权返回 403。
+- 真实服务验收需同时检查 SaaS Web 与 Mobile 登录门、本地桌面端不强制登录，以及权限拒绝是否写入 audit log。

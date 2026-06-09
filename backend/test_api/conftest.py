@@ -62,6 +62,8 @@ async def _cleanup_db():
             "notifications",
             "agent_template_sessions",
             "git_sync_jobs",
+            "auth_sessions",
+            "auth_identities",
         ):
             try:
                 await conn.execute(text(f"DELETE FROM {t}"))

@@ -1,5 +1,6 @@
 from .project import Project
 from .user import User
+from .auth import AuthIdentity, AuthSession
 from .team import Team, TeamMember
 from .workspace import Workspace, WorkspaceSnapshot, WorkspaceImport, WorkspaceRestore
 from .audit_log import AuditLog
@@ -28,6 +29,8 @@ from .collaboration import (
 __all__ = [
     "Project",
     "User",
+    "AuthIdentity",
+    "AuthSession",
     "Team",
     "TeamMember",
     "Workspace",

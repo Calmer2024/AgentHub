@@ -2,6 +2,7 @@ import { LocalDesktopShell } from "../shells/local/LocalDesktopShell";
 import { SaasWebShell } from "../shells/saas/SaasWebShell";
 import { MobileShell } from "../shells/mobile/MobileShell";
 import { ShellProvider } from "./ShellProvider";
+import { AuthGate } from "../shells/saas/AuthGate";
 
 export function AppRoot() {
   return (
@@ -13,7 +14,11 @@ export function AppRoot() {
           return <ShellStatus title="不支持本机移动端壳" description="请启动 Local Desktop 或 SaaS Mobile。" tone="error" />;
         }
         if (capabilities.edition === "saas" && capabilities.surface === "mobile") {
-          return <MobileShell />;
+          return (
+            <AuthGate surface="mobile">
+              <MobileShell />
+            </AuthGate>
+          );
         }
         if (capabilities.edition === "saas") {
           return <SaasWebShell />;

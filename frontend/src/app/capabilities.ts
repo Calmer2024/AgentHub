@@ -93,7 +93,7 @@ export function parseShellEnv(env: ShellEnv = import.meta.env): ParsedShellEnv {
     apiBaseUrl: env.VITE_AGENTHUB_API_BASE?.trim() || (
       edition === "local" ? "http://127.0.0.1:8000" : "/api"
     ),
-    devAuth: env.VITE_AGENTHUB_DEV_AUTH === "true" || (edition === "saas" && mode !== "production"),
+    devAuth: env.VITE_AGENTHUB_DEV_AUTH === "true",
   };
 }
 

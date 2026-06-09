@@ -476,7 +476,31 @@ export interface CurrentUser {
   email: string;
   displayName: string;
   avatarUrl?: string | null;
+  status?: string;
+  lastLoginAt?: string | null;
+  teams?: Team[];
+  defaultSpace?: {
+    kind: "personal" | "team";
+    id: string;
+    name: string;
+  };
   createdAt: string;
+}
+
+export interface AuthProvider {
+  id: string;
+  label: string;
+  type: "email" | "external" | "dev_header";
+  enabled: boolean;
+  devOnly: boolean;
+}
+
+export interface AuthSession {
+  accessToken: string;
+  refreshToken: string;
+  tokenType: "bearer";
+  expiresAt: string;
+  user: CurrentUser;
 }
 
 export interface Team {

@@ -26,6 +26,7 @@ async def _cloud_artifact(test_client, db_session, *, content: str = "<main>Phas
     session = (await test_client.post(
         "/api/sessions",
         json={"title": "Phase11 会话", "projectId": project["id"]},
+        headers=OWNER,
     )).json()
     workspace = ensure_cloud_workspace(project["workspaceId"], {"projectId": project["id"]})
     Path(workspace, "index.html").write_text(content, encoding="utf-8")
@@ -175,6 +176,7 @@ async def test_phase11_blocks_viewer_preview_and_deploy(test_client, db_session)
     session = (await test_client.post(
         "/api/sessions",
         json={"title": "Phase11 权限", "projectId": project["id"]},
+        headers=OWNER,
     )).json()
     workspace = ensure_cloud_workspace(project["workspaceId"], {"projectId": project["id"]})
     Path(workspace, "index.html").write_text("<main>Denied</main>", encoding="utf-8")

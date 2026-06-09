@@ -16,6 +16,8 @@ class User(Base):
     email = Column(String, nullable=False, unique=True)
     display_name = Column(String, nullable=False)
     avatar_url = Column(Text, nullable=True)
+    status = Column(String, nullable=False, default="active")
+    last_login_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, nullable=False, default=_utcnow)
 
     memberships = relationship("TeamMember", back_populates="user")

@@ -16,6 +16,11 @@ describe("Phase 13 capabilities", () => {
     expect(parseShellEnv({ MODE: "mobile" }).surface).toBe("mobile");
   });
 
+  it("SaaS 开发请求头 mock 必须显式开启", () => {
+    expect(parseShellEnv({ MODE: "saas" }).devAuth).toBe(false);
+    expect(parseShellEnv({ MODE: "saas", VITE_AGENTHUB_DEV_AUTH: "true" }).devAuth).toBe(true);
+  });
+
   it("生成 fallback 能力矩阵并拒绝前后端壳不一致", () => {
     const env = parseShellEnv({ MODE: "local-desktop" });
     const fallback = fallbackCapabilities(env);

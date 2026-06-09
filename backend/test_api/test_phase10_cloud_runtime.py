@@ -75,6 +75,7 @@ async def _create_cloud_session(test_client) -> tuple[dict, dict, dict]:
             "projectId": project.json()["id"],
             "agentConfigId": agent.json()["id"],
         },
+        headers=OWNER,
     )
     assert session.status_code == 201, session.text
     return agent.json(), project.json(), session.json()
@@ -102,6 +103,9 @@ async def test_cloud_chat_creates_sandbox_artifact_logs_and_persistent_snapshot(
     types = [event.get("type") for event in events]
     assert "run.started" in types
     assert "sandbox.ready" in types
+    assert "workspace.sync.started" in types
+    assert "workspace.sync.completed" in types
+    assert "sandbox.disposed" in types
     assert "agent.process.started" in types
     assert "agent.output" in types
     assert "artifact.created" in types
@@ -112,18 +116,23 @@ async def test_cloud_chat_creates_sandbox_artifact_logs_and_persistent_snapshot(
     run_started = next(event for event in events if event.get("type") == "run.started")
     run_id = run_started["runId"]
     sandbox_id = run_started["run"]["metadata"]["sandboxId"]
-    logs = await test_client.get(f"/api/runs/{run_id}/logs")
+    logs = await test_client.get(f"/api/runs/{run_id}/logs", headers=OWNER)
     assert logs.status_code == 200, logs.text
     log_text = "\n".join(chunk["text"] for chunk in logs.json()["chunks"])
     assert "super-secret-value" not in log_text
     assert "[REDACTED]" in log_text
 
-    messages = await test_client.get(f"/api/sessions/{session['id']}/messages")
+    messages = await test_client.get(f"/api/sessions/{session['id']}/messages", headers=OWNER)
     assert messages.status_code == 200
     assert "super-secret-value" not in messages.text
     assert "[REDACTED]" in messages.text
+    assistant_message = next(item for item in messages.json() if item["role"] == "assistant")
+    metadata = assistant_message["metadata"]
+    assert metadata["workspacePath"].startswith("cloud://agenthub/workspaces/")
+    assert metadata["cloudRuntime"]["provider"] == "local_dev"
+    assert "D:\\" not in json.dumps(metadata)
 
-    artifacts = await test_client.get(f"/api/sessions/{session['id']}/artifacts")
+    artifacts = await test_client.get(f"/api/sessions/{session['id']}/artifacts", headers=OWNER)
     assert artifacts.status_code == 200, artifacts.text
     assert any(item["filePath"] == "index.html" for item in artifacts.json())
 
@@ -133,7 +142,11 @@ async def test_cloud_chat_creates_sandbox_artifact_logs_and_persistent_snapshot(
         headers=OWNER,
     )
     assert stopped.status_code == 200, stopped.text
-    assert stopped.json()["status"] == "stopped"
+    assert stopped.json()["status"] == "disposed"
+
+    sandbox = await test_client.get(f"/api/sandboxes/{sandbox_id}", headers=OWNER)
+    assert sandbox.status_code == 200, sandbox.text
+    assert sandbox.json()["disposedAt"]
 
     snapshot = await test_client.post(
         f"/api/workspaces/{project['workspaceId']}/snapshots",

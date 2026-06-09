@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Header, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,12 +32,13 @@ from ..services.project_service import (
 from ..services.preview_service import PreviewError
 from ..services.schemas import ProjectCreate, ProjectRead, ProjectUpdate
 from ..services.team_service import PermissionDeniedError
+from ..services.auth_service import AuthService
+from ..services.tenant_guard import TenantGuard, tenant_scope_required_for_cloud
 from ..services.workspace_provider import (
     WorkspaceFileTooLargeError,
     WorkspaceNotFoundError,
     WorkspaceSecurityError,
 )
-from .auth import require_user_from_header_values
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -50,6 +51,42 @@ def _svc(db: AsyncSession) -> ProjectService:
 def _build_svc(db: AsyncSession) -> BuildService:
     from ..main import _event_bus
     return BuildService(db, event_bus=_event_bus)
+
+
+async def _optional_scope(request: Request, db: AsyncSession):
+    user = await AuthService(db).resolve_request(request)
+    if not user:
+        return None
+    return await TenantGuard(db).scope_for_user(user)
+
+
+async def _require_actor(request: Request, db: AsyncSession):
+    user = await AuthService(db).resolve_request(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="请先登录后继续")
+    return user
+
+
+async def _authorize_project(
+    request: Request,
+    db: AsyncSession,
+    project_id: str,
+    *,
+    mode: str,
+):
+    project = await _svc(db)._get_project(project_id)
+    if project.workspace_mode != "cloud" and not tenant_scope_required_for_cloud():
+        return project
+    user = await _require_actor(request, db)
+    scope = await TenantGuard(db).scope_for_user(user)
+    guard = TenantGuard(db)
+    if mode == "read":
+        await guard.assert_project_read(scope, project)
+    elif mode == "delete":
+        await guard.assert_project_delete(scope, project)
+    else:
+        await guard.assert_project_write(scope, project)
+    return project
 
 
 class TreeRead(BaseModel):
@@ -125,20 +162,15 @@ async def pick_folder():
 @router.post("", response_model=ProjectRead, status_code=201)
 async def create_project(
     data: ProjectCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    x_agenthub_user_email: str | None = Header(default=None),
-    x_agenthub_user_name: str | None = Header(default=None),
-    x_agenthub_user_avatar: str | None = Header(default=None),
 ):
     try:
         actor = None
+        if tenant_scope_required_for_cloud() and data.workspace_mode != "cloud":
+            raise PermissionDeniedError("SaaS/Mobile 只能创建云端项目")
         if data.workspace_mode == "cloud" or data.team_id:
-            actor = await require_user_from_header_values(
-                db,
-                x_agenthub_user_email,
-                display_name=x_agenthub_user_name,
-                avatar_url=x_agenthub_user_avatar,
-            )
+            actor = await _require_actor(request, db)
         return await _svc(db).create_project(data, actor=actor)
     except ProjectValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -149,40 +181,39 @@ async def create_project(
 
 
 @router.get("", response_model=list[ProjectRead])
-async def list_projects(db: AsyncSession = Depends(get_db)):
-    return await _svc(db).list_projects()
+async def list_projects(request: Request, db: AsyncSession = Depends(get_db)):
+    scope = await _optional_scope(request, db)
+    if tenant_scope_required_for_cloud() and not scope:
+        raise HTTPException(status_code=401, detail="请先登录后继续")
+    try:
+        return await _svc(db).list_projects(scope=scope)
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
 
 
 @router.get("/{project_id}", response_model=ProjectRead)
-async def get_project(project_id: str, db: AsyncSession = Depends(get_db)):
+async def get_project(project_id: str, request: Request, db: AsyncSession = Depends(get_db)):
     try:
-        return await _svc(db).get_project(project_id)
+        project = await _authorize_project(request, db, project_id, mode="read")
+        return await _svc(db)._to_read(project, include_stats=True)
     except ProjectNotFoundError:
         raise HTTPException(status_code=404, detail="project not found")
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
 
 
 @router.delete("/{project_id}")
 async def delete_project(
     project_id: str,
+    request: Request,
     deleteFiles: bool = False,
     db: AsyncSession = Depends(get_db),
-    x_agenthub_user_email: str | None = Header(default=None),
-    x_agenthub_user_name: str | None = Header(default=None),
-    x_agenthub_user_avatar: str | None = Header(default=None),
 ):
     try:
         actor = None
-        try:
-            project = await _svc(db)._get_project(project_id)
-        except ProjectNotFoundError:
-            raise
+        project = await _authorize_project(request, db, project_id, mode="delete")
         if project.workspace_mode == "cloud" or project.team_id:
-            actor = await require_user_from_header_values(
-                db,
-                x_agenthub_user_email,
-                display_name=x_agenthub_user_name,
-                avatar_url=x_agenthub_user_avatar,
-            )
+            actor = await _require_actor(request, db)
         return await _svc(db).delete_project(project_id, delete_files=deleteFiles, actor=actor)
     except ProjectNotFoundError:
         raise HTTPException(status_code=404, detail="project not found")
@@ -193,20 +224,25 @@ async def delete_project(
 
 
 @router.post("/{project_id}/archive")
-async def archive_project(project_id: str, db: AsyncSession = Depends(get_db)):
+async def archive_project(project_id: str, request: Request, db: AsyncSession = Depends(get_db)):
     try:
+        await _authorize_project(request, db, project_id, mode="write")
         return await _svc(db).archive_project(project_id)
     except ProjectNotFoundError:
         raise HTTPException(status_code=404, detail="project not found")
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
 
 
 @router.patch("/{project_id}", response_model=ProjectRead)
 async def update_project(
     project_id: str,
     data: ProjectUpdate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
     try:
+        await _authorize_project(request, db, project_id, mode="write")
         if data.name is None:
             return await _svc(db).get_project(project_id)
         return await _svc(db).rename_project(project_id, data.name)
@@ -214,15 +250,19 @@ async def update_project(
         raise HTTPException(status_code=404, detail="project not found")
     except ProjectValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
 
 
 @router.get("/{project_id}/tree", response_model=TreeRead)
 async def get_tree(
     project_id: str,
+    request: Request,
     subpath: str | None = None,
     db: AsyncSession = Depends(get_db),
 ):
     try:
+        await _authorize_project(request, db, project_id, mode="read")
         return {"tree": await _svc(db).get_tree(project_id, subpath)}
     except ProjectNotFoundError:
         raise HTTPException(status_code=404, detail="project not found")
@@ -230,6 +270,8 @@ async def get_tree(
         raise HTTPException(status_code=404, detail="workspace not found")
     except ProjectValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
     except WorkspaceSecurityError:
         raise HTTPException(status_code=403, detail="无权访问此路径")
     except WorkspaceNotFoundError:
@@ -237,8 +279,9 @@ async def get_tree(
 
 
 @router.get("/{project_id}/files", response_model=FileRead)
-async def read_file(project_id: str, path: str, db: AsyncSession = Depends(get_db)):
+async def read_file(project_id: str, path: str, request: Request, db: AsyncSession = Depends(get_db)):
     try:
+        await _authorize_project(request, db, project_id, mode="read")
         return await _svc(db).read_file(project_id, path)
     except ProjectNotFoundError:
         raise HTTPException(status_code=404, detail="project not found")
@@ -250,11 +293,14 @@ async def read_file(project_id: str, path: str, db: AsyncSession = Depends(get_d
         raise HTTPException(status_code=400, detail="文件过大，无法在编辑器中打开")
     except WorkspaceNotFoundError:
         raise HTTPException(status_code=404, detail="file not found")
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
 
 
 @router.put("/{project_id}/files", response_model=FileRead)
-async def write_file(project_id: str, data: FileWriteRequest, db: AsyncSession = Depends(get_db)):
+async def write_file(project_id: str, data: FileWriteRequest, request: Request, db: AsyncSession = Depends(get_db)):
     try:
+        await _authorize_project(request, db, project_id, mode="write")
         return await _svc(db).write_file(project_id, data.path, data.content)
     except ProjectNotFoundError:
         raise HTTPException(status_code=404, detail="project not found")
@@ -264,25 +310,32 @@ async def write_file(project_id: str, data: FileWriteRequest, db: AsyncSession =
         raise HTTPException(status_code=400, detail=str(exc))
     except WorkspaceNotFoundError:
         raise HTTPException(status_code=404, detail="workspace not found")
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
 
 
 @router.post("/{project_id}/snapshot", response_model=SnapshotRead, status_code=201)
 async def create_snapshot(
     project_id: str,
     data: SnapshotRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
     try:
+        await _authorize_project(request, db, project_id, mode="write")
         return await _svc(db).create_snapshot(project_id, data.label)
     except ProjectNotFoundError:
         raise HTTPException(status_code=404, detail="project not found")
     except ProjectValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
 
 
 @router.get("/{project_id}/diff", response_model=DiffRead)
-async def get_diff(project_id: str, baseRef: str, db: AsyncSession = Depends(get_db)):
+async def get_diff(project_id: str, baseRef: str, request: Request, db: AsyncSession = Depends(get_db)):
     try:
+        await _authorize_project(request, db, project_id, mode="read")
         return await _svc(db).get_diff(project_id, baseRef)
     except ProjectNotFoundError:
         raise HTTPException(status_code=404, detail="project not found")
@@ -290,15 +343,19 @@ async def get_diff(project_id: str, baseRef: str, db: AsyncSession = Depends(get
         raise HTTPException(status_code=400, detail=str(exc))
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="snapshot not found")
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
 
 
 @router.post("/{project_id}/preview", response_model=PreviewRead)
 async def create_preview(
     project_id: str,
     data: PreviewRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
     try:
+        await _authorize_project(request, db, project_id, mode="read")
         return await _svc(db).create_preview(project_id, data.type, data.file_path)
     except ProjectNotFoundError:
         raise HTTPException(status_code=404, detail="project not found")
@@ -308,15 +365,19 @@ async def create_preview(
         raise HTTPException(status_code=404, detail="未找到可预览的文件")
     except ProjectValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
 
 
 @router.post("/{project_id}/builds", response_model=BuildQueuedRead, status_code=202)
 async def create_project_build(
     project_id: str,
     data: BuildCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
     try:
+        await _authorize_project(request, db, project_id, mode="write")
         build = await _build_svc(db).run_build(
             project_id,
             command=data.command,
@@ -332,45 +393,59 @@ async def create_project_build(
         raise HTTPException(status_code=400, detail=str(exc))
     except WorkspaceSecurityError:
         raise HTTPException(status_code=403, detail="无权访问此路径")
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
 
 
 @router.get("/{project_id}/builds", response_model=BuildListRead)
-async def list_project_builds(project_id: str, db: AsyncSession = Depends(get_db)):
+async def list_project_builds(project_id: str, request: Request, db: AsyncSession = Depends(get_db)):
     try:
+        await _authorize_project(request, db, project_id, mode="read")
         return BuildListRead(items=await _build_svc(db).list_builds(project_id))
     except BuildNotFoundError:
         raise HTTPException(status_code=404, detail="project not found")
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
 
 
 @router.get("/{project_id}/builds/{build_id}", response_model=BuildRunRead)
 async def get_project_build(
     project_id: str,
     build_id: str,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
     try:
+        await _authorize_project(request, db, project_id, mode="read")
         build = await _build_svc(db).get_build(project_id, build_id)
         from ..services.build_service import build_to_read
         return build_to_read(build)
     except BuildNotFoundError:
         raise HTTPException(status_code=404, detail="build not found")
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
 
 
 @router.get("/{project_id}/builds/{build_id}/logs", response_model=BuildLogsRead)
 async def get_project_build_logs(
     project_id: str,
     build_id: str,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
     try:
+        await _authorize_project(request, db, project_id, mode="read")
         return BuildLogsRead(chunks=await _build_svc(db).get_logs(project_id, build_id))
     except BuildNotFoundError:
         raise HTTPException(status_code=404, detail="build not found")
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
 
 
 @router.get("/{project_id}/exports/source")
-async def export_project_source(project_id: str, db: AsyncSession = Depends(get_db)):
+async def export_project_source(project_id: str, request: Request, db: AsyncSession = Depends(get_db)):
     try:
+        await _authorize_project(request, db, project_id, mode="read")
         data, filename = await _build_svc(db).export_source(project_id)
         return _zip_response(data, filename)
     except BuildNotFoundError:
@@ -381,15 +456,19 @@ async def export_project_source(project_id: str, db: AsyncSession = Depends(get_
         raise HTTPException(status_code=403, detail="无权访问此路径")
     except WorkspaceNotFoundError:
         raise HTTPException(status_code=404, detail="workspace not found")
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
 
 
 @router.get("/{project_id}/exports/builds/{build_id}")
 async def export_project_build(
     project_id: str,
     build_id: str,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
     try:
+        await _authorize_project(request, db, project_id, mode="read")
         data, filename = await _build_svc(db).export_build(project_id, build_id)
         return _zip_response(data, filename)
     except BuildNotFoundError:
@@ -400,15 +479,19 @@ async def export_project_build(
         raise HTTPException(status_code=403, detail="无权访问此路径")
     except WorkspaceNotFoundError:
         raise HTTPException(status_code=404, detail="workspace not found")
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
 
 
 @router.post("/{project_id}/previews", response_model=ProjectPreviewRead)
 async def create_project_preview(
     project_id: str,
     data: ProjectPreviewCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
     try:
+        await _authorize_project(request, db, project_id, mode="read")
         return await _build_svc(db).create_preview(
             project_id,
             source=data.source,
@@ -425,11 +508,14 @@ async def create_project_preview(
         raise HTTPException(status_code=403, detail="无权访问此路径")
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="未找到可预览的文件")
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
 
 
 @router.post("/{project_id}/build")
-async def start_build(project_id: str, db: AsyncSession = Depends(get_db)):
+async def start_build(project_id: str, request: Request, db: AsyncSession = Depends(get_db)):
     try:
+        await _authorize_project(request, db, project_id, mode="write")
         build = await _build_svc(db).run_build(
             project_id,
             command=None,
@@ -443,6 +529,8 @@ async def start_build(project_id: str, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=409, detail=str(exc))
     except BuildValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
 
 
 @router.get("/{project_id}/preview/{preview_id}/{asset_path:path}")
@@ -450,17 +538,21 @@ async def serve_preview_asset(
     project_id: str,
     preview_id: str,
     asset_path: str,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
     del preview_id
     svc = _svc(db)
     try:
+        await _authorize_project(request, db, project_id, mode="read")
         project = await svc._get_project(project_id)
         target = svc.provider.safe_resolve(project.workspace_path, asset_path or "index.html")
     except ProjectNotFoundError:
         raise HTTPException(status_code=404, detail="project not found")
     except WorkspaceSecurityError:
         raise HTTPException(status_code=403, detail="无权访问此路径")
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
     if not target.exists() or not target.is_file():
         raise HTTPException(status_code=404, detail="asset not found")
     return FileResponse(target)
