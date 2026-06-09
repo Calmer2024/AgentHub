@@ -16,7 +16,7 @@
 | 4 | [AgentHub-多Agent协作平台设计](docs/archive/AgentHub-多Agent协作平台设计.md) | 核心启动需求源 — IM、多 Agent 协作、Artifact、预览/编辑/部署、多端协作 |
 | 5 | [docs/PRD/](docs/PRD/) | 产品需求拆解文档（8 篇）— 北极星指标、CLI 适配器、Orchestrator、UX 设计、数据契约、端到端闭环、MVP/SaaS Workspace |
 | 6 | [docs/adr/](docs/adr/) | 架构决策记录 — 关键决策及原因 |
-| 7 | [docs/specs/](docs/specs/) | 功能规格 — 各 Phase 的具体功能定义与验收标准（Phase 1-13） |
+| 7 | [docs/specs/](docs/specs/) | 功能规格 — 各 Phase 的具体功能定义与验收标准（Phase 1-16） |
 
 ---
 
@@ -96,19 +96,22 @@
 | **Phase 11** | Cloud Preview 与 Deployment | ✅ | 云端 Artifact preview URL、Deployment pipeline、部署日志、发布 URL、重试和回滚已完成 |
 | **Phase 12** | 协作、多端与高级 Artifact | ✅ | 团队评论/通知、移动端审批预览、附件/图片输入、Artifact 引用、Git sync、对话式 Agent 创建已完成 |
 | **Phase 13** | 多端产品壳拆分 | ✅ | Local Desktop、SaaS Web、Mobile 三端 shell、构建命令、能力矩阵、Tauri/Capacitor skeleton 和真实服务验收闭环已完成 |
+| **Phase 14** | 生产 Auth 与租户隔离收口 | 📋 | 将开发态请求头 auth 收口为生产登录、跨端用户、TenantScope、RBAC 和所有 cloud 资源租户过滤 |
+| **Phase 15** | 真实云 Sandbox Runtime | 📋 | 将 Phase 10 的本机模拟 cloud runtime 替换为真实容器/K8s/microVM runner、隔离卷、资源限制和运行清理 |
+| **Phase 16** | 真实一键部署 Provider | 📋 | 将 Phase 11 的 preview/deployment 占位链路替换为真实 HTTPS 发布、provider、release、回滚和移动端审批 |
 
-Phase 4-13 采用**功能板块制**：每板块独立完整交付。板块间按用户可感知价值排序。详见 [ADR-0008](docs/adr/0008-revised-development-strategy.md)。
+Phase 4-16 采用**功能板块制**：每板块独立完整交付。板块间按用户可感知价值排序。详见 [ADR-0008](docs/adr/0008-revised-development-strategy.md)。
 
 ### 产品交付阶段
 
 | 优先级 | 产品形态 | 工作区位置 | Agent CLI 运行位置 | 部署 |
 |--------|---------|-----------|-------------------|------|
 | **P1（当前）** | **桌面版** — Web UI + 本地无头服务器（Tauri/Node.js 进程作为本地特权执行引擎） | 本机文件系统 | 用户主机 | ❌ 不支持一键部署 |
-| **P2（云端协作切片已启动，产品壳已拆分）** | **SaaS 云版** — Web UI + 云端后端 + 云端沙箱 | 云端隔离沙箱 | 云端容器 | ✅ 一键部署到云端 URL |
+| **P2（云端协作切片已启动，生产化规划中）** | **SaaS 云版** — Web UI + 云端后端 + 云端沙箱 | 云端隔离沙箱 | 云端容器 | 目标支持；生产级由 Phase 16 收口 |
 
 **P1 数据流**：`用户浏览器 → localhost 后端 → 本机文件系统 + 本机 CLI Agent 进程`
 
-**P2 数据流**：`用户浏览器 → 云端后端 → 云端沙箱 + 云端 CLI Agent 进程 → 一键部署`
+**P2 数据流**：`用户浏览器 → 云端后端 → 云端沙箱 + 云端 CLI Agent 进程 → 真实一键部署（Phase 16 生产化）`
 
 桌面版（P1）的核心特征：Web 端是主力 UI，所有 API 调用指向本地桌面端后端；桌面端是"特权层"——拥有文件系统访问权、能 spawn CLI 进程。数据和 Agent 执行都在本机闭环。
 
@@ -187,6 +190,9 @@ PRD 系列与早期核心设计文档共同构成需求权威。早期设计定�
 | Phase 11 | [specs/phase11/](docs/specs/phase11/) | [README](docs/specs/phase11/README.md) + Cloud Preview 与 Deployment |
 | Phase 12 | [specs/phase12/](docs/specs/phase12/) | [README](docs/specs/phase12/README.md) + 协作、多端与高级 Artifact |
 | Phase 13 | [specs/phase13/](docs/specs/phase13/) | [README](docs/specs/phase13/README.md) + [多端产品壳交付快照](docs/deliverables/phase13-product-shells/README.md) |
+| Phase 14 | [specs/phase14/](docs/specs/phase14/) | [README](docs/specs/phase14/README.md) + 生产 Auth 与租户隔离收口 |
+| Phase 15 | [specs/phase15/](docs/specs/phase15/) | [README](docs/specs/phase15/README.md) + 真实云 Sandbox Runtime |
+| Phase 16 | [specs/phase16/](docs/specs/phase16/) | [README](docs/specs/phase16/README.md) + 真实一键部署 Provider |
 | 模板 | [SPEC_TEMPLATE.md](docs/specs/SPEC_TEMPLATE.md) | 新建模块 Spec 的标准模板 |
 | 历史 | [specs/planning/](docs/specs/planning/) | 旧规划文档（参考） |
 

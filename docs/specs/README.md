@@ -24,6 +24,9 @@ specs/
 ├── phase11/                     ← Phase 11: Cloud Preview 与 Deployment ✅
 ├── phase12/                     ← Phase 12: 协作、多端与高级 Artifact ✅
 ├── phase13/                     ← Phase 13: 多端产品壳拆分 ✅
+├── phase14/                     ← Phase 14: 生产 Auth 与租户隔离收口 📋
+├── phase15/                     ← Phase 15: 真实云 Sandbox Runtime 📋
+├── phase16/                     ← Phase 16: 真实一键部署 Provider 📋
 └── planning/                    ← 历史规划文档（参考）
 ```
 
@@ -48,6 +51,9 @@ specs/
 | [Phase 11](phase11/) | Cloud Preview 与 Deployment | ✅ | 云端 Artifact preview URL、Deployment pipeline、部署日志、发布 URL、重试和回滚已完成 |
 | [Phase 12](phase12/) | 协作、多端与高级 Artifact | ✅ | 团队评论/通知、移动端审批预览、附件/图片输入、Artifact 引用、Git sync、对话式 Agent 创建已完成 |
 | [Phase 13](phase13/) | 多端产品壳拆分 | ✅ | Local Desktop、SaaS Web、Mobile 三端 shell、构建命令、能力矩阵、native skeleton 和验收闭环已完成 |
+| [Phase 14](phase14/) | 生产 Auth 与租户隔离收口 | 📋 | 将开发态请求头 auth 收口为生产登录、跨端用户、TenantScope、RBAC 和所有 cloud 资源租户过滤 |
+| [Phase 15](phase15/) | 真实云 Sandbox Runtime | 📋 | 将 Phase 10 的本机模拟 cloud runtime 替换为真实容器/K8s/microVM runner、隔离卷、资源限制和运行清理 |
+| [Phase 16](phase16/) | 真实一键部署 Provider | 📋 | 将 Phase 11 的 preview/deployment 占位链路替换为真实 HTTPS 发布、provider、release、回滚和移动端审批 |
 
 ---
 
@@ -79,18 +85,19 @@ Completed Phase 保留完成记录，但也要写清“已解锁任务”和“�
 Phase 9 起进入 SaaS 云端化阶段，但 P2 开发不得破坏 P1 本机版。每个 Phase 必须同时满足以下两条硬性门禁：
 
 1. **P1 本机版零回归**：本机 Project 创建、私聊/群聊、真实 CLI runtime、Artifact Card、本地 build/preview/export、审批续跑和 IM 基线必须继续通过真实服务验收。任何云端抽象不得让 P1 用户必须登录、必须选择团队、必须拥有云端 workspace，或暴露 cloud-only 字段才能完成本机流程。
-2. **P2 可运行切片递增**：每个 SaaS Phase 都必须交付一个真实可运行的 cloud slice，而不是只沉淀 schema 或静态 UI。Phase 9 至少可创建 cloud Project 和 workspace 元数据闭环；Phase 10 至少可在 cloud runtime 路径启动并回传标准事件；Phase 11 至少可创建 cloud preview/deployment 状态闭环；Phase 12 至少可完成 Web/Mobile 协作、通知、审批和预览查看闭环；Phase 13 至少可证明本地版、SaaS 版、移动端具有独立 shell、独立构建和独立验收路径。
+2. **P2 可运行切片递增**：每个 SaaS Phase 都必须交付一个真实可运行的 cloud slice，而不是只沉淀 schema 或静态 UI。Phase 9 至少可创建 cloud Project 和 workspace 元数据闭环；Phase 10 至少可在 cloud runtime 路径启动并回传标准事件；Phase 11 至少可创建 cloud preview/deployment 状态闭环；Phase 12 至少可完成 Web/Mobile 协作、通知、审批和预览查看闭环；Phase 13 至少可证明本地版、SaaS 版、移动端具有独立 shell、独立构建和独立验收路径；Phase 14-16 必须把开发态 SaaS 切片收口为生产可上线的身份、运行时和部署 provider。
 
 ### 强制验证矩阵
 
-| 验证维度 | Phase 9-11 最低要求 | Phase 12 起最低要求 | Phase 13 起最低要求 |
+| 验证维度 | Phase 9-11 最低要求 | Phase 12-13 最低要求 | Phase 14-16 生产化最低要求 |
 |---------|-------------------|-------------------|-------------------|
-| P1 local runtime | local Project + local session + Artifact/build/preview/export 回归 | 同左，且 IM 通知/未读不被 SaaS 通知中心覆盖 | LocalDesktopShell 独立启动，local-only UI 和本机 runtime 回归 |
-| P2 cloud runtime | 当前 Phase 的 cloud slice 真实服务可运行 | cloud workspace + runtime + preview/deploy + collaboration/mobile 真实服务可运行 | SaasWebShell 独立启动，cloud-only UI、preview/deploy、协作通知回归 |
-| Web 桌面端 | 真实 Vite 页面 + `/api` 代理 + 桌面宽度截图无 P0/P1 UX 缺陷 | 同左 | local/saas 两个桌面 shell 分别截图，无跨端入口污染 |
-| Web 移动宽度 | Playwright mobile viewport 覆盖新增入口的轻量展示或禁用态 | MobileShell 主链路覆盖 IM、审批、状态、预览 | MobileShell 独立路由和构建，非桌面三栏压缩 |
-| 桌面壳 | 不引入 cloud-only 依赖导致 Tauri/local 后端无法启动 | Tauri/local 后端 smoke 继续通过 | Tauri skeleton 包装 local build 并 smoke 本地后端 |
-| 移动壳 | 不要求移动端具备本机 CLI 或文件系统特权 | Capacitor/MobileShell smoke 覆盖移动入口 | Capacitor skeleton 包装 mobile build，移动端不导入本机特权能力 |
+| P1 local runtime | local Project + local session + Artifact/build/preview/export 回归 | LocalDesktopShell 独立启动，local-only UI 和本机 runtime 回归 | 本地项目不强制登录、不依赖云 runner、不被云部署 provider 替换 |
+| P2 cloud runtime | 当前 Phase 的 cloud slice 真实服务可运行 | SaasWebShell 独立启动，cloud workspace + runtime + preview/deploy + collaboration/mobile 真实服务可运行 | 生产 auth、租户隔离、真实 runner、真实 provider 均在云环境验收 |
+| Web 桌面端 | 真实 Vite 页面 + `/api` 代理 + 桌面宽度截图无 P0/P1 UX 缺陷 | local/saas 两个桌面 shell 分别截图，无跨端入口污染 | SaaS Web 登录、团队、运行、部署、权限失败态完整覆盖 |
+| Web 移动宽度 | Playwright mobile viewport 覆盖新增入口的轻量展示或禁用态 | MobileShell 独立路由和构建，覆盖 IM、审批、状态、预览 | Mobile 与 SaaS Web 共享用户和云 workspace，只暴露移动端可执行动作 |
+| 桌面壳 | 不引入 cloud-only 依赖导致 Tauri/local 后端无法启动 | Tauri skeleton 包装 local build 并 smoke 本地后端 | Tauri 桌面可离线使用本机项目，并可选登录云账号访问云项目 |
+| 移动壳 | 不要求移动端具备本机 CLI 或文件系统特权 | Capacitor skeleton 包装 mobile build，移动端不导入本机特权能力 | Capacitor/MobileShell smoke 覆盖生产登录、审批、部署状态和无权限状态 |
+| 安全隔离 | cloud slice 不泄漏本机物理路径 | 三端能力矩阵不暴露跨端入口 | 跨租户 API、事件、日志、workspace、secret、deployment 均有越权测试 |
 
 若任一门禁失败，本 Phase 不得标记为 Completed，也不得进入下一 Phase。
 
