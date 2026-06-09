@@ -96,7 +96,8 @@ function renderSessionList(
     sessions?: Session[];
     onPinSession?: (id: string, isPinned: boolean) => void;
     onArchiveSession?: (id: string, archived?: boolean) => void;
-    onMuteSession?: (id: string, isMuted: boolean) => void;
+  onMuteSession?: (id: string, isMuted: boolean) => void;
+    onDeleteSession?: (id: string) => Promise<void> | void;
   } = {},
 ) {
   return render(
@@ -108,7 +109,7 @@ function renderSessionList(
       onSelectSession={vi.fn()}
       onNewSession={vi.fn()}
       onNewGroupSession={vi.fn()}
-      onDeleteSession={vi.fn()}
+      onDeleteSession={input.onDeleteSession ?? vi.fn()}
       onRenameSession={vi.fn()}
       onPinSession={input.onPinSession ?? vi.fn()}
       onArchiveSession={input.onArchiveSession ?? vi.fn()}
@@ -184,6 +185,22 @@ describe("SessionList", () => {
     fireEvent.click(screen.getAllByLabelText("会话操作")[0]);
     fireEvent.click(screen.getByText("归档"));
     expect(onArchiveSession).toHaveBeenCalledWith("s-running", true);
+  });
+
+  it("删除会话使用原按钮二次确认", () => {
+    resetStore();
+    const onDeleteSession = vi.fn().mockResolvedValue(undefined);
+    renderSessionList({ onDeleteSession });
+
+    fireEvent.click(screen.getAllByLabelText("会话操作")[0]);
+    fireEvent.click(screen.getByText("删除"));
+
+    expect(onDeleteSession).not.toHaveBeenCalled();
+    expect(screen.getByText("确认")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: /删除/ })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("确认"));
+    expect(onDeleteSession).toHaveBeenCalledWith("s-running");
   });
 
   it("展示未读数并支持免打扰切换", () => {

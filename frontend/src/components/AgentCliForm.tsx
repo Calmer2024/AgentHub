@@ -14,7 +14,6 @@ import {
   SlidersHorizontal,
   Terminal,
   Upload,
-  X,
   type LucideIcon,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
@@ -26,8 +25,9 @@ import {
   type CliTool,
 } from "./AgentCliPresets";
 import { UiSelect, type UiSelectOption } from "./UiSelect";
-import { AgentAvatar, AGENT_AVATAR_PRESETS } from "./AgentAvatar";
+import { AgentAvatar, AGENT_AVATAR_PRESETS, CUSTOM_AGENT_DEFAULT_AVATAR } from "./AgentAvatar";
 import { AGENT_TEMPLATE_PRESETS, type AgentTemplatePreset } from "./AgentTemplatePresets";
+import { GlobalModal } from "./GlobalModal";
 
 const CLI_TOOL_OPTIONS: UiSelectOption[] = [
   { value: "claude_code", label: "Claude Code" },
@@ -64,7 +64,7 @@ export function AgentCliForm({
   const [note, setNote] = useState(initial?.description ?? preset.description);
   const [systemPrompt, setSystemPrompt] = useState(initial?.systemPrompt ?? "");
   const [rules, setRules] = useState(initial?.rules ?? "");
-  const [avatar, setAvatar] = useState(initial?.avatar || "preset:blue");
+  const [avatar, setAvatar] = useState(initial?.avatar || defaultAvatarForTool(initial?.cliTool ?? "claude_code"));
   const [skills, setSkills] = useState<SkillDefinition[]>([]);
   const [toolset, setToolset] = useState<string[]>(initial?.toolset ?? []);
   const [contextPolicy, setContextPolicy] = useState(initial?.contextPolicy ?? "workspace_coding");
@@ -127,6 +127,7 @@ export function AgentCliForm({
     setNote(nextPreset.description);
     setSystemPrompt("");
     setRules("");
+    setAvatar(defaultAvatarForTool(next));
     setExecutable(nextPreset.executable);
     setToolset([]);
     setContextPolicy("workspace_coding");
@@ -232,38 +233,51 @@ export function AgentCliForm({
   };
 
   return (
-    <div className="agenthub-backdrop fixed inset-0 z-50 flex items-center justify-center px-3 py-4">
-      <form
-        onSubmit={handleSubmit}
-        className="agenthub-modal flex max-h-[92dvh] w-full max-w-3xl flex-col overflow-hidden rounded-3xl border"
-      >
-        <div className="agenthub-header flex items-center justify-between gap-4 border-b px-5 py-4">
-          <div className="flex min-w-0 items-center gap-3">
-            <AgentAvatar
-              agent={{ name: name || "Agent", cliTool, status: "ready", avatar }}
-              size="md"
-            />
-            <div className="min-w-0">
-              <h2 className="agenthub-strong truncate text-base font-semibold">
-                {initial ? "智能体设置" : runtimeScope === "local" ? "添加命令行智能体" : "添加云端智能体"}
-              </h2>
-              <p className="agenthub-muted truncate text-xs">
-                {runtimeScope === "local" ? "身份 + 工具集 + 本机运行参数" : "身份 + 工具集 + 云端运行策略"}
-              </p>
+    <GlobalModal
+      title={initial ? "智能体设置" : runtimeScope === "local" ? "添加命令行智能体" : "添加云端智能体"}
+      subtitle={runtimeScope === "local" ? "身份 + 工具集 + 本机运行参数" : "身份 + 工具集 + 云端运行策略"}
+      icon={(
+        <AgentAvatar
+          agent={{ name: name || "Agent", cliTool, status: "ready", avatar }}
+          size="md"
+        />
+      )}
+      zIndexClass="z-[1200]"
+      onClose={onCancel}
+      footer={(
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          {formError ? (
+            <div className="flex items-center gap-2 text-xs leading-5 text-[color:var(--ah-danger)]">
+              <AlertCircle size={15} />
+              {formError}
             </div>
+          ) : (
+            <div className="agenthub-faint text-xs">
+              {runtimeScope === "local" ? "更改会在下次启动 CLI 进程时生效" : "更改会在下次云端运行时调度时生效"}
+            </div>
+          )}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={onCancel}
+              className="agenthub-icon-button rounded-full px-4 py-2 text-sm"
+            >
+              取消
+            </button>
+            <button
+              type="submit"
+              form="agent-cli-form"
+              disabled={saving || !name.trim()}
+              className="agenthub-primary-button inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium disabled:opacity-50"
+            >
+              {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+              保存
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={onCancel}
-            className="agenthub-icon-button flex h-9 w-9 items-center justify-center rounded-full"
-            aria-label="关闭设置"
-            title="关闭设置"
-          >
-            <X size={18} />
-          </button>
         </div>
-
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+      )}
+    >
+      <form id="agent-cli-form" onSubmit={handleSubmit} className="w-full">
           <div className="grid items-start gap-4 lg:grid-cols-2">
             {!initial && (
               <div className="lg:col-span-2">
@@ -294,7 +308,7 @@ export function AgentCliForm({
             <ConfigSection icon={Settings2} title="基础信息" description="设置用户可见的智能体身份">
               <FieldLabel label="头像">
                 <div className="flex flex-wrap items-center gap-2">
-                  {AGENT_AVATAR_PRESETS.slice(0, 6).map((presetAvatar) => {
+                  {AGENT_AVATAR_PRESETS.map((presetAvatar) => {
                     const Icon = presetAvatar.icon;
                     const selected = avatar === presetAvatar.id;
                     return (
@@ -553,39 +567,8 @@ export function AgentCliForm({
               )}
             </div>
           </div>
-        </div>
-
-        <div className="agenthub-header flex flex-col gap-3 border-t px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-          {formError ? (
-            <div className="flex items-center gap-2 text-xs leading-5 text-[color:var(--ah-danger)]">
-              <AlertCircle size={15} />
-              {formError}
-            </div>
-          ) : (
-            <div className="agenthub-faint text-xs">
-              {runtimeScope === "local" ? "更改会在下次启动 CLI 进程时生效" : "更改会在下次云端运行时调度时生效"}
-            </div>
-          )}
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={onCancel}
-              className="agenthub-icon-button rounded-full px-4 py-2 text-sm"
-            >
-              取消
-            </button>
-            <button
-              type="submit"
-              disabled={saving || !name.trim()}
-              className="agenthub-primary-button inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium disabled:opacity-50"
-            >
-              {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
-              保存
-            </button>
-          </div>
-        </div>
       </form>
-    </div>
+    </GlobalModal>
   );
 }
 
@@ -629,6 +612,10 @@ function parseEnv(value: string, cliTool: CliTool): Record<string, string> {
 
 function formatEnv(env: Record<string, string>): string {
   return Object.entries(env).map(([key, value]) => `${key}=${value}`).join("\n");
+}
+
+function defaultAvatarForTool(cliTool: CliTool) {
+  return cliTool === "custom" ? CUSTOM_AGENT_DEFAULT_AVATAR : "preset:blue";
 }
 
 function normalizeCodexBaseUrl(value: string, mode: string) {
@@ -704,3 +691,4 @@ function StatusLine({ ok, text }: { ok: boolean; text: string }) {
     </div>
   );
 }
+

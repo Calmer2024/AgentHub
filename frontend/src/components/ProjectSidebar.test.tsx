@@ -103,9 +103,12 @@ describe("ProjectSidebar", () => {
     expect(screen.getByText("选择现有文件夹")).toBeInTheDocument();
 
     fireEvent.click(screen.getByText("新建空白项目"));
-    expect(screen.getByRole("dialog", { name: "新建项目" })).toBeInTheDocument();
+    const createDialog = screen.getByRole("dialog", { name: "新建项目" });
+    expect(createDialog).toHaveClass("fixed");
+    expect(createDialog).toHaveClass("items-center");
+    expect(createDialog).not.toHaveClass("h-[100dvh]");
     fireEvent.change(screen.getByLabelText("项目名称"), { target: { value: "新项目" } });
-    fireEvent.click(screen.getByText("创建"));
+    fireEvent.click(screen.getByText("创建本机项目"));
 
     expect(onCreateBlankProject).toHaveBeenCalledWith("新项目");
   });
@@ -155,7 +158,40 @@ describe("ProjectSidebar", () => {
     expect(onEditAgent).toHaveBeenCalledWith("a1");
   });
 
-  it("好友和项目默认只展示 3 个，点击后展开全部", () => {
+  it("删除 Agent 使用原按钮二次确认", () => {
+    const onDeleteAgent = vi.fn().mockResolvedValue(undefined);
+    const agent = makeAgent("a1", "前端工程师");
+
+    renderSidebar({ agents: [agent], onDeleteAgent });
+
+    fireEvent.click(screen.getByTitle("智能体操作"));
+    fireEvent.click(screen.getByText("删除"));
+
+    expect(onDeleteAgent).not.toHaveBeenCalled();
+    expect(screen.getByText("确认")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: /删除/ })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("确认"));
+    expect(onDeleteAgent).toHaveBeenCalledWith("a1");
+  });
+
+  it("删除项目使用原按钮二次确认", () => {
+    const onDeleteProject = vi.fn().mockResolvedValue(undefined);
+
+    renderSidebar({ onDeleteProject });
+
+    fireEvent.click(screen.getByLabelText("项目操作"));
+    fireEvent.click(screen.getByText("删除目录"));
+
+    expect(onDeleteProject).not.toHaveBeenCalled();
+    expect(screen.getByText("确认")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: /删除/ })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("确认"));
+    expect(onDeleteProject).toHaveBeenCalledWith("p1", true);
+  });
+
+  it("好友列表固定高度滚动且不再需要展开按钮，项目仍可展开", () => {
     renderSidebar({
       projects: [
         makeProject("p1", "项目一"),
@@ -172,16 +208,15 @@ describe("ProjectSidebar", () => {
     });
 
     expect(screen.getByText("Claude")).toBeInTheDocument();
+    expect(screen.getByText("Pascal")).toBeInTheDocument();
     expect(screen.getByText("项目三")).toBeInTheDocument();
-    expect(screen.queryByText("Pascal")).not.toBeInTheDocument();
     expect(screen.queryByText("项目四")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("好友列表")).toHaveClass("agenthub-friends-scroll");
+    expect(screen.queryByRole("button", { name: /展开全部好友/ })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /展开全部好友/ }));
     fireEvent.click(screen.getByRole("button", { name: /展开全部项目/ }));
 
-    expect(screen.getByText("Pascal")).toBeInTheDocument();
     expect(screen.getByText("项目四")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /收起好友 \(4\)/ })).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByRole("button", { name: /收起项目 \(4\)/ })).toHaveAttribute("aria-expanded", "true");
   });
 
@@ -209,6 +244,8 @@ describe("ProjectSidebar", () => {
     });
 
     expect(screen.queryByLabelText("团队空间")).not.toBeInTheDocument();
+    expect(screen.queryByText("本机项目设置")).not.toBeInTheDocument();
+    expect(screen.queryByText("工作区设置")).not.toBeInTheDocument();
     fireEvent.click(screen.getByTitle("创建项目"));
     expect(screen.getByText("新建空白项目")).toBeInTheDocument();
     expect(screen.getByText("选择现有文件夹")).toBeInTheDocument();
@@ -226,11 +263,34 @@ describe("ProjectSidebar", () => {
     });
 
     expect(screen.getByLabelText("团队空间")).toBeInTheDocument();
+    expect(screen.getByText("工作区设置")).toBeInTheDocument();
     fireEvent.click(screen.getByTitle("创建项目"));
     expect(screen.getByText("新建云端项目")).toBeInTheDocument();
     expect(screen.queryByText("新建空白项目")).not.toBeInTheDocument();
     expect(screen.queryByText("选择现有文件夹")).not.toBeInTheDocument();
     expect(screen.getAllByText("云端项目").length).toBeGreaterThan(0);
     expect(screen.queryByText("大作业")).not.toBeInTheDocument();
+  });
+
+  it("SaaS 团队创建使用全局弹窗", () => {
+    const onCreateTeam = vi.fn().mockResolvedValue(undefined);
+
+    renderSidebar({
+      productEdition: "saas",
+      teams: [{ id: "t1", name: "研发团队", role: "owner", memberCount: 1, createdAt: "" }],
+      onCreateTeam,
+    });
+
+    fireEvent.click(screen.getByLabelText("团队空间"));
+    fireEvent.click(screen.getByRole("button", { name: "创建团队" }));
+
+    const teamDialog = screen.getByRole("dialog", { name: "创建团队" });
+    expect(teamDialog).toHaveClass("fixed");
+    expect(teamDialog).toHaveClass("items-center");
+    expect(teamDialog).not.toHaveClass("h-[100dvh]");
+    fireEvent.change(screen.getByLabelText("团队名称"), { target: { value: "增长团队" } });
+    fireEvent.click(screen.getByRole("button", { name: "创建团队" }));
+
+    expect(onCreateTeam).toHaveBeenCalledWith("增长团队");
   });
 });

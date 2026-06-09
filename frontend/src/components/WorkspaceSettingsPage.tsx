@@ -20,7 +20,6 @@ interface Props {
   currentUser: CurrentUser | null;
   teams: Team[];
   onRefreshProjects: () => Promise<void>;
-  variant?: "auto" | "local" | "cloud";
 }
 
 export function WorkspaceSettingsPage({
@@ -28,7 +27,6 @@ export function WorkspaceSettingsPage({
   currentUser,
   teams,
   onRefreshProjects,
-  variant = "auto",
 }: Props) {
   const [workspace, setWorkspace] = useState<CloudWorkspace | null>(null);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
@@ -50,7 +48,7 @@ export function WorkspaceSettingsPage({
     () => teams.find((team) => team.id === project?.teamId) ?? null,
     [project?.teamId, teams],
   );
-  const isCloud = variant === "cloud" || (variant === "auto" && project?.workspaceMode === "cloud");
+  const isCloud = project?.workspaceMode === "cloud";
 
   const loadCloudData = useCallback(async () => {
     if (!project || !isCloud || !project.workspaceId) {
@@ -114,7 +112,11 @@ export function WorkspaceSettingsPage({
   }
 
   if (!isCloud) {
-    return <LocalProjectSettingsContent project={project} />;
+    return (
+      <main className="agenthub-chat flex min-h-0 flex-1 items-center justify-center px-6 text-center">
+        <span className="agenthub-muted text-lg">选择云端项目后查看工作区</span>
+      </main>
+    );
   }
 
   return (
@@ -369,51 +371,8 @@ export function WorkspaceSettingsPage({
   );
 }
 
-export function LocalProjectSettings(props: Omit<Props, "variant">) {
-  return <WorkspaceSettingsPage {...props} variant="local" />;
-}
-
-export function CloudWorkspaceSettings(props: Omit<Props, "variant">) {
-  return <WorkspaceSettingsPage {...props} variant="cloud" />;
-}
-
-function LocalProjectSettingsContent({ project }: { project: Project }) {
-  return (
-    <main className="agenthub-chat min-h-0 flex-1 overflow-y-auto">
-      <header className="agenthub-header border-b px-5 py-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="agenthub-faint text-xs">本机项目设置</p>
-            <h1 className="agenthub-strong text-lg font-semibold">{project.name}</h1>
-          </div>
-          <ModeBadge mode="local" />
-        </div>
-      </header>
-
-      <section className="border-b px-5 py-4" style={{ borderColor: "var(--ah-border)" }}>
-        <div className="grid gap-3 text-sm md:grid-cols-3">
-          <InfoCell label="项目 ID" value={project.id} />
-          <InfoCell label="状态" value={project.status} />
-          <InfoCell label="文件数" value={String(project.fileCount)} />
-          <InfoCell label="大小" value={`${project.totalSizeBytes} B`} />
-        </div>
-      </section>
-
-      <section className="px-5 py-5">
-        <SectionTitle icon={HardDrive} title="本机工作区" />
-        <div className="mt-3 grid gap-2 text-sm">
-          <div className="agenthub-nav-idle rounded-lg border px-3 py-3" style={{ borderColor: "var(--ah-border)" }}>
-            <span className="agenthub-faint block text-xs">路径</span>
-            <span className="agenthub-strong mt-1 block break-all">{project.workspacePath ?? "未绑定"}</span>
-          </div>
-          <div className="agenthub-nav-idle rounded-lg border px-3 py-3" style={{ borderColor: "var(--ah-border)" }}>
-            <span className="agenthub-faint block text-xs">运行环境</span>
-            <span className="agenthub-strong mt-1 block">本机 CLI Agent 与本机预览/构建/导出</span>
-          </div>
-        </div>
-      </section>
-    </main>
-  );
+export function CloudWorkspaceSettings(props: Props) {
+  return <WorkspaceSettingsPage {...props} />;
 }
 
 function LoadingSections() {

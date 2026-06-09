@@ -29,6 +29,7 @@ import { HealthCheckCard } from "./HealthCheckCard";
 import { ArtifactReviewModal } from "./ArtifactReviewModal";
 import { GroupManagementDialog } from "./GroupManagementDialog";
 import { useToastStore } from "../stores/toastStore";
+import { GlobalModal } from "./GlobalModal";
 
 interface Props {
   messages: Message[];
@@ -781,24 +782,36 @@ function ForwardMessagesDialog({
 }) {
   const targets = sessions.filter((session) => !session.archivedAt && session.id !== currentSessionId);
   return (
-    <div className="agenthub-backdrop fixed inset-0 z-[1300] flex items-center justify-center px-4">
-      <div className="agenthub-modal agenthub-modal-pop flex max-h-[78dvh] w-full max-w-md flex-col overflow-hidden rounded-3xl border">
-        <div className="agenthub-header flex items-center justify-between border-b px-4 py-3">
-          <div>
-            <h2 className="agenthub-strong text-base font-semibold">转发消息</h2>
-            <p className="agenthub-muted mt-0.5 text-xs">选择目标对话，已选 {messageCount} 条消息</p>
-          </div>
+    <GlobalModal
+      title="转发消息"
+      subtitle={`选择目标对话，已选 ${messageCount} 条消息`}
+      icon={<Forward size={18} />}
+      zIndexClass="z-[1300]"
+      panelClassName="max-w-lg"
+      onClose={onCancel}
+      closeLabel="关闭转发"
+      footer={(
+        <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
           <button
             type="button"
             onClick={onCancel}
-            className="agenthub-icon-button inline-flex h-8 w-8 items-center justify-center rounded-full"
-            aria-label="关闭转发"
-            title="关闭"
+            className="agenthub-icon-button h-9 rounded-full px-4 text-sm font-medium"
           >
-            <X size={14} />
+            取消
+          </button>
+          <button
+            type="button"
+            onClick={onSubmit}
+            disabled={busy || selectedTargetIds.size === 0}
+            className="agenthub-primary-button inline-flex h-9 items-center gap-2 rounded-full px-4 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {busy ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current/30 border-t-current" /> : <Forward size={14} />}
+            发送
           </button>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto p-2">
+      )}
+    >
+      <div className="max-h-[56dvh] overflow-y-auto">
           {targets.length === 0 ? (
             <div className="agenthub-muted px-4 py-8 text-center text-sm">暂无可转发的目标对话</div>
           ) : (
@@ -826,27 +839,8 @@ function ForwardMessagesDialog({
               );
             })
           )}
-        </div>
-        <div className="agenthub-header flex items-center justify-end gap-2 border-t px-4 py-3">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="agenthub-icon-button h-9 rounded-full px-4 text-sm font-medium"
-          >
-            取消
-          </button>
-          <button
-            type="button"
-            onClick={onSubmit}
-            disabled={busy || selectedTargetIds.size === 0}
-            className="agenthub-primary-button inline-flex h-9 items-center gap-2 rounded-full px-4 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {busy ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current/30 border-t-current" /> : <Forward size={14} />}
-            发送
-          </button>
-        </div>
       </div>
-    </div>
+    </GlobalModal>
   );
 }
 
@@ -874,3 +868,4 @@ function MessageListSkeleton() {
 }
 
 export const MemoChatWindow = memo(ChatWindow);
+

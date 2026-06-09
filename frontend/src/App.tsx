@@ -9,7 +9,6 @@ import { OrchestratorDebugPanel } from "./components/OrchestratorDebugPanel";
 import { useCapabilities } from "./app/ShellProvider";
 import { LocalProjectSidebar } from "./shells/local/LocalProjectSidebar";
 import { SaasProjectSidebar } from "./shells/saas/SaasProjectSidebar";
-import { LocalProjectSettings } from "./shells/local/LocalProjectSettings";
 import { CloudWorkspaceSettings } from "./shells/saas/CloudWorkspaceSettings";
 import {
   deleteAgent,
@@ -92,6 +91,7 @@ export function AgentHubWorkbench() {
   const [showGroupCreator, setShowGroupCreator] = useState(false);
   const [agentModal, setAgentModal] = useState<{ mode: "create" | "edit"; agentId?: string } | null>(null);
   const [appRoute, setAppRoute] = useState(() => window.location.hash || "#/");
+  const effectiveSidebarTab = edition === "local" && sidebarTab === "workspace" ? "sessions" : sidebarTab;
   const handleSend = useSendMessage();
   const pushToast = useToastStore((state) => state.pushToast);
 
@@ -203,7 +203,7 @@ export function AgentHubWorkbench() {
           projects={projects}
           currentProjectId={currentProjectId}
           agents={agents}
-          activePanel={sidebarTab}
+          activePanel={effectiveSidebarTab}
           currentUser={currentUser}
           teams={teams}
           currentTeamId={currentTeamId}
@@ -262,7 +262,7 @@ export function AgentHubWorkbench() {
           projects={projects}
           currentProjectId={currentProjectId}
           agents={agents}
-          activePanel={sidebarTab}
+          activePanel={effectiveSidebarTab}
           currentUser={currentUser}
           teams={teams}
           currentTeamId={currentTeamId}
@@ -359,22 +359,13 @@ export function AgentHubWorkbench() {
         </div>
       </div>
 
-      {sidebarTab === "workspace" ? (
-        edition === "local" ? (
-          <LocalProjectSettings
-            project={currentProject}
-            currentUser={currentUser}
-            teams={teams}
-            onRefreshProjects={loadData}
-          />
-        ) : (
-          <CloudWorkspaceSettings
-            project={currentProject}
-            currentUser={currentUser}
-            teams={teams}
-            onRefreshProjects={loadData}
-          />
-        )
+      {effectiveSidebarTab === "workspace" ? (
+        <CloudWorkspaceSettings
+          project={currentProject}
+          currentUser={currentUser}
+          teams={teams}
+          onRefreshProjects={loadData}
+        />
       ) : currentSessionId ? (
         <ChatWindow
           messages={messages} isStreaming={isStreaming}
@@ -479,3 +470,4 @@ function DeveloperToolsPage({
     </div>
   );
 }
+

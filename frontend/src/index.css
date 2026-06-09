@@ -390,6 +390,19 @@ body {
   color: var(--ah-muted);
 }
 
+.agenthub-confirm-danger {
+  color: #f2a0a0 !important;
+}
+
+:root[data-theme="light"] .agenthub-confirm-danger {
+  color: #9f3f3f !important;
+}
+
+.agenthub-confirm-danger svg {
+  color: inherit !important;
+  stroke: currentColor !important;
+}
+
 .agenthub-faint {
   color: var(--ah-faint);
 }
@@ -446,15 +459,18 @@ body {
   overflow-x: hidden;
 }
 
-.agenthub-expand-scroll-open {
-  max-height: min(34dvh, 280px);
+.agenthub-friends-scroll {
+  max-height: 232px;
   overflow-y: auto;
   overscroll-behavior: contain;
   padding-right: 2px;
 }
 
-.agenthub-expand-scroll-friends.agenthub-expand-scroll-open {
-  max-height: min(26dvh, 220px);
+.agenthub-expand-scroll-open {
+  max-height: min(34dvh, 280px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
 }
 
 .agenthub-expand-scroll-projects.agenthub-expand-scroll-open {

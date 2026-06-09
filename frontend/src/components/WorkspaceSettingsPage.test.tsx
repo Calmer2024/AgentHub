@@ -175,11 +175,13 @@ describe("WorkspaceSettingsPage", () => {
     }));
   });
 
-  it("本机项目只显示本机工作区摘要", () => {
+  it("本机项目不再提供本机项目设置页", () => {
     renderPage(localProject);
 
-    expect(screen.getByText("本机工作区")).toBeInTheDocument();
-    expect(screen.getAllByText("D:/workspace/local").length).toBeGreaterThan(0);
+    expect(screen.getByText("选择云端项目后查看工作区")).toBeInTheDocument();
+    expect(screen.queryByText("本机项目设置")).not.toBeInTheDocument();
+    expect(screen.queryByText("本机工作区")).not.toBeInTheDocument();
+    expect(screen.queryByText("D:/workspace/local")).not.toBeInTheDocument();
     expect(apiMocks.fetchWorkspace).not.toHaveBeenCalled();
   });
 });

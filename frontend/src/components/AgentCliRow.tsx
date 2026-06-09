@@ -1,4 +1,5 @@
-import { Settings, Trash2 } from "lucide-react";
+import { Check, Settings, Trash2 } from "lucide-react";
+import { useState } from "react";
 import type { AgentConfig } from "../types";
 import { AgentAvatar } from "./AgentAvatar";
 
@@ -11,6 +12,23 @@ export function AgentCliRow({
   onEdit: () => void;
   onDelete: () => Promise<void>;
 }) {
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDelete = async () => {
+    if (!confirmingDelete) {
+      setConfirmingDelete(true);
+      return;
+    }
+    setDeleting(true);
+    try {
+      await onDelete();
+      setConfirmingDelete(false);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return (
     <div className="agenthub-card rounded-2xl border p-3">
       <div className="flex items-start justify-between gap-3">
@@ -43,7 +61,10 @@ export function AgentCliRow({
         <div className="flex gap-1">
           <button
             type="button"
-            onClick={onEdit}
+            onClick={() => {
+              setConfirmingDelete(false);
+              onEdit();
+            }}
             className="agenthub-icon-button inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs"
           >
             <Settings size={13} />
@@ -51,11 +72,16 @@ export function AgentCliRow({
           </button>
           <button
             type="button"
-            onClick={onDelete}
-            className="inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs text-[color:var(--ah-danger)] hover:bg-[color:var(--ah-danger-soft)]"
+            onClick={() => void handleDelete()}
+            disabled={deleting}
+            className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-50 ${
+              confirmingDelete
+                ? "agenthub-confirm-danger hover:bg-[color:var(--ah-danger-soft)]"
+                : "agenthub-icon-button"
+            }`}
           >
-            <Trash2 size={13} />
-            删除
+            {confirmingDelete && !deleting ? <Check size={13} /> : <Trash2 size={13} />}
+            {deleting ? "删除中" : confirmingDelete ? "确认" : "删除"}
           </button>
         </div>
       </div>

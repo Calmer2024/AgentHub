@@ -4,6 +4,7 @@ import {
   Archive,
   Bell,
   BellOff,
+  Check,
   FolderOpen,
   Inbox,
   MessageCircle,
@@ -17,7 +18,6 @@ import {
 } from "lucide-react";
 import type { Session, AgentConfig, Project, RunStatus } from "../types";
 import { AgentAvatar } from "./AgentAvatar";
-import { ConfirmDialog } from "./ConfirmDialog";
 import { formatChinaDateTime } from "../utils/time";
 import { useChatStore } from "../stores/chatStore";
 
@@ -59,7 +59,7 @@ export function SessionList({
   const [renameTitle, setRenameTitle] = useState("");
   const [query, setQuery] = useState("");
   const [view, setView] = useState<"active" | "archive">("active");
-  const [deleteTarget, setDeleteTarget] = useState<Session | null>(null);
+  const [deleteConfirmSessionId, setDeleteConfirmSessionId] = useState<string | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const previousProjectIdRef = useRef(project?.id);
   const runtimeBySession = useChatStore((state) => state.runtimeBySession);
@@ -71,6 +71,7 @@ export function SessionList({
     previousProjectIdRef.current = project?.id;
     setView("active");
     setMenuOpen(null);
+    setDeleteConfirmSessionId(null);
     setQuery("");
   }, [project?.id]);
 
@@ -127,12 +128,16 @@ export function SessionList({
   const archivedView = view === "archive";
   const visibleSessions = archivedView ? sessionGroups.archived : sessionGroups.active;
 
-  const confirmDeleteSession = async () => {
-    if (!deleteTarget) return;
+  const requestDeleteSession = async (session: Session) => {
+    if (deleteConfirmSessionId !== session.id) {
+      setDeleteConfirmSessionId(session.id);
+      return;
+    }
     setDeleteBusy(true);
     try {
-      await onDeleteSession(deleteTarget.id);
-      setDeleteTarget(null);
+      await onDeleteSession(session.id);
+      setDeleteConfirmSessionId(null);
+      setMenuOpen(null);
     } finally {
       setDeleteBusy(false);
     }
@@ -173,6 +178,7 @@ export function SessionList({
         onContextMenu={(event) => {
           event.preventDefault();
           setMenuOpen(session.id);
+          setDeleteConfirmSessionId(null);
         }}
         className={`group relative mb-1 animate-[agenthub-slide-in_180ms_ease-out_both] ${
           menuIsOpen ? "z-40" : "z-0"
@@ -239,7 +245,11 @@ export function SessionList({
           )}
         </button>
         <button
-          onClick={(e) => { e.stopPropagation(); setMenuOpen(menuIsOpen ? null : session.id); }}
+          onClick={(e) => {
+            e.stopPropagation();
+            setDeleteConfirmSessionId(null);
+            setMenuOpen(menuIsOpen ? null : session.id);
+          }}
           className="agenthub-icon-button absolute right-1 top-2 inline-flex h-7 w-7 items-center justify-center rounded-lg opacity-0 transition-opacity group-hover:opacity-100"
           aria-label="会话操作"
           title="会话操作"
@@ -250,7 +260,7 @@ export function SessionList({
           <div className="agenthub-menu agenthub-popover absolute right-0 top-8 z-50 w-44 rounded-2xl border p-1">
             {variant === "archived" ? (
               <button
-                onClick={() => { onArchiveSession(session.id, false); setMenuOpen(null); }}
+                onClick={() => { onArchiveSession(session.id, false); setMenuOpen(null); setDeleteConfirmSessionId(null); }}
                 className="agenthub-nav-idle flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm"
               >
                 <Inbox size={14} />
@@ -258,7 +268,7 @@ export function SessionList({
               </button>
             ) : (
               <button
-                onClick={() => { onPinSession(session.id, !session.isPinned); setMenuOpen(null); }}
+                onClick={() => { onPinSession(session.id, !session.isPinned); setMenuOpen(null); setDeleteConfirmSessionId(null); }}
                 className="agenthub-nav-idle flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm"
               >
                 {session.isPinned ? <PinOff size={14} /> : <Pin size={14} />}
@@ -267,29 +277,38 @@ export function SessionList({
             )}
             {variant !== "archived" && (
               <button
-                onClick={() => { onMuteSession(session.id, !session.isMuted); setMenuOpen(null); }}
+                onClick={() => { onMuteSession(session.id, !session.isMuted); setMenuOpen(null); setDeleteConfirmSessionId(null); }}
                 className="agenthub-nav-idle flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm"
               >
                 {session.isMuted ? <Bell size={14} /> : <BellOff size={14} />}
                 {session.isMuted ? "关闭免打扰" : "免打扰"}
               </button>
             )}
-            <button onClick={() => { setRenaming(session.id); setRenameTitle(session.title); setMenuOpen(null); }}
+            <button onClick={() => { setRenaming(session.id); setRenameTitle(session.title); setMenuOpen(null); setDeleteConfirmSessionId(null); }}
               className="agenthub-nav-idle flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm">
               <Pencil size={14} />
               重命名
             </button>
             {variant !== "archived" && (
-              <button onClick={() => { onArchiveSession(session.id, true); setMenuOpen(null); }}
+              <button onClick={() => { onArchiveSession(session.id, true); setMenuOpen(null); setDeleteConfirmSessionId(null); }}
                 className="agenthub-nav-idle flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm">
                 <Archive size={14} />
                 归档
               </button>
             )}
-            <button onClick={() => { setDeleteTarget(session); setMenuOpen(null); }}
-              className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm text-[color:var(--ah-danger)] hover:bg-[color:var(--ah-danger-soft)]">
-              <Trash2 size={14} />
-              删除
+            <button
+              onClick={() => void requestDeleteSession(session)}
+              disabled={deleteBusy}
+              className={`flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm disabled:cursor-not-allowed disabled:opacity-50 ${
+                deleteConfirmSessionId === session.id
+                  ? "agenthub-confirm-danger hover:bg-[color:var(--ah-danger-soft)]"
+                  : "agenthub-nav-idle"
+              }`}
+            >
+              {deleteConfirmSessionId === session.id && !deleteBusy ? <Check size={14} /> : <Trash2 size={14} />}
+              {deleteBusy && deleteConfirmSessionId === session.id
+                ? "删除中"
+                : deleteConfirmSessionId === session.id ? "确认" : "删除"}
             </button>
           </div>
         )}
@@ -450,15 +469,6 @@ export function SessionList({
           </>
         )}
       </div>
-      <ConfirmDialog
-        open={Boolean(deleteTarget)}
-        title="删除对话"
-        description={`删除「${deleteTarget?.title ?? ""}」后，历史消息会从当前列表移除。`}
-        confirmLabel="删除"
-        busy={deleteBusy}
-        onCancel={() => setDeleteTarget(null)}
-        onConfirm={() => void confirmDeleteSession()}
-      />
     </div>
   );
 }

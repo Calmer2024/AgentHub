@@ -75,4 +75,20 @@ describe("AgentCliForm", () => {
 
     expect(screen.queryByRole("button", { name: /产品经理/ })).not.toBeInTheDocument();
   });
+
+  it("切换到自定义 CLI 时默认使用自定义头像", async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    render(<AgentCliForm onSave={onSave} onCancel={vi.fn()} />);
+
+    fireEvent.click(screen.getByLabelText("命令行类型"));
+    fireEvent.click(screen.getByRole("option", { name: "自定义" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+      cliTool: "custom",
+      name: "Custom CLI",
+      avatar: "preset:custom",
+    }));
+  });
 });

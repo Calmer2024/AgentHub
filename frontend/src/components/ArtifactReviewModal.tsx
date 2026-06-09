@@ -21,7 +21,7 @@ export function ArtifactReviewModal({ artifact, onClose, onChanged }: Props) {
       onClick={onClose}
     >
       <div
-        className="agenthub-modal flex max-h-[90dvh] w-full max-w-5xl flex-col overflow-hidden rounded-3xl border"
+        className="agenthub-modal agenthub-modal-pop flex max-h-[92dvh] w-full max-w-5xl flex-col overflow-hidden rounded-3xl border"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="agenthub-header flex items-center justify-between gap-3 border-b px-4 py-3">
