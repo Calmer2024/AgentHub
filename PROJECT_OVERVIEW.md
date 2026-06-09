@@ -23,7 +23,7 @@
 | 阶段 | 产品形态 | 架构 | 一键部署 |
 |------|---------|------|---------|
 | **P1（当前）** | **桌面版**：桌面端（Tauri/Node.js）= 本地无头服务器 + 本地特权执行引擎；Web 端（浏览器）= 主力 UI | 浏览器 → localhost 后端 → 本机文件系统 + 本机 CLI Agent | ❌ |
-| **P2（基座已启动，完整形态后续）** | **SaaS 云版**：Web 浏览器 + 云端后端 + 云端容器沙箱 | 浏览器 → 云端后端 → 云端沙箱 + 云端 CLI Agent → 部署到云端 URL | ✅ |
+| **P2（云端协作切片已启动，产品壳已拆分）** | **SaaS 云版**：Web 浏览器 + 云端后端 + 云端容器沙箱 | 浏览器 → 云端后端 → 云端沙箱 + 云端 CLI Agent → 部署到云端 URL | ✅ |
 
 **P1 为什么不能一键部署？** CLI Agent 进程直接在用户本机运行，读写本地文件系统。没有远程服务器可"部署"到。一键部署是 P2 云版（有沙箱环境）才具备的能力。
 
@@ -60,7 +60,9 @@ AgentHub/
 │
 ├── frontend/                   ← React 前端
 │   └── src/
-│       ├── App.tsx             ← 主页面
+│       ├── App.tsx             ← 共享桌面工作台
+│       ├── app/                ← AppRoot、ShellProvider、能力矩阵
+│       ├── shells/             ← Local Desktop / SaaS Web / Mobile 产品壳
 │       ├── components/         ← UI 组件
 │       ├── stores/             ← 状态管理（Zustand）
 │       ├── api/                ← 后端通信（REST + SSE + WebSocket）
@@ -75,7 +77,7 @@ AgentHub/
 
 ## 已经做完了什么？
 
-项目已完成 Phase 1-9。Phase 1-7 打通 P1 本机 IM + CLI Agent + Artifact + 运行控制与 UI 基线；Phase 8 完成 P1 发布候选收口；Phase 9 完成 P2 Cloud Workspace Foundation，并通过 P1 local 零回归与 P2 cloud slice 真实服务验收。下一阶段是 Phase 10：Sandbox Runner 与云端 Agent Runtime。
+项目已完成 Phase 1-13。Phase 1-8 打通 P1 本机 IM + CLI Agent + Artifact + 运行控制、预览/构建/导出与发布候选基线；Phase 9-12 在不破坏 P1 local 的前提下递增出 P2 Cloud Workspace、Sandbox Runner、Cloud Preview/Deployment、团队协作、移动端审批预览、附件和高级 Artifact 的最小可运行切片；Phase 13 已把 Local Desktop、SaaS Web、Mobile 拆成独立产品壳、构建命令、能力矩阵和验收闭环。
 
 ### Phase 1：单聊全链路 ✅
 
@@ -136,7 +138,7 @@ Phase 3 聚焦多 Agent 协作基础设施与 Orchestrator 深化。
 
 ---
 
-## 接下来要做什么？（Phase 10）
+## 近期阶段完成概览
 
 ### Phase 6：Workspace Runtime + CLI Agent 适配器 + 产物入口桥接 ✅
 
@@ -166,12 +168,28 @@ Phase 3 聚焦多 Agent 协作基础设施与 Orchestrator 深化。
 - CloudWorkspaceProvider 已支持创建、导入记录、snapshot、restore 和审计闭环。
 - P1 本地版继续使用本机 `workspace_path`；SaaS 云端版使用 `workspaceId` 与 `cloud://agenthub/workspaces/{id}` 逻辑 URI。
 
-### Phase 10：Sandbox Runner 与云端 Agent Runtime 🔜
+### Phase 10：Sandbox Runner 与云端 Agent Runtime ✅
 
-- 在云端隔离 sandbox 中挂载 Phase 9 workspace。
-- 启动真实 Claude Code / Codex / OpenCode CLI Agent，并复用 P1 的标准事件契约。
-- 补齐云端配额、secret 注入、runtime logs 和日志脱敏。
-- 继续执行 P1 local CLI runtime、build/preview/export 零回归门禁。
+- cloud Project 可创建 sandbox，并在云端 workspace 中启动真实 CLI Agent。
+- 云端 runtime 复用 P1 标准事件契约，能回传输出、Artifact、运行状态和脱敏 runtime logs。
+- 配额、Secret 脱敏、P1/P2 双运行时兼容门禁已完成。
+
+### Phase 11：Cloud Preview 与 Deployment ✅
+
+- 云端 Artifact 可创建 preview URL。
+- Deployment pipeline、部署日志、发布 URL、重试和回滚闭环已完成。
+- P1 本地 preview/build/export 没有被 cloud deploy 替换。
+
+### Phase 12：协作、多端与高级 Artifact ✅
+
+- 团队评论、通知、移动端审批预览、附件输入、Artifact 引用、Git sync、对话式 Agent 创建已完成。
+- Web/Mobile cloud 协作切片和 P1 local 回归已纳入验收矩阵。
+
+### Phase 13：多端产品壳拆分 ✅
+
+- 当前混合前端已拆成 Local Desktop Shell、SaaS Web Shell、Mobile Shell。
+- 已建立 `/api/capabilities`、三端 dev/build 命令、Tauri/Capacitor skeleton 和三端验收矩阵。
+- 本地版隐藏 SaaS 概念；SaaS 版隐藏本机特权能力；移动端不承载桌面三栏和本机 CLI。
 
 ---
 
@@ -312,11 +330,33 @@ GET    /api/audit-logs                           查询审计日志
 cd backend
 .venv\Scripts\python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 
-# 前端（另一个终端）
+# 前端（另一个终端，本地桌面壳）
 cd frontend
-npx vite --host 127.0.0.1 --port 5173
+npm run dev:local -- --host 127.0.0.1 --port 5173
 
 # 浏览器打开 http://127.0.0.1:5173
+```
+
+SaaS Web 和 Mobile 壳分别使用 `npm run dev:saas`、`npm run dev:mobile`；构建命令为 `npm run build:local`、`npm run build:saas`、`npm run build:mobile`。
+
+要并行查看三端效果，可在仓库根目录运行：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\start-three-shells.ps1
+```
+
+默认访问地址：
+
+| 端 | 前端 | 后端 | API Docs |
+|----|------|------|----------|
+| Local Desktop | `http://127.0.0.1:5173` | `http://127.0.0.1:8000` | `http://127.0.0.1:8000/docs` |
+| SaaS Web | `http://127.0.0.1:5174` | `http://127.0.0.1:8010` | `http://127.0.0.1:8010/docs` |
+| Mobile | `http://127.0.0.1:5175` | `http://127.0.0.1:8020` | `http://127.0.0.1:8020/docs` |
+
+停止三端：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\stop-three-shells.ps1
 ```
 
 用户聊天 Agent 走本机 CLI 认证：请先在系统终端完成 `claude` / `codex` / `opencode` 的安装和登录。`DEEPSEEK_API_KEY` 仅由后端内部读取，用于标题生成、中枢总结、产物编辑辅助等系统能力，不向用户暴露。
@@ -354,6 +394,7 @@ python e2e/full_ui_audit.py
 | **Phase 7 运行控制交付快照** | `docs/deliverables/phase7-runtime-control/README.md` | 运行控制、审批卡片、环境体检实现与验收记录 |
 | **Phase 7 IM 加固交付快照** | `docs/deliverables/phase7-im-hardening/README.md` | 会话 IM 基线、右键菜单、明亮主题、执行过程全屏与 v1.0 UI 加固 |
 | **Phase 9 Cloud Workspace 交付快照** | `docs/deliverables/phase9-cloud-workspace/README.md` | 用户/团队/RBAC、云端 workspace 元数据、导入/快照/恢复、审计与 P1/P2 验收 |
+| **Phase 13 多端产品壳交付快照** | `docs/deliverables/phase13-product-shells/README.md` | Local/SaaS/Mobile shell、能力矩阵、三端构建、native skeleton 与真实服务验收 |
 | **Docs Index** | `docs/README.md` | 查看所有文档入口 |
 
 ### 按需查阅

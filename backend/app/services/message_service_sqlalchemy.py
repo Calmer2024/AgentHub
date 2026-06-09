@@ -366,9 +366,11 @@ def message_to_read(message: DBMessage, highlight: str | None = None) -> Message
 def message_to_prompt_dict(
     message: DBMessage, context_priority: str | None = None,
 ) -> dict:
+    metadata = _metadata_dict(message)
+    content = _content_with_attachment_context(message.content, metadata)
     data = {
         "role": message.role,
-        "content": message.content,
+        "content": content,
         "id": message.id,
         "source_name": getattr(message, "source_name", None) or message.agent_name,
         "created_at": message.created_at.isoformat() if message.created_at else "",
@@ -376,6 +378,24 @@ def message_to_prompt_dict(
     if context_priority:
         data["context_priority"] = context_priority
     return data
+
+
+def _content_with_attachment_context(content: str, metadata: dict) -> str:
+    attachments = metadata.get("attachments")
+    if not isinstance(attachments, list) or not attachments:
+        return content
+    lines = ["[Attachment context]"]
+    for item in attachments:
+        if not isinstance(item, dict):
+            continue
+        filename = str(item.get("filename") or "attachment")
+        mime_type = str(item.get("mimeType") or item.get("mime_type") or "unknown")
+        size = str(item.get("sizeBytes") or item.get("size_bytes") or "")
+        storage_uri = str(item.get("storageUri") or item.get("storage_uri") or "")
+        lines.append(f"- {filename} ({mime_type}, {size} bytes): {storage_uri}")
+    if len(lines) == 1:
+        return content
+    return f"{content}\n\n" + "\n".join(lines)
 
 
 def row_to_read(row) -> MessageRead:

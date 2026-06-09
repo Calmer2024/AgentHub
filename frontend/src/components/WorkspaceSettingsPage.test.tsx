@@ -5,8 +5,10 @@ import type { CloudWorkspace, Project } from "../types";
 
 const apiMocks = vi.hoisted(() => ({
   addTeamMember: vi.fn(),
+  createSecret: vi.fn(),
   createWorkspaceSnapshot: vi.fn(),
   fetchAuditLogs: vi.fn(),
+  fetchQuotaSummary: vi.fn(),
   fetchWorkspace: vi.fn(),
   importWorkspaceGithub: vi.fn(),
   importWorkspaceZip: vi.fn(),
@@ -86,6 +88,16 @@ describe("WorkspaceSettingsPage", () => {
 
   it("云端工作区加载导入、快照和审计日志", async () => {
     apiMocks.fetchWorkspace.mockResolvedValue(workspace);
+    apiMocks.fetchQuotaSummary.mockResolvedValue({
+      subjectType: "user",
+      subjectId: "u1",
+      concurrentRunsLimit: 2,
+      concurrentRunsUsed: 1,
+      runtimeSecondsLimit: 30,
+      memoryMbLimit: 1024,
+      diskMbLimit: 512,
+      network: "disabled_by_default",
+    });
     apiMocks.fetchAuditLogs.mockResolvedValue([
       { id: "log1", action: "workspace.created", resourceType: "workspace", resourceId: "w1", metadata: {}, createdAt: "" },
     ]);
@@ -94,6 +106,7 @@ describe("WorkspaceSettingsPage", () => {
 
     expect(screen.getByLabelText("正在加载工作区")).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText("cloud://agenthub/workspaces/w1")).toBeInTheDocument());
+    expect(screen.getByText("1/2")).toBeInTheDocument();
     expect(screen.getByText("zip · completed")).toBeInTheDocument();
     expect(screen.getByText("导入后")).toBeInTheDocument();
     expect(screen.getByText("workspace.created")).toBeInTheDocument();
@@ -102,6 +115,16 @@ describe("WorkspaceSettingsPage", () => {
   it("创建和恢复快照后刷新工作区", async () => {
     const onRefreshProjects = vi.fn().mockResolvedValue(undefined);
     apiMocks.fetchWorkspace.mockResolvedValue(workspace);
+    apiMocks.fetchQuotaSummary.mockResolvedValue({
+      subjectType: "user",
+      subjectId: "u1",
+      concurrentRunsLimit: 2,
+      concurrentRunsUsed: 0,
+      runtimeSecondsLimit: 30,
+      memoryMbLimit: 1024,
+      diskMbLimit: 512,
+      network: "disabled_by_default",
+    });
     apiMocks.fetchAuditLogs.mockResolvedValue([]);
     apiMocks.createWorkspaceSnapshot.mockResolvedValue(workspace.snapshots[0]);
     apiMocks.restoreWorkspaceSnapshot.mockResolvedValue({ restoreId: "restore1" });
@@ -115,6 +138,41 @@ describe("WorkspaceSettingsPage", () => {
 
     fireEvent.click(screen.getByLabelText("恢复快照"));
     await waitFor(() => expect(apiMocks.restoreWorkspaceSnapshot).toHaveBeenCalledWith("w1", "snap1", "replace"));
+  });
+
+  it("保存云端 Secret 后清空输入并刷新", async () => {
+    apiMocks.fetchWorkspace.mockResolvedValue(workspace);
+    apiMocks.fetchQuotaSummary.mockResolvedValue({
+      subjectType: "user",
+      subjectId: "u1",
+      concurrentRunsLimit: 2,
+      concurrentRunsUsed: 0,
+      runtimeSecondsLimit: 30,
+      memoryMbLimit: 1024,
+      diskMbLimit: 512,
+      network: "disabled_by_default",
+    });
+    apiMocks.fetchAuditLogs.mockResolvedValue([]);
+    apiMocks.createSecret.mockResolvedValue({
+      id: "sec1",
+      name: "PHASE10_TOKEN",
+      scope: "user",
+      ownerId: "u1",
+      createdAt: "",
+    });
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("cloud://agenthub/workspaces/w1")).toBeInTheDocument());
+
+    fireEvent.change(screen.getByLabelText("Secret 名称"), { target: { value: "PHASE10_TOKEN" } });
+    fireEvent.change(screen.getByLabelText("Secret 值"), { target: { value: "secret" } });
+    fireEvent.click(screen.getByLabelText("保存 Secret"));
+
+    await waitFor(() => expect(apiMocks.createSecret).toHaveBeenCalledWith({
+      name: "PHASE10_TOKEN",
+      value: "secret",
+      scope: "user",
+    }));
   });
 
   it("本机项目只显示本机工作区摘要", () => {

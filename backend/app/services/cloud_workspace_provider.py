@@ -1,7 +1,7 @@
-"""Phase 9 CloudWorkspaceProvider。
+"""Phase 9/10 CloudWorkspaceProvider。
 
-本阶段只维护云端 workspace 元数据、导入占位、快照和恢复记录。
-真实 sandbox 挂载与 CLI 执行由 Phase 10 接入。
+Phase 10 起，云端 workspace 除元数据外还维护一份可挂载的隔离目录，
+Sandbox Runner 通过该目录启动 CLI，快照和导入也同步落到物理存储。
 """
 
 from __future__ import annotations
@@ -25,6 +25,13 @@ from ..models import (
     WorkspaceSnapshot,
 )
 from .audit_service import AuditService
+from .cloud_storage import (
+    CloudStorageError,
+    copy_workspace_snapshot,
+    ensure_cloud_workspace,
+    extract_zip_to_workspace,
+    restore_workspace_snapshot,
+)
 from .phase9_schemas import (
     WorkspaceImportRead,
     WorkspaceRead,
@@ -79,9 +86,10 @@ class CloudWorkspaceProvider:
             metadata_json=json.dumps({
                 "name": project_name,
                 "template": template or "blank",
-                "phase": "phase9_metadata_only",
+                "phase": "phase10_mountable",
             }, ensure_ascii=False),
         )
+        ensure_cloud_workspace(workspace_id, {"projectId": project_id, "name": project_name})
         self.db.add(workspace)
         await self.db.flush()
         await self.audit.record(
@@ -118,6 +126,7 @@ class CloudWorkspaceProvider:
 
         snapshot_id = str(uuid.uuid4())
         clean_label = (label or "").strip() or "手动快照"
+        snapshot_path = copy_workspace_snapshot(workspace.id, snapshot_id)
         snapshot = WorkspaceSnapshot(
             id=snapshot_id,
             workspace_id=workspace.id,
@@ -133,7 +142,7 @@ class CloudWorkspaceProvider:
             action="workspace.snapshot.created",
             resource_type="workspace_snapshot",
             resource_id=snapshot.id,
-            metadata={"workspaceId": workspace.id, "label": clean_label},
+            metadata={"workspaceId": workspace.id, "label": clean_label, "storagePath": str(snapshot_path)},
         )
         await self.db.commit()
         await self.db.refresh(snapshot)
@@ -159,6 +168,10 @@ class CloudWorkspaceProvider:
         snapshot = await self.db.get(WorkspaceSnapshot, snapshot_id)
         if not snapshot or snapshot.workspace_id != workspace.id:
             raise WorkspaceNotFoundCloudError("snapshot not found")
+        try:
+            restore_workspace_snapshot(workspace.id, snapshot.id)
+        except CloudStorageError as exc:
+            raise WorkspaceValidationError(str(exc)) from exc
 
         restore_id = str(uuid.uuid4())
         restore = WorkspaceRestore(
@@ -213,19 +226,23 @@ class CloudWorkspaceProvider:
                 names = [name for name in archive.namelist() if not name.endswith("/")]
         except zipfile.BadZipFile as exc:
             raise WorkspaceValidationError("invalid zip file") from exc
+        try:
+            extracted_names = extract_zip_to_workspace(workspace.id, data)
+        except CloudStorageError as exc:
+            raise WorkspaceValidationError(str(exc)) from exc
 
         import_id = str(uuid.uuid4())
         metadata = {
             "filename": filename,
-            "fileCount": len(names),
-            "files": names[:50],
+            "fileCount": len(extracted_names),
+            "files": extracted_names[:50],
         }
         item = WorkspaceImport(
             id=import_id,
             workspace_id=workspace.id,
             source="zip",
             status="completed",
-            detail=f"已导入 {len(names)} 个文件的元数据",
+            detail=f"已导入 {len(extracted_names)} 个文件",
             metadata_json=json.dumps(metadata, ensure_ascii=False),
             created_by=actor.id,
         )
@@ -239,7 +256,7 @@ class CloudWorkspaceProvider:
             action="workspace.import.completed",
             resource_type="workspace_import",
             resource_id=item.id,
-            metadata={"workspaceId": workspace.id, "source": "zip", "fileCount": len(names)},
+            metadata={"workspaceId": workspace.id, "source": "zip", "fileCount": len(extracted_names)},
         )
         await self.db.commit()
         await self._publish(EventType.WORKSPACE_IMPORT_COMPLETED, {

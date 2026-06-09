@@ -22,8 +22,8 @@
 
 ## 当前开发阶段
 
-**Phase 10: Sandbox Runner 与云端 Agent Runtime** — Phase 9 云端 workspace 基座完成后的下一阶段 (2026-06-08)
+**Phase 13: 多端产品壳拆分** — 已完成自动化与真实服务验收，等待人工验收确认后提交 (2026-06-09)
 
-范围：在 Phase 9 的 `workspaceId`、Team/RBAC 和 audit log 基座上接入云端 sandbox runner 与真实 CLI Agent Runtime，同时保持 P1 本地 `workspace_path`、本机 CLI、build/preview/export 主路径零回归。
+范围：在 Phase 9-12 的 cloud workspace、sandbox runtime、cloud preview/deployment、协作通知和移动端审批预览基础上，把 Local Desktop、SaaS Web、Mobile 拆成独立 shell、构建命令、能力矩阵和验收闭环，同时保持 P1 本地 `workspace_path`、本机 CLI、build/preview/export 主路径零回归。
 
-Phase 1-8 P1 核心闭环已验收通过；Phase 9 已完成用户/团队/RBAC、CloudWorkspaceProvider、workspace 导入/快照/恢复、审计日志与 P1/P2 真实服务验收。Phase 10 不得把 cloud Agent 降级为裸 HTTP LLM API，也不得让本地版必须依赖云端登录或云端 workspace。
+Phase 1-13 当前代码已完成阶段实现与自动化/真实服务验收。后续开发不得让本地版必须依赖云端登录或云端 workspace，不得让 SaaS 版暴露本机特权能力，也不得让移动端承载本机 CLI 或完整桌面工作区设置。

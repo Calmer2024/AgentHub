@@ -117,6 +117,19 @@ const projects: Project[] = [
   },
 ];
 
+const mixedProjects: Project[] = [
+  projects[0],
+  {
+    ...projects[1],
+    id: "p-cloud",
+    name: "云端项目",
+    workspacePath: null,
+    workspaceMode: "cloud",
+    workspaceId: "w1",
+    teamId: "t1",
+  },
+];
+
 const sessionA: Session = {
   id: "s-a",
   title: "缓存会话",
@@ -231,5 +244,22 @@ describe("useWorkspaceRuntime hydration", () => {
     });
 
     await waitFor(() => expect(result.current.sessions[0].title).toBe("自动总结标题"));
+  });
+
+  it("local runtime 只加载本机项目且不请求云端身份", async () => {
+    resetStores();
+    apiMocks.fetchProjects.mockResolvedValue(mixedProjects);
+    apiMocks.fetchAgents.mockResolvedValue([]);
+    apiMocks.fetchSessions.mockResolvedValue([]);
+    apiMocks.fetchSystemHealth.mockResolvedValue(null);
+
+    const { result } = renderHook(() => useWorkspaceRuntime({
+      projectMode: "local",
+      loadCloudIdentity: false,
+    }));
+
+    await waitFor(() => expect(result.current.projects.map((item) => item.workspaceMode)).toEqual(["local"]));
+    expect(apiMocks.fetchCurrentUser).not.toHaveBeenCalled();
+    expect(apiMocks.fetchTeams).not.toHaveBeenCalled();
   });
 });

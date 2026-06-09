@@ -2,15 +2,17 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Cloud, FileArchive, GitBranch, HardDrive, Plus, RotateCcw, Shield, Users, type LucideIcon } from "lucide-react";
 import {
   addTeamMember,
+  createSecret,
   createWorkspaceSnapshot,
   fetchAuditLogs,
+  fetchQuotaSummary,
   fetchWorkspace,
   importWorkspaceGithub,
   importWorkspaceZip,
   restoreWorkspaceSnapshot,
 } from "../api/client";
 import { useToastStore } from "../stores/toastStore";
-import type { AuditLog, CloudWorkspace, CurrentUser, Project, Team, TeamRole } from "../types";
+import type { AuditLog, CloudWorkspace, CurrentUser, Project, QuotaSummary, Team, TeamRole } from "../types";
 import { formatChinaDateTime } from "../utils/time";
 
 interface Props {
@@ -18,6 +20,7 @@ interface Props {
   currentUser: CurrentUser | null;
   teams: Team[];
   onRefreshProjects: () => Promise<void>;
+  variant?: "auto" | "local" | "cloud";
 }
 
 export function WorkspaceSettingsPage({
@@ -25,9 +28,11 @@ export function WorkspaceSettingsPage({
   currentUser,
   teams,
   onRefreshProjects,
+  variant = "auto",
 }: Props) {
   const [workspace, setWorkspace] = useState<CloudWorkspace | null>(null);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [quota, setQuota] = useState<QuotaSummary | null>(null);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -37,36 +42,41 @@ export function WorkspaceSettingsPage({
   const [branch, setBranch] = useState("main");
   const [memberEmail, setMemberEmail] = useState("");
   const [memberRole, setMemberRole] = useState<TeamRole>("member");
+  const [secretName, setSecretName] = useState("");
+  const [secretValue, setSecretValue] = useState("");
   const pushToast = useToastStore((state) => state.pushToast);
 
   const projectTeam = useMemo(
     () => teams.find((team) => team.id === project?.teamId) ?? null,
     [project?.teamId, teams],
   );
-  const isCloud = project?.workspaceMode === "cloud";
+  const isCloud = variant === "cloud" || (variant === "auto" && project?.workspaceMode === "cloud");
 
   const loadCloudData = useCallback(async () => {
-    if (!project || project.workspaceMode !== "cloud" || !project.workspaceId) {
+    if (!project || !isCloud || !project.workspaceId) {
       setWorkspace(null);
       setAuditLogs([]);
+      setQuota(null);
       setLoading(false);
       return;
     }
     setLoading(true);
     setError(null);
     try {
-      const [workspaceData, logs] = await Promise.all([
+      const [workspaceData, logs, quotaData] = await Promise.all([
         fetchWorkspace(project.workspaceId),
         fetchAuditLogs({ projectId: project.id }),
+        fetchQuotaSummary(),
       ]);
       setWorkspace(workspaceData);
       setAuditLogs(logs);
+      setQuota(quotaData);
     } catch (err) {
       setError(err instanceof Error ? err.message : "加载云端工作区失败");
     } finally {
       setLoading(false);
     }
-  }, [project]);
+  }, [isCloud, project]);
 
   useEffect(() => {
     void loadCloudData();
@@ -103,12 +113,16 @@ export function WorkspaceSettingsPage({
     );
   }
 
+  if (!isCloud) {
+    return <LocalProjectSettingsContent project={project} />;
+  }
+
   return (
     <main className="agenthub-chat min-h-0 flex-1 overflow-y-auto">
       <header className="agenthub-header border-b px-5 py-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="agenthub-faint text-xs">工作区设置</p>
+            <p className="agenthub-faint text-xs">云端工作区设置</p>
             <h1 className="agenthub-strong text-lg font-semibold">{project.name}</h1>
           </div>
           <ModeBadge mode={project.workspaceMode} />
@@ -120,20 +134,10 @@ export function WorkspaceSettingsPage({
           <InfoCell label="项目 ID" value={project.id} />
           <InfoCell label="作用域" value={projectTeam?.name ?? "个人空间"} />
           <InfoCell label="当前用户" value={currentUser?.email ?? "未登录"} />
-          {isCloud ? (
-            <>
-              <InfoCell label="Workspace ID" value={project.workspaceId ?? "未创建"} />
-              <InfoCell label="存储 URI" value={workspace?.storageUri ?? "未创建"} />
-              <InfoCell label="Provider" value={workspace?.provider ?? "cloud"} />
-              <InfoCell label="状态" value={workspace?.status ?? project.status} />
-            </>
-          ) : (
-            <>
-              <InfoCell label="本机路径" value={project.workspacePath ?? "未绑定"} />
-              <InfoCell label="文件数" value={String(project.fileCount)} />
-              <InfoCell label="大小" value={`${project.totalSizeBytes} B`} />
-            </>
-          )}
+          <InfoCell label="Workspace ID" value={project.workspaceId ?? "未创建"} />
+          <InfoCell label="存储 URI" value={workspace?.storageUri ?? "未创建"} />
+          <InfoCell label="Provider" value={workspace?.provider ?? "cloud"} />
+          <InfoCell label="状态" value={workspace?.status ?? project.status} />
         </div>
       </section>
 
@@ -148,12 +152,51 @@ export function WorkspaceSettingsPage({
         </div>
       )}
 
-      {!isCloud ? (
-        <LocalWorkspaceSummary project={project} />
-      ) : loading ? (
+      {loading ? (
         <LoadingSections />
       ) : (
         <div className="divide-y" style={{ borderColor: "var(--ah-border)" }}>
+          <section className="px-5 py-4">
+            <SectionTitle icon={Cloud} title="运行时" />
+            <div className="mt-3 grid gap-3 text-sm md:grid-cols-4">
+              <InfoCell label="并发" value={quota ? `${quota.concurrentRunsUsed}/${quota.concurrentRunsLimit}` : "--"} />
+              <InfoCell label="运行时长" value={quota ? `${quota.runtimeSecondsLimit}s` : "--"} />
+              <InfoCell label="内存" value={quota ? `${quota.memoryMbLimit} MB` : "--"} />
+              <InfoCell label="磁盘" value={quota ? `${quota.diskMbLimit} MB` : "--"} />
+            </div>
+            <div className="mt-3 flex gap-2">
+              <input
+                value={secretName}
+                onChange={(event) => setSecretName(event.target.value)}
+                className="agenthub-composer w-44 rounded-lg border px-3 text-sm outline-none"
+                placeholder="PHASE10_TOKEN"
+                aria-label="Secret 名称"
+              />
+              <input
+                value={secretValue}
+                onChange={(event) => setSecretValue(event.target.value)}
+                className="agenthub-composer min-w-0 flex-1 rounded-lg border px-3 text-sm outline-none"
+                type="password"
+                placeholder="Secret value"
+                aria-label="Secret 值"
+              />
+              <IconAction
+                title="保存 Secret"
+                disabled={Boolean(busy) || !secretName.trim() || !secretValue}
+                icon={Shield}
+                onClick={() => void runAction(
+                  "secret",
+                  async () => {
+                    await createSecret({ name: secretName, value: secretValue, scope: "user" });
+                    setSecretName("");
+                    setSecretValue("");
+                  },
+                  "Secret 已保存",
+                )}
+              />
+            </div>
+          </section>
+
           <section className="px-5 py-4">
             <SectionTitle icon={FileArchive} title="导入" />
             <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
@@ -326,17 +369,50 @@ export function WorkspaceSettingsPage({
   );
 }
 
-function LocalWorkspaceSummary({ project }: { project: Project }) {
+export function LocalProjectSettings(props: Omit<Props, "variant">) {
+  return <WorkspaceSettingsPage {...props} variant="local" />;
+}
+
+export function CloudWorkspaceSettings(props: Omit<Props, "variant">) {
+  return <WorkspaceSettingsPage {...props} variant="cloud" />;
+}
+
+function LocalProjectSettingsContent({ project }: { project: Project }) {
   return (
-    <section className="px-5 py-5">
-      <SectionTitle icon={HardDrive} title="本机工作区" />
-      <div className="mt-3 grid gap-2 text-sm">
-        <div className="agenthub-nav-idle rounded-lg border px-3 py-3" style={{ borderColor: "var(--ah-border)" }}>
-          <span className="agenthub-faint block text-xs">路径</span>
-          <span className="agenthub-strong mt-1 block break-all">{project.workspacePath ?? "未绑定"}</span>
+    <main className="agenthub-chat min-h-0 flex-1 overflow-y-auto">
+      <header className="agenthub-header border-b px-5 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="agenthub-faint text-xs">本机项目设置</p>
+            <h1 className="agenthub-strong text-lg font-semibold">{project.name}</h1>
+          </div>
+          <ModeBadge mode="local" />
         </div>
-      </div>
-    </section>
+      </header>
+
+      <section className="border-b px-5 py-4" style={{ borderColor: "var(--ah-border)" }}>
+        <div className="grid gap-3 text-sm md:grid-cols-3">
+          <InfoCell label="项目 ID" value={project.id} />
+          <InfoCell label="状态" value={project.status} />
+          <InfoCell label="文件数" value={String(project.fileCount)} />
+          <InfoCell label="大小" value={`${project.totalSizeBytes} B`} />
+        </div>
+      </section>
+
+      <section className="px-5 py-5">
+        <SectionTitle icon={HardDrive} title="本机工作区" />
+        <div className="mt-3 grid gap-2 text-sm">
+          <div className="agenthub-nav-idle rounded-lg border px-3 py-3" style={{ borderColor: "var(--ah-border)" }}>
+            <span className="agenthub-faint block text-xs">路径</span>
+            <span className="agenthub-strong mt-1 block break-all">{project.workspacePath ?? "未绑定"}</span>
+          </div>
+          <div className="agenthub-nav-idle rounded-lg border px-3 py-3" style={{ borderColor: "var(--ah-border)" }}>
+            <span className="agenthub-faint block text-xs">运行环境</span>
+            <span className="agenthub-strong mt-1 block">本机 CLI Agent 与本机预览/构建/导出</span>
+          </div>
+        </div>
+      </section>
+    </main>
   );
 }
 

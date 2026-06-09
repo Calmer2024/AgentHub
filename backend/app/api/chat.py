@@ -2,18 +2,20 @@ import json
 import logging
 from collections.abc import AsyncIterator
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
-from ..models import Session as DBSession
+from ..models import Project, Session as DBSession
 from ..services.chat_service_impl import ChatServiceImpl
+from ..services.cloud_agent_runtime import CloudAgentRuntimeService
 from ..services.schemas import ChatRequest, MessageRead
 from ..services.message_service_sqlalchemy import SqlAlchemyMessageService
 from ..agents.cli_runtime import CliProcessNotFound
 from ..agents.cli_runtime_registry import cli_runtime_registry
+from .auth import require_user_from_header_values
 
 router = APIRouter(prefix="", tags=["chat"])
 logger = logging.getLogger(__name__)
@@ -30,7 +32,14 @@ def _chat_svc(db: AsyncSession):
 
 
 @router.post("/sessions/{session_id}/chat")
-async def chat(session_id: str, data: ChatRequest, db: AsyncSession = Depends(get_db)):
+async def chat(
+    session_id: str,
+    data: ChatRequest,
+    db: AsyncSession = Depends(get_db),
+    x_agenthub_user_email: str | None = Header(default=None),
+    x_agenthub_user_name: str | None = Header(default=None),
+    x_agenthub_user_avatar: str | None = Header(default=None),
+):
     if not data.content.strip():
         raise HTTPException(status_code=400, detail="content must not be empty")
 
@@ -38,12 +47,34 @@ async def chat(session_id: str, data: ChatRequest, db: AsyncSession = Depends(ge
     if not session:
         raise HTTPException(status_code=404, detail="session not found")
 
+    project = await db.get(Project, session.project_id) if session.project_id else None
+    if project and project.workspace_mode == "cloud":
+        actor = await require_user_from_header_values(
+            db,
+            x_agenthub_user_email,
+            display_name=x_agenthub_user_name,
+            avatar_url=x_agenthub_user_avatar,
+        )
+        from ..main import _event_bus
+        runtime = CloudAgentRuntimeService(db, event_bus=_event_bus)
+        return StreamingResponse(
+            _safe_sse_stream(runtime.stream_chat(
+                session_id,
+                data.content,
+                actor=actor,
+                parent_message_id=data.parent_message_id,
+                attachment_ids=data.attachment_ids,
+            )),
+            media_type="text/event-stream",
+        )
+
     svc = _chat_svc(db)
     return StreamingResponse(
         _safe_sse_stream(svc.send_message_stream(
             session_id, data.content, data.mentions,
             parent_message_id=data.parent_message_id,
             chain_config=data.chain_config,
+            attachment_ids=data.attachment_ids,
         )),
         media_type="text/event-stream",
     )

@@ -1,20 +1,31 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import type { Artifact, ArtifactDiff, ArtifactVersion, BuildLogChunk, BuildRun } from "../types";
+import type {
+  Artifact,
+  ArtifactDiff,
+  ArtifactVersion,
+  BuildLogChunk,
+  BuildRun,
+  Deployment,
+  DeploymentLogChunk,
+  PreviewSession,
+} from "../types";
 import {
+  createArtifactPreview,
+  createDeployment,
   createProjectBuildPreview,
   createProjectPreview,
   fetchArtifactDiff,
   fetchArtifactVersions,
+  fetchDeploymentLogs,
   fetchProjectBuildLogs,
   fetchProjectBuilds,
   projectBuildExportUrl,
   projectSourceExportUrl,
+  retryDeployment,
   startProjectBuild,
 } from "../api/client";
 import {
-  Download,
-  Eye,
   ExternalLink,
   FilePenLine,
   FileCode2,
@@ -22,17 +33,19 @@ import {
   Files,
   GitCompareArrows,
   Globe2,
-  Hammer,
   History,
   Loader2,
   Maximize2,
-  PackageOpen,
+  Rocket,
   ScrollText,
   X,
 } from "lucide-react";
 import { DiffViewer } from "./DiffViewer";
 import { FileEditorModal } from "./FileEditorModal";
 import { ArtifactVersionManager } from "./ArtifactVersionManager";
+import { useCapabilities } from "../app/ShellProvider";
+import { LocalArtifactActions } from "../features/artifacts/LocalArtifactActions";
+import { CloudArtifactActions } from "../features/artifacts/CloudArtifactActions";
 
 interface Props {
   artifact: Artifact;
@@ -87,6 +100,22 @@ function buildStatusClass(status: BuildRun["status"]) {
   return "agenthub-status-warning";
 }
 
+function deploymentStatusText(status: Deployment["status"]) {
+  if (status === "queued") return "等待发布";
+  if (status === "building") return "发布中";
+  if (status === "published") return "已发布";
+  if (status === "failed") return "发布失败";
+  if (status === "rolled_back") return "已回滚";
+  return String(status || "未知");
+}
+
+function deploymentStatusClass(status: Deployment["status"]) {
+  if (status === "published") return "agenthub-status-success";
+  if (status === "failed") return "agenthub-status-error";
+  if (status === "rolled_back") return "agenthub-status-info";
+  return "agenthub-status-warning";
+}
+
 function normalizeDiffContent(content: string) {
   return {
     fromVersion: 0,
@@ -133,6 +162,7 @@ function parseFileTreeChanges(content: string): FileTreeChange[] {
 }
 
 export function ArtifactCard({ artifact, onChanged }: Props) {
+  const { capabilities } = useCapabilities();
   const [fullscreen, setFullscreen] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingFile, setEditingFile] = useState<FileTreeChange | null>(null);
@@ -150,6 +180,18 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
   const [buildLogs, setBuildLogs] = useState<BuildLogChunk[]>([]);
   const [buildLogsOpen, setBuildLogsOpen] = useState(false);
   const [buildLogsLoading, setBuildLogsLoading] = useState(false);
+  const [cloudPreview, setCloudPreview] = useState<PreviewSession | null>(null);
+  const [deployment, setDeployment] = useState<Deployment | null>(null);
+  const [deploymentLogs, setDeploymentLogs] = useState<DeploymentLogChunk[]>([]);
+  const [deploymentLogsOpen, setDeploymentLogsOpen] = useState(false);
+  const [deploymentLogsLoading, setDeploymentLogsLoading] = useState(false);
+  const [deliveryRunning, setDeliveryRunning] = useState(false);
+  const [deliveryMessage, setDeliveryMessage] = useState<string | null>(null);
+  const [deliveryError, setDeliveryError] = useState<string | null>(null);
+  const canUseLocalPreview = capabilities.features.localPreview;
+  const canUseLocalBuildExport = capabilities.features.localBuildExport;
+  const canUseCloudPreview = capabilities.features.cloudPreview;
+  const canUseDeployment = capabilities.features.deployment;
 
   useEffect(() => {
     let alive = true;
@@ -201,7 +243,7 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
   }, [fullscreen]);
 
   useEffect(() => {
-    if (artifact.type !== "web_preview" || !artifact.projectId) {
+    if (!canUseLocalPreview || artifact.type !== "web_preview" || !artifact.projectId) {
       setPreviewUrl(null);
       setPreviewError(null);
       setPreviewLoading(false);
@@ -224,10 +266,10 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
         if (alive) setPreviewLoading(false);
       });
     return () => { alive = false; };
-  }, [artifact.filePath, artifact.projectId, artifact.type]);
+  }, [artifact.filePath, artifact.projectId, artifact.type, canUseLocalPreview]);
 
   useEffect(() => {
-    if (!artifact.projectId) {
+    if (!canUseLocalBuildExport || !artifact.projectId) {
       setBuilds([]);
       setBuildsLoading(false);
       return;
@@ -246,7 +288,7 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
         if (alive) setBuildsLoading(false);
       });
     return () => { alive = false; };
-  }, [artifact.projectId]);
+  }, [artifact.projectId, canUseLocalBuildExport]);
 
   const displayedContent = useMemo(() => {
     return latestVersion?.content ?? artifact.content;
@@ -267,6 +309,10 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
   const latestBuild = builds[0] ?? null;
   const latestSucceededBuild = builds.find((build) => build.status === "succeeded") ?? null;
   const projectActionsEnabled = Boolean(artifact.projectId);
+  const showLocalActions = projectActionsEnabled && (canUseLocalPreview || canUseLocalBuildExport);
+  const showCloudActions = projectActionsEnabled && (canUseCloudPreview || canUseDeployment);
+  const canEditInShell = capabilities.surface !== "mobile";
+  const previewLabel = showCloudActions && !showLocalActions ? "云端预览" : "本机工作区预览";
 
   const openExternalPreview = () => {
     if (previewUrl) window.open(previewUrl, "_blank", "noopener,noreferrer");
@@ -357,61 +403,133 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
     }
   };
 
+  const handleCloudPreview = async () => {
+    if (!artifact.projectId) {
+      setDeliveryError("当前产物未绑定 Project，无法创建云端预览。");
+      return;
+    }
+    setDeliveryRunning(true);
+    setDeliveryError(null);
+    setDeliveryMessage("正在创建云端预览...");
+    try {
+      const preview = await createArtifactPreview(artifact.id, {
+        source: "static",
+        artifactVersionId: latestVersion?.id ?? artifact.id,
+        ttlSeconds: 3600,
+        visibility: "team",
+      });
+      setCloudPreview(preview);
+      setPreviewUrl(preview.url);
+      setPreviewError(null);
+      setDeliveryMessage("云端预览已就绪");
+    } catch (error) {
+      setDeliveryError(error instanceof Error ? error.message : "云端预览创建失败");
+      setDeliveryMessage(null);
+    } finally {
+      setDeliveryRunning(false);
+    }
+  };
+
+  const handleCreateDeployment = async () => {
+    if (!artifact.projectId) {
+      setDeliveryError("当前产物未绑定 Project，无法发布。");
+      return;
+    }
+    setDeliveryRunning(true);
+    setDeliveryError(null);
+    setDeliveryMessage("正在发布...");
+    try {
+      const result = await createDeployment({
+        artifactId: artifact.id,
+        artifactVersionId: latestVersion?.id ?? artifact.id,
+        target: "static_hosting",
+        visibility: "team",
+      });
+      setDeployment(result);
+      setDeliveryMessage(deploymentStatusText(result.status));
+      if (result.url) {
+        setPreviewUrl(result.url);
+        setPreviewError(null);
+      }
+    } catch (error) {
+      setDeliveryError(error instanceof Error ? error.message : "发布失败");
+      setDeliveryMessage(null);
+    } finally {
+      setDeliveryRunning(false);
+    }
+  };
+
+  const handleRetryDeployment = async () => {
+    if (!deployment) return;
+    setDeliveryRunning(true);
+    setDeliveryError(null);
+    setDeliveryMessage("正在重试发布...");
+    try {
+      const result = await retryDeployment(deployment.id, deployment.stage);
+      setDeployment(result);
+      setDeliveryMessage(deploymentStatusText(result.status));
+      if (result.url) {
+        setPreviewUrl(result.url);
+        setPreviewError(null);
+      }
+    } catch (error) {
+      setDeliveryError(error instanceof Error ? error.message : "重试发布失败");
+      setDeliveryMessage(null);
+    } finally {
+      setDeliveryRunning(false);
+    }
+  };
+
+  const handleOpenDeploymentLogs = async () => {
+    if (!deployment) return;
+    setDeploymentLogsOpen(true);
+    setDeploymentLogsLoading(true);
+    setDeliveryError(null);
+    try {
+      const result = await fetchDeploymentLogs(deployment.id);
+      setDeploymentLogs(Array.isArray(result.chunks) ? result.chunks : []);
+    } catch (error) {
+      setDeliveryError(error instanceof Error ? error.message : "发布日志加载失败");
+      setDeploymentLogs([]);
+    } finally {
+      setDeploymentLogsLoading(false);
+    }
+  };
+
+  const openDeploymentUrl = () => {
+    const url = deployment?.url ?? cloudPreview?.url ?? null;
+    if (url) window.open(url, "_blank", "noopener,noreferrer");
+  };
+
   const renderBuildActions = () => (
-    <div className="flex items-center gap-1">
-      <button
-        type="button"
-        onClick={handleStartBuild}
-        disabled={!projectActionsEnabled || buildRunning}
-        className="agenthub-icon-button inline-flex h-8 w-8 items-center justify-center rounded-md disabled:cursor-not-allowed disabled:opacity-45"
-        aria-label="执行项目构建"
-        title="执行项目构建"
-      >
-        {buildRunning ? <Loader2 size={14} className="animate-spin" aria-hidden="true" /> : <Hammer size={14} aria-hidden="true" />}
-      </button>
-      <button
-        type="button"
-        onClick={handleOpenLogs}
-        disabled={!projectActionsEnabled || !latestBuild}
-        className="agenthub-icon-button inline-flex h-8 w-8 items-center justify-center rounded-md disabled:cursor-not-allowed disabled:opacity-45"
-        aria-label="查看构建日志"
-        title="查看构建日志"
-      >
-        <ScrollText size={14} aria-hidden="true" />
-      </button>
-      <button
-        type="button"
-        onClick={openSourceExport}
-        disabled={!projectActionsEnabled}
-        className="agenthub-icon-button inline-flex h-8 w-8 items-center justify-center rounded-md disabled:cursor-not-allowed disabled:opacity-45"
-        aria-label="下载源码包"
-        title="下载源码包"
-      >
-        <Download size={14} aria-hidden="true" />
-      </button>
-      <button
-        type="button"
-        onClick={openBuildExport}
-        disabled={!projectActionsEnabled || !latestSucceededBuild}
-        className="agenthub-icon-button inline-flex h-8 w-8 items-center justify-center rounded-md disabled:cursor-not-allowed disabled:opacity-45"
-        aria-label="下载构建产物"
-        title="下载构建产物"
-      >
-        <PackageOpen size={14} aria-hidden="true" />
-      </button>
-      {artifact.type === "web_preview" && (
-        <button
-          type="button"
-          onClick={openBuildPreview}
-          disabled={!projectActionsEnabled || !latestSucceededBuild}
-          className="agenthub-icon-button inline-flex h-8 w-8 items-center justify-center rounded-md disabled:cursor-not-allowed disabled:opacity-45"
-          aria-label="打开构建预览"
-          title="打开构建预览"
-        >
-          <Eye size={14} aria-hidden="true" />
-        </button>
-      )}
-    </div>
+    <LocalArtifactActions
+      canBuildExport={canUseLocalBuildExport}
+      canPreview={canUseLocalPreview && artifact.type === "web_preview"}
+      buildRunning={buildRunning}
+      hasLatestBuild={Boolean(latestBuild)}
+      hasSucceededBuild={Boolean(latestSucceededBuild)}
+      onStartBuild={handleStartBuild}
+      onOpenLogs={handleOpenLogs}
+      onOpenSourceExport={openSourceExport}
+      onOpenBuildExport={openBuildExport}
+      onOpenBuildPreview={openBuildPreview}
+    />
+  );
+
+  const renderDeliveryActions = () => (
+    <CloudArtifactActions
+      canPreview={canUseCloudPreview}
+      canDeploy={canUseDeployment}
+      deliveryRunning={deliveryRunning}
+      hasDeployment={Boolean(deployment)}
+      deploymentFailed={deployment?.status === "failed"}
+      hasOpenableUrl={Boolean(deployment?.url || cloudPreview?.url)}
+      onCreatePreview={handleCloudPreview}
+      onCreateDeployment={handleCreateDeployment}
+      onOpenDeploymentLogs={handleOpenDeploymentLogs}
+      onRetryDeployment={handleRetryDeployment}
+      onOpenUrl={openDeploymentUrl}
+    />
   );
 
   const fullscreenDialog = fullscreen && typeof document !== "undefined"
@@ -441,7 +559,8 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
               {artifact.filePath && <p className="agenthub-faint mt-0.5 truncate font-mono text-xs">{artifact.filePath}</p>}
             </div>
             <div className="flex items-center gap-2">
-              {projectActionsEnabled && renderBuildActions()}
+              {showLocalActions && renderBuildActions()}
+              {showCloudActions && renderDeliveryActions()}
               {previewUrl && artifact.type === "web_preview" && (
                 <button
                   type="button"
@@ -464,7 +583,7 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
                   <History size={14} />
                 </button>
               )}
-              {canEditArtifact && (
+              {canEditInShell && canEditArtifact && (
                 <button
                   type="button"
                   onClick={() => setEditorOpen(true)}
@@ -500,6 +619,7 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
                 previewLoading={previewLoading}
                 previewError={previewError}
                 previewUrl={previewUrl}
+                previewLabel={previewLabel}
                 onEditFile={(change) => setEditingFile(change)}
               />
             </div>
@@ -571,6 +691,57 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
     )
     : null;
 
+  const deploymentLogsDialog = deploymentLogsOpen && typeof document !== "undefined"
+    ? createPortal(
+      <div
+        className="agenthub-backdrop fixed inset-0 z-[1000] flex items-center justify-center p-3 md:p-6"
+        role="dialog"
+        aria-modal="true"
+        aria-label="发布日志"
+        onClick={() => setDeploymentLogsOpen(false)}
+      >
+        <div
+          className="agenthub-modal flex max-h-[82dvh] w-full max-w-4xl flex-col overflow-hidden rounded-lg border"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="agenthub-header flex items-center justify-between gap-3 border-b px-4 py-3">
+            <div className="min-w-0">
+              <div className="agenthub-muted flex items-center gap-2 text-[11px]">
+                <Rocket size={14} aria-hidden="true" />
+                <span>发布日志</span>
+                {deployment && (
+                  <span className={`rounded-md px-1.5 py-0.5 ${deploymentStatusClass(deployment.status)}`}>
+                    {deploymentStatusText(deployment.status)}
+                  </span>
+                )}
+              </div>
+              {deployment && <p className="agenthub-faint mt-1 truncate font-mono text-xs">{deployment.id}</p>}
+            </div>
+            <button
+              type="button"
+              onClick={() => setDeploymentLogsOpen(false)}
+              className="agenthub-icon-button inline-flex h-8 w-8 items-center justify-center rounded-md"
+              aria-label="关闭发布日志"
+              title="关闭"
+            >
+              <X size={15} aria-hidden="true" />
+            </button>
+          </div>
+          <div className="min-h-0 flex-1 overflow-auto p-3">
+            <pre className="agenthub-code-surface min-h-64 whitespace-pre-wrap rounded-lg border p-3 text-xs leading-5">
+              {deploymentLogsLoading
+                ? "正在加载日志..."
+                : deploymentLogs.length > 0
+                  ? deploymentLogs.map((chunk) => `[${chunk.stream}] ${chunk.text}`).join("")
+                  : "暂无日志"}
+            </pre>
+          </div>
+        </div>
+      </div>,
+      document.body,
+    )
+    : null;
+
   return (
     <>
       <article className="agenthub-card group/card relative min-w-0 max-w-full overflow-visible rounded-2xl border transition hover:border-[color:var(--ah-border-hover)]">
@@ -597,7 +768,8 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
             )}
           </button>
           <div className="flex shrink-0 items-center gap-1">
-            {projectActionsEnabled && renderBuildActions()}
+            {showLocalActions && renderBuildActions()}
+            {showCloudActions && renderDeliveryActions()}
             {canManageVersions && (
               <button
                 type="button"
@@ -609,7 +781,7 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
                 <History size={14} aria-hidden="true" />
               </button>
             )}
-            {canEditArtifact && (
+            {canEditInShell && canEditArtifact && (
               <button
                 type="button"
                 onClick={() => setEditorOpen(true)}
@@ -632,23 +804,35 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
           </div>
         </div>
 
-        {projectActionsEnabled && (
-          <div className="agenthub-muted flex min-h-8 items-center gap-2 border-b px-3 py-1.5 text-[11px]" style={{ borderColor: "var(--ah-border)" }}>
-            {buildsLoading && <Loader2 size={12} className="animate-spin" aria-hidden="true" />}
-            {buildError ? (
+        {(showLocalActions || showCloudActions) && (
+          <div className="agenthub-muted flex min-h-8 flex-wrap items-center gap-2 border-b px-3 py-1.5 text-[11px]" style={{ borderColor: "var(--ah-border)" }}>
+            {showLocalActions && buildsLoading && <Loader2 size={12} className="animate-spin" aria-hidden="true" />}
+            {showLocalActions && buildError ? (
               <span className="agenthub-status-error rounded-md px-1.5 py-0.5">{buildError}</span>
-            ) : buildMessage ? (
+            ) : showLocalActions && buildMessage ? (
               <span className="agenthub-status-info rounded-md px-1.5 py-0.5">{buildMessage}</span>
-            ) : latestBuild ? (
+            ) : showLocalActions && latestBuild ? (
               <span className={`rounded-md px-1.5 py-0.5 ${buildStatusClass(latestBuild.status)}`}>
                 {buildStatusText(latestBuild.status)}
               </span>
-            ) : (
+            ) : showLocalActions ? (
               <span className="agenthub-faint">暂无构建记录</span>
-            )}
-            {latestBuild?.artifactPath && (
+            ) : null}
+            {showLocalActions && latestBuild?.artifactPath && (
               <span className="agenthub-faint truncate font-mono">{latestBuild.artifactPath}</span>
             )}
+            {showCloudActions && deliveryError ? (
+              <span className="agenthub-status-error rounded-md px-1.5 py-0.5">{deliveryError}</span>
+            ) : showCloudActions && deliveryMessage ? (
+              <span className="agenthub-status-info rounded-md px-1.5 py-0.5">{deliveryMessage}</span>
+            ) : showCloudActions && deployment ? (
+              <span className={`rounded-md px-1.5 py-0.5 ${deploymentStatusClass(deployment.status)}`}>
+                {deploymentStatusText(deployment.status)} · {deployment.stage}
+              </span>
+            ) : showCloudActions && cloudPreview ? (
+              <span className="agenthub-status-success rounded-md px-1.5 py-0.5">云端预览就绪</span>
+            ) : null}
+            {showCloudActions && deployment?.url && <span className="agenthub-faint max-w-72 truncate font-mono">{deployment.url}</span>}
           </div>
         )}
 
@@ -661,21 +845,23 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
             iframeProps={iframeProps}
             previewLoading={previewLoading}
             previewError={previewError}
+            previewLabel={previewLabel}
             onEditFile={(change) => setEditingFile(change)}
           />
         </div>
       </article>
       {fullscreenDialog}
       {buildLogsDialog}
+      {deploymentLogsDialog}
       <FileEditorModal
-        open={editorOpen}
+        open={canEditInShell && editorOpen}
         artifact={artifact}
         initialContent={displayedContent}
         onClose={() => setEditorOpen(false)}
         onSaved={onChanged}
       />
       <FileEditorModal
-        open={Boolean(editingFile)}
+        open={canEditInShell && Boolean(editingFile)}
         projectId={artifact.projectId}
         filePath={editingFile?.path ?? null}
         title={editingFile?.path ?? null}
@@ -701,6 +887,7 @@ function ArtifactPreview({
   iframeProps,
   previewLoading,
   previewError,
+  previewLabel,
   onEditFile,
 }: {
   artifact: Artifact;
@@ -710,6 +897,7 @@ function ArtifactPreview({
   iframeProps: { src: string } | { srcDoc: string };
   previewLoading: boolean;
   previewError: string | null;
+  previewLabel: string;
   onEditFile?: (change: FileTreeChange) => void;
 }) {
   if (artifact.type === "code_diff") {
@@ -726,7 +914,7 @@ function ArtifactPreview({
         {previewLoading && (
           <div className="agenthub-backdrop absolute inset-0 z-10 flex items-center justify-center text-xs">
             <Loader2 size={14} className="mr-2 animate-spin" />
-            正在加载本机预览
+            正在加载{previewLabel}
           </div>
         )}
         {previewError && (
@@ -755,6 +943,7 @@ function ArtifactFullPreview({
   previewLoading,
   previewError,
   previewUrl,
+  previewLabel,
   onEditFile,
 }: {
   artifact: Artifact;
@@ -765,6 +954,7 @@ function ArtifactFullPreview({
   previewLoading: boolean;
   previewError: string | null;
   previewUrl: string | null;
+  previewLabel: string;
   onEditFile?: (change: FileTreeChange) => void;
 }) {
   if (artifact.type === "web_preview") {
@@ -774,9 +964,9 @@ function ArtifactFullPreview({
           <div className="agenthub-code-header flex items-center justify-between gap-3 border-b px-3 py-2">
               <div className="min-w-0 truncate text-xs">
               {previewLoading
-                ? "正在连接本机预览"
+                ? `正在连接${previewLabel}`
                 : previewUrl
-                  ? "本机工作区预览"
+                  ? previewLabel
                   : "真实预览不可用，已显示内容快照"}
               {artifact.filePath && (
                 <span className="ml-2 font-mono">{artifact.filePath}</span>

@@ -2,12 +2,15 @@ import { useCallback, useEffect, useState } from "react";
 import { useChatStore, type CollabSnapshot } from "./stores/chatStore";
 import { SessionList } from "./components/SessionList";
 import { MemoChatWindow as ChatWindow } from "./components/ChatWindow";
-import { ProjectSidebar } from "./components/ProjectSidebar";
 import { AgentPanel } from "./components/AgentPanel";
 import { GroupChatCreator } from "./components/GroupChatCreator";
-import { WorkspaceSettingsPage } from "./components/WorkspaceSettingsPage";
 import { ToastViewport } from "./components/ToastViewport";
 import { OrchestratorDebugPanel } from "./components/OrchestratorDebugPanel";
+import { useCapabilities } from "./app/ShellProvider";
+import { LocalProjectSidebar } from "./shells/local/LocalProjectSidebar";
+import { SaasProjectSidebar } from "./shells/saas/SaasProjectSidebar";
+import { LocalProjectSettings } from "./shells/local/LocalProjectSettings";
+import { CloudWorkspaceSettings } from "./shells/saas/CloudWorkspaceSettings";
 import {
   deleteAgent,
   fetchArtifacts,
@@ -39,7 +42,8 @@ function emptyCollab(): CollabSnapshot {
 
 const EMPTY_COLLAB = emptyCollab();
 
-function App() {
+export function AgentHubWorkbench() {
+  const { capabilities, edition } = useCapabilities();
   const currentSessionId = useChatStore((state) => state.currentSessionId);
   const messages = useChatStore((state) => state.messages);
   const isStreaming = useChatStore((state) => state.isStreaming);
@@ -65,7 +69,10 @@ function App() {
     handleAddGroupMember, handleRemoveGroupMember,
     handleDeleteSession, handleRenameSession, handlePinSession, handleArchiveSession,
     handleMuteSession,
-  } = useWorkspaceRuntime();
+  } = useWorkspaceRuntime({
+    projectMode: edition === "local" ? "local" : "cloud",
+    loadCloudIdentity: edition === "saas",
+  });
 
   // --- 协作状态的读写桥接 (store ↔ 组件) ---
   const collabKey = currentSessionId ?? "__none__";
@@ -191,7 +198,8 @@ function App() {
   return (
     <div className="agenthub-shell flex h-[100dvh] min-w-0 w-full max-w-full flex-col overflow-hidden md:flex-row">
       <div className="agenthub-left-cluster flex min-w-0 w-full shrink-0 flex-col md:h-full md:w-[584px] md:flex-row">
-        <ProjectSidebar
+        {edition === "local" ? (
+        <LocalProjectSidebar
           projects={projects}
           currentProjectId={currentProjectId}
           agents={agents}
@@ -249,6 +257,66 @@ function App() {
             }, "Agent 已删除", "删除 Agent 失败");
           }}
         />
+        ) : (
+        <SaasProjectSidebar
+          projects={projects}
+          currentProjectId={currentProjectId}
+          agents={agents}
+          activePanel={sidebarTab}
+          currentUser={currentUser}
+          teams={teams}
+          currentTeamId={currentTeamId}
+          creating={creatingProject}
+          loading={initialLoading}
+          onSelectProject={handleSelectProject}
+          onSelectTeam={setCurrentTeamId}
+          onCreateTeam={(name) => runCrudAction(
+            () => handleCreateTeam(name),
+            "团队已创建",
+            "创建团队失败",
+          )}
+          onCreateBlankProject={(name) => runCrudAction(
+            () => handleCreateBlankProject(name),
+            "项目已创建",
+            "创建项目失败",
+          )}
+          onCreateCloudProject={(name, teamId) => runCrudAction(
+            () => handleCreateCloudProject(name, teamId),
+            "云端项目已创建",
+            "创建云端项目失败",
+          )}
+          onPickExistingFolder={() => runCrudAction(
+            handlePickExistingFolder,
+            "项目已绑定",
+            "选择文件夹失败",
+          )}
+          onArchiveProject={(projectId) => runCrudAction(
+            () => handleArchiveProject(projectId),
+            "项目已归档",
+            "归档项目失败",
+          )}
+          onRenameProject={(projectId, name) => runCrudAction(
+            () => handleRenameProject(projectId, name),
+            "项目已重命名",
+            "重命名项目失败",
+          )}
+          onDeleteProject={(projectId, deleteFiles) => runCrudAction(
+            () => handleDeleteProject(projectId, deleteFiles),
+            "项目已删除",
+            "删除项目失败",
+          )}
+          onOpenPanel={setSidebarTab}
+          onStartAgentChat={handleNewSession}
+          onCreateAgent={() => setAgentModal({ mode: "create" })}
+          onEditAgent={(agentId) => setAgentModal({ mode: "edit", agentId })}
+          onDeleteAgent={async (agentId) => {
+            await runCrudAction(async () => {
+              await deleteAgent(agentId);
+              await loadData();
+            }, "Agent 已删除", "删除 Agent 失败");
+          }}
+        />
+        )}
 
         <div className="agenthub-session-nest flex h-[32dvh] min-w-0 w-full shrink-0 flex-col transition-colors duration-300 md:h-full md:w-[300px]">
           <SessionList
@@ -292,12 +360,21 @@ function App() {
       </div>
 
       {sidebarTab === "workspace" ? (
-        <WorkspaceSettingsPage
-          project={currentProject}
-          currentUser={currentUser}
-          teams={teams}
-          onRefreshProjects={loadData}
-        />
+        edition === "local" ? (
+          <LocalProjectSettings
+            project={currentProject}
+            currentUser={currentUser}
+            teams={teams}
+            onRefreshProjects={loadData}
+          />
+        ) : (
+          <CloudWorkspaceSettings
+            project={currentProject}
+            currentUser={currentUser}
+            teams={teams}
+            onRefreshProjects={loadData}
+          />
+        )
       ) : currentSessionId ? (
         <ChatWindow
           messages={messages} isStreaming={isStreaming}
@@ -367,6 +444,7 @@ function App() {
       <AgentPanel
         mode={agentModal?.mode ?? "hidden"}
         agentId={agentModal?.agentId ?? null}
+        runtimeScope={capabilities.features.localCliRuntime ? "local" : "cloud"}
         onChanged={loadData}
         onClose={() => setAgentModal(null)}
       />
@@ -375,7 +453,7 @@ function App() {
   );
 }
 
-export default App;
+export default AgentHubWorkbench;
 
 function DeveloperToolsPage({
   agents,

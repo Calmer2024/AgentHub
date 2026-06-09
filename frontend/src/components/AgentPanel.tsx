@@ -7,11 +7,12 @@ import { useToastStore } from "../stores/toastStore";
 interface Props {
   mode: "hidden" | "create" | "edit";
   agentId?: string | null;
+  runtimeScope?: "local" | "cloud";
   onChanged: () => void;
   onClose: () => void;
 }
 
-export function AgentPanel({ mode, agentId, onChanged, onClose }: Props) {
+export function AgentPanel({ mode, agentId, runtimeScope = "local", onChanged, onClose }: Props) {
   const [agents, setAgents] = useState<AgentConfig[]>([]);
   const pushToast = useToastStore((state) => state.pushToast);
 
@@ -29,6 +30,7 @@ export function AgentPanel({ mode, agentId, onChanged, onClose }: Props) {
   return (
     <AgentCliForm
       initial={editingAgent}
+      runtimeScope={runtimeScope}
       onSave={async (data) => {
         try {
           if (editingAgent) {

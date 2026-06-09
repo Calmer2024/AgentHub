@@ -66,7 +66,13 @@ const hasStoredProjectSessions = (projectId: string | null, cache: Record<string
   Boolean(projectId && Object.prototype.hasOwnProperty.call(cache, projectId))
 );
 
-export function useWorkspaceRuntime() {
+interface WorkspaceRuntimeOptions {
+  projectMode?: "local" | "cloud";
+  loadCloudIdentity?: boolean;
+}
+
+export function useWorkspaceRuntime(options: WorkspaceRuntimeOptions = {}) {
+  const { projectMode, loadCloudIdentity = true } = options;
   const currentSessionId = useChatStore((state) => state.currentSessionId);
   const setCurrentSessionId = useChatStore((state) => state.setCurrentSessionId);
   const setMessages = useChatStore((state) => state.setMessages);
@@ -401,14 +407,23 @@ export function useWorkspaceRuntime() {
         fetchProjects(),
         fetchAgents(),
       ]);
-      const [loadedUser, loadedTeams] = await Promise.allSettled([
-        fetchCurrentUser(),
-        fetchTeams(),
-      ]);
+      const [loadedUser, loadedTeams] = loadCloudIdentity
+        ? await Promise.allSettled([
+          fetchCurrentUser(),
+          fetchTeams(),
+        ])
+        : [
+          { status: "rejected", reason: new Error("cloud identity disabled") },
+          { status: "fulfilled", value: [] as Team[] },
+        ] as const;
       if (loadedProjects.status === "fulfilled") {
-        setProjects(loadedProjects.value);
+        const visibleProjects = projectMode
+          ? loadedProjects.value.filter((project) => project.workspaceMode === projectMode)
+          : loadedProjects.value;
+        setProjects(visibleProjects);
         const activeProjectId = useSessionStore.getState().currentProjectId;
-        const nextProjectId = activeProjectId ?? loadedProjects.value[0]?.id ?? null;
+        const activeStillVisible = visibleProjects.some((project) => project.id === activeProjectId);
+        const nextProjectId = activeStillVisible ? activeProjectId : visibleProjects[0]?.id ?? null;
         const cached = hasStoredProjectSessions(nextProjectId, sessionsByProjectRef.current)
           ? sessionsByProjectRef.current[nextProjectId as string]
           : null;
@@ -437,6 +452,7 @@ export function useWorkspaceRuntime() {
       }
       if (loadedAgents.status === "fulfilled") setAgents(loadedAgents.value);
       if (loadedUser.status === "fulfilled") setCurrentUser(loadedUser.value);
+      if (!loadCloudIdentity) setCurrentUser(null);
       if (loadedTeams.status === "fulfilled") {
         setTeams(loadedTeams.value);
         setCurrentTeamId((current) => current ?? loadedTeams.value[0]?.id ?? null);
@@ -449,6 +465,8 @@ export function useWorkspaceRuntime() {
   }, [
     hydrateSession,
     loadSessionsForProject,
+    loadCloudIdentity,
+    projectMode,
     setAgents,
     setCurrentProjectId,
     setCurrentSessionId,

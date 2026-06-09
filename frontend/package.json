@@ -5,7 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:local": "vite --mode local-desktop",
+    "dev:saas": "vite --mode saas",
+    "dev:mobile": "vite --mode mobile",
     "build": "tsc -b && vite build",
+    "build:local": "tsc -b && vite build --mode local-desktop --outDir dist-local",
+    "build:saas": "tsc -b && vite build --mode saas --outDir dist-saas",
+    "build:mobile": "tsc -b && vite build --mode mobile --outDir dist-mobile",
     "preview": "vite preview"
   },
   "dependencies": {

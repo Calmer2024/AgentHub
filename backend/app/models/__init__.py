@@ -14,6 +14,16 @@ from .engine_session import EngineSession
 from .build import BuildRun, BuildLog
 from .context_pack import ContextPackSnapshot
 from .orchestrator_plan import OrchestratorPlanRecord
+from .runtime import Sandbox, RuntimeRun, RuntimeLog, Secret, QuotaUsage
+from .delivery import PreviewSession, Deployment, DeploymentLog
+from .collaboration import (
+    Comment,
+    Attachment,
+    ArtifactReference,
+    Notification,
+    AgentTemplateSession,
+    GitSyncJob,
+)
 
 __all__ = [
     "Project",
@@ -39,4 +49,18 @@ __all__ = [
     "BuildLog",
     "ContextPackSnapshot",
     "OrchestratorPlanRecord",
+    "Sandbox",
+    "RuntimeRun",
+    "RuntimeLog",
+    "Secret",
+    "QuotaUsage",
+    "PreviewSession",
+    "Deployment",
+    "DeploymentLog",
+    "Comment",
+    "Attachment",
+    "ArtifactReference",
+    "Notification",
+    "AgentTemplateSession",
+    "GitSyncJob",
 ]

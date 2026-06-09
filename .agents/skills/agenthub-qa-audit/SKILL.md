@@ -341,3 +341,9 @@ netstat -ano | findstr ":5173"
 - 引用仍有效：`docs/TEST_PROTOCOL.md`、`docs/testing/UX_TEST_SPEC.md`、`AGENTS.md`、`CONTEXT.md`、`docs/specs/phase9/README.md` 均存在。
 - Phase 9 起 QA 必须同时记录两条路径：P1 local regression（Project/Session/Artifact/build/preview/export）与 P2 cloud slice（Auth/Team/RBAC/cloud Project/import/snapshot/restore/audit）。
 - 浏览器冒烟需等待开发态登录邮箱渲染后再检查云端创建入口，避免把短暂加载态误判为登录失败。
+
+## Phase 10 审计 (2026-06-08)
+
+- 引用仍有效：`docs/TEST_PROTOCOL.md`、`docs/testing/UX_TEST_SPEC.md`、`AGENTS.md`、`CONTEXT.md`、`docs/specs/phase10/README.md` 均存在。
+- Phase 10 QA 必须额外验证 cloud Project → sandbox ready → CLI stdout → Artifact Card → run terminal → `/api/runs/{runId}/logs`，并确认 Secret 原文不出现在 UI/日志/事件。
+- P1 local regression 必须继续覆盖本机 Project、chat stream、run cancel、Artifact Bridge、build/preview/export，不得只跑 cloud runtime 测试。

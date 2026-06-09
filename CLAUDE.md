@@ -153,7 +153,7 @@ Debug 不是"让 bug 消失"，而是"让系统更正确"：
 
 ## 阶段感知
 
-当前处于 **Phase 10（Sandbox Runner 与云端 Agent Runtime）准备期**。Phase 8 P1 发布候选收口已完成并通过真实服务验收；Phase 9 Cloud Workspace Foundation 已落地 P2 用户/团队/RBAC、CloudWorkspaceProvider、workspace 导入/快照/恢复、审计日志，并完成 P1 local 零回归验收。下一阶段只能在 Phase 9 的 `workspaceId` / RBAC / audit 基座上接入云端 sandbox 与真实 CLI Runtime，不能回退到裸 HTTP LLM API，也不能破坏 P1 本地 `workspace_path` 主路径。
+当前 **Phase 13（多端产品壳拆分）已完成自动化与真实服务验收，等待人工验收确认后提交**。Phase 9-12 已在 P1 本地版基线上递增出 P2 SaaS cloud workspace、sandbox runtime、cloud preview/deployment、协作通知、移动端审批预览、附件和高级 Artifact 的最小可运行切片；Phase 13 已把本地版、SaaS 版和移动端拆成独立 shell、独立构建命令、独立能力矩阵和独立验收闭环。后续开发不得让本地版依赖云端登录/团队，也不得让移动端承载本机 CLI 或完整桌面工作区设置。
 
 完整 Phase 状态表见 [CONTEXT.md §开发阶段](CONTEXT.md)。
 
@@ -162,8 +162,8 @@ Debug 不是"让 bug 消失"，而是"让系统更正确"：
 | 优先级 | 产品形态 | 架构 | 一键部署 |
 |--------|---------|------|---------|
 | **P1（当前）** | **桌面版**：桌面端（Tauri/Node.js）= 本地无头服务器 + 本地特权执行引擎；Web 端（浏览器）= 主力 UI | 浏览器 → localhost 后端 → 本机文件系统 + 本机 CLI Agent | ❌ |
-| **P2（正在铺设基座）** | **SaaS 云版**：Web 浏览器 + 云端后端 + 云端容器沙箱 | 浏览器 → 云端后端 → 云端沙箱 + 云端 CLI Agent → 云端 URL | ✅ |
+| **P2（云端协作切片已启动，产品壳已拆分）** | **SaaS 云版**：Web 浏览器 + 云端后端 + 云端容器沙箱 | 浏览器 → 云端后端 → 云端沙箱 + 云端 CLI Agent → 云端 URL | ✅ |
 
-**Project-first 工作流**：用户必须先创建 Project，然后在 Project 下创建私聊或群聊。P1 本地 Project 使用新建空白 workspace 目录或系统原生目录选择器绑定已有目录，Project 内所有本地 Agent 共享 `Project.workspace_path` 作为 `cwd`；P2 云端 Project 使用 `workspaceId` 和 `cloud://agenthub/workspaces/{id}` 逻辑 URI，前端不应看到服务器或用户本机物理路径。Project 不再暴露“静态网页 / Vite React / 已有项目”等用户可选属性。详见 [ADR-0009](docs/adr/0009-project-workspace-model.md) 与 [Phase 9 Spec](docs/specs/phase9/README.md)。
+**Project-first 工作流**：用户必须先创建 Project，然后在 Project 下创建私聊或群聊。P1 本地 Project 使用新建空白 workspace 目录或系统原生目录选择器绑定已有目录，Project 内所有本地 Agent 共享 `Project.workspace_path` 作为 `cwd`；P2 云端 Project 使用 `workspaceId` 和 `cloud://agenthub/workspaces/{id}` 逻辑 URI，前端不应看到服务器或用户本机物理路径，云端 runner 将其映射到隔离 cloud workspace 目录。Project 不再暴露“静态网页 / Vite React / 已有项目”等用户可选属性。详见 [ADR-0009](docs/adr/0009-project-workspace-model.md)、[Phase 9 Spec](docs/specs/phase9/README.md)、[Phase 10 Spec](docs/specs/phase10/README.md) 与 [Phase 13 Spec](docs/specs/phase13/README.md)。
 
 > 完整的 P1/P2 定义、Workspace 位置、运行环境、安全边界见 [CONTEXT.md §产品交付阶段](CONTEXT.md)。

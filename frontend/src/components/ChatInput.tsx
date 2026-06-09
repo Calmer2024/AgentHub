@@ -1,25 +1,40 @@
-import { useState, useRef, useEffect, type FormEvent, type KeyboardEvent } from "react";
-import { Code2, FileCode2, SendHorizontal, X } from "lucide-react";
-import type { AgentConfig } from "../types";
+import { useState, useRef, useEffect, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
+import { Code2, FileCode2, Loader2, Paperclip, SendHorizontal, X } from "lucide-react";
+import type { AgentConfig, Attachment } from "../types";
 import { useChatStore } from "../stores/chatStore";
 import { ReplyPreview } from "./ReplyPreview";
 import { AgentAvatar } from "./AgentAvatar";
+import { uploadAttachment } from "../api/client";
 
 interface Props {
-  onSubmit: (content: string, mentions: string[]) => void;
+  onSubmit: (content: string, mentions: string[], attachmentIds?: string[]) => void;
   disabled?: boolean;
   busy?: boolean;
   mentionableAgents: AgentConfig[];
   mentionLoading?: boolean;
+  currentProjectId?: string | null;
+  currentSessionId?: string | null;
 }
 
-export function ChatInput({ onSubmit, disabled, busy, mentionableAgents, mentionLoading = false }: Props) {
+export function ChatInput({
+  onSubmit,
+  disabled,
+  busy,
+  mentionableAgents,
+  mentionLoading = false,
+  currentProjectId,
+  currentSessionId,
+}: Props) {
   const [content, setContent] = useState("");
   const [showMentions, setShowMentions] = useState(false);
   const [mentionFilter, setMentionFilter] = useState("");
   const [mentionIndex, setMentionIndex] = useState(0);
   const [mentionPos, setMentionPos] = useState(0);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const replyTarget = useChatStore((state) => state.replyTarget);
   const setReplyTarget = useChatStore((state) => state.setReplyTarget);
@@ -51,6 +66,7 @@ export function ChatInput({ onSubmit, disabled, busy, mentionableAgents, mention
   const filteredAgents = mentionableAgents.filter((a) =>
     a.name.toLowerCase().includes(mentionFilter.toLowerCase())
   );
+  const canAttach = Boolean(currentProjectId && currentSessionId);
 
   const handleInput = (value: string) => {
     setContent(value);
@@ -99,10 +115,16 @@ export function ChatInput({ onSubmit, disabled, busy, mentionableAgents, mention
     }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      if (!content.trim() || disabled) return;
-      onSubmit(buildSubmittedContent(content.trim()), extractMentions(content));
+      if (!content.trim() || disabled || uploadingAttachment) return;
+      const attachmentIds = attachments.map((item) => item.id);
+      const submittedContent = buildSubmittedContent(content.trim());
+      const mentions = extractMentions(content);
+      if (attachmentIds.length > 0) onSubmit(submittedContent, mentions, attachmentIds);
+      else onSubmit(submittedContent, mentions);
       setContent("");
       setCodeReference(null);
+      setAttachments([]);
+      setAttachmentError(null);
     }
   };
 
@@ -122,11 +144,43 @@ export function ChatInput({ onSubmit, disabled, busy, mentionableAgents, mention
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (!content.trim() || disabled) return;
+    if (!content.trim() || disabled || uploadingAttachment) return;
     const mentions = extractMentions(content);
-    onSubmit(buildSubmittedContent(content.trim()), mentions);
+    const attachmentIds = attachments.map((item) => item.id);
+    const submittedContent = buildSubmittedContent(content.trim());
+    if (attachmentIds.length > 0) onSubmit(submittedContent, mentions, attachmentIds);
+    else onSubmit(submittedContent, mentions);
     setContent("");
     setCodeReference(null);
+    setAttachments([]);
+    setAttachmentError(null);
+  };
+
+  const handleFilesSelected = async (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    if (files.length === 0) return;
+    if (!currentProjectId || !currentSessionId) {
+      setAttachmentError("当前会话未绑定 Project，无法添加附件。");
+      return;
+    }
+    setUploadingAttachment(true);
+    setAttachmentError(null);
+    try {
+      const uploaded: Attachment[] = [];
+      for (const file of files) {
+        uploaded.push(await uploadAttachment({
+          projectId: currentProjectId,
+          sessionId: currentSessionId,
+          file,
+        }));
+      }
+      setAttachments((current) => [...current, ...uploaded]);
+    } catch (error) {
+      setAttachmentError(error instanceof Error ? error.message : "附件上传失败");
+    } finally {
+      setUploadingAttachment(false);
+    }
   };
 
   const buildSubmittedContent = (text: string) => {
@@ -209,7 +263,52 @@ export function ChatInput({ onSubmit, disabled, busy, mentionableAgents, mention
           </div>
         </div>
       )}
+      {(attachments.length > 0 || attachmentError || uploadingAttachment) && (
+        <div className="agenthub-soft mx-auto mb-3 max-w-4xl rounded-2xl border px-3 py-2 text-sm">
+          <div className="flex flex-wrap items-center gap-2">
+            {uploadingAttachment && (
+              <span className="agenthub-muted inline-flex items-center gap-1.5 text-xs">
+                <Loader2 size={13} className="animate-spin" aria-hidden="true" />
+                正在上传附件
+              </span>
+            )}
+            {attachments.map((item) => (
+              <span key={item.id} className="agenthub-code-surface inline-flex max-w-full items-center gap-1.5 rounded-full border px-2 py-1 text-xs">
+                <Paperclip size={12} className="shrink-0" aria-hidden="true" />
+                <span className="max-w-48 truncate">{item.filename}</span>
+                <button
+                  type="button"
+                  onClick={() => setAttachments((current) => current.filter((attachment) => attachment.id !== item.id))}
+                  className="agenthub-icon-button inline-flex h-5 w-5 items-center justify-center rounded-full"
+                  aria-label={`移除附件 ${item.filename}`}
+                  title="移除附件"
+                >
+                  <X size={11} aria-hidden="true" />
+                </button>
+              </span>
+            ))}
+            {attachmentError && <span className="agenthub-status-error rounded-full px-2 py-1 text-xs">{attachmentError}</span>}
+          </div>
+        </div>
+      )}
       <div className="agenthub-chat-composer agenthub-focus-ring mx-auto flex max-w-4xl items-end gap-2 rounded-[24px] border p-2">
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={handleFilesSelected}
+        />
+        <button
+          type="button"
+          disabled={disabled || uploadingAttachment || !canAttach}
+          onClick={() => fileInputRef.current?.click()}
+          aria-label="添加附件"
+          title={canAttach ? "添加附件" : "当前会话无法添加附件"}
+          className="agenthub-icon-button inline-flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-full transition disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {uploadingAttachment ? <Loader2 size={17} className="animate-spin" aria-hidden="true" /> : <Paperclip size={17} aria-hidden="true" />}
+        </button>
         <textarea
           ref={inputRef}
           value={content}
@@ -222,7 +321,7 @@ export function ChatInput({ onSubmit, disabled, busy, mentionableAgents, mention
         />
         <button
           type="submit"
-          disabled={disabled || !content.trim()}
+          disabled={disabled || uploadingAttachment || !content.trim()}
           aria-label="发送"
           title="发送"
           className="agenthub-primary-button inline-flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-full transition disabled:cursor-not-allowed disabled:opacity-40"

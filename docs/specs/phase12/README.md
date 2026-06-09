@@ -1,8 +1,8 @@
 # Phase 12：协作、多端与高级 Artifact
 
 **版本**: v1.1
-**创建日期**: 2026-06-08  
-**状态**: Draft  
+**创建日期**: 2026-06-08
+**状态**: Completed
 **关联 ADR/PRD**: [AgentHub-多Agent协作平台设计](../../archive/AgentHub-多Agent协作平台设计.md)、[ADR-0009](../../adr/0009-project-workspace-model.md)、[ADR-0010](../../adr/0010-message-level-artifact-experience.md)、[ADR-0011](../../adr/0011-agent-engine-skill-model.md)、[PRD-03](../../PRD/03-User_Experience.md)、[PRD-05](../../PRD/05-End_to_End_Product_Flow.md)、[PRD-07](../../PRD/07-SaaS_Cloud_Workspace_Delivery.md)  
 **依赖模块**: Phase 9 Cloud Workspace + Team/RBAC、Phase 10 Cloud Agent Runtime、Phase 11 Cloud Preview/Deployment
 
@@ -418,7 +418,7 @@ App
 | 依赖模块 | 需要的接口 | 当前状态 |
 |---------|-----------|---------|
 | Phase 9 Team/RBAC | team members、roles、audit logs | ✅ 已就绪 |
-| Phase 10 Runtime | run status、approval、artifact detection | 📋 计划中 |
+| Phase 10 Runtime | run status、approval、artifact detection | ✅ 已就绪（cloud run、标准事件、Artifact/logs 契约） |
 | Phase 11 Preview/Deployment | preview/deploy URL、deployment events | 📋 计划中 |
 | Agent Profile model | System Prompt、Rules、Toolset、Engine | ✅ P1 基线 |
 | ContextPackBuilder | attachments/artifact references 注入 | 📋 Phase 8 |
@@ -447,5 +447,6 @@ App
 | 通知 | 本地 IM 未读/免打扰 | SaaS 通知中心 + 移动端摘要 | 本地模式继续使用原 IM 状态，云端启用 NotificationService |
 
 > **版本历史**
+> - v1.2 (2026-06-09): 根据 Phase 12 实现与验收结果，将状态更新为 Completed；完整实现以当前代码和验收记录为准。
 > - v1.1 (2026-06-08): 增加 P1 本机 IM/runtime 零回归与 Phase 12 Web/Mobile cloud 协作可运行切片门禁。
 > - v1.0 (2026-06-08): 按 `SPEC_TEMPLATE.md` 创建 Phase 12 独立 Spec。

@@ -15,6 +15,7 @@ from .message_service_sqlalchemy import (
     SqlAlchemyMessageService,
     build_reply_reference_metadata,
 )
+from .collaboration_service import CollaborationNotFoundError, attachment_context_metadata
 from .context_pack_service import ContextPackService
 from .run_service import RunService, run_to_read, task_to_read
 from .session_service import SessionService
@@ -44,6 +45,7 @@ class ChatServiceImpl:
         mentions: list[str] | None = None,
         parent_message_id: str | None = None,
         chain_config: object = None,  # ChainConfigSchema | None
+        attachment_ids: list[str] | None = None,
     ) -> AsyncGenerator[str, None]:
         session = await self.db.get(DBSession, session_id)
         if not session:
@@ -61,6 +63,19 @@ class ChatServiceImpl:
                 return
             reply_metadata = build_reply_reference_metadata(parent)
 
+        metadata = dict(reply_metadata or {})
+        try:
+            attachment_metadata = await attachment_context_metadata(
+                self.db,
+                session_id=session_id,
+                attachment_ids=attachment_ids,
+            )
+        except CollaborationNotFoundError as exc:
+            yield self._err(str(exc))
+            return
+        if attachment_metadata:
+            metadata.update(attachment_metadata)
+
         # 持久化用户消息
         user_msg_id = str(uuid.uuid4())
         SessionService.clear_unread(session)
@@ -68,7 +83,7 @@ class ChatServiceImpl:
             id=user_msg_id, session_id=session_id, role="user",
             content=content, content_type="text", source_type="user",
             source_name="用户", parent_message_id=parent_message_id,
-            metadata_json=json.dumps(reply_metadata, ensure_ascii=False) if reply_metadata else None,
+            metadata_json=json.dumps(metadata, ensure_ascii=False) if metadata else None,
         ))
         await self.db.commit()
 

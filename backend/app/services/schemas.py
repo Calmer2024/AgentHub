@@ -120,6 +120,7 @@ class ChatRequest(BaseModel):
     mentions: list[str] | None = None
     parent_message_id: str | None = Field(default=None, alias="parentMessageId")
     chain_config: ChainConfigSchema | None = Field(default=None, alias="chainConfig")
+    attachment_ids: list[str] | None = Field(default=None, alias="attachmentIds")
 
     model_config = {"populate_by_name": True}
 

@@ -49,10 +49,12 @@ const CODEX_CONNECTION_OPTIONS: UiSelectOption[] = [
 
 export function AgentCliForm({
   initial,
+  runtimeScope = "local",
   onSave,
   onCancel,
 }: {
   initial?: AgentConfig;
+  runtimeScope?: "local" | "cloud";
   onSave: (data: AgentConfigCreate) => Promise<void>;
   onCancel: () => void;
 }) {
@@ -95,7 +97,7 @@ export function AgentCliForm({
   }, []);
 
   useEffect(() => {
-    if (cliTool !== "codex") return;
+    if (runtimeScope !== "local" || cliTool !== "codex") return;
     let cancelled = false;
     fetchCodexLocalConfig()
       .then((config) => {
@@ -116,7 +118,7 @@ export function AgentCliForm({
         if (!cancelled) setCodexStatus("未能读取本机 Codex 配置");
       });
     return () => { cancelled = true; };
-  }, [cliTool]);
+  }, [cliTool, runtimeScope]);
 
   const selectTool = (next: CliTool) => {
     const nextPreset = CLI_PRESETS[next];
@@ -173,7 +175,7 @@ export function AgentCliForm({
   };
 
   const handleCheck = async () => {
-    if (!executable.trim()) return;
+    if (runtimeScope !== "local" || !executable.trim()) return;
     setChecking(true);
     try {
       const result = await checkAgentExecutable(executable.trim());
@@ -191,7 +193,7 @@ export function AgentCliForm({
     setSaving(true);
     setFormError(null);
     try {
-      if (cliTool === "codex") {
+      if (runtimeScope === "local" && cliTool === "codex") {
         const updated = await updateCodexLocalConfig({
           connection: codexConnection,
           baseUrl: normalizeCodexBaseUrl(codexBaseUrl, codexConnection) || (
@@ -215,9 +217,9 @@ export function AgentCliForm({
         rules: rules.trim(),
         agentType: "cli_wrapper",
         cliTool,
-        executable: executable.trim(),
-        initArgs: parseArgs(argsText),
-        envVars: parseEnv(envText, cliTool),
+        executable: runtimeScope === "local" ? executable.trim() : null,
+        initArgs: runtimeScope === "local" ? parseArgs(argsText) : [],
+        envVars: runtimeScope === "local" ? parseEnv(envText, cliTool) : {},
         toolset,
         contextPolicy,
         avatar,
@@ -243,9 +245,11 @@ export function AgentCliForm({
             />
             <div className="min-w-0">
               <h2 className="agenthub-strong truncate text-base font-semibold">
-                {initial ? "智能体设置" : "添加命令行智能体"}
+                {initial ? "智能体设置" : runtimeScope === "local" ? "添加命令行智能体" : "添加云端智能体"}
               </h2>
-              <p className="agenthub-muted truncate text-xs">身份 + 工具集 + 本机运行参数</p>
+              <p className="agenthub-muted truncate text-xs">
+                {runtimeScope === "local" ? "身份 + 工具集 + 本机运行参数" : "身份 + 工具集 + 云端运行策略"}
+              </p>
             </div>
           </div>
           <button
@@ -373,10 +377,14 @@ export function AgentCliForm({
               </ConfigSection>
             </div>
 
-            <ConfigSection icon={Sparkles} title="能力配置" description="工具集来自本机 Skill，Engine 负责真实执行">
-              <FieldLabel label="命令行类型">
+            <ConfigSection
+              icon={Sparkles}
+              title="能力配置"
+              description={runtimeScope === "local" ? "工具集来自本机 Skill，Engine 负责真实执行" : "工具集由云端工作区加载，Engine 由云端运行时调度"}
+            >
+              <FieldLabel label={runtimeScope === "local" ? "命令行类型" : "Engine"}>
                 <UiSelect
-                  ariaLabel="命令行类型"
+                  ariaLabel={runtimeScope === "local" ? "命令行类型" : "Engine"}
                   value={cliTool}
                   options={CLI_TOOL_OPTIONS}
                   onValueChange={(next) => selectTool(next as CliTool)}
@@ -385,7 +393,7 @@ export function AgentCliForm({
               <FieldLabel label="工具集">
                 {skills.length === 0 ? (
                   <div className="agenthub-soft rounded-2xl border px-3 py-3 text-xs leading-5">
-                    未发现本机 Skill。可以先留空，Agent 会仅按 System Prompt、Rules 和当前任务工作。
+                    {runtimeScope === "local" ? "未发现本机 Skill。" : "未发现可用 Skill。"}可以先留空，Agent 会仅按 System Prompt、Rules 和当前任务工作。
                   </div>
                 ) : (
                   <div className="grid gap-2 sm:grid-cols-2">
@@ -401,7 +409,7 @@ export function AgentCliForm({
                           {skill.name}
                         </span>
                         <span className="shrink-0 rounded bg-emerald-400/10 px-1.5 py-0.5 text-[10px] text-emerald-700 dark:text-emerald-200">
-                          本机
+                          {runtimeScope === "local" ? "本机" : "云端"}
                         </span>
                       </label>
                     ))}
@@ -418,6 +426,7 @@ export function AgentCliForm({
               </FieldLabel>
             </ConfigSection>
 
+            {runtimeScope === "local" && (
             <ConfigSection icon={Terminal} title="启动命令" description="AgentHub 会在项目工作区里启动这个命令行工具">
               <FieldLabel label="可执行命令">
                 <div className="flex gap-2">
@@ -451,8 +460,9 @@ export function AgentCliForm({
                 />
               </FieldLabel>
             </ConfigSection>
+            )}
 
-            {cliTool === "codex" && (
+            {runtimeScope === "local" && cliTool === "codex" && (
               <div className="lg:col-span-2">
                 <ConfigSection icon={Network} title="Codex 模型连接" description="支持官方 OpenAI API 与 OpenAI 兼容中转服务">
                   <div className="flex flex-wrap items-center gap-2">
@@ -530,6 +540,7 @@ export function AgentCliForm({
             )}
 
             <div className="lg:col-span-2">
+              {runtimeScope === "local" && (
               <ConfigSection icon={SlidersHorizontal} title="高级环境变量" description="仅用于非密钥类命令行覆盖，密钥会被过滤">
                 <textarea
                   value={envText}
@@ -539,6 +550,7 @@ export function AgentCliForm({
                   className={`${inputClass} resize-none font-mono text-xs leading-5`}
                 />
               </ConfigSection>
+              )}
             </div>
           </div>
         </div>
@@ -550,7 +562,9 @@ export function AgentCliForm({
               {formError}
             </div>
           ) : (
-            <div className="agenthub-faint text-xs">更改会在下次启动 CLI 进程时生效</div>
+            <div className="agenthub-faint text-xs">
+              {runtimeScope === "local" ? "更改会在下次启动 CLI 进程时生效" : "更改会在下次云端运行时调度时生效"}
+            </div>
           )}
           <div className="flex gap-2">
             <button

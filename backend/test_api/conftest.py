@@ -45,9 +45,23 @@ async def _cleanup_db():
             "orchestrator_plans",
             "build_runs",
             "approval_checkpoints",
+            "runtime_logs",
+            "deployment_logs",
+            "runtime_runs",
+            "deployments",
+            "preview_sessions",
             "run_processes",
             "run_tasks",
             "runs",
+            "quota_usages",
+            "sandboxes",
+            "secrets",
+            "comments",
+            "attachments",
+            "artifact_references",
+            "notifications",
+            "agent_template_sessions",
+            "git_sync_jobs",
         ):
             try:
                 await conn.execute(text(f"DELETE FROM {t}"))

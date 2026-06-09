@@ -5,6 +5,7 @@ import { useChatStore } from "../stores/chatStore";
 
 describe("ChatInput", () => {
   afterEach(() => {
+    vi.restoreAllMocks();
     useChatStore.setState({ codeReference: null, replyTarget: null });
   });
 
@@ -78,5 +79,40 @@ describe("ChatInput", () => {
     fireEvent.click(screen.getByRole("button", { name: "发送" }));
 
     expect(onSubmit).toHaveBeenCalledWith("@文档专家 帮我整理需求", ["agent-writer"]);
+  });
+
+  it("上传附件后发送 attachmentIds 作为下一轮上下文", async () => {
+    const onSubmit = vi.fn();
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      id: "att-1",
+      projectId: "p1",
+      sessionId: "s1",
+      filename: "brief.md",
+      mimeType: "text/markdown",
+      sizeBytes: 12,
+      storageUri: "attachment://agenthub/p1/att-1/brief.md",
+      createdAt: "",
+    }), { status: 201 }));
+
+    const { container } = render(
+      <ChatInput
+        onSubmit={onSubmit}
+        mentionableAgents={[]}
+        currentProjectId="p1"
+        currentSessionId="s1"
+      />,
+    );
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(fileInput, {
+      target: { files: [new File(["# brief"], "brief.md", { type: "text/markdown" })] },
+    });
+
+    await screen.findByText("brief.md");
+    fireEvent.change(screen.getByPlaceholderText("输入消息，@ 提及智能体"), {
+      target: { value: "请阅读附件" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    expect(onSubmit).toHaveBeenCalledWith("请阅读附件", [], ["att-1"]);
   });
 });

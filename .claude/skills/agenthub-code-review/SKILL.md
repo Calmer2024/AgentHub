@@ -90,3 +90,9 @@ description: AgentHub 项目标准代码审查流程。当用户完成模块开�
 - 引用仍有效：`CLAUDE.md`、`docs/TEST_PROTOCOL.md`、`docs/GIT_PROTOCOL.md`、`docs/testing/UX_TEST_SPEC.md`、`docs/specs/phase9/README.md` 均存在。
 - 审查 Phase 9/后续 P2 代码时必须检查：local Project 是否仍不要求登录；cloud Project 是否通过 RBAC；API 是否用 camelCase alias；cloud 响应是否隐藏 `workspacePath`。
 - Git 审查新增关注：Phase 9 验收截图位于 `e2e/screenshots/` 且被 `.gitignore` 排除，不应误提交截图、日志、数据库或真实用户 workspace 文件。
+
+## Phase 10 审计 (2026-06-08)
+
+- 引用仍有效：`CLAUDE.md`、`docs/TEST_PROTOCOL.md`、`docs/GIT_PROTOCOL.md`、`docs/testing/UX_TEST_SPEC.md`、`docs/specs/phase10/README.md` 均存在。
+- 审查 cloud runtime 代码时必须检查：用户可见 Agent 是否仍走真实 CLI/subprocess；`runtime_runs` 与兼容 `runs` 是否同步；`runtime_logs`、SSE、message metadata 是否脱敏。
+- P1/P2 兼容新增关注：`runtimeMode=local` 不得要求 `sandboxId`；cloud UI 只能增量显示 runtime 信息，不能 fork MessageList/ArtifactCard。

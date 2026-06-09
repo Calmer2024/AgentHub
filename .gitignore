@@ -27,6 +27,10 @@ wheels/
 # Node
 node_modules/
 dist-ssr/
+frontend/dist-local/
+frontend/dist-saas/
+frontend/dist-mobile/
+frontend/test-results/
 *.local
 
 # Database
@@ -53,6 +57,7 @@ frontend/.agenthub-frontend.*.log
 backend/.uvicorn-dev.*.log
 frontend/.vite-dev.*.log
 .tmp/
+.agenthub-runtime/
 
 # Local temporary files
 .tmp-test/

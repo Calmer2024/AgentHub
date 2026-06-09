@@ -24,6 +24,16 @@ const makeProject = (id: string, name: string): Project => ({
   workspacePath: `D:\\AgentHub\\workspaces\\${id}`,
 });
 
+const cloudProject: Project = {
+  ...project,
+  id: "p-cloud",
+  name: "云端项目",
+  workspacePath: null,
+  workspaceMode: "cloud",
+  workspaceId: "w1",
+  teamId: "t1",
+};
+
 const makeAgent = (id: string, name: string, overrides: Partial<AgentConfig> = {}): AgentConfig => ({
   id,
   name,
@@ -190,5 +200,37 @@ describe("ProjectSidebar", () => {
     expect(listText.indexOf("Claude Code")).toBeLessThan(listText.indexOf("Codex"));
     expect(listText.indexOf("Codex")).toBeLessThan(listText.indexOf("OpenCode"));
     expect(listText.indexOf("OpenCode")).toBeLessThan(listText.indexOf("前端工程师"));
+  });
+
+  it("local 壳隐藏团队空间和云端项目入口", () => {
+    renderSidebar({
+      productEdition: "local",
+      projects: [project, cloudProject],
+    });
+
+    expect(screen.queryByLabelText("团队空间")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTitle("创建项目"));
+    expect(screen.getByText("新建空白项目")).toBeInTheDocument();
+    expect(screen.getByText("选择现有文件夹")).toBeInTheDocument();
+    expect(screen.queryByText("新建云端项目")).not.toBeInTheDocument();
+    expect(screen.getByText("大作业")).toBeInTheDocument();
+    expect(screen.queryByText("云端项目")).not.toBeInTheDocument();
+  });
+
+  it("SaaS 壳隐藏本机目录入口，只显示云端项目", () => {
+    renderSidebar({
+      productEdition: "saas",
+      projects: [project, cloudProject],
+      teams: [{ id: "t1", name: "研发团队", role: "owner", memberCount: 1, createdAt: "" }],
+      currentTeamId: "t1",
+    });
+
+    expect(screen.getByLabelText("团队空间")).toBeInTheDocument();
+    fireEvent.click(screen.getByTitle("创建项目"));
+    expect(screen.getByText("新建云端项目")).toBeInTheDocument();
+    expect(screen.queryByText("新建空白项目")).not.toBeInTheDocument();
+    expect(screen.queryByText("选择现有文件夹")).not.toBeInTheDocument();
+    expect(screen.getAllByText("云端项目").length).toBeGreaterThan(0);
+    expect(screen.queryByText("大作业")).not.toBeInTheDocument();
   });
 });

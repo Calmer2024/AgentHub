@@ -19,7 +19,7 @@ import {
   Users,
   type LucideIcon,
 } from "lucide-react";
-import type { AgentConfig, CurrentUser, Project, Team } from "../types";
+import type { AgentConfig, CurrentUser, ProductEdition, Project, Team } from "../types";
 import { AgentAvatar } from "./AgentAvatar";
 import { ConfirmDialog } from "./ConfirmDialog";
 import type { SidebarTab } from "../stores/sessionStore";
@@ -35,6 +35,7 @@ interface Props {
   currentTeamId: string | null;
   creating: boolean;
   loading?: boolean;
+  productEdition?: ProductEdition;
   onSelectProject: (id: string) => void;
   onSelectTeam: (id: string | null) => void;
   onCreateTeam: (name: string) => Promise<void>;
@@ -83,6 +84,7 @@ export function ProjectSidebar({
   currentTeamId,
   creating,
   loading = false,
+  productEdition,
   onSelectProject,
   onSelectTeam,
   onCreateTeam,
@@ -119,6 +121,14 @@ export function ProjectSidebar({
   const projectMenuRef = useRef<HTMLDivElement>(null);
   const teamMenuRef = useRef<HTMLDivElement>(null);
   const activeAgents = agents.filter((agent) => agent.isActive);
+  const isLocalShell = productEdition === "local";
+  const isSaasShell = productEdition === "saas";
+  const canUseTeamSpaces = !isLocalShell;
+  const canCreateLocalProject = !isSaasShell;
+  const canCreateCloudProject = !isLocalShell;
+  const visibleProjectItems = productEdition
+    ? projects.filter((project) => project.workspaceMode === (productEdition === "local" ? "local" : "cloud"))
+    : projects;
   const nativeCliAgents = activeAgents
     .filter(isNativeCliAgent)
     .sort((left, right) => nativeCliAgentRank(left) - nativeCliAgentRank(right));
@@ -127,7 +137,7 @@ export function ProjectSidebar({
     ? customAgents
     : customAgents.slice(0, COLLAPSED_CUSTOM_AGENT_LIMIT);
   const showAgentExpand = customAgents.length > COLLAPSED_CUSTOM_AGENT_LIMIT;
-  const visibleProjects = projectsExpanded ? projects : projects.slice(0, 3);
+  const visibleProjects = projectsExpanded ? visibleProjectItems : visibleProjectItems.slice(0, 3);
   const theme = useThemeStore((state) => state.theme);
   const setTheme = useThemeStore((state) => state.setTheme);
 
@@ -165,7 +175,9 @@ export function ProjectSidebar({
   const openCreateProjectDialog = (mode: "local" | "cloud" = "local") => {
     setMenuOpen(false);
     setCreateName("新项目");
-    setCreateMode(mode);
+    if (mode === "cloud" && !canCreateCloudProject) setCreateMode("local");
+    else if (mode === "local" && !canCreateLocalProject) setCreateMode("cloud");
+    else setCreateMode(mode);
     setCreateTeamId(currentTeamId);
     setCreateModalOpen(true);
   };
@@ -237,7 +249,7 @@ export function ProjectSidebar({
           >
             <span className="block truncate text-sm font-medium">{agent.name}</span>
             <span className="agenthub-faint mt-0.5 block truncate text-xs">
-              {agent.version || (agent.status === "ready" ? "就绪" : "未找到 executable")}
+              {agent.version || agentStatusText(agent, isSaasShell)}
             </span>
           </button>
           <button
@@ -295,19 +307,21 @@ export function ProjectSidebar({
     <aside className="agenthub-rail w-full md:w-[260px] h-[34dvh] md:h-full flex flex-col shrink-0 border-r transition-colors duration-300">
       <div className="px-3 py-3 space-y-3">
         <ThemeToggle theme={theme} onChange={setTheme} />
-        <TeamSwitcher
-          currentUser={currentUser}
-          teams={teams}
-          currentTeamId={currentTeamId}
-          teamName={teamName}
-          teamCreating={teamCreating}
-          menuOpen={teamMenuOpen}
-          menuRef={teamMenuRef}
-          onToggle={() => setTeamMenuOpen((value) => !value)}
-          onSelectTeam={onSelectTeam}
-          onTeamNameChange={setTeamName}
-          onCreateTeam={() => void submitCreateTeam()}
-        />
+        {canUseTeamSpaces && (
+          <TeamSwitcher
+            currentUser={currentUser}
+            teams={teams}
+            currentTeamId={currentTeamId}
+            teamName={teamName}
+            teamCreating={teamCreating}
+            menuOpen={teamMenuOpen}
+            menuRef={teamMenuRef}
+            onToggle={() => setTeamMenuOpen((value) => !value)}
+            onSelectTeam={onSelectTeam}
+            onTeamNameChange={setTeamName}
+            onCreateTeam={() => void submitCreateTeam()}
+          />
+        )}
         <NavButton
           icon={MessageCircle}
           label="对话"
@@ -316,7 +330,7 @@ export function ProjectSidebar({
         />
         <NavButton
           icon={Settings}
-          label="工作区设置"
+          label={isLocalShell ? "本机项目设置" : "工作区设置"}
           active={activePanel === "workspace"}
           onClick={() => onOpenPanel("workspace")}
         />
@@ -331,7 +345,7 @@ export function ProjectSidebar({
           </span>
           <IconButton
             icon={Plus}
-            title="添加命令行智能体"
+            title={isSaasShell ? "添加云端智能体" : "添加命令行智能体"}
             disabled={false}
             onClick={onCreateAgent}
           />
@@ -347,7 +361,7 @@ export function ProjectSidebar({
           ) : (
             <>
               {nativeCliAgents.length > 0 && (
-                <AgentGroup label="原生 CLI" count={nativeCliAgents.length}>
+                <AgentGroup label={isSaasShell ? "内置 Engine" : "原生 CLI"} count={nativeCliAgents.length}>
                   {nativeCliAgents.map(renderAgentItem)}
                 </AgentGroup>
               )}
@@ -378,7 +392,7 @@ export function ProjectSidebar({
         <div className="agenthub-muted mb-2 flex items-center justify-between text-sm">
           <span className="inline-flex items-center gap-2">
             <FolderOpen size={15} />
-            项目
+            {isLocalShell ? "本机项目" : isSaasShell ? "云端项目" : "项目"}
           </span>
           <div className="relative" ref={menuRef}>
             <IconButton
@@ -389,21 +403,27 @@ export function ProjectSidebar({
             />
             {menuOpen && (
               <div className="agenthub-menu absolute right-0 top-9 z-30 w-56 rounded-2xl border p-1.5">
-                <MenuItem
-                  icon={Plus}
-                  label="新建空白项目"
-                  onClick={() => openCreateProjectDialog("local")}
-                />
-                <MenuItem
-                  icon={Cloud}
-                  label="新建云端项目"
-                  onClick={() => openCreateProjectDialog("cloud")}
-                />
-                <MenuItem
-                  icon={Folder}
-                  label="选择现有文件夹"
-                  onClick={() => runCreateAction(onPickExistingFolder)}
-                />
+                {canCreateLocalProject && (
+                  <MenuItem
+                    icon={Plus}
+                    label="新建空白项目"
+                    onClick={() => openCreateProjectDialog("local")}
+                  />
+                )}
+                {canCreateCloudProject && (
+                  <MenuItem
+                    icon={Cloud}
+                    label="新建云端项目"
+                    onClick={() => openCreateProjectDialog("cloud")}
+                  />
+                )}
+                {canCreateLocalProject && (
+                  <MenuItem
+                    icon={Folder}
+                    label="选择现有文件夹"
+                    onClick={() => runCreateAction(onPickExistingFolder)}
+                  />
+                )}
               </div>
             )}
           </div>
@@ -417,7 +437,7 @@ export function ProjectSidebar({
         >
           {loading && projects.length === 0 ? (
             <SidebarMiniSkeleton rows={3} />
-          ) : projects.length === 0 ? (
+          ) : visibleProjectItems.length === 0 ? (
             <div className="agenthub-faint px-2 py-8 text-sm">暂无项目</div>
           ) : visibleProjects.map((project) => {
             const selected = currentProjectId === project.id && activePanel === "sessions";
@@ -518,10 +538,10 @@ export function ProjectSidebar({
             );
           })}
         </div>
-        {projects.length > 3 && (
+        {visibleProjectItems.length > 3 && (
           <ExpandButton
             expanded={projectsExpanded}
-            count={projects.length}
+            count={visibleProjectItems.length}
             expandedLabel="收起项目"
             collapsedLabel="展开全部项目"
             onClick={() => setProjectsExpanded((value) => !value)}
@@ -543,29 +563,33 @@ export function ProjectSidebar({
               </span>
               <div>
                 <h2 id="blank-project-title" className="agenthub-strong text-base font-semibold">新建项目</h2>
-                <p className="agenthub-muted mt-0.5 text-xs">选择本机或云端工作区。</p>
+                <p className="agenthub-muted mt-0.5 text-xs">
+                  {isLocalShell ? "创建本机工作区项目。" : isSaasShell ? "创建云端工作区项目。" : "选择本机或云端工作区。"}
+                </p>
               </div>
             </div>
-            <div className="mb-4 grid grid-cols-2 rounded-full border p-1" style={{ borderColor: "var(--ah-border)" }}>
-              <button
-                type="button"
-                onClick={() => setCreateMode("local")}
-                data-active={createMode === "local"}
-                className="agenthub-theme-choice inline-flex h-9 items-center justify-center gap-1.5 rounded-full text-xs font-medium transition"
-              >
-                <HardDrive size={14} />
-                本机
-              </button>
-              <button
-                type="button"
-                onClick={() => setCreateMode("cloud")}
-                data-active={createMode === "cloud"}
-                className="agenthub-theme-choice inline-flex h-9 items-center justify-center gap-1.5 rounded-full text-xs font-medium transition"
-              >
-                <Cloud size={14} />
-                云端
-              </button>
-            </div>
+            {canCreateLocalProject && canCreateCloudProject && (
+              <div className="mb-4 grid grid-cols-2 rounded-full border p-1" style={{ borderColor: "var(--ah-border)" }}>
+                <button
+                  type="button"
+                  onClick={() => setCreateMode("local")}
+                  data-active={createMode === "local"}
+                  className="agenthub-theme-choice inline-flex h-9 items-center justify-center gap-1.5 rounded-full text-xs font-medium transition"
+                >
+                  <HardDrive size={14} />
+                  本机
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCreateMode("cloud")}
+                  data-active={createMode === "cloud"}
+                  className="agenthub-theme-choice inline-flex h-9 items-center justify-center gap-1.5 rounded-full text-xs font-medium transition"
+                >
+                  <Cloud size={14} />
+                  云端
+                </button>
+              </div>
+            )}
             <label className="agenthub-muted block text-xs font-medium" htmlFor="blank-project-name">
               项目名称
             </label>
@@ -640,6 +664,11 @@ function isNativeCliAgent(agent: AgentConfig) {
 
 function nativeCliAgentRank(agent: AgentConfig) {
   return NATIVE_CLI_AGENT_ORDER[agent.cliTool] ?? Number.MAX_SAFE_INTEGER;
+}
+
+function agentStatusText(agent: AgentConfig, cloudShell: boolean) {
+  if (agent.status === "ready") return "就绪";
+  return cloudShell ? "待配置" : "未找到 executable";
 }
 
 function AgentGroup({

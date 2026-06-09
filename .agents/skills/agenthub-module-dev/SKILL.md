@@ -100,3 +100,9 @@ description: AgentHub 项目标准模块开发流程。当用户要求开发新�
 - 引用仍有效：`docs/specs/phase9/README.md`、`docs/TEST_PROTOCOL.md`、`docs/GIT_PROTOCOL.md`、`AGENTS.md` 均存在。
 - 流程补充：Phase 9 起模块开发必须同时验证 P1 local 零回归与 P2 cloud slice，不得只跑新增 cloud API 测试。
 - 新增提醒：cloud Project 不能暴露本机或服务器物理路径；前端类型必须把 `workspacePath` 视为 local-only 可选字段，把 `workspaceId` 视为 cloud 主锚点。
+
+## Phase 10 审计 (2026-06-08)
+
+- 引用仍有效：`docs/specs/phase10/README.md`、`docs/deliverables/phase10-cloud-runtime/`、`docs/dev-logs/phase10-dev-log.md`、`docs/TEST_PROTOCOL.md`、`AGENTS.md` 均存在。
+- 流程补充：开发 cloud runtime 时必须复用真实 CLI Adapter / RunService / ArtifactOutputBridge，不得新增裸 HTTP LLM 或 cloud-only MessageList 分支。
+- 验证补充：Phase 10 起至少覆盖 sandbox ready、真实 CLI 输出、Artifact 创建、runtime logs 脱敏、配额阻断和 `runtime=local` 无 `sandboxId` 回归。

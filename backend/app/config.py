@@ -9,6 +9,17 @@ class Settings(BaseSettings):
     database_url: str = "sqlite+aiosqlite:///./data/agenthub.db"
     agenthub_workspace_root: str = "./data/workspaces"
     agenthub_skill_roots: str = ""
+    agenthub_secret_key: str = "agenthub-dev-secret"
+    agenthub_cloud_runner_node_id: str = "local-dev-runner"
+    agenthub_cloud_runtime_seconds: int = 30
+    agenthub_cloud_concurrent_runs: int = 2
+    agenthub_cloud_memory_mb: int = 1024
+    agenthub_cloud_disk_mb: int = 512
+    agenthub_edition: str = "local"
+    agenthub_surface: str = "desktop"
+    agenthub_api_base_url: str = "http://127.0.0.1:8000"
+    agenthub_auth_required: bool = False
+    agenthub_max_upload_bytes: int = 10 * 1024 * 1024
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
 

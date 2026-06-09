@@ -55,7 +55,7 @@ interface Props {
   collabCompleted: boolean;
   collabSummary: string | null;
   draftPlan: DraftOrchestratorPlan | null;
-  onSend: (content: string, mentions: string[]) => void;
+  onSend: (content: string, mentions: string[], attachmentIds?: string[]) => void;
   onDismissError: () => void;
   onReply: (message: Message) => void;
   onRegenerate: (message: Message) => void;
@@ -753,6 +753,8 @@ export function ChatWindow({
         busy={isStreaming || hasActiveRun}
         mentionableAgents={isGroup ? mentionableAgents : agents}
         mentionLoading={isGroup ? mentionLoading : false}
+        currentProjectId={currentSession?.projectId ?? null}
+        currentSessionId={currentSessionId}
       />
     </div>
   );

@@ -63,10 +63,12 @@ class SystemHealthService:
     ) -> SystemHealthRead:
         session = await self.db.get(DBSession, session_id) if session_id else None
         effective_project_id = project_id or (session.project_id if session else None)
+        project = await self.db.get(Project, effective_project_id) if effective_project_id else None
+        cloud_mode = bool(project and project.workspace_mode == "cloud")
         effective_agent_ids = await self._effective_agent_ids(session, agent_id)
 
         items: list[SystemHealthItem] = []
-        items.extend(await self._agent_items(effective_agent_ids))
+        items.extend(await self._agent_items(effective_agent_ids, cloud_mode=cloud_mode))
         items.append(self._codex_item())
         items.append(self._runtime_item("node", ["node", "--version"], warning_if_missing=True))
         items.append(self._python_item())
@@ -106,7 +108,7 @@ class SystemHealthService:
             return [str(item) for item in result.scalars().all()]
         return [session.agent_config_id] if session.agent_config_id else []
 
-    async def _agent_items(self, agent_ids: list[str]) -> list[SystemHealthItem]:
+    async def _agent_items(self, agent_ids: list[str], *, cloud_mode: bool = False) -> list[SystemHealthItem]:
         if not agent_ids:
             result = await self.db.execute(
                 select(AgentConfig)
@@ -136,6 +138,20 @@ class SystemHealthService:
 
         items: list[SystemHealthItem] = []
         for agent in agents:
+            if cloud_mode:
+                items.append(SystemHealthItem(
+                    key=f"agent.{agent.id}.cloud_runtime",
+                    label=f"{agent.name} cloud runtime",
+                    status="ok",
+                    severity="info",
+                    detail=f"云端 sandbox 将在隔离运行环境内校验 {agent.cli_tool or agent.executable or 'CLI'}",
+                    metadata={
+                        "agentId": agent.id,
+                        "cliTool": agent.cli_tool,
+                        "configured": bool(agent.executable),
+                    },
+                ))
+                continue
             status = CliAgentRegistry.executable_status(agent.executable)
             ok = status.status == "ready"
             items.append(SystemHealthItem(
@@ -247,6 +263,25 @@ class SystemHealthService:
                 severity="blocking",
                 detail="项目不存在或已归档",
                 action=SystemHealthAction(label="打开项目设置", target="project_settings"),
+            )
+        if project.workspace_mode == "cloud":
+            if not project.workspace_id:
+                return SystemHealthItem(
+                    key="workspace.cloud",
+                    label="云端工作区",
+                    status="missing",
+                    severity="blocking",
+                    detail="云端 Project 未绑定 workspace",
+                    action=SystemHealthAction(label="打开项目设置", target="project_settings"),
+                    metadata={"projectId": project.id},
+                )
+            return SystemHealthItem(
+                key="workspace.cloud",
+                label="云端工作区",
+                status="ok",
+                severity="info",
+                detail="云端 workspace 已绑定，sandbox 会使用隔离挂载目录",
+                metadata={"projectId": project.id, "workspaceId": project.workspace_id},
             )
         path = Path(project.workspace_path).expanduser()
         if not path.exists() or not path.is_dir():

@@ -307,6 +307,168 @@ export interface ProjectPreviewResult {
   source: "workspace" | "build" | string;
 }
 
+export type PreviewSource = "static" | "build" | "dev_server";
+export type DeliveryVisibility = "public" | "team" | "private";
+
+export interface PreviewSession {
+  id: string;
+  artifactId: string;
+  artifactVersionId?: string | null;
+  projectId: string;
+  source: PreviewSource | string;
+  status: "ready" | "revoked" | "expired" | string;
+  url: string;
+  visibility: DeliveryVisibility | string;
+  expiresAt: string;
+  createdAt: string;
+  revokedAt?: string | null;
+}
+
+export interface DeploymentLogChunk {
+  sequence: number;
+  stream: "system" | "stdout" | "stderr" | string;
+  text: string;
+  createdAt: string;
+}
+
+export interface DeploymentLogs {
+  deploymentId: string;
+  chunks: DeploymentLogChunk[];
+}
+
+export interface Deployment {
+  id: string;
+  projectId: string;
+  artifactId: string;
+  artifactVersionId: string;
+  target: "static_hosting" | "third_party" | string;
+  status: "queued" | "building" | "published" | "failed" | "rolled_back" | string;
+  stage: string;
+  url?: string | null;
+  visibility: DeliveryVisibility | string;
+  errorSummary?: string | null;
+  createdBy?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  publishedAt?: string | null;
+}
+
+export interface Comment {
+  id: string;
+  projectId: string;
+  targetType: "message" | "artifact" | "deployment" | string;
+  targetId: string;
+  authorUserId: string;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Attachment {
+  id: string;
+  projectId: string;
+  sessionId?: string | null;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  storageUri: string;
+  createdAt: string;
+}
+
+export interface ArtifactReference {
+  id: string;
+  sourceType: string;
+  sourceId: string;
+  artifactId: string;
+  artifactVersionId?: string | null;
+  relation: string;
+  createdAt: string;
+}
+
+export interface Notification {
+  id: string;
+  type: string;
+  resourceType: string;
+  resourceId: string;
+  title: string;
+  body?: string | null;
+  readAt?: string | null;
+  createdAt: string;
+}
+
+export interface MobileSessionSummary {
+  id: string;
+  projectId?: string | null;
+  title: string;
+  unreadCount: number;
+  latestMessageAt?: string | null;
+  pendingApprovalCount: number;
+}
+
+export interface RenderedArtifact {
+  artifactId: string;
+  format: "html" | "pdf" | "image" | string;
+  renderId: string;
+  content: string;
+  fileName: string;
+}
+
+export interface AgentTemplateSession {
+  id: string;
+  status: string;
+  draft: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GitSyncJob {
+  id: string;
+  projectId: string;
+  mode: "pull" | "push" | string;
+  remote: string;
+  branch: string;
+  status: "completed" | "failed" | string;
+  commitSha?: string | null;
+  errorSummary?: string | null;
+  logs: string[];
+  createdAt: string;
+}
+
+export type ProductEdition = "local" | "saas";
+export type AppSurface = "desktop" | "mobile";
+
+export type FeatureKey =
+  | "localWorkspace"
+  | "localCliRuntime"
+  | "localPreview"
+  | "localBuildExport"
+  | "cloudWorkspace"
+  | "teamSpaces"
+  | "cloudPreview"
+  | "deployment"
+  | "auditLogs"
+  | "notifications"
+  | "mobileApprovals";
+
+export type RuntimeFeatureFlags = Record<FeatureKey, boolean>;
+
+export interface RuntimeCapabilities {
+  edition: ProductEdition;
+  surface: AppSurface;
+  authRequired: boolean;
+  apiBaseUrl: string;
+  features: RuntimeFeatureFlags;
+  limits: {
+    maxUploadBytes?: number;
+  };
+}
+
+export interface ShellContextValue {
+  capabilities: RuntimeCapabilities;
+  edition: ProductEdition;
+  surface: AppSurface;
+}
+
 export type TeamRole = "owner" | "admin" | "member" | "viewer";
 
 export interface CurrentUser {
@@ -377,6 +539,58 @@ export interface CloudWorkspace {
   restores: WorkspaceRestore[];
   createdAt: string;
   updatedAt: string;
+}
+
+export type RuntimeMode = "local" | "cloud";
+
+export interface Sandbox {
+  id: string;
+  workspaceId: string;
+  status: "creating" | "ready" | "stopping" | "stopped" | "failed" | string;
+  image: string;
+  runnerNodeId?: string | null;
+  resourceLimits: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+  stoppedAt?: string | null;
+}
+
+export interface QuotaSummary {
+  subjectType: string;
+  subjectId: string;
+  concurrentRunsLimit: number;
+  concurrentRunsUsed: number;
+  runtimeSecondsLimit: number;
+  memoryMbLimit: number;
+  diskMbLimit: number;
+  network: string;
+}
+
+export interface SecretCreateInput {
+  name: string;
+  value: string;
+  scope?: "user" | "team" | "project";
+  ownerId?: string | null;
+}
+
+export interface SecretRef {
+  id: string;
+  name: string;
+  scope: string;
+  ownerId: string;
+  createdAt: string;
+}
+
+export interface RuntimeLogChunk {
+  sequence: number;
+  stream: "stdout" | "stderr" | "system" | string;
+  text: string;
+  createdAt: string;
+}
+
+export interface RuntimeLogs {
+  runId: string;
+  chunks: RuntimeLogChunk[];
 }
 
 export interface AuditLog {

@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
+  configureApiClient,
   configureBuiltinAgentsCodex,
+  createDevCloudAuthProvider,
+  createArtifactPreview,
+  createDeployment,
   createProject,
   createTeam,
   createWorkspaceSnapshot,
@@ -11,6 +15,7 @@ import {
   fetchArtifactDiff,
   fetchArtifactVersions,
   fetchArtifacts,
+  fetchDeploymentLogs,
   fetchProjectBuildLogs,
   fetchProjectBuilds,
   fetchWorkspace,
@@ -21,6 +26,8 @@ import {
   restoreArtifactVersion,
   saveArtifactContent,
   startProjectBuild,
+  retryDeployment,
+  resetApiClientForTests,
   writeProjectFile,
 } from "./client";
 
@@ -38,6 +45,25 @@ function sseResponse(events: string[]): Response {
 describe("createChatStream", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    resetApiClientForTests();
+  });
+
+  it("发送消息时把附件 ID 注入请求体", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(sseResponse([
+      JSON.stringify({ token: "", done: true, messageId: "m1" }),
+    ]));
+
+    createChatStream("s1", "hello", [], {
+      onToken: vi.fn(),
+      onDone: vi.fn(),
+    }, undefined, null, ["att-1"]);
+
+    await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
+    const init = vi.mocked(globalThis.fetch).mock.calls[0][1] as RequestInit;
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      content: "hello",
+      attachmentIds: ["att-1"],
+    });
   });
 
   it("把 orchestrator.task_completed 视为群聊正常结束", async () => {
@@ -241,6 +267,7 @@ describe("createChatStream", () => {
       content: "hello",
       parentMessageId: "m-parent",
     });
+    expect((init.headers as Record<string, string>)["X-AgentHub-User-Email"]).toBeUndefined();
   });
 
   it("解析 Orchestrator 中枢总结流", async () => {
@@ -414,6 +441,73 @@ describe("artifact APIs", () => {
     expect(projectBuildExportUrl("p1", "b1")).toBe("/api/projects/p1/exports/builds/b1");
   });
 
+  it("创建云端预览、发布并读取发布日志与重试", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        id: "preview-1",
+        artifactId: "a1",
+        artifactVersionId: "v1",
+        projectId: "p1",
+        source: "static",
+        status: "ready",
+        url: "https://preview.agenthub.local/p/preview-1",
+        visibility: "team",
+        expiresAt: "",
+        createdAt: "",
+        revokedAt: null,
+      }), { status: 201 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        id: "dep-1",
+        projectId: "p1",
+        artifactId: "a1",
+        artifactVersionId: "v1",
+        target: "static_hosting",
+        status: "failed",
+        stage: "build",
+        url: null,
+        visibility: "team",
+        errorSummary: "发布构建失败",
+        createdAt: "",
+        updatedAt: "",
+      }), { status: 202 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        deploymentId: "dep-1",
+        chunks: [{ sequence: 1, stream: "stderr", text: "DEPLOY_FAIL", createdAt: "" }],
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        id: "dep-1",
+        projectId: "p1",
+        artifactId: "a1",
+        artifactVersionId: "v1",
+        target: "static_hosting",
+        status: "published",
+        stage: "verify",
+        url: "https://deploy.agenthub.local/d/dep-1",
+        visibility: "team",
+        errorSummary: null,
+        createdAt: "",
+        updatedAt: "",
+      }), { status: 202 }));
+
+    await createArtifactPreview("a1", { artifactVersionId: "v1", visibility: "team" });
+    await createDeployment({ artifactId: "a1", artifactVersionId: "v1" });
+    const logs = await fetchDeploymentLogs("dep-1");
+    const retried = await retryDeployment("dep-1", "build");
+
+    expect(logs.chunks[0].text).toBe("DEPLOY_FAIL");
+    expect(retried.status).toBe("published");
+    const previewInit = vi.mocked(globalThis.fetch).mock.calls[0][1] as RequestInit;
+    expect(vi.mocked(globalThis.fetch).mock.calls[0][0]).toBe("/api/artifacts/a1/previews");
+    expect(JSON.parse(String(previewInit.body))).toMatchObject({
+      source: "static",
+      artifactVersionId: "v1",
+      visibility: "team",
+    });
+    expect(vi.mocked(globalThis.fetch).mock.calls[1][0]).toBe("/api/deployments");
+    expect(vi.mocked(globalThis.fetch).mock.calls[2][0]).toBe("/api/deployments/dep-1/logs");
+    expect(vi.mocked(globalThis.fetch).mock.calls[3][0]).toBe("/api/deployments/dep-1/retry");
+  });
+
   it("加载产物版本链", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify([
       { id: "a1", version: 1, content: "old", createdAt: "" },
@@ -529,9 +623,11 @@ describe("artifact APIs", () => {
 describe("phase9 cloud workspace APIs", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    resetApiClientForTests();
   });
 
   it("创建云端项目和团队请求带开发态登录 header", async () => {
+    configureApiClient({ cloudAuthProvider: createDevCloudAuthProvider() });
     vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(new Response(JSON.stringify({
         id: "t1",

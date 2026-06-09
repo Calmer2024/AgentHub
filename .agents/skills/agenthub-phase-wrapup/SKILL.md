@@ -175,3 +175,9 @@ description: AgentHub 阶段收尾标准流程。当用户说"阶段验收通过
 - 引用仍有效：`.agents/skills/` 与 `.claude/skills/` 镜像均存在，`docs/specs/phase9/README.md`、`docs/deliverables/phase9-cloud-workspace/`、`docs/dev-logs/phase9-dev-log.md` 已作为本阶段文档入口。
 - 阶段收尾新增硬口径：P2 SaaS 阶段的完成报告必须同时写出 P1 local 零回归与当前 cloud slice 真实服务结果。
 - 暂不新建独立 Skill/Rule：Phase 9 的可复用经验已并入 module-dev / code-review / qa-audit / phase-wrapup；若 Phase 10-11 多次重复 cloud runtime 验收脚本，再考虑沉淀专门 Skill。
+
+## Phase 10 审计 (2026-06-08)
+
+- 引用仍有效：`.agents/skills/` 与 `.claude/skills/` 镜像均存在，`docs/specs/phase10/README.md`、`docs/deliverables/phase10-cloud-runtime/`、`docs/dev-logs/phase10-dev-log.md` 已作为本阶段文档入口。
+- 阶段收尾新增硬口径：Phase 10+ 完成报告必须写明当前 runner 隔离级别、Secret 脱敏证据、runtime logs 查询证据和 `runtime=local` 零回归证据。
+- 暂不新建独立 Skill/Rule：本阶段经验已沉淀到 module-dev / code-review / qa-audit / phase-wrapup；生产级 runner/KMS/Preview 的专门 Skill 留待 Phase 11 视重复度决定。

@@ -100,7 +100,7 @@ export function useSendMessage() {
   const sessions = useSessionStore((state) => state.sessions);
   const updateSession = useSessionStore((state) => state.updateSession);
 
-  return useCallback(async (content: string, mentions: string[]) => {
+  return useCallback(async (content: string, mentions: string[], attachmentIds: string[] = []) => {
     if (!currentSessionId) return;
     const collabKey = currentSessionId;
     const streamKey = `stream-${currentSessionId}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -448,7 +448,7 @@ export function useSendMessage() {
           ?? agentPlaceholders.get(agentId);
         if (localId) appendAgentStreamingTokenToSession(currentSessionId, localId, agentName, token);
       },
-    }, undefined, parentMessageId);
+    }, undefined, parentMessageId, attachmentIds);
     setActiveStreamAbort(streamKey, abortStream);
 
   }, [
