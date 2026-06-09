@@ -62,6 +62,7 @@ export function ExecutionTracePanel({ trace, className = "" }: Props) {
   const isRunning = trace?.status === "running";
   const isError = trace?.status === "error";
   const isCancelled = trace?.status === "cancelled";
+  const isInterrupted = trace?.status === "interrupted";
   const open = manualOpen ?? isRunning;
   const latest = items[items.length - 1];
   const current = isRunning ? activeTraceItem(items) ?? latest : latest;
@@ -102,10 +103,11 @@ export function ExecutionTracePanel({ trace, className = "" }: Props) {
   const summary = useMemo(() => {
     if (!trace) return "";
     if (isRunning) return itemTitle(current) || "正在执行";
+    if (isInterrupted) return "本次运行已中断";
     if (isCancelled) return "本次运行已中止";
     if (isError) return itemTitle(latest) || "执行遇到错误";
-    return `${items.length} 步，${stats.toolCount} 次工具调用，${stats.commandCount} 条命令`;
-  }, [current, isCancelled, isError, isRunning, items.length, latest, stats.commandCount, stats.toolCount, trace]);
+    return `${traceItemSummary(trace, items.length)}，${stats.toolCount} 次工具调用，${stats.commandCount} 条命令`;
+  }, [current, isCancelled, isError, isInterrupted, isRunning, items.length, latest, stats.commandCount, stats.toolCount, trace]);
 
   if (!trace || items.length === 0) return null;
 
@@ -368,6 +370,16 @@ function traceStats(items: ExecutionTraceItem[]) {
   }, { toolCount: 0, commandCount: 0, errorCount: 0 });
 }
 
+function traceItemSummary(trace: ExecutionTrace, visibleCount: number) {
+  const total = typeof trace.totalItemCount === "number" && Number.isFinite(trace.totalItemCount)
+    ? trace.totalItemCount
+    : visibleCount;
+  if (trace.truncated || total > visibleCount) {
+    return `最近 ${visibleCount}/共 ${total} 条过程记录`;
+  }
+  return `${visibleCount} 条过程记录`;
+}
+
 function activeTraceItem(items: ExecutionTraceItem[]) {
   for (let index = items.length - 1; index >= 0; index -= 1) {
     const item = items[index];
@@ -425,13 +437,14 @@ function statusIcon(status: ExecutionTrace["status"]) {
   if (status === "running") return <Clock3 {...props} className="animate-pulse" />;
   if (status === "error") return <AlertCircle {...props} />;
   if (status === "cancelled") return <XCircle {...props} />;
+  if (status === "interrupted") return <TriangleAlert {...props} />;
   return <CheckCircle2 {...props} />;
 }
 
 function statusFrame(status: ExecutionTrace["status"]) {
   if (status === "running") return "agenthub-status-info";
   if (status === "error") return "agenthub-status-error";
-  if (status === "cancelled") return "agenthub-status-warning";
+  if (status === "cancelled" || status === "interrupted") return "agenthub-status-warning";
   return "agenthub-status-success";
 }
 

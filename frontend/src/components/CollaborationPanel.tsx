@@ -61,7 +61,7 @@ export function CollaborationPanel({
   intent, tasks, phases, isCompleted, completedSummary, draftPlan,
   run = null, runtimeTasks = [], onCancelRun, cancellingRunId = null,
 }: Props) {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => isCompleted);
   const isDraftPlan = intent === "orchestrator_plan" || Boolean(draftPlan);
   const visiblePhases = phases.length > 0 ? phases : buildFallbackPhases(tasks);
   const doneCount = tasks.filter((t) => t.status === "completed" || t.status === "error").length;
@@ -71,20 +71,23 @@ export function CollaborationPanel({
     : tasks.length;
 
   useEffect(() => {
-    if (!isCompleted) return;
-    const timer = window.setTimeout(() => setCollapsed(true), 10000);
-    return () => window.clearTimeout(timer);
+    if (isCompleted) setCollapsed(true);
   }, [isCompleted]);
 
+  useEffect(() => {
+    if (!isCompleted && (run || isDraftPlan)) setCollapsed(false);
+  }, [isCompleted, isDraftPlan, run]);
+
   return (
-    <section className="agenthub-card mx-6 my-3 overflow-hidden rounded-2xl border">
+    <section className="agenthub-card mx-6 my-2 overflow-hidden rounded-xl border">
       <button
         type="button"
         onClick={() => setCollapsed((v) => !v)}
-        className="w-full min-h-12 px-4 py-3 flex items-center justify-between gap-3 text-left hover:bg-[color:var(--ah-accent-soft)]"
+        className="flex min-h-10 w-full items-center justify-between gap-3 px-3 py-2 text-left hover:bg-[color:var(--ah-accent-soft)]"
+        aria-expanded={!collapsed}
       >
         <div className="min-w-0">
-          <div className="agenthub-strong flex items-center gap-2 truncate text-sm font-semibold">
+          <div className="agenthub-strong flex items-center gap-2 truncate text-xs font-semibold">
             <Workflow size={15} className="agenthub-muted shrink-0" />
             <span className="truncate">
               {isDraftPlan
@@ -92,7 +95,7 @@ export function CollaborationPanel({
                 : `编排器 · ${title} · ${tasks.length} 个智能体`}
             </span>
           </div>
-          <div className="agenthub-muted text-xs mt-0.5">
+          <div className="agenthub-muted mt-0.5 truncate text-[11px]">
             {isDraftPlan
               ? completedSummary ?? "调度计划已生成，等待确认执行。"
               : isCompleted ? completedSummary ?? `${doneCount}/${tasks.length} 完成` : `${doneCount}/${tasks.length} 完成`}
@@ -129,7 +132,7 @@ export function CollaborationPanel({
                 </div>
               ) : null}
               {draftPlan.validation?.warnings.length ? (
-                <div className="mt-2 space-y-1 text-amber-700">
+                <div className="mt-2 space-y-1 text-[color:var(--ah-warning)]">
                   {draftPlan.validation.warnings.map((warning) => <div key={warning}>提醒：{warning}</div>)}
                 </div>
               ) : null}

@@ -59,13 +59,13 @@ const ROLE_LABELS: Record<string, string> = {
 };
 
 const ROLE_STYLES: Record<string, string> = {
-  planner: "border-indigo-300/40 bg-indigo-50 text-indigo-700",
-  executor: "border-sky-300/40 bg-sky-50 text-sky-700",
-  reviewer: "border-amber-300/50 bg-amber-50 text-amber-700",
-  researcher: "border-emerald-300/45 bg-emerald-50 text-emerald-700",
-  synthesizer: "border-cyan-300/45 bg-cyan-50 text-cyan-700",
-  critic: "border-rose-300/45 bg-rose-50 text-rose-700",
-  interviewer: "border-violet-300/45 bg-violet-50 text-violet-700",
+  planner: "border-[color:var(--ah-info)] bg-[color:var(--ah-info-soft)] text-[color:var(--ah-text-strong)]",
+  executor: "border-[color:var(--ah-border-strong)] bg-[color:var(--ah-card-soft)] text-[color:var(--ah-text-strong)]",
+  reviewer: "border-[color:var(--ah-warning)] bg-[color:var(--ah-warning-soft)] text-[color:var(--ah-text-strong)]",
+  researcher: "border-[color:var(--ah-success)] bg-[color:var(--ah-success-soft)] text-[color:var(--ah-text-strong)]",
+  synthesizer: "border-[color:var(--ah-info)] bg-[color:var(--ah-info-soft)] text-[color:var(--ah-text-strong)]",
+  critic: "border-[color:var(--ah-danger)] bg-[color:var(--ah-danger-soft)] text-[color:var(--ah-danger)]",
+  interviewer: "border-[color:var(--ah-border-strong)] bg-[color:var(--ah-panel-muted)] text-[color:var(--ah-text-strong)]",
 };
 
 function replyReference(message: Message): ReplyReference | null {
@@ -281,13 +281,13 @@ function MessageBubbleBase({
           {orchestratorPlan ? (
             <OrchestratorPlanPanel plan={orchestratorPlan} rawJson={message.content} />
           ) : orchestratorPlanError ? (
-            <div className="rounded-lg border border-red-300/25 bg-red-950/25 p-3 text-sm text-red-100">
+            <div className="agenthub-status-error rounded-lg border p-3 text-sm">
               <p className="font-semibold">调度计划解析失败</p>
-              <p className="mt-1 text-xs text-red-100/80">{orchestratorPlanError}</p>
+              <p className="mt-1 text-xs opacity-80">{orchestratorPlanError}</p>
               {message.content && (
                 <details className="mt-3">
                   <summary className="cursor-pointer text-xs font-semibold">查看原始输出</summary>
-                  <pre className="mt-2 max-h-72 overflow-auto rounded-md bg-black/35 p-2 text-[11px] leading-5 text-red-50">
+                  <pre className="agenthub-code-block mt-2 max-h-72 overflow-auto rounded-md p-2 text-[11px] leading-5">
                     {message.content}
                   </pre>
                 </details>

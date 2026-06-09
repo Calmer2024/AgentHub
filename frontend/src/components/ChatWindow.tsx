@@ -219,6 +219,7 @@ export function ChatWindow({
     [agents, groupMembers],
   );
   const showCollabPanel = collabTasks.length > 0 || Boolean(draftPlan);
+  const showRouteBanner = !showCollabPanel && !isPlanOnly && routeAgents && routeAgents.length > 0;
   const activeGroupDialog = useMemo(() => findActiveGroupDialog(messages), [messages]);
   const headerStatus = isStreaming || hasActiveRun
     ? "对方正在输入"
@@ -626,7 +627,7 @@ export function ChatWindow({
       )}
 
       {/* Orchestrator route banner */}
-      {!isPlanOnly && routeAgents && routeAgents.length > 0 && (
+      {showRouteBanner && (
         <div className="agenthub-status-info mx-6 mt-3 rounded-xl border px-4 py-3">
           <p className="mb-1 text-xs font-medium">
             编排器已路由

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { CollaborationPanel } from "./CollaborationPanel";
 import type { DAGPhase } from "../types";
 
@@ -38,5 +38,23 @@ describe("CollaborationPanel", () => {
     expect(screen.getByText("阶段 1")).toBeInTheDocument();
     expect(screen.getByText("@前端")).toBeInTheDocument();
     expect(screen.getByText("@后端")).toBeInTheDocument();
+  });
+
+  it("完成后的面板默认折叠，点击后展开细节", () => {
+    render(
+      <CollaborationPanel
+        intent="design_ui"
+        tasks={phases.flatMap((p) => p.tasks)}
+        phases={phases}
+        isCompleted
+        completedSummary="1 agents completed"
+      />,
+    );
+
+    expect(screen.getByText(/编排器 · UI 设计/)).toBeInTheDocument();
+    expect(screen.queryByText("阶段 0")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /编排器 · UI 设计/ }));
+    expect(screen.getByText("阶段 0")).toBeInTheDocument();
   });
 });

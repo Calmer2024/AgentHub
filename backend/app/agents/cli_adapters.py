@@ -1094,7 +1094,7 @@ class CodexAdapter(CliAgentAdapter):
 
     def parse_stderr_output(self, text: str) -> list[ParsedOutput]:
         outputs: list[ParsedOutput] = []
-        for clean in _codex_stderr_signal_lines(text):
+        for clean in _codex_stderr_signal_blocks(text):
             trace = codex_stderr_trace(clean)
             outputs.append(ParsedOutput(
                 trace_text(trace, clean),
@@ -1986,16 +1986,18 @@ def _acp_content_text(content: object) -> str:
     return ""
 
 
-def _codex_stderr_signal_lines(text: str) -> list[str]:
-    signal: list[str] = []
+def _codex_stderr_signal_blocks(text: str) -> list[str]:
+    signal_lines: list[str] = []
     for line in str(text).replace("\r\n", "\n").splitlines():
         clean = line.strip()
         if not clean:
             continue
         if _is_codex_stderr_noise(clean):
             continue
-        signal.append(clean)
-    return signal
+        signal_lines.append(clean)
+    if len(signal_lines) <= 1:
+        return signal_lines
+    return ["\n".join(signal_lines)]
 
 
 def _is_codex_stderr_noise(line: str) -> bool:

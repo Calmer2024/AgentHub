@@ -422,5 +422,7 @@ def _execution_trace_metadata(
         "completedAt": timestamps[-1] if timestamps else None,
         "processId": metadata.get("processId"),
         "exitCode": exit_code,
+        "totalItemCount": len(trace_items),
+        "truncated": len(trace_items) > 300,
         "items": trace_items[-300:],
     }

@@ -57,15 +57,15 @@ export function OrchestratorExecutionPanel({ initialExecution }: Props) {
   }, [execution.executionId, isLive]);
 
   return (
-    <section className="mt-3 overflow-hidden rounded-lg border border-slate-200 bg-white text-slate-950 shadow-sm">
-      <div className="border-b border-slate-100 bg-slate-50 px-3 py-3">
+    <section className="agenthub-card mt-3 overflow-hidden rounded-lg border shadow-sm">
+      <div className="border-b px-3 py-3" style={{ borderColor: "var(--ah-border)" }}>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="flex items-center gap-2 text-sm font-semibold">
-              <GitBranch size={15} className="text-indigo-600" />
+            <div className="agenthub-strong flex items-center gap-2 text-sm font-semibold">
+              <GitBranch size={15} className="text-[color:var(--ah-info)]" />
               <span>{execution.planId}</span>
             </div>
-            <p className="mt-1 font-mono text-[11px] text-slate-500">{execution.executionId}</p>
+            <p className="agenthub-muted mt-1 font-mono text-[11px]">{execution.executionId}</p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <StatusBadge status={execution.status} live={isLive} stale={pollingLost} />
@@ -87,7 +87,7 @@ export function OrchestratorExecutionPanel({ initialExecution }: Props) {
                     setControlBusy(null);
                   }
                 }}
-                className="inline-flex items-center gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-700 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+                className="agenthub-status-warning inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-semibold hover:bg-[color:var(--ah-warning-soft)] disabled:cursor-not-allowed disabled:opacity-60"
                 disabled={Boolean(controlBusy)}
                 title="中断当前调度执行，稍后可继续"
               >
@@ -110,7 +110,7 @@ export function OrchestratorExecutionPanel({ initialExecution }: Props) {
                     setControlBusy(null);
                   }
                 }}
-                className="inline-flex items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                className="agenthub-status-success inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-semibold hover:bg-[color:var(--ah-success-soft)] disabled:cursor-not-allowed disabled:opacity-60"
                 disabled={Boolean(controlBusy)}
                 title="从未完成任务继续调度执行"
               >
@@ -133,7 +133,7 @@ export function OrchestratorExecutionPanel({ initialExecution }: Props) {
                     setControlBusy(null);
                   }
                 }}
-                className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                className="agenthub-status inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-semibold hover:bg-[color:var(--ah-accent-soft)] disabled:cursor-not-allowed disabled:opacity-60"
                 disabled={Boolean(controlBusy)}
                 title="放弃本次执行，进入不可恢复的取消状态"
               >
@@ -144,18 +144,18 @@ export function OrchestratorExecutionPanel({ initialExecution }: Props) {
           </div>
         </div>
         <div className="mt-3">
-          <div className="flex items-center justify-between text-[11px] text-slate-500">
+          <div className="agenthub-muted flex items-center justify-between text-[11px]">
             <span>{completed}/{execution.tasks.length} 任务完成</span>
             <span>{progress}%</span>
           </div>
-          <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-200">
+          <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-[color:var(--ah-panel-muted)]">
             <div
               className={`h-full rounded-full transition-all duration-500 ${
                 execution.status === "failed" || execution.status === "error"
-                  ? "bg-red-500"
+                  ? "bg-[color:var(--ah-danger)]"
                   : execution.status === "cancelled"
-                    ? "bg-slate-400"
-                    : "bg-indigo-600"
+                    ? "bg-[color:var(--ah-faint)]"
+                    : "bg-[color:var(--ah-info)]"
               }`}
               style={{ width: `${progress}%` }}
             />
@@ -165,17 +165,17 @@ export function OrchestratorExecutionPanel({ initialExecution }: Props) {
 
       <div className="grid gap-2 p-3">
         {execution.status === "interrupted" && (
-          <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+          <div className="agenthub-status-warning rounded-md border px-3 py-2 text-xs leading-5">
             执行已中断，已完成任务会保留；点击“继续执行”将从未完成任务恢复调度。
           </div>
         )}
         {phases.map((phase) => (
-          <div key={phase.index} className="rounded-md border border-slate-100 bg-slate-50 p-2">
+          <div key={phase.index} className="agenthub-soft rounded-md border p-2">
             <div className="mb-2 flex items-center justify-between gap-2">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+              <p className="agenthub-faint text-[11px] font-semibold uppercase tracking-[0.12em]">
                 Phase {phase.index}
               </p>
-              <span className="rounded bg-white px-2 py-0.5 text-[11px] text-slate-500">
+              <span className="agenthub-status rounded px-2 py-0.5 text-[11px]">
                 {phase.tasks.length > 1 ? "并行" : "串行"}
               </span>
             </div>
@@ -191,18 +191,19 @@ export function OrchestratorExecutionPanel({ initialExecution }: Props) {
       <button
         type="button"
         onClick={() => setShowEvents((value) => !value)}
-        className="flex w-full items-center justify-between gap-2 border-t border-slate-100 px-3 py-2 text-left text-xs font-semibold text-slate-600 hover:bg-slate-50"
+        className="agenthub-muted flex w-full items-center justify-between gap-2 border-t px-3 py-2 text-left text-xs font-semibold hover:bg-[color:var(--ah-accent-soft)]"
+        style={{ borderColor: "var(--ah-border)" }}
       >
         <span>事件日志 · {execution.events.length}</span>
         {showEvents ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
       </button>
       {showEvents && (
-        <div className="max-h-56 overflow-auto border-t border-slate-100 bg-slate-950 p-3">
+        <div className="agenthub-code-block max-h-56 overflow-auto border-t p-3" style={{ borderColor: "var(--ah-border)" }}>
           {execution.events.map((event, index) => (
-            <p key={`${event.type}-${index}`} className="border-b border-white/10 py-1.5 text-[11px] leading-5 text-slate-200 last:border-b-0">
-              <span className="font-mono text-indigo-200">{event.type}</span>
-              {typeof event.phase === "number" && <span className="text-slate-400"> · phase {event.phase}</span>}
-              <span className="text-slate-400"> · </span>
+            <p key={`${event.type}-${index}`} className="border-b py-1.5 text-[11px] leading-5 last:border-b-0" style={{ borderColor: "var(--ah-code-border)" }}>
+              <span className="font-mono text-[color:var(--ah-info)]">{event.type}</span>
+              {typeof event.phase === "number" && <span className="agenthub-faint"> · phase {event.phase}</span>}
+              <span className="agenthub-faint"> · </span>
               <span>{event.message}</span>
             </p>
           ))}
@@ -214,17 +215,17 @@ export function OrchestratorExecutionPanel({ initialExecution }: Props) {
 
 function TaskRow({ task }: { task: OrchestratorExecutionTask }) {
   return (
-    <article className="rounded-md border border-slate-200 bg-white px-2.5 py-2">
+    <article className="agenthub-card rounded-md border px-2.5 py-2 shadow-none">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="text-xs font-semibold text-slate-950">{task.taskId} · {task.title}</p>
-          <p className="mt-1 text-[11px] leading-5 text-slate-500">
+          <p className="agenthub-strong text-xs font-semibold">{task.taskId} · {task.title}</p>
+          <p className="agenthub-muted mt-1 text-[11px] leading-5">
             @{task.assignedAgentName ?? task.assignedAgentId ?? "未分配"} · 依赖：{task.dependsOn.length ? task.dependsOn.join(" / ") : "无"}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${
-            task.runnerType === "cli" ? "bg-indigo-50 text-indigo-700" : "bg-slate-100 text-slate-500"
+            task.runnerType === "cli" ? "agenthub-status-info" : "agenthub-status"
           }`}>
             {task.runnerType ?? "mock"}
           </span>
@@ -232,7 +233,7 @@ function TaskRow({ task }: { task: OrchestratorExecutionTask }) {
         </div>
       </div>
       {task.summary && (
-        <p className="mt-2 rounded bg-emerald-50 px-2 py-1.5 text-[11px] leading-5 text-emerald-800">
+        <p className="agenthub-status-success mt-2 rounded px-2 py-1.5 text-[11px] leading-5">
           {task.summary}
         </p>
       )}
@@ -242,14 +243,14 @@ function TaskRow({ task }: { task: OrchestratorExecutionTask }) {
 
 function StatusBadge({ status, live, stale }: { status: string; live: boolean; stale: boolean }) {
   const cls = status === "completed"
-    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+    ? "agenthub-status-success"
     : status === "failed" || status === "error"
-      ? "border-red-200 bg-red-50 text-red-700"
+      ? "agenthub-status-error"
       : status === "interrupted"
-        ? "border-amber-200 bg-amber-50 text-amber-700"
+        ? "agenthub-status-warning"
       : status === "cancelled"
-        ? "border-slate-200 bg-slate-100 text-slate-600"
-      : "border-indigo-200 bg-indigo-50 text-indigo-700";
+        ? "agenthub-status"
+      : "agenthub-status-info";
   return (
     <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-semibold ${cls}`}>
       {status === "completed" ? <CheckCircle2 size={12} /> : status === "failed" || status === "error" || status === "cancelled" ? <XCircle size={12} /> : <Activity size={12} className={live ? "animate-pulse" : ""} />}
@@ -262,16 +263,16 @@ function StatusBadge({ status, live, stale }: { status: string; live: boolean; s
 
 function TaskStatus({ status }: { status: string }) {
   const cls = status === "completed"
-    ? "text-emerald-700"
+    ? "text-[color:var(--ah-success)]"
     : status === "failed" || status === "error"
-      ? "text-red-700"
+      ? "text-[color:var(--ah-danger)]"
       : status === "interrupted"
-        ? "text-amber-700"
+        ? "text-[color:var(--ah-warning)]"
       : status === "cancelled"
-        ? "text-slate-500"
+        ? "agenthub-faint"
       : status === "running"
-        ? "text-indigo-700"
-        : "text-slate-500";
+        ? "text-[color:var(--ah-info)]"
+        : "agenthub-faint";
   const icon = status === "completed"
     ? <CheckCircle2 size={13} />
     : status === "running"

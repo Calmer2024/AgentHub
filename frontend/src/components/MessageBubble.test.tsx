@@ -104,6 +104,36 @@ describe("MessageBubble", () => {
     expect(screen.getByText("frontend")).toBeInTheDocument();
   });
 
+  it("执行流程摘要区分过程记录和真实步骤", () => {
+    render(
+      <MessageBubble
+        message={{
+          ...baseMessage,
+          content: "done",
+          metadata: {
+            executionTrace: {
+              status: "completed",
+              agentName: "Codex",
+              totalItemCount: 512,
+              truncated: true,
+              items: Array.from({ length: 300 }, (_, index) => ({
+                id: `trace-${index}`,
+                kind: "progress",
+                text: `过程 ${index}`,
+                timestamp: "2026-06-04T18:23:02.000Z",
+              })),
+            },
+          },
+        }}
+        isStreaming={false}
+        {...handlers}
+      />,
+    );
+
+    expect(screen.getByText("最近 300/共 512 条过程记录，0 次工具调用，0 条命令")).toBeInTheDocument();
+    expect(screen.queryByText("300 步，0 次工具调用，0 条命令")).not.toBeInTheDocument();
+  });
+
   it("右键气泡时展示消息操作菜单", () => {
     render(
       <MessageBubble

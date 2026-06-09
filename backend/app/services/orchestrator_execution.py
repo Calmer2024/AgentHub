@@ -1487,10 +1487,10 @@ class OrchestratorExecutionRegistry:
                 metadata = _loads_metadata(message.metadata_json)
                 trace = metadata.get("executionTrace")
                 if isinstance(trace, dict):
-                    trace["status"] = "cancelled"
-                    trace["completedAt"] = trace.get("completedAt") or now
-                    trace["items"] = [
-                        *(trace.get("items") if isinstance(trace.get("items"), list) else []),
+                    existing_items = trace.get("items") if isinstance(trace.get("items"), list) else []
+                    total_item_count = int(trace.get("totalItemCount") or len(existing_items)) + 1
+                    next_items = [
+                        *existing_items,
                         {
                             "id": f"trace_{uuid.uuid4().hex[:12]}",
                             "kind": "info",
@@ -1501,6 +1501,11 @@ class OrchestratorExecutionRegistry:
                             "timestamp": now,
                         },
                     ][-300:]
+                    trace["status"] = "cancelled"
+                    trace["completedAt"] = trace.get("completedAt") or now
+                    trace["totalItemCount"] = total_item_count
+                    trace["truncated"] = bool(trace.get("truncated")) or total_item_count > len(next_items)
+                    trace["items"] = next_items
                     metadata["executionTrace"] = trace
                 metadata["runStatus"] = "cancelled"
                 metadata["cancelReason"] = reason
@@ -1535,10 +1540,10 @@ class OrchestratorExecutionRegistry:
                 metadata = _loads_metadata(message.metadata_json)
                 trace = metadata.get("executionTrace")
                 if isinstance(trace, dict) and trace.get("status") == "running":
-                    trace["status"] = "interrupted"
-                    trace["completedAt"] = trace.get("completedAt") or now
-                    trace["items"] = [
-                        *(trace.get("items") if isinstance(trace.get("items"), list) else []),
+                    existing_items = trace.get("items") if isinstance(trace.get("items"), list) else []
+                    total_item_count = int(trace.get("totalItemCount") or len(existing_items)) + 1
+                    next_items = [
+                        *existing_items,
                         {
                             "id": f"trace_{uuid.uuid4().hex[:12]}",
                             "kind": "info",
@@ -1549,6 +1554,11 @@ class OrchestratorExecutionRegistry:
                             "timestamp": now,
                         },
                     ][-300:]
+                    trace["status"] = "interrupted"
+                    trace["completedAt"] = trace.get("completedAt") or now
+                    trace["totalItemCount"] = total_item_count
+                    trace["truncated"] = bool(trace.get("truncated")) or total_item_count > len(next_items)
+                    trace["items"] = next_items
                     metadata["executionTrace"] = trace
                 metadata["runStatus"] = "interrupted"
                 metadata["interruptReason"] = reason

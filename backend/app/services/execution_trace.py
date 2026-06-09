@@ -29,6 +29,8 @@ class ExecutionTraceBuilder:
             "completedAt": None,
             "processId": None,
             "exitCode": None,
+            "totalItemCount": 0,
+            "truncated": False,
             "items": [],
         }
 
@@ -87,7 +89,10 @@ class ExecutionTraceBuilder:
                 item[key] = value
         items = list(self._trace.get("items") or [])
         items.append(item)
+        total_item_count = int(self._trace.get("totalItemCount") or len(items) - 1) + 1
         self._trace["items"] = items[-MAX_TRACE_ITEMS:]
+        self._trace["totalItemCount"] = total_item_count
+        self._trace["truncated"] = bool(self._trace.get("truncated")) or total_item_count > len(self._trace["items"])
         return item
 
     def complete(self, *, status: str = "completed", exit_code: int | None = None) -> None:

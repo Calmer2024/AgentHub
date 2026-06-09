@@ -9,6 +9,7 @@ import { chinaNowIso } from "../utils/time";
 const ACTIVE_RUN_STATUSES = new Set<RunRead["status"]>(["queued", "running", "pausing", "paused", "cancelling"]);
 const TERMINAL_RUN_STATUSES = new Set<RunRead["status"]>(["completed", "failed", "cancelled"]);
 const TERMINAL_TASK_STATUSES = new Set<TaskRead["status"]>(["completed", "failed", "cancelled", "rejected"]);
+const MAX_EXECUTION_TRACE_ITEMS = 300;
 
 /** 每个会话的协作状态快照，切换会话时保留。 */
 export interface CollabSnapshot {
@@ -705,6 +706,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
         if (m.id !== messageId) return m;
         const metadata = { ...(m.metadata ?? {}) };
         const currentTrace = metadata.executionTrace;
+        const currentItems = currentTrace?.items ?? [];
+        const totalItemCount = (currentTrace?.totalItemCount ?? currentItems.length) + 1;
+        const nextItems = [...currentItems, item].slice(-MAX_EXECUTION_TRACE_ITEMS);
         metadata.executionTrace = {
           status: currentTrace?.status ?? "running",
           agentName: currentTrace?.agentName ?? seed?.agentName ?? m.agentName,
@@ -714,7 +718,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
           completedAt: currentTrace?.completedAt ?? null,
           processId: currentTrace?.processId ?? seed?.processId ?? item.processId ?? null,
           exitCode: currentTrace?.exitCode ?? null,
-          items: [...(currentTrace?.items ?? []), item].slice(-300),
+          totalItemCount,
+          truncated: Boolean(currentTrace?.truncated) || totalItemCount > nextItems.length,
+          items: nextItems,
         };
         return { ...m, metadata };
       });
@@ -975,11 +981,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
         } as NonNullable<Message["metadata"]>;
         const trace = metadata.executionTrace;
         if (trace?.status === "running") {
+          const currentItems = trace.items ?? [];
+          const totalItemCount = (trace.totalItemCount ?? currentItems.length) + 1;
+          const nextItems = [...currentItems, cancelTraceItem].slice(-MAX_EXECUTION_TRACE_ITEMS);
           metadata.executionTrace = {
             ...trace,
             status: "cancelled",
             completedAt: now,
-            items: [...trace.items, cancelTraceItem].slice(-300),
+            totalItemCount,
+            truncated: Boolean(trace.truncated) || totalItemCount > nextItems.length,
+            items: nextItems,
           };
         }
         return { ...message, metadata };

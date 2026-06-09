@@ -49,7 +49,7 @@ export interface ExecutionTraceItem {
 }
 
 export interface ExecutionTrace {
-  status: "running" | "completed" | "error" | "cancelled";
+  status: "running" | "completed" | "error" | "cancelled" | "interrupted";
   agentName?: string | null;
   cliTool?: string | null;
   workspacePath?: string | null;
@@ -57,6 +57,8 @@ export interface ExecutionTrace {
   completedAt?: string | null;
   processId?: string | null;
   exitCode?: number | null;
+  totalItemCount?: number | null;
+  truncated?: boolean | null;
   items: ExecutionTraceItem[];
 }
 

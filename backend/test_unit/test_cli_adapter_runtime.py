@@ -386,6 +386,32 @@ def test_codex_command_execution_event_includes_status_exit_and_output():
     assert "TRACE_NOTE" in parsed[0].trace["detail"]
 
 
+def test_codex_stderr_multiline_test_failure_stays_one_trace_item():
+    adapter = CodexAdapter()
+    parsed = adapter.parse_stderr_output(
+        """Test timeout of 30000ms exceeded.
+Error: locator.click: Test timeout of 30000ms exceeded.
+
+Call log:
+- waiting for getByRole('button', { name: '生成预约
+提示' })
+
+49 | await page.goto("/", { waitUntil: "domcontentloaded" });
+> 50 | await page.getByRole("button", { name: "生成预约提示" }).click();
+     |                                                        ^
+51 |
+"""
+    )
+
+    assert len(parsed) == 1
+    assert parsed[0].chunk_type == "error"
+    assert parsed[0].trace["kind"] == "error"
+    assert parsed[0].trace["title"] == "执行超时"
+    assert "Call log" in parsed[0].trace["detail"]
+    assert "生成预约提示" in parsed[0].trace["detail"]
+    assert "> 50 |" in parsed[0].trace["detail"]
+
+
 def test_codex_raw_model_list_fragment_is_hidden():
     adapter = CodexAdapter()
 

@@ -129,6 +129,8 @@ class GroupChatFinalizer:
                     "completedAt": trace_items[-1].get("timestamp") if trace_items else None,
                     "processId": _first_process_id(trace_items) or runtime_metadata.get("processId"),
                     "exitCode": _last_exit_code(trace_items),
+                    "totalItemCount": len(trace_items),
+                    "truncated": len(trace_items) > 300,
                     "items": trace_items[-300:],
                 } if trace_items else None,
             }
