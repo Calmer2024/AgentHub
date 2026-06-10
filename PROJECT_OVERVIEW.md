@@ -413,7 +413,7 @@ python e2e/full_ui_audit.py
 
 | 文档 | 位置 | 内容 |
 |------|------|------|
-| 项目背景设计 | `AgentHub-多Agent协作平台设计.md` | 课题要求、核心功能、考察要点 |
+| 项目背景设计 | `docs/archive/AgentHub-多Agent协作平台设计.md` | 课题要求、核心功能、考察要点 |
 | 全局上下文 | `CONTEXT.md` | 领域术语、架构总览、完整文档索引 |
 | AI 协作规则 | `CLAUDE.md` | 代码规范、禁止事项 |
 | 架构决策记录 | `docs/adr/` | 8 篇 ADR，解释"为什么这样设计" |

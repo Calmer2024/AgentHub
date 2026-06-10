@@ -15,6 +15,7 @@ docs/
 ├── PRD/                         ← 产品需求拆解文档（与核心设计共同构成权威需求源）
 ├── adr/                         ← 架构决策记录
 ├── specs/                       ← 功能规格文档 (按 Phase 组织)
+├── submission/                  ← 课程/挑战赛提交用飞书可复制文档
 ├── user-guides/                 ← 面向最终用户的使用与配置手册
 ├── deliverables/                 ← 阶段性交付快照、交接文档、使用指南
 ├── dev-logs/                    ← 开发日志
@@ -31,6 +32,9 @@ docs/
 → 先读 [archive/AgentHub-多Agent协作平台设计.md](archive/AgentHub-多Agent协作平台设计.md) 把握核心启动需求，再从 [PRD/00-Master_Hub.md](PRD/00-Master_Hub.md) 开始按编号阅读其余 7 篇。早期设计文档虽然位于 `archive/`，但仍是 IM、多 Agent 协作、Artifact、预览/编辑/部署、多端协作等核心需求的权威来源；PRD 系列负责拆解、收缩边界并阶段化落地。
 
 **产品交付阶段**：P1 先做桌面版（Web UI + 本地无头服务器 → 本机文件系统 + 本机 CLI Agent），P2 再做 SaaS 云版（云端沙箱 + 一键部署）。详见 PRD-00 第 9 节。
+
+### 我要提交课程/挑战赛作业
+→ 先读 [submission/00-交付总入口.md](submission/00-交付总入口.md)。该目录下的文档按飞书可复制格式组织，包含交付总入口、产品设计文档、技术设计文档和 AI 协作开发记录。
 
 ### 我想了解项目现在的状态
 → 看 [CONTEXT.md](../CONTEXT.md) 的 Phase 表格；Phase 6 进度看 [specs/phase6/README.md](specs/phase6/README.md) 与 [dev-logs/phase6-dev-log.md](dev-logs/phase6-dev-log.md)，Phase 7A-7C 看 [deliverables/phase7-runtime-control/](deliverables/phase7-runtime-control/)，Phase 7D IM 加固看 [deliverables/phase7-im-hardening/](deliverables/phase7-im-hardening/)，Phase 7E/7F 看 [specs/phase7/05-context-pack-and-cache-strategy.md](specs/phase7/05-context-pack-and-cache-strategy.md) 与 [specs/phase7/06-cli-session-process-runtime.md](specs/phase7/06-cli-session-process-runtime.md)。P1 发布候选收口看 [specs/phase8/README.md](specs/phase8/README.md)，P2 云端 workspace 基座看 [specs/phase9/README.md](specs/phase9/README.md) 与 [deliverables/phase9-cloud-workspace/](deliverables/phase9-cloud-workspace/)，云端 runtime 看 [specs/phase10/README.md](specs/phase10/README.md) 与 [deliverables/phase10-cloud-runtime/](deliverables/phase10-cloud-runtime/)，多端产品壳看 [specs/phase13/README.md](specs/phase13/README.md) 与 [deliverables/phase13-product-shells/](deliverables/phase13-product-shells/)。历史 Phase 3 审计见 [audit/phase3-audit-report.md](audit/phase3-audit-report.md)。
@@ -134,6 +138,17 @@ docs/
 | 文件 | 内容 |
 |------|------|
 | [saas-cli-engine-configuration.md](user-guides/saas-cli-engine-configuration.md) | SaaS Web 内置 Claude Code、Codex、OpenCode 三个 CLI Engine 的用户级凭据配置手册 |
+
+### submission/ — 课程/挑战赛提交材料
+
+面向飞书收集表和课程/挑战赛提交，整理为可直接复制到飞书文档的交付材料。该目录只做摘要和导航，深入细节仍以 PRD、ADR、Spec、deliverables 和 Dev Log 为权威来源。
+
+| 文件 | 内容 |
+|------|------|
+| [00-交付总入口.md](submission/00-交付总入口.md) | 表单提交总入口：作品链接、材料导航、课题要求映射和仓库材料索引 |
+| [01-产品设计文档.md](submission/01-产品设计文档.md) | 产品定位、用户场景、核心链路、完成度和亮点 |
+| [02-技术设计文档.md](submission/02-技术设计文档.md) | 总体架构、CLI Wrapper、Orchestrator、Workspace、Artifact、桌面端和 SaaS |
+| [03-AI协作开发记录.md](submission/03-AI协作开发记录.md) | Rules、Spec、Skill、Dev Log、ADR、测试与人工验收闭环 |
 
 ### dev-logs/ — 开发日志
 
