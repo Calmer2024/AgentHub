@@ -18,6 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
+from ..core.process_utils import hidden_subprocess_kwargs
 from ..core.timezone import china_now
 from ..models import RunnerNode, Sandbox, WorkspaceVolume
 from .cloud_storage import cloud_workspace_path, ensure_cloud_workspace
@@ -253,6 +254,7 @@ class DockerRunnerProvider:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=env,
+            **hidden_subprocess_kwargs(),
         )
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=10)
         if check and proc.returncode != 0:

@@ -15,6 +15,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.process_utils import hidden_subprocess_kwargs
 from ..core.timezone import china_now
 from ..event_bus.event_types import EventType
 from ..models import BuildLog, BuildRun, Project
@@ -239,6 +240,7 @@ class BuildService:
             cwd=str(workspace),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            **hidden_subprocess_kwargs(),
         )
         sequence = await self._next_log_sequence(build.id)
         stdout_task = asyncio.create_task(

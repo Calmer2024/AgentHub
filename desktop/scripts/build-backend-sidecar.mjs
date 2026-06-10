@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { delimiter, resolve } from "node:path";
 
@@ -8,9 +8,16 @@ const runnerPath = resolve(repoRoot, "desktop", "backend_runner.py");
 const resourcesDir = resolve(repoRoot, "desktop", "src-tauri", "resources");
 const workPath = resolve(repoRoot, ".tmp", "pyinstaller-work");
 const specPath = resolve(repoRoot, ".tmp", "pyinstaller-spec");
-const python = process.platform === "win32"
-  ? resolve(backendDir, "venv", "Scripts", "python.exe")
-  : resolve(backendDir, "venv", "bin", "python");
+const pythonCandidates = process.platform === "win32"
+  ? [
+      resolve(backendDir, ".venv", "Scripts", "python.exe"),
+      resolve(backendDir, "venv", "Scripts", "python.exe"),
+    ]
+  : [
+      resolve(backendDir, ".venv", "bin", "python"),
+      resolve(backendDir, "venv", "bin", "python"),
+    ];
+const python = pythonCandidates.find((candidate) => existsSync(candidate));
 const addDataSeparator = process.platform === "win32" ? ";" : ":";
 
 mkdirSync(resourcesDir, { recursive: true });
@@ -18,12 +25,18 @@ rmSync(resolve(resourcesDir, process.platform === "win32" ? "agenthub-backend.ex
   force: true,
 });
 
+if (!python) {
+  console.error(`Missing backend Python virtualenv. Tried: ${pythonCandidates.join(", ")}`);
+  process.exit(1);
+}
+
 const args = [
   "-m",
   "PyInstaller",
   "--noconfirm",
   "--clean",
   "--onefile",
+  "--noconsole",
   "--name",
   "agenthub-backend",
   "--distpath",

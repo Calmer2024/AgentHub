@@ -22,6 +22,7 @@ from ..core.agent_env import (
     clean_cli_agent_env,
     encode_cli_agent_env,
 )
+from ..core.process_utils import hidden_subprocess_kwargs
 from ..models import AgentConfig
 
 
@@ -163,7 +164,7 @@ class CliAgentRegistry:
         await self.db.commit()
 
     @staticmethod
-    def executable_status(executable: str | None) -> ExecutableStatus:
+    def executable_status(executable: str | None, *, include_version: bool = False) -> ExecutableStatus:
         if not executable:
             return ExecutableStatus("not_found")
 
@@ -175,7 +176,7 @@ class CliAgentRegistry:
 
         return ExecutableStatus(
             status="ready",
-            version=_detect_version(resolved),
+            version=_detect_version(resolved) if include_version else None,
             executable_path=resolved,
         )
 
@@ -245,6 +246,7 @@ def _detect_version(executable: str) -> str | None:
                 text=True,
                 timeout=2,
                 check=False,
+                **hidden_subprocess_kwargs(),
             )
         except Exception:
             continue

@@ -1,3 +1,5 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 use std::{
     fs,
     net::{TcpStream, ToSocketAddrs},
@@ -38,8 +40,8 @@ fn main() {
                     let child = state.0.lock().expect("backend state poisoned").take();
                     child
                 };
-                if let Some(mut child) = child {
-                    let _ = child.kill();
+                if let Some(child) = child {
+                    terminate_backend(child);
                 }
             }
         })
@@ -71,6 +73,25 @@ fn spawn_backend(app: &tauri::App) -> Result<Child, Box<dyn std::error::Error>> 
     let child = command.spawn()?;
 
     Ok(child)
+}
+
+#[cfg(windows)]
+fn terminate_backend(child: Child) {
+    use std::os::windows::process::CommandExt;
+
+    let pid = child.id().to_string();
+    let _ = Command::new("taskkill")
+        .args(["/PID", pid.as_str(), "/T", "/F"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .creation_flags(CREATE_NO_WINDOW)
+        .status();
+}
+
+#[cfg(not(windows))]
+fn terminate_backend(mut child: Child) {
+    let _ = child.kill();
 }
 
 fn wait_for_backend(port: u16) {

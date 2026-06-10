@@ -121,8 +121,8 @@ class AgentConfigRead(BaseModel):
     model_config = {"from_attributes": True, "populate_by_name": True}
 
     @classmethod
-    def from_model(cls, agent: AgentConfig):
-        status = _agent_executable_status(agent)
+    def from_model(cls, agent: AgentConfig, *, include_version: bool = False):
+        status = _agent_executable_status(agent, include_version=include_version)
         return cls(
             id=agent.id,
             name=agent.name,
@@ -148,11 +148,11 @@ class AgentConfigRead(BaseModel):
         )
 
 
-def _agent_executable_status(agent: AgentConfig) -> ExecutableStatus:
+def _agent_executable_status(agent: AgentConfig, *, include_version: bool = False) -> ExecutableStatus:
     runtime_status = _cloud_runtime_executable_status(agent)
     if runtime_status:
         return runtime_status
-    return CliAgentRegistry.executable_status(agent.executable)
+    return CliAgentRegistry.executable_status(agent.executable, include_version=include_version)
 
 
 def _cloud_runtime_executable_status(agent: AgentConfig) -> ExecutableStatus | None:
@@ -280,7 +280,7 @@ async def create_agent(data: AgentConfigCreate, request: Request, db: AsyncSessi
 async def check_executable(path: str):
     if not path.strip():
         raise HTTPException(status_code=400, detail="path must not be empty")
-    return CliAgentRegistry.executable_status(path).to_api()
+    return CliAgentRegistry.executable_status(path, include_version=True).to_api()
 
 
 @router.get("/codex-config", response_model=CodexLocalConfigRead)

@@ -1,4 +1,4 @@
-import { cpSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 
@@ -8,12 +8,18 @@ const packageName = `AgentHub-Local-Desktop-Demo-${version}-win-x64`;
 const bundleRoot = resolve(repoRoot, "deploy", "desktop-demo");
 const bundleDir = resolve(bundleRoot, packageName);
 const releaseDir = resolve(repoRoot, "desktop", "src-tauri", "target", "release");
+const sidecarSource = resolve(repoRoot, "desktop", "src-tauri", "resources", "agenthub-backend.exe");
+
+if (!existsSync(sidecarSource)) {
+  console.error(`Missing backend sidecar: ${sidecarSource}`);
+  process.exit(1);
+}
 
 rmSync(bundleDir, { recursive: true, force: true });
 mkdirSync(resolve(bundleDir, "resources"), { recursive: true });
 
 cpSync(resolve(releaseDir, "agenthub-local-desktop.exe"), resolve(bundleDir, "AgentHub Local Desktop.exe"));
-cpSync(resolve(releaseDir, "resources", "agenthub-backend.exe"), resolve(bundleDir, "resources", "agenthub-backend.exe"));
+cpSync(sidecarSource, resolve(bundleDir, "resources", "agenthub-backend.exe"));
 writeFileSync(
   resolve(bundleDir, "README.txt"),
   [

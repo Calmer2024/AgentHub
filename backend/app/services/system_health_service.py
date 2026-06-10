@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-import subprocess
+import shutil
 import sys
 from pathlib import Path
 from typing import Literal
@@ -70,7 +70,7 @@ class SystemHealthService:
         items: list[SystemHealthItem] = []
         items.extend(await self._agent_items(effective_agent_ids, cloud_mode=cloud_mode))
         items.append(self._codex_item())
-        items.append(self._runtime_item("node", ["node", "--version"], warning_if_missing=True))
+        items.append(self._runtime_item("node", "node", warning_if_missing=True))
         items.append(self._python_item())
         items.append(await self._workspace_item(effective_project_id))
         items.append(self._system_model_item())
@@ -202,26 +202,19 @@ class SystemHealthService:
     def _runtime_item(
         self,
         name: str,
-        command: list[str],
+        executable: str,
         *,
         warning_if_missing: bool,
     ) -> SystemHealthItem:
         try:
-            result = subprocess.run(
-                command,
-                capture_output=True,
-                text=True,
-                timeout=2,
-                check=False,
-            )
-            output = (result.stdout or result.stderr or "").strip().splitlines()
-            if result.returncode == 0 and output:
+            resolved = shutil.which(executable)
+            if resolved:
                 return SystemHealthItem(
                     key=f"runtime.{name}",
                     label=f"{name} runtime",
                     status="ok",
                     severity="info",
-                    detail=output[0][:100],
+                    detail=f"已找到 {resolved}",
                 )
         except Exception:
             pass
