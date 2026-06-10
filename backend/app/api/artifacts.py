@@ -1,10 +1,14 @@
+from pathlib import Path
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException, Request
+
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
 from ..models import Artifact, Project, Session as DBSession
+from ..services.artifact_preview import artifact_preview_payload, infer_artifact_preview
 from ..services.artifact_service import (
     ArtifactEditError,
     ArtifactNotFoundError,
@@ -14,8 +18,10 @@ from ..services.artifact_service import (
     DiffResult,
 )
 from ..services.auth_service import AuthService
+from ..services.cloud_storage import ensure_cloud_workspace
 from ..services.team_service import PermissionDeniedError
 from ..services.tenant_guard import TenantGuard, tenant_scope_required_for_cloud
+from ..services.workspace_provider import LocalWorkspaceProvider, WorkspaceNotFoundError, WorkspaceSecurityError
 
 router = APIRouter(prefix="", tags=["artifacts"])
 
@@ -64,6 +70,24 @@ def _artifact_svc(db: AsyncSession) -> ArtifactService:
     return ArtifactService(db, event_bus=_event_bus)
 
 
+def _artifact_file_target(project: Project, file_path: str) -> Path:
+    if project.workspace_mode == "cloud":
+        if not project.workspace_id:
+            raise HTTPException(status_code=409, detail="cloud workspace is not initialized")
+        workspace_path = str(ensure_cloud_workspace(project.workspace_id, {
+            "projectId": project.id,
+            "projectName": project.name,
+        }))
+    else:
+        workspace_path = project.workspace_path
+    try:
+        return LocalWorkspaceProvider().safe_resolve(workspace_path, file_path)
+    except WorkspaceSecurityError as exc:
+        raise HTTPException(status_code=403, detail="无权访问此路径") from exc
+    except WorkspaceNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="workspace not found") from exc
+
+
 class ArtifactRead(BaseModel):
     id: str
     session_id: str = Field(alias="sessionId")
@@ -78,12 +102,21 @@ class ArtifactRead(BaseModel):
     file_path: str | None = Field(default=None, alias="filePath")
     preview_id: str | None = Field(default=None, alias="previewId")
     source: str | None = None
+    preview_kind: str = Field(alias="previewKind")
+    preview_label: str = Field(alias="previewLabel")
+    media_type: str | None = Field(default=None, alias="mediaType")
+    file_extension: str | None = Field(default=None, alias="fileExtension")
+    can_inline_preview: bool = Field(alias="canInlinePreview")
+    is_binary: bool = Field(alias="isBinary")
+    raw_url: str | None = Field(default=None, alias="rawUrl")
+    download_url: str | None = Field(default=None, alias="downloadUrl")
     created_at: str = Field(alias="createdAt")
 
     model_config = {"from_attributes": True, "populate_by_name": True}
 
     @classmethod
     def from_orm_with_iso(cls, obj: Artifact):
+        preview = artifact_preview_payload(obj)
         return cls(
             id=obj.id, session_id=obj.session_id, message_id=obj.message_id,
             project_id=obj.project_id,
@@ -94,6 +127,14 @@ class ArtifactRead(BaseModel):
             file_path=obj.file_path,
             preview_id=obj.preview_id,
             source=obj.source,
+            preview_kind=str(preview["previewKind"]),
+            preview_label=str(preview["previewLabel"]),
+            media_type=preview["mediaType"] if isinstance(preview["mediaType"], str) else None,
+            file_extension=preview["fileExtension"] if isinstance(preview["fileExtension"], str) else None,
+            can_inline_preview=bool(preview["canInlinePreview"]),
+            is_binary=bool(preview["isBinary"]),
+            raw_url=preview["rawUrl"] if isinstance(preview["rawUrl"], str) else None,
+            download_url=preview["downloadUrl"] if isinstance(preview["downloadUrl"], str) else None,
             created_at=obj.created_at.isoformat() if obj.created_at else "",
         )
 
@@ -182,6 +223,45 @@ async def list_artifacts(session_id: str, request: Request, db: AsyncSession = D
 async def get_artifact(artifact_id: str, request: Request, db: AsyncSession = Depends(get_db)):
     artifact = await _authorize_artifact(request, db, artifact_id, "read")
     return ArtifactRead.from_orm_with_iso(artifact)
+
+
+@router.get("/artifacts/{artifact_id}/raw")
+async def get_artifact_raw(
+    artifact_id: str,
+    request: Request,
+    download: bool = False,
+    db: AsyncSession = Depends(get_db),
+):
+    artifact = await _authorize_artifact(request, db, artifact_id, "read")
+    preview = infer_artifact_preview(
+        artifact_type=artifact.type,
+        title=artifact.title,
+        content=artifact.content,
+        file_path=artifact.file_path,
+    )
+    filename = Path(artifact.file_path or artifact.title or "artifact").name
+    disposition = "attachment" if download else "inline"
+
+    if artifact.file_path and artifact.project_id:
+        project = await db.get(Project, artifact.project_id)
+        if project:
+            target = _artifact_file_target(project, artifact.file_path)
+            if target.exists() and target.is_file():
+                return FileResponse(
+                    target,
+                    media_type=preview.media_type or "application/octet-stream",
+                    filename=filename,
+                    content_disposition_type=disposition,
+                )
+
+    headers = {}
+    if download:
+        headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return Response(
+        content=artifact.content,
+        media_type=preview.media_type or "text/plain",
+        headers=headers,
+    )
 
 
 @router.get("/artifacts/{artifact_id}/versions", response_model=List[ArtifactVersionRead])

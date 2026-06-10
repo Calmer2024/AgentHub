@@ -84,6 +84,61 @@ class TestArtifactOutputBridgePhase6:
         assert html.file_path == "index.html"
         assert "Hello" in html.content
 
+    async def test_workspace_markdown_and_image_snapshot_create_previewable_documents(
+        self, test_client, db_session, test_session,
+    ):
+        session = await db_session.get(Session, test_session)
+        project = await db_session.get(Project, session.project_id)
+        detector = FileChangeDetector()
+        snapshot = detector.create_snapshot(project.workspace_path, "before-rich-docs")
+        Path(project.workspace_path, "README.md").write_text(
+            "# 项目说明\n\n"
+            "## 背景\n"
+            "这是一份由 Agent 生成的 Markdown 产物，用于验证会话中可以直接预览文档。"
+            "继续补充内容让文档足够长，避免被当作普通一句话回复处理。"
+            "文档中还会包含实施步骤、验收标准和后续注意事项，方便用户在聊天流中直接审阅。"
+            "这类内容应该进入 Artifact Card，而不是只停留在 assistant 的纯文本回复里。\n",
+            encoding="utf-8",
+        )
+        Path(project.workspace_path, "diagram.png").write_bytes(
+            b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
+        )
+        message = Message(
+            id=str(uuid.uuid4()),
+            session_id=test_session,
+            role="assistant",
+            content="已写入 README.md 和 diagram.png",
+            source_type="agent",
+        )
+        db_session.add(message)
+        await db_session.commit()
+
+        result = await ArtifactOutputBridge(db_session).scan_completed_message(
+            session=session,
+            message=message,
+            workspace_path=project.workspace_path,
+            visible_content=message.content,
+            snapshot_id=snapshot.snapshot_id,
+        )
+
+        markdown = next(item for item in result.created if item.file_path == "README.md")
+        image = next(item for item in result.created if item.file_path == "diagram.png")
+        assert markdown.type == "document"
+        assert image.type == "document"
+
+        artifacts_resp = await test_client.get(f"/api/sessions/{test_session}/artifacts")
+        assert artifacts_resp.status_code == 200
+        artifacts = artifacts_resp.json()
+        markdown_read = next(item for item in artifacts if item["filePath"] == "README.md")
+        image_read = next(item for item in artifacts if item["filePath"] == "diagram.png")
+        assert markdown_read["previewKind"] == "markdown"
+        assert image_read["previewKind"] == "image"
+        assert image_read["rawUrl"].endswith(f"/api/artifacts/{image.id}/raw")
+
+        raw = await test_client.get(image_read["rawUrl"])
+        assert raw.status_code == 200
+        assert raw.content.startswith(b"\x89PNG")
+
     async def test_workspace_multi_file_snapshot_creates_file_tree_and_code_diff(
         self, db_session, test_session,
     ):

@@ -14,6 +14,7 @@ from ..services.artifact_output_bridge import (
     MessageNotFoundForScanError,
     SessionWithoutProjectError,
 )
+from ..services.cloud_agent_runtime import CloudAgentRuntimeService
 from ..services.message_service_sqlalchemy import (
     InvalidMessageOperationError,
     MessageNotFoundError,
@@ -128,7 +129,23 @@ async def regenerate_message(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    await _authorize_message(request, db, message_id, "write")
+    message = await _authorize_message(request, db, message_id, "write")
+    session = await db.get(DBSession, message.session_id)
+    project = await db.get(Project, session.project_id) if session and session.project_id else None
+    if project and project.workspace_mode == "cloud":
+        actor = await AuthService(db).resolve_request(request)
+        if not actor:
+            raise HTTPException(status_code=401, detail="请先登录后继续")
+        from ..main import _event_bus
+
+        runtime = CloudAgentRuntimeService(db, event_bus=_event_bus)
+
+        async def cloud_events() -> AsyncIterator[str]:
+            async for item in runtime.stream_regenerate_message(message_id, actor=actor):
+                yield item
+
+        return StreamingResponse(cloud_events(), media_type="text/event-stream")
+
     svc = SqlAlchemyMessageService(db)
 
     async def events() -> AsyncIterator[str]:
