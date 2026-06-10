@@ -95,6 +95,12 @@ class CliAgentService:
                 "Agent 的身份和业务边界由 Agent System Prompt 定义；"
                 "Rules 定义长期行为规则；工具集只补充可复用能力。"
                 "当用户询问你是什么角色时，回答 Agent Profile 身份，而不是只回答底层 Engine 名称。"
+            ),
+            (
+                "[Language Policy]\n"
+                "输出语言默认跟随用户当前消息。用户用中文提出需求时，除代码、命令、文件路径、"
+                "协议字段和用户明确要求保留的术语外，回复、计划、总结、错误解释都必须使用中文；"
+                "用户明确要求其他语言时按用户要求。"
             )
         ]
         if base_prompt.strip():
