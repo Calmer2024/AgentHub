@@ -62,6 +62,7 @@ export function SessionList({
   const [deleteConfirmSessionId, setDeleteConfirmSessionId] = useState<string | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const previousProjectIdRef = useRef(project?.id);
+  const menuRef = useRef<HTMLDivElement>(null);
   const runtimeBySession = useChatStore((state) => state.runtimeBySession);
   const runsBySession = useChatStore((state) => state.runsBySession);
   const agentById = useMemo(() => new Map(agents.map((agent) => [agent.id, agent])), [agents]);
@@ -74,6 +75,19 @@ export function SessionList({
     setDeleteConfirmSessionId(null);
     setQuery("");
   }, [project?.id]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (menuRef.current?.contains(target)) return;
+      setMenuOpen(null);
+      setDeleteConfirmSessionId(null);
+    };
+    window.addEventListener("pointerdown", close, true);
+    return () => window.removeEventListener("pointerdown", close, true);
+  }, [menuOpen]);
 
   const getSessionInfo = (session: Session) => {
     if (session.mode === "group") {
@@ -183,6 +197,7 @@ export function SessionList({
         className={`group relative mb-1 animate-[agenthub-slide-in_180ms_ease-out_both] ${
           menuIsOpen ? "z-40" : "z-0"
         }`}
+        ref={menuIsOpen ? menuRef : undefined}
       >
         <button
           onClick={() => onSelectSession(session.id)}
