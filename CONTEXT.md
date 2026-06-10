@@ -17,6 +17,7 @@
 | 5 | [docs/PRD/](docs/PRD/) | 产品需求拆解文档（8 篇）— 北极星指标、CLI 适配器、Orchestrator、UX 设计、数据契约、端到端闭环、MVP/SaaS Workspace |
 | 6 | [docs/adr/](docs/adr/) | 架构决策记录 — 关键决策及原因 |
 | 7 | [docs/specs/](docs/specs/) | 功能规格 — 各 Phase 的具体功能定义与验收标准（Phase 1-16） |
+| 8 | [docs/user-guides/](docs/user-guides/) | 用户手册 — 面向最终用户的配置与使用说明 |
 
 ---
 
@@ -217,6 +218,12 @@ PRD 系列与早期核心设计文档共同构成需求权威。早期设计定�
 | [Phase 10 Dev Log](docs/dev-logs/phase10-dev-log.md) | Phase 10 Sandbox Runner 与云端 Agent Runtime：cloud sandbox、真实 CLI、Artifact/logs、Secret 脱敏、配额与 P1/P2 验收 |
 | [Phase 13 Dev Log](docs/dev-logs/phase13-dev-log.md) | Phase 13 多端产品壳拆分：RuntimeCapabilities、Local/SaaS/Mobile shell、三端构建、native skeleton 与真实服务验收 |
 | [Phase 14 Dev Log](docs/dev-logs/phase14-dev-log.md) | Phase 14 生产 Auth 与租户隔离收口：AuthProvider、session token、TenantScope、RBAC、SaaS/Mobile 登录门与 cloud 资源权限回归 |
+
+### 用户手册
+
+| 文档 | 内容 |
+|------|------|
+| [SaaS 内置 CLI Engine 配置手册](docs/user-guides/saas-cli-engine-configuration.md) | 面向 SaaS Web 用户，说明 Claude Code、Codex、OpenCode 三个内置 CLI Engine 的 Provider、Base URL、模型、Env Key 和 API Key 怎么填 |
 
 ### Skills — AI 能力复用
 

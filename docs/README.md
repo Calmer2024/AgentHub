@@ -15,6 +15,7 @@ docs/
 ├── PRD/                         ← 产品需求拆解文档（与核心设计共同构成权威需求源）
 ├── adr/                         ← 架构决策记录
 ├── specs/                       ← 功能规格文档 (按 Phase 组织)
+├── user-guides/                 ← 面向最终用户的使用与配置手册
 ├── deliverables/                 ← 阶段性交付快照、交接文档、使用指南
 ├── dev-logs/                    ← 开发日志
 ├── audit/                       ← 阶段性审计报告
@@ -42,6 +43,9 @@ docs/
 
 ### 我想跑测试
 → 看 [TEST_PROTOCOL.md](TEST_PROTOCOL.md)（通用协议）+ [testing/UX_TEST_SPEC.md](testing/UX_TEST_SPEC.md)（UX 测试规范）。
+
+### 我想配置 SaaS 内置 CLI
+→ 看 [user-guides/saas-cli-engine-configuration.md](user-guides/saas-cli-engine-configuration.md)。它面向 SaaS Web 用户，说明 Claude Code、Codex、OpenCode 三个内置 Engine 的 Provider、Base URL、模型、Env Key 和 API Key 怎么填。
 
 ---
 
@@ -122,6 +126,14 @@ docs/
 每个 Phase 目录下都有独立的 `README.md`，包含验收标准清单和子模块索引。
 
 **Spec 模板**: [SPEC_TEMPLATE.md](specs/SPEC_TEMPLATE.md) — 新建模块 Spec 时照此填写。
+
+### user-guides/ — 用户手册
+
+面向最终用户，解释产品界面里的关键配置和使用方式，不承载架构决策或 Phase 验收标准。
+
+| 文件 | 内容 |
+|------|------|
+| [saas-cli-engine-configuration.md](user-guides/saas-cli-engine-configuration.md) | SaaS Web 内置 Claude Code、Codex、OpenCode 三个 CLI Engine 的用户级凭据配置手册 |
 
 ### dev-logs/ — 开发日志
 
