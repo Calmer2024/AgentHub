@@ -44,6 +44,10 @@ const API_BASE = {
   toString: () => activeApiBase,
 };
 
+export function getActiveApiBaseUrl(): string {
+  return activeApiBase;
+}
+
 const DEV_CLOUD_USER_HEADERS: Record<string, string> = {
   "X-AgentHub-User-Email": "demo@agenthub.local",
   "X-AgentHub-User-Name": "AgentHub Demo",
@@ -1264,6 +1268,7 @@ export interface StreamCallbacks {
   onChainStep?: (step: ChainStep) => void;
   onPhaseChange?: (event: PhaseChangeEvent) => void;
   onTaskCompleted?: (summary: string) => void;
+  onPlanExecutionCreated?: (execution: OrchestratorExecution, messageId?: string) => void;
   onAgentStart?: (event: AgentStartEvent) => void;
   onOrchestratorSummaryStart?: (event: OrchestratorSummaryStartEvent) => void;
   onOrchestratorSummaryToken?: (messageId: string, token: string) => void;
@@ -1318,7 +1323,7 @@ export function createChatStream(
 ): () => void {
   const {
     onToken, onDone, onRoute, onTaskStarted, onStewardDecision, onChainStep, onPhaseChange,
-    onTaskCompleted, onAgentStart, onOrchestratorSummaryStart,
+    onTaskCompleted, onPlanExecutionCreated, onAgentStart, onOrchestratorSummaryStart,
     onOrchestratorSummaryToken, onAgentToken, onProgress, onInteractivePrompt,
     onTraceDelta, onTraceCompleted, onArtifactScanStarted, onArtifactCreated,
     onArtifactScanCompleted, onArtifactDetectionFailed,
@@ -1416,6 +1421,17 @@ export function createChatStream(
             if (data.type === "orchestrator.steward_decision") {
               const decision = normalizeStewardDecision(data.decision ?? data);
               if (decision && onStewardDecision) onStewardDecision(decision);
+              continue;
+            }
+
+            if (data.type === "orchestrator.plan_execution_created") {
+              const execution = normalizeOrchestratorExecutionEvent(data, sessionId);
+              if (execution && onPlanExecutionCreated) {
+                onPlanExecutionCreated(
+                  execution,
+                  typeof data.messageId === "string" ? data.messageId : undefined,
+                );
+              }
               continue;
             }
 
@@ -2002,6 +2018,100 @@ function normalizeApprovalStatus(value: unknown): ApprovalCheckpoint["status"] |
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function normalizeOrchestratorExecutionEvent(raw: unknown, fallbackSessionId: string): OrchestratorExecution | null {
+  if (!isRecord(raw)) return null;
+  const data = isRecord(raw.execution) ? raw.execution : raw;
+  const executionId = stringValue(data.executionId);
+  const sessionId = stringValue(data.sessionId) || fallbackSessionId;
+  const planId = stringValue(data.planId);
+  if (!executionId || !sessionId || !planId) return null;
+  const now = chinaNowIso();
+  return {
+    executionId,
+    sessionId,
+    planId,
+    runId: nullableString(data.runId) ?? nullableString(raw.runId),
+    status: stringValue(data.status) || "running",
+    createdAt: stringValue(data.createdAt) || now,
+    updatedAt: stringValue(data.updatedAt) || now,
+    startedAt: nullableString(data.startedAt) ?? now,
+    completedAt: nullableString(data.completedAt),
+    tasks: normalizeOrchestratorExecutionTasks(data.tasks ?? raw.tasks),
+    events: normalizeOrchestratorExecutionEvents(data.events),
+    validation: normalizeOrchestratorValidation(data.validation),
+    plan: isRecord(data.plan) ? data.plan as unknown as OrchestratorExecution["plan"] : undefined,
+  };
+}
+
+function normalizeOrchestratorExecutionTasks(raw: unknown): OrchestratorExecution["tasks"] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((item) => {
+    if (!isRecord(item)) return [];
+    const taskId = stringValue(item.taskId ?? item.task_id);
+    if (!taskId) return [];
+    return [{
+      taskId,
+      title: stringValue(item.title) || taskId,
+      goal: stringValue(item.goal),
+      status: stringValue(item.status) || "pending",
+      startedAt: nullableString(item.startedAt),
+      completedAt: nullableString(item.completedAt),
+      updatedAt: nullableString(item.updatedAt),
+      summary: nullableString(item.summary),
+      runnerType: stringValue(item.runnerType),
+      visibleMessageId: nullableString(item.visibleMessageId),
+      assignedAgentId: nullableString(item.assignedAgentId ?? item.assigned_agent_id),
+      assignedAgentName: nullableString(item.assignedAgentName ?? item.assigned_agent_name),
+      dependsOn: stringArray(item.dependsOn ?? item.depends_on),
+      requiredSkills: stringArray(item.requiredSkills ?? item.required_skills),
+      needsApproval: Boolean(item.needsApproval ?? item.needs_approval),
+      isBlocking: Boolean(item.isBlocking ?? item.is_blocking),
+      expectedOutputs: stringArray(item.expectedOutputs ?? item.expected_outputs),
+      acceptanceCriteria: stringArray(item.acceptanceCriteria ?? item.acceptance_criteria),
+    }];
+  });
+}
+
+function normalizeOrchestratorExecutionEvents(raw: unknown): OrchestratorExecution["events"] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((item) => {
+    if (!isRecord(item)) return [];
+    const type = stringValue(item.type);
+    if (!type) return [];
+    return [{
+      type,
+      status: stringValue(item.status),
+      timestamp: stringValue(item.timestamp),
+      message: stringValue(item.message),
+      phase: typeof item.phase === "number" ? item.phase : undefined,
+      taskId: nullableString(item.taskId) ?? undefined,
+      taskIds: stringArray(item.taskIds),
+      remainingTaskIds: stringArray(item.remainingTaskIds),
+    }];
+  });
+}
+
+function normalizeOrchestratorValidation(raw: unknown): OrchestratorExecution["validation"] {
+  if (!isRecord(raw)) return { ok: true, errors: [], warnings: [] };
+  return {
+    ok: raw.ok !== false,
+    errors: stringArray(raw.errors),
+    warnings: stringArray(raw.warnings),
+  };
+}
+
+function stringValue(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function nullableString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.map(String) : [];
 }
 
 function processStartText(agentName: string, data: Record<string, unknown>) {

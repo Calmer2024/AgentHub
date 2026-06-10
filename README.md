@@ -103,6 +103,12 @@ npm run build
 ```
 
 构建产物会输出到桌面端 release/portable 目录，具体路径以命令输出为准。
+当前 portable demo 包默认输出到：
+
+```text
+deploy/desktop-demo/AgentHub-Local-Desktop-Demo-0.1.0-win-x64/
+deploy/desktop-demo/AgentHub-Local-Desktop-Demo-0.1.0-win-x64.zip
+```
 
 ## 6. 项目结构
 

@@ -204,6 +204,46 @@ describe("createChatStream", () => {
     expect(onTaskStarted.mock.calls[0][3]).toBe("已安排: 先由@架构师规划。");
   });
 
+  it("解析计划执行创建事件并保留消息绑定", async () => {
+    const onPlanExecutionCreated = vi.fn();
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(sseResponse([
+      JSON.stringify({
+        type: "orchestrator.plan_execution_created",
+        sessionId: "s1",
+        messageId: "m-plan",
+        executionId: "exec-1",
+        planId: "plan-1",
+        status: "running",
+        runId: "run-1",
+        tasks: [{
+          taskId: "T1",
+          title: "需求访谈",
+          goal: "对齐需求",
+          status: "pending",
+          dependsOn: [],
+        }],
+      }),
+      JSON.stringify({ token: "", done: true, messageId: "m-plan" }),
+    ]));
+
+    createChatStream("s1", "可以执行", [], {
+      onToken: vi.fn(),
+      onDone: vi.fn(),
+      onPlanExecutionCreated,
+    });
+
+    await vi.waitFor(() => expect(onPlanExecutionCreated).toHaveBeenCalled());
+    expect(onPlanExecutionCreated.mock.calls[0][0]).toMatchObject({
+      executionId: "exec-1",
+      sessionId: "s1",
+      planId: "plan-1",
+      runId: "run-1",
+      status: "running",
+      tasks: [expect.objectContaining({ taskId: "T1", title: "需求访谈" })],
+    });
+    expect(onPlanExecutionCreated.mock.calls[0][1]).toBe("m-plan");
+  });
+
   it("解析 Orchestrator 调度器的无 @ 分流决策", async () => {
     const onStewardDecision = vi.fn();
     vi.spyOn(globalThis, "fetch").mockResolvedValue(sseResponse([

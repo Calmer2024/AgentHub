@@ -12,6 +12,7 @@ import {
 } from "../api/client";
 import type {
   Message, CollabTask, DAGPhase, PhaseChangeEvent, AgentStartEvent, Artifact, StewardDecisionEvent,
+  OrchestratorExecution,
 } from "../types";
 import { chinaNowIso } from "../utils/time";
 
@@ -405,6 +406,19 @@ export function useSendMessage() {
             }
           )),
         });
+      },
+      onPlanExecutionCreated: (execution: OrchestratorExecution, messageId) => {
+        if (!isLiveStream() || !messageId) return;
+        const targetId = localMessageForServer(messageId);
+        const currentMessages = useChatStore.getState().messagesBySession[currentSessionId] ?? [];
+        const currentMessage = currentMessages.find((message) => message.id === targetId);
+        updateSessionMessage(currentSessionId, targetId, {
+          metadata: {
+            ...(currentMessage?.metadata ?? {}),
+            orchestratorExecution: execution,
+          },
+        });
+        setActiveRunId(execution.runId ?? null, currentSessionId);
       },
       onAgentStart: (event: AgentStartEvent) => {
         if (!isLiveStream()) return;

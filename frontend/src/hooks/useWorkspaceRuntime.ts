@@ -138,6 +138,37 @@ export function useWorkspaceRuntime(options: WorkspaceRuntimeOptions = {}) {
     setSessions(nextSessions);
   }, [setSessions]);
 
+  const refreshRealtimeSession = useCallback(async (sessionId: string) => {
+    const [messages, artifacts, runs, approvals] = await Promise.allSettled([
+      fetchMessages(sessionId),
+      fetchArtifacts(sessionId),
+      fetchRuns(sessionId),
+      fetchApprovals(sessionId),
+    ]);
+
+    if (messages.status === "fulfilled") {
+      setMessagesForSession(sessionId, messages.value);
+    }
+    if (artifacts.status === "fulfilled") {
+      setArtifactsForSession(sessionId, artifacts.value);
+    }
+    if (runs.status === "fulfilled") {
+      setRunsForSession(sessionId, runs.value);
+      void Promise.allSettled(runs.value.map(async (run) => {
+        setTasksForRun(run.id, await fetchRunTasks(run.id));
+      }));
+    }
+    if (approvals.status === "fulfilled") {
+      setApprovalsForSession(sessionId, approvals.value);
+    }
+  }, [
+    setApprovalsForSession,
+    setArtifactsForSession,
+    setMessagesForSession,
+    setRunsForSession,
+    setTasksForRun,
+  ]);
+
   useEffect(() => {
     if (!currentSessionId) return;
     const ws = new WSClient();
@@ -151,10 +182,7 @@ export function useWorkspaceRuntime(options: WorkspaceRuntimeOptions = {}) {
       const eventSessionId = typeof data.sessionId === "string" ? data.sessionId : currentSessionId;
       if (eventSessionId !== currentSessionId) return;
       if (useChatStore.getState().isSessionStreaming(eventSessionId)) return;
-      fetchMessages(eventSessionId).then((messages) => setMessagesForSession(eventSessionId, messages));
-      fetchArtifacts(eventSessionId)
-        .then((artifacts) => setArtifactsForSession(eventSessionId, artifacts))
-        .catch(() => {});
+      void refreshRealtimeSession(eventSessionId);
     });
     ws.on("session.title_updated", (data) => {
       const session = normalizeSessionEvent(data.session);
@@ -172,6 +200,13 @@ export function useWorkspaceRuntime(options: WorkspaceRuntimeOptions = {}) {
     ws.on("task.status_changed", (data) => {
       const task = normalizeTaskEvent(data.task);
       if (task) upsertTask(task);
+    });
+    ws.on("task.awaiting_user_input", (data) => {
+      const eventSessionId = typeof data.sessionId === "string" ? data.sessionId : currentSessionId;
+      if (eventSessionId !== currentSessionId) return;
+      const task = normalizeTaskEvent(data.task);
+      if (task) upsertTask(task);
+      void refreshRealtimeSession(eventSessionId);
     });
     ws.on("approval.created", (data) => {
       const approval = normalizeApprovalEvent(data.approval);
@@ -241,8 +276,6 @@ export function useWorkspaceRuntime(options: WorkspaceRuntimeOptions = {}) {
   }, [
     currentSessionId,
     sessions,
-    setArtifactsForSession,
-    setMessagesForSession,
     appendAgentStreamingToken,
     appendExecutionTraceItem,
     ensureAgentMessage,
@@ -254,6 +287,7 @@ export function useWorkspaceRuntime(options: WorkspaceRuntimeOptions = {}) {
     upsertTask,
     updateSession,
     replaceSessionEverywhere,
+    refreshRealtimeSession,
   ]);
 
   useEffect(() => {

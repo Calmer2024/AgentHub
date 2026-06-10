@@ -449,11 +449,14 @@ class OrchestratorPlanChat:
         execution_registry.start_execution(execution["executionId"])
         yield self._sse({
             "type": "orchestrator.plan_execution_created",
+            "sessionId": session_id,
+            "messageId": message_id,
             "executionId": execution["executionId"],
             "planId": execution["planId"],
             "status": execution["status"],
             "tasks": execution["tasks"],
             "runId": execution.get("runId") or run_id,
+            "execution": execution,
         })
         yield self._sse({
             "type": "agent.output",

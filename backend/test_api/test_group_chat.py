@@ -1539,8 +1539,11 @@ class TestGroupSession:
                 visible += data.get("token", "")
 
         assert execution_event is not None
+        assert execution_event["sessionId"] == sid
+        assert execution_event["messageId"]
         assert execution_event["planId"] == "plan_followup_001"
         assert execution_event["status"] == "running"
+        assert execution_event["execution"]["executionId"] == execution_event["executionId"]
         assert "已确认计划 plan_followup_001" in visible
         assert "approve_plan" in prompts[1]
         assert "上一版 draft plan" in prompts[1]

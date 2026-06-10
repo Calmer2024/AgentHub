@@ -1,3 +1,5 @@
+import { getActiveApiBaseUrl } from "./client";
+
 type WSEventHandler = (event: Record<string, unknown>) => void;
 
 export class WSClient {
@@ -32,8 +34,7 @@ export class WSClient {
 
   private _connect() {
     if (!this.sessionId) return;
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const url = `${protocol}//${window.location.host}/ws/sessions/${this.sessionId}`;
+    const url = buildWebSocketUrl(this.sessionId);
 
     try {
       this.ws = new WebSocket(url);
@@ -97,4 +98,22 @@ export class WSClient {
     this.reconnectAttempts++;
     this.reconnectTimer = setTimeout(() => this._connect(), delay);
   }
+}
+
+export function buildWebSocketUrl(
+  sessionId: string,
+  apiBase = getActiveApiBaseUrl(),
+  locationLike: Pick<Location, "protocol" | "host" | "origin"> = window.location,
+): string {
+  const base = new URL(apiBase || "/api", locationLike.origin);
+  const protocol = base.protocol === "https:" ? "wss:" : "ws:";
+  const prefix = stripApiSuffix(base.pathname);
+  return `${protocol}//${base.host}${prefix}/ws/sessions/${encodeURIComponent(sessionId)}`;
+}
+
+function stripApiSuffix(pathname: string): string {
+  const normalized = pathname.replace(/\/+$/, "");
+  if (!normalized || normalized === "/api") return "";
+  if (normalized.endsWith("/api")) return normalized.slice(0, -"/api".length);
+  return normalized;
 }
