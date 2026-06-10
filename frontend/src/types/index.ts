@@ -86,7 +86,10 @@ export interface SessionMember {
 export interface Project {
   id: string;
   name: string;
-  workspacePath: string;
+  workspacePath?: string | null;
+  workspaceMode: "local" | "cloud";
+  workspaceId?: string | null;
+  teamId?: string | null;
   status: "creating" | "ready" | "building" | "error" | "archived";
   fileCount: number;
   totalSizeBytes: number;
@@ -97,6 +100,9 @@ export interface ProjectCreateInput {
   name: string;
   workspacePath?: string;
   folderToken?: string;
+  workspaceMode?: "local" | "cloud";
+  teamId?: string | null;
+  template?: string | null;
 }
 
 export interface ProjectUpdateInput {
@@ -106,7 +112,7 @@ export interface ProjectUpdateInput {
 export interface ProjectDeleteResult {
   status: "deleted";
   filesDeleted: boolean;
-  workspacePath: string;
+  workspacePath?: string | null;
 }
 
 export interface FolderPickResult {
@@ -265,6 +271,14 @@ export interface Artifact {
   filePath?: string | null;
   previewId?: string | null;
   source?: string | null;
+  previewKind?: "html" | "markdown" | "pdf" | "image" | "presentation" | "word" | "spreadsheet" | "text" | "diff" | "file_tree" | string;
+  previewLabel?: string | null;
+  mediaType?: string | null;
+  fileExtension?: string | null;
+  canInlinePreview?: boolean;
+  isBinary?: boolean;
+  rawUrl?: string | null;
+  downloadUrl?: string | null;
   createdAt: string;
 }
 
@@ -313,6 +327,408 @@ export interface ProjectPreviewResult {
   previewId: string;
   url: string;
   source: "workspace" | "build" | string;
+}
+
+export type PreviewSource = "static" | "build" | "dev_server";
+export type DeliveryVisibility = "public" | "team" | "private";
+
+export interface PreviewSession {
+  id: string;
+  artifactId: string;
+  artifactVersionId?: string | null;
+  projectId: string;
+  source: PreviewSource | string;
+  status: "ready" | "revoked" | "expired" | string;
+  url: string;
+  visibility: DeliveryVisibility | string;
+  expiresAt: string;
+  createdAt: string;
+  revokedAt?: string | null;
+}
+
+export interface DeploymentLogChunk {
+  sequence: number;
+  stream: "system" | "stdout" | "stderr" | string;
+  text: string;
+  createdAt: string;
+}
+
+export interface DeploymentLogs {
+  deploymentId: string;
+  chunks: DeploymentLogChunk[];
+}
+
+export interface Deployment {
+  id: string;
+  projectId: string;
+  artifactId: string;
+  artifactVersionId: string;
+  target: "static_hosting" | "third_party" | string;
+  status: "queued" | "building" | "published" | "failed" | "rolled_back" | string;
+  stage: string;
+  url?: string | null;
+  visibility: DeliveryVisibility | string;
+  errorSummary?: string | null;
+  createdBy?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  publishedAt?: string | null;
+}
+
+export interface Comment {
+  id: string;
+  projectId: string;
+  targetType: "message" | "artifact" | "deployment" | string;
+  targetId: string;
+  authorUserId: string;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Attachment {
+  id: string;
+  projectId: string;
+  sessionId?: string | null;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  storageUri: string;
+  createdAt: string;
+}
+
+export interface ArtifactReference {
+  id: string;
+  sourceType: string;
+  sourceId: string;
+  artifactId: string;
+  artifactVersionId?: string | null;
+  relation: string;
+  createdAt: string;
+}
+
+export interface Notification {
+  id: string;
+  type: string;
+  resourceType: string;
+  resourceId: string;
+  title: string;
+  body?: string | null;
+  readAt?: string | null;
+  createdAt: string;
+}
+
+export interface MobileSessionSummary {
+  id: string;
+  projectId?: string | null;
+  title: string;
+  unreadCount: number;
+  latestMessageAt?: string | null;
+  pendingApprovalCount: number;
+}
+
+export interface RenderedArtifact {
+  artifactId: string;
+  format: "html" | "pdf" | "image" | string;
+  renderId: string;
+  content: string;
+  fileName: string;
+  previewKind?: string;
+  mediaType?: string | null;
+  rawUrl?: string | null;
+  downloadUrl?: string | null;
+}
+
+export interface AgentTemplateSession {
+  id: string;
+  status: string;
+  draft: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GitSyncJob {
+  id: string;
+  projectId: string;
+  mode: "pull" | "push" | string;
+  remote: string;
+  branch: string;
+  status: "completed" | "failed" | string;
+  commitSha?: string | null;
+  errorSummary?: string | null;
+  logs: string[];
+  createdAt: string;
+}
+
+export type ProductEdition = "local" | "saas";
+export type AppSurface = "desktop" | "mobile";
+
+export type FeatureKey =
+  | "localWorkspace"
+  | "localCliRuntime"
+  | "localPreview"
+  | "localBuildExport"
+  | "cloudWorkspace"
+  | "teamSpaces"
+  | "cloudPreview"
+  | "deployment"
+  | "auditLogs"
+  | "notifications"
+  | "mobileApprovals";
+
+export type RuntimeFeatureFlags = Record<FeatureKey, boolean>;
+
+export interface RuntimeCapabilities {
+  edition: ProductEdition;
+  surface: AppSurface;
+  authRequired: boolean;
+  apiBaseUrl: string;
+  features: RuntimeFeatureFlags;
+  limits: {
+    maxUploadBytes?: number;
+  };
+}
+
+export interface ShellContextValue {
+  capabilities: RuntimeCapabilities;
+  edition: ProductEdition;
+  surface: AppSurface;
+}
+
+export type TeamRole = "owner" | "admin" | "member" | "viewer";
+
+export interface CurrentUser {
+  id: string;
+  email: string;
+  username?: string | null;
+  displayName: string;
+  avatarUrl?: string | null;
+  status?: string;
+  lastLoginAt?: string | null;
+  teams?: Team[];
+  defaultSpace?: {
+    kind: "personal" | "team";
+    id: string;
+    name: string;
+  };
+  createdAt: string;
+}
+
+export interface AuthProvider {
+  id: string;
+  label: string;
+  type: "email" | "password" | "external" | "dev_header";
+  enabled: boolean;
+  devOnly: boolean;
+}
+
+export interface AuthSession {
+  accessToken: string;
+  refreshToken: string;
+  tokenType: "bearer";
+  expiresAt: string;
+  user: CurrentUser;
+}
+
+export type CliCredentialTool = "claude_code" | "codex" | "opencode";
+export type CliCredentialProviderType = "official" | "proxy" | "cc_switch" | "custom";
+
+export interface CliCredentialConfig {
+  cliTool: CliCredentialTool;
+  scope: "user" | "team" | "project" | string;
+  ownerId: string;
+  providerType: CliCredentialProviderType | string;
+  providerId: string;
+  providerName: string;
+  baseUrl?: string | null;
+  model?: string | null;
+  authEnvKey: string;
+  configured: boolean;
+  secretNames: string[];
+  config?: Record<string, unknown>;
+  updatedAt?: string | null;
+}
+
+export interface CliCredentialUpdateInput {
+  scope?: "user" | "team" | "project";
+  ownerId?: string | null;
+  providerType?: CliCredentialProviderType;
+  providerId?: string | null;
+  providerName?: string | null;
+  baseUrl?: string | null;
+  model?: string | null;
+  authEnvKey?: string | null;
+  apiKey?: string | null;
+  config?: Record<string, unknown>;
+}
+
+export interface CliModelOption {
+  id: string;
+  name: string;
+  label: string;
+  providerId: string;
+  reasoning: boolean;
+  toolCall: boolean;
+  context?: number | null;
+  output?: number | null;
+  lastUpdated?: string | null;
+}
+
+export interface CliModelList {
+  cliTool: CliCredentialTool;
+  providerId: string;
+  source: string;
+  items: CliModelOption[];
+}
+
+export interface Team {
+  id: string;
+  name: string;
+  role: TeamRole;
+  memberCount: number;
+  createdAt: string;
+}
+
+export interface TeamMember {
+  id: string;
+  teamId: string;
+  userId: string;
+  email: string;
+  displayName: string;
+  role: TeamRole;
+  createdAt: string;
+}
+
+export interface WorkspaceSnapshot {
+  id: string;
+  workspaceId: string;
+  label?: string | null;
+  storageUri: string;
+  createdBy?: string | null;
+  createdAt: string;
+}
+
+export interface WorkspaceImport {
+  id: string;
+  workspaceId: string;
+  source: "zip" | "github";
+  status: string;
+  detail: string;
+  metadata: Record<string, unknown>;
+  createdBy?: string | null;
+  createdAt: string;
+  completedAt?: string | null;
+}
+
+export interface WorkspaceRestore {
+  id: string;
+  workspaceId: string;
+  snapshotId: string;
+  strategy: "replace" | "branch";
+  status: string;
+  createdAt: string;
+  completedAt?: string | null;
+}
+
+export interface CloudWorkspace {
+  id: string;
+  projectId: string;
+  provider: string;
+  status: string;
+  storageUri: string;
+  snapshots: WorkspaceSnapshot[];
+  imports: WorkspaceImport[];
+  restores: WorkspaceRestore[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type RuntimeMode = "local" | "cloud";
+
+export interface Sandbox {
+  id: string;
+  workspaceId: string;
+  status: "creating" | "provisioning" | "ready" | "running" | "syncing" | "stopping" | "stopped" | "disposed" | "failed" | string;
+  image: string;
+  runnerNodeId?: string | null;
+  provider?: string | null;
+  externalId?: string | null;
+  region?: string | null;
+  resourceLimits: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+  stoppedAt?: string | null;
+  disposedAt?: string | null;
+}
+
+export interface RuntimeImage {
+  id: string;
+  label: string;
+  image: string;
+  provider: string;
+  default: boolean;
+  tools: string[];
+  createdAt?: string | null;
+}
+
+export interface RunnerNode {
+  id: string;
+  provider: string;
+  region?: string | null;
+  status: string;
+  capacity: Record<string, unknown>;
+  lastHeartbeatAt?: string | null;
+  createdAt: string;
+}
+
+export interface QuotaSummary {
+  subjectType: string;
+  subjectId: string;
+  concurrentRunsLimit: number;
+  concurrentRunsUsed: number;
+  runtimeSecondsLimit: number;
+  memoryMbLimit: number;
+  diskMbLimit: number;
+  network: string;
+}
+
+export interface SecretCreateInput {
+  name: string;
+  value: string;
+  scope?: "user" | "team" | "project";
+  ownerId?: string | null;
+}
+
+export interface SecretRef {
+  id: string;
+  name: string;
+  scope: string;
+  ownerId: string;
+  createdAt: string;
+}
+
+export interface RuntimeLogChunk {
+  sequence: number;
+  stream: "stdout" | "stderr" | "system" | string;
+  text: string;
+  createdAt: string;
+}
+
+export interface RuntimeLogs {
+  runId: string;
+  chunks: RuntimeLogChunk[];
+}
+
+export interface AuditLog {
+  id: string;
+  actorUserId?: string | null;
+  teamId?: string | null;
+  projectId?: string | null;
+  action: string;
+  resourceType: string;
+  resourceId: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
 }
 
 export interface ArtifactVersion {

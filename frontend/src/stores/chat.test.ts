@@ -162,6 +162,50 @@ describe("Chat Store (split)", () => {
     expect(useChatStore.getState().messages.map((m) => m.id)).toEqual(["server-1", "msg_agent_running"]);
   });
 
+  it("chatStore 收到执行过程时会补齐流式占位消息的 Agent 名称", () => {
+    useChatStore.setState({
+      currentSessionId: "s-trace",
+      messages: [{
+        id: "local-ai",
+        sessionId: "s-trace",
+        role: "assistant",
+        content: "",
+        agentName: null,
+        createdAt: "",
+      }],
+      messagesBySession: {
+        "s-trace": [{
+          id: "local-ai",
+          sessionId: "s-trace",
+          role: "assistant",
+          content: "",
+          agentName: null,
+          createdAt: "",
+        }],
+      },
+    });
+
+    useChatStore.getState().appendExecutionTraceItemToSession(
+      "s-trace",
+      "local-ai",
+      {
+        id: "trace-start",
+        kind: "process",
+        text: "Codex 已启动",
+        source: "system",
+        chunkType: "process",
+        processId: "proc-1",
+        timestamp: "2026-06-10T00:00:00.000Z",
+      },
+      { agentName: "Codex", cliTool: "codex", processId: "proc-1" },
+    );
+
+    const message = useChatStore.getState().messages[0];
+    expect(message.agentName).toBe("Codex");
+    expect(message.metadata?.executionTrace?.agentName).toBe("Codex");
+    expect(message.metadata?.executionTrace?.status).toBe("running");
+  });
+
   it("chatStore 忽略非当前会话的异步产物覆盖", () => {
     const artifact = (id: string, sessionId: string): Artifact => ({
       id,

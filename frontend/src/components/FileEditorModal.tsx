@@ -194,7 +194,7 @@ export function FileEditorModal({
       onClick={onClose}
     >
       <div
-        className="agenthub-modal flex h-[92dvh] w-full max-w-6xl flex-col overflow-hidden rounded-lg border"
+        className="agenthub-modal agenthub-modal-pop flex h-[88dvh] w-full max-w-6xl flex-col overflow-hidden rounded-3xl border"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="agenthub-header flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">

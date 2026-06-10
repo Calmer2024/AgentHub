@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle2, CircleStop, Clock3, Loader2, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, CircleStop, Clock3, Cloud, HardDrive, Loader2, XCircle } from "lucide-react";
 import type { RunRead, TaskRead } from "../types";
 
 interface Props {
@@ -48,6 +48,9 @@ export function RuntimeControlStrip({ run, tasks = [], onCancel, cancelling }: P
   const primaryTask = tasks.find((task) => task.status === "running")
     ?? tasks.find((task) => task.status === "paused")
     ?? tasks[0];
+  const runtimeMode = readRuntimeMode(run.metadata);
+  const sandboxId = readString(run.metadata, "sandboxId");
+  const RuntimeIcon = runtimeMode === "cloud" ? Cloud : HardDrive;
 
   return (
     <div className="agenthub-soft mt-3 flex min-h-9 min-w-0 max-w-full items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs">
@@ -62,6 +65,14 @@ export function RuntimeControlStrip({ run, tasks = [], onCancel, cancelling }: P
           {primaryTask.role ?? "executor"} · {primaryTask.name}
         </span>
       )}
+      <span
+        className="agenthub-muted hidden shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] sm:inline-flex"
+        style={{ borderColor: "var(--ah-border)" }}
+        title={runtimeMode === "cloud" && sandboxId ? `sandbox ${sandboxId}` : "本机运行"}
+      >
+        <RuntimeIcon size={12} aria-hidden="true" />
+        {runtimeMode === "cloud" ? shortId(sandboxId) : "local"}
+      </span>
       <span className="agenthub-muted font-mono text-[11px]">
         {elapsed(run.startedAt, run.completedAt)}
       </span>
@@ -80,4 +91,19 @@ export function RuntimeControlStrip({ run, tasks = [], onCancel, cancelling }: P
       )}
     </div>
   );
+}
+
+function readRuntimeMode(metadata: RunRead["metadata"]): "local" | "cloud" {
+  const value = readString(metadata, "runtimeMode");
+  return value === "cloud" ? "cloud" : "local";
+}
+
+function readString(metadata: RunRead["metadata"], key: string): string | null {
+  if (!metadata || typeof metadata[key] !== "string") return null;
+  return metadata[key] as string;
+}
+
+function shortId(value: string | null): string {
+  if (!value) return "cloud";
+  return value.length > 8 ? value.slice(0, 8) : value;
 }

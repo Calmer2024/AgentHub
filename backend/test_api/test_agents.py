@@ -3,7 +3,35 @@ import uuid
 
 import pytest
 
+from app.config import settings
 from app.models import AgentConfig
+
+
+def _enable_saas_production(monkeypatch):
+    monkeypatch.setattr(settings, "agenthub_edition", "saas")
+    monkeypatch.setattr(settings, "agenthub_surface", "desktop")
+    monkeypatch.setattr(settings, "agenthub_auth_required", True)
+    monkeypatch.setattr(settings, "agenthub_environment", "production")
+    monkeypatch.setattr(settings, "agenthub_dev_auth_enabled", False)
+
+
+async def _register_login(test_client, *, username: str, email: str):
+    created = await test_client.post(
+        "/api/auth/register",
+        json={
+            "username": username,
+            "email": email,
+            "password": "AgentHub-passw0rd",
+            "displayName": username,
+        },
+    )
+    assert created.status_code == 201, created.text
+    logged_in = await test_client.post(
+        "/api/auth/login",
+        json={"identifier": username, "password": "AgentHub-passw0rd"},
+    )
+    assert logged_in.status_code == 200, logged_in.text
+    return {"Authorization": f"Bearer {logged_in.json()['accessToken']}"}
 
 
 class TestCreateAgent:
@@ -148,6 +176,7 @@ class TestListAgents:
         assert "--verbose" in claude["initArgs"]
         assert claude["envVars"] == {}
         assert claude["toolset"] == []
+        assert claude["avatar"] == ""
         orchestrator = next(agent for agent in agents if agent["name"] == "Orchestrator 调度器")
         assert orchestrator["primarySkill"] == "orchestrator_planner"
         codex = next(agent for agent in agents if agent["name"] == "Codex")
@@ -245,6 +274,82 @@ class TestListAgents:
         await test_client.post("/api/agents", json={"name": "A2"})
         res = await test_client.get("/api/agents")
         assert len(res.json()) == count_before + 2
+
+    async def test_saas_agents_are_owned_by_current_user(self, test_client, db_session, monkeypatch):
+        _enable_saas_production(monkeypatch)
+
+        global_agent = AgentConfig(
+            id=str(uuid.uuid4()),
+            name="全局脏数据 Agent",
+            description="旧版本全局好友",
+            system_prompt="",
+            rules="",
+            agent_type="cli_wrapper",
+            cli_tool="codex",
+            executable="codex",
+            init_args="[]",
+            env_vars="{}",
+            primary_skill="general_coding",
+            auxiliary_skills="[]",
+            toolset="[]",
+            context_policy="workspace_coding",
+            avatar="preset:blue",
+            is_active=True,
+        )
+        db_session.add(global_agent)
+        await db_session.commit()
+
+        owner_headers = await _register_login(
+            test_client,
+            username="agent-owner",
+            email="agent-owner@example.com",
+        )
+        other_headers = await _register_login(
+            test_client,
+            username="agent-other",
+            email="agent-other@example.com",
+        )
+
+        owner_list = await test_client.get("/api/agents", headers=owner_headers)
+        assert owner_list.status_code == 200, owner_list.text
+        owner_agents = owner_list.json()
+        assert {agent["name"] for agent in owner_agents} == {
+            "Claude Code",
+            "Codex",
+            "OpenCode",
+            "Orchestrator 调度器",
+        }
+        assert all(agent["name"] != "全局脏数据 Agent" for agent in owner_agents)
+
+        other_list = await test_client.get("/api/agents", headers=other_headers)
+        assert other_list.status_code == 200, other_list.text
+        other_agents = other_list.json()
+        assert {agent["name"] for agent in other_agents} == {
+            "Claude Code",
+            "Codex",
+            "OpenCode",
+            "Orchestrator 调度器",
+        }
+        assert {agent["id"] for agent in owner_agents}.isdisjoint({agent["id"] for agent in other_agents})
+
+        custom = await test_client.post(
+            "/api/agents",
+            json={"name": "Owner Custom", "cliTool": "codex"},
+            headers=owner_headers,
+        )
+        assert custom.status_code == 201, custom.text
+        owner_after_create = await test_client.get("/api/agents", headers=owner_headers)
+        assert "Owner Custom" in {agent["name"] for agent in owner_after_create.json()}
+
+        other_after_create = await test_client.get("/api/agents", headers=other_headers)
+        assert "Owner Custom" not in {agent["name"] for agent in other_after_create.json()}
+
+        forbidden_update = await test_client.patch(
+            f"/api/agents/{custom.json()['id']}",
+            json={"name": "越权改名"},
+            headers=other_headers,
+        )
+        assert forbidden_update.status_code == 404
 
 
 class TestUpdateAgent:

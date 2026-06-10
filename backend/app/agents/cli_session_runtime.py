@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import AsyncIterator, Callable
 
 from ..core.agent_env import apply_cli_utf8_defaults, clean_cli_agent_env
+from ..core.process_utils import hidden_subprocess_kwargs
 from ..event_bus.event_types import EventType
 from .cli_runtime import (
     CliExecutableNotFound,
@@ -314,6 +315,7 @@ class CliSessionProcessRuntime:
                 stdin=_resolve_stdin(stdin_mode),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                **hidden_subprocess_kwargs(),
             )
         except NotImplementedError as exc:
             raise CliSubprocessNotSupported(_subprocess_not_supported_message()) from exc

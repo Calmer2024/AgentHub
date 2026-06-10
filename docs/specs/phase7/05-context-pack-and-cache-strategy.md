@@ -344,7 +344,7 @@ created_at / updated_at
 
 ### 7.1 不 @ 消息先交给调度器管家
 
-群聊中用户不 @ 时，不应直接自动路由给多个 Agent 执行。完整行为规范见 [群聊调度器管家路由](../../phase3/02-orchestrator/11-group-chat-steward-routing.md)。从上下文管理角度，该入口应先做轻量分类：
+群聊中用户不 @ 时，不应直接自动路由给多个 Agent 执行。完整行为规范见 [群聊调度器管家路由](../phase3/02-orchestrator/11-group-chat-steward-routing.md)。从上下文管理角度，该入口应先做轻量分类：
 
 ```text
 普通群聊消息

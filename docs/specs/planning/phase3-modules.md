@@ -88,11 +88,11 @@ async def search_messages(session_id: str, query: str, limit: int = 20) -> list[
 | 维度 | 内容 |
 |------|------|
 | **范围** | Pipeline 四阶段, 意图分析, Agent 元数据匹配, 任务拆解+6角色, 自动链式, SSE 生命周期事件, ContextManager 集成 |
-| **设计文档** | **[docs/specs/orchestrator/](orchestrator/README.md)** — 9 篇完整设计文档 |
-| **架构 ADR** | **[ADR-0007](../adr/0007-orchestrator-architecture.md)** |
+| **设计文档** | **[docs/specs/phase3/02-orchestrator/](../phase3/02-orchestrator/README.md)** — 9 篇完整设计文档 |
+| **架构 ADR** | **[ADR-0007](../../adr/0007-orchestrator-architecture.md)** |
 | **状态** | ✅ **Phase 3.4 + 3.5 已交付** (Pipeline + 组件 + Chain + 错误处理) |
 | **测试** | 122 backend + 9 frontend + 23 E2E = 154 条 |
-| **遗留** | Phase 3.6 DAG 混合调度 (见 [orchestrator/08-dev-plan.md](orchestrator/08-dev-plan.md)) |
+| **遗留** | Phase 3.6 DAG 混合调度 (见 [08-dev-plan.md](../phase3/02-orchestrator/08-dev-plan.md)) |
 
 已完成:
 1. ✅ 4 组件独立 (IntentAnalyzer, AgentSelector, TaskDecomposer, ExecutionPlanner)
@@ -111,7 +111,7 @@ async def search_messages(session_id: str, query: str, limit: int = 20) -> list[
 
 ### Module 5: 链式协作 → 已合并入 Module 4
 
-M5 的链式协作功能已在 M4 中完成。详见 [orchestrator/04-execution-engine.md](orchestrator/04-execution-engine.md)。
+M5 的链式协作功能已在 M4 中完成。详见 [04-execution-engine.md](../phase3/02-orchestrator/04-execution-engine.md)。
 
 ### Module 6: 产物版本 + Diff
 
@@ -209,7 +209,7 @@ Developer B: M3 (搜索, 与 M2 同时) → M6 (产物版本) → M7 (产物编�
 | M1 | 保留在 `phase3-enhancements-spec.md` §2-4,§7,§13 |
 | M2 | 保留在 `phase3-enhancements-spec.md` §3.1(消息操作),§5.3.1-5.3.3 |
 | M3 | 保留在 `phase3-enhancements-spec.md` §3.1(搜索),§5.3.4 |
-| M4 | **→ [ADR-0007](../adr/0007-orchestrator-architecture.md)** (独立深度设计) |
+| M4 | **→ [ADR-0007](../../adr/0007-orchestrator-architecture.md)** (独立深度设计) |
 | M5 | 保留在 `phase3-enhancements-spec.md` §5.1.3 |
 | M6 | 保留在 `phase3-enhancements-spec.md` §3.1(产物),§5.2.1 |
 | M7 | 保留在 `phase3-enhancements-spec.md` §5.2.2-5.2.3 |

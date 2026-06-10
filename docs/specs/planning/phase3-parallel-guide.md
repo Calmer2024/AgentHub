@@ -175,11 +175,11 @@ class ArtifactService:
 
 | 模块 | Spec 文件 | 架构设计 |
 |------|----------|---------|
-| M1 | [phase3.1-infrastructure-spec.md](phase3.1-infrastructure-spec.md) | ADR-0005 |
-| M2 | [phase3.2-message-actions-spec.md](phase3.2-message-actions-spec.md) | - |
-| M3 | [phase3.3-message-search-spec.md](phase3.3-message-search-spec.md) | - |
-| M4 | [orchestrator/01-architecture.md](orchestrator/01-architecture.md) | **[ADR-0007](../adr/0007-orchestrator-architecture.md)** |
-| M5 | [orchestrator/04-execution-engine.md](orchestrator/04-execution-engine.md) | ADR-0007 §4.4 |
-| M6 | [phase3.6-artifact-versioning-spec.md](phase3.6-artifact-versioning-spec.md) | - |
-| M7 | [phase3.7-artifact-editing-spec.md](phase3.7-artifact-editing-spec.md) | ADR-0005 §3 (BaseAgentAdapter tools) |
-| M8 | [phase3.8-integration-spec.md](phase3.8-integration-spec.md) | - |
+| M1 | [01-infrastructure-spec.md](../phase3/01-infrastructure-spec.md) | ADR-0005 |
+| M2 | [Phase 4 消息交互闭环](../phase4/README.md) | - |
+| M3 | [Phase 4 消息交互闭环](../phase4/README.md) | - |
+| M4 | [01-architecture.md](../phase3/02-orchestrator/01-architecture.md) | **[ADR-0007](../../adr/0007-orchestrator-architecture.md)** |
+| M5 | [04-execution-engine.md](../phase3/02-orchestrator/04-execution-engine.md) | ADR-0007 §4.4 |
+| M6 | [01-artifact-versioning.md](../phase5/01-artifact-versioning.md) | - |
+| M7 | [02-artifact-editing.md](../phase5/02-artifact-editing.md) | ADR-0005 §3 (BaseAgentAdapter tools) |
+| M8 | [Phase 8 P1 发布候选收口](../phase8/README.md) | - |

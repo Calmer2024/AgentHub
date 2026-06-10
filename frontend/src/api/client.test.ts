@@ -1,21 +1,40 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
+  configureApiClient,
   configureBuiltinAgentsCodex,
+  createDevCloudAuthProvider,
+  createArtifactPreview,
+  createDeployment,
+  createProject,
+  createTeam,
+  createWorkspaceSnapshot,
   createProjectBuildPreview,
   createProjectPreview,
   createChatStream,
+  fetchProjects,
   editArtifact,
   fetchArtifactDiff,
   fetchArtifactVersions,
   fetchArtifacts,
+  fetchCurrentUser,
+  fetchDeploymentLogs,
   fetchProjectBuildLogs,
   fetchProjectBuilds,
+  fetchWorkspace,
+  importWorkspaceGithub,
+  fetchRuntimeImages,
+  fetchRunnerNodes,
   projectBuildExportUrl,
   projectSourceExportUrl,
   readProjectFile,
   restoreArtifactVersion,
   saveArtifactContent,
   startProjectBuild,
+  retryDeployment,
+  resetApiClientForTests,
+  fetchCliCredentials,
+  loginWithEmail,
+  saveCliCredential,
   writeProjectFile,
 } from "./client";
 
@@ -33,6 +52,25 @@ function sseResponse(events: string[]): Response {
 describe("createChatStream", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    resetApiClientForTests();
+  });
+
+  it("发送消息时把附件 ID 注入请求体", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(sseResponse([
+      JSON.stringify({ token: "", done: true, messageId: "m1" }),
+    ]));
+
+    createChatStream("s1", "hello", [], {
+      onToken: vi.fn(),
+      onDone: vi.fn(),
+    }, undefined, null, ["att-1"]);
+
+    await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
+    const init = vi.mocked(globalThis.fetch).mock.calls[0][1] as RequestInit;
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      content: "hello",
+      attachmentIds: ["att-1"],
+    });
   });
 
   it("把 orchestrator.task_completed 视为群聊正常结束", async () => {
@@ -275,6 +313,7 @@ describe("createChatStream", () => {
       content: "hello",
       parentMessageId: "m-parent",
     });
+    expect((init.headers as Record<string, string>)["X-AgentHub-User-Email"]).toBeUndefined();
   });
 
   it("解析 Orchestrator 中枢总结流", async () => {
@@ -369,6 +408,8 @@ describe("createChatStream", () => {
 describe("artifact APIs", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    resetApiClientForTests();
+    localStorage.clear();
   });
 
   it("加载会话产物列表", async () => {
@@ -378,7 +419,7 @@ describe("artifact APIs", () => {
 
     const artifacts = await fetchArtifacts("s1");
 
-    expect(globalThis.fetch).toHaveBeenCalledWith("/api/sessions/s1/artifacts");
+    expect(vi.mocked(globalThis.fetch).mock.calls[0][0]).toBe("/api/sessions/s1/artifacts");
     expect(artifacts[0].version).toBe(2);
   });
 
@@ -448,6 +489,73 @@ describe("artifact APIs", () => {
     expect(projectBuildExportUrl("p1", "b1")).toBe("/api/projects/p1/exports/builds/b1");
   });
 
+  it("创建云端预览、发布并读取发布日志与重试", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        id: "preview-1",
+        artifactId: "a1",
+        artifactVersionId: "v1",
+        projectId: "p1",
+        source: "static",
+        status: "ready",
+        url: "https://preview.agenthub.local/p/preview-1",
+        visibility: "team",
+        expiresAt: "",
+        createdAt: "",
+        revokedAt: null,
+      }), { status: 201 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        id: "dep-1",
+        projectId: "p1",
+        artifactId: "a1",
+        artifactVersionId: "v1",
+        target: "static_hosting",
+        status: "failed",
+        stage: "build",
+        url: null,
+        visibility: "team",
+        errorSummary: "发布构建失败",
+        createdAt: "",
+        updatedAt: "",
+      }), { status: 202 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        deploymentId: "dep-1",
+        chunks: [{ sequence: 1, stream: "stderr", text: "DEPLOY_FAIL", createdAt: "" }],
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        id: "dep-1",
+        projectId: "p1",
+        artifactId: "a1",
+        artifactVersionId: "v1",
+        target: "static_hosting",
+        status: "published",
+        stage: "verify",
+        url: "https://deploy.agenthub.local/d/dep-1",
+        visibility: "team",
+        errorSummary: null,
+        createdAt: "",
+        updatedAt: "",
+      }), { status: 202 }));
+
+    await createArtifactPreview("a1", { artifactVersionId: "v1", visibility: "team" });
+    await createDeployment({ artifactId: "a1", artifactVersionId: "v1" });
+    const logs = await fetchDeploymentLogs("dep-1");
+    const retried = await retryDeployment("dep-1", "build");
+
+    expect(logs.chunks[0].text).toBe("DEPLOY_FAIL");
+    expect(retried.status).toBe("published");
+    const previewInit = vi.mocked(globalThis.fetch).mock.calls[0][1] as RequestInit;
+    expect(vi.mocked(globalThis.fetch).mock.calls[0][0]).toBe("/api/artifacts/a1/previews");
+    expect(JSON.parse(String(previewInit.body))).toMatchObject({
+      source: "static",
+      artifactVersionId: "v1",
+      visibility: "team",
+    });
+    expect(vi.mocked(globalThis.fetch).mock.calls[1][0]).toBe("/api/deployments");
+    expect(vi.mocked(globalThis.fetch).mock.calls[2][0]).toBe("/api/deployments/dep-1/logs");
+    expect(vi.mocked(globalThis.fetch).mock.calls[3][0]).toBe("/api/deployments/dep-1/retry");
+  });
+
   it("加载产物版本链", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify([
       { id: "a1", version: 1, content: "old", createdAt: "" },
@@ -455,7 +563,7 @@ describe("artifact APIs", () => {
 
     await fetchArtifactVersions("a1");
 
-    expect(globalThis.fetch).toHaveBeenCalledWith("/api/artifacts/a1/versions");
+    expect(vi.mocked(globalThis.fetch).mock.calls[0][0]).toBe("/api/artifacts/a1/versions");
   });
 
   it("按版本号请求 Diff", async () => {
@@ -560,6 +668,268 @@ describe("artifact APIs", () => {
   });
 });
 
+describe("production auth headers", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    resetApiClientForTests();
+    localStorage.clear();
+  });
+
+  it("登录后用 bearer token 访问云端 API", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        accessToken: "access-1",
+        refreshToken: "refresh-1",
+        tokenType: "bearer",
+        expiresAt: "2026-06-09T12:00:00",
+        user: {
+          id: "u1",
+          email: "prod@example.com",
+          displayName: "Prod User",
+          createdAt: "2026-06-09T12:00:00",
+          status: "active",
+          teams: [],
+          defaultSpace: { kind: "personal", id: "u1", name: "个人空间" },
+        },
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify([]), { status: 200 }));
+
+    await loginWithEmail({ identifier: "prod@example.com", password: "Prod-passw0rd" });
+    await fetchProjects();
+
+    const loginInit = vi.mocked(globalThis.fetch).mock.calls[0][1] as RequestInit;
+    const init = vi.mocked(globalThis.fetch).mock.calls[1][1] as RequestInit;
+    const headers = init.headers as Record<string, string>;
+    expect(loginInit.credentials).toBe("include");
+    expect(headers.Authorization).toBe("Bearer access-1");
+    expect(headers["X-AgentHub-User-Email"]).toBeUndefined();
+  });
+
+  it("localStorage 丢失但 refresh cookie 有效时自动恢复登录态", async () => {
+    const currentUser = {
+      id: "u-cookie",
+      email: "cookie@example.com",
+      displayName: "Cookie User",
+      createdAt: "2026-06-09T12:00:00",
+      status: "active",
+      teams: [],
+      defaultSpace: { kind: "personal", id: "u-cookie", name: "个人空间" },
+    };
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({ detail: "请先登录后继续" }), { status: 401 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        accessToken: "access-cookie",
+        refreshToken: "refresh-cookie",
+        tokenType: "bearer",
+        expiresAt: "2026-06-09T12:15:00",
+        user: currentUser,
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(currentUser), { status: 200 }));
+
+    const user = await fetchCurrentUser();
+
+    expect(user.email).toBe("cookie@example.com");
+    expect(vi.mocked(globalThis.fetch).mock.calls[0][0]).toBe("/api/auth/me");
+    expect(vi.mocked(globalThis.fetch).mock.calls[1][0]).toBe("/api/auth/refresh");
+    expect(vi.mocked(globalThis.fetch).mock.calls[2][0]).toBe("/api/auth/me");
+    const firstMeInit = vi.mocked(globalThis.fetch).mock.calls[0][1] as RequestInit;
+    const refreshInit = vi.mocked(globalThis.fetch).mock.calls[1][1] as RequestInit;
+    const retryInit = vi.mocked(globalThis.fetch).mock.calls[2][1] as RequestInit;
+    expect(firstMeInit.credentials).toBe("include");
+    expect(refreshInit.credentials).toBe("include");
+    expect(refreshInit.body).toBeUndefined();
+    expect(retryInit.credentials).toBe("include");
+    expect((retryInit.headers as Record<string, string>).Authorization).toBe("Bearer access-cookie");
+  });
+});
+
+describe("SaaS CLI credentials APIs", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    resetApiClientForTests();
+    localStorage.clear();
+  });
+
+  it("读取并保存 CLI 凭据时使用云端认证头且不回传明文 key", async () => {
+    configureApiClient({ cloudAuthProvider: createDevCloudAuthProvider() });
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        items: [{
+          cliTool: "codex",
+          scope: "user",
+          ownerId: "u1",
+          providerType: "proxy",
+          providerId: "relay",
+          providerName: "Relay",
+          baseUrl: "https://relay.example/v1",
+          model: "relay-codex",
+          authEnvKey: "AGENTHUB_CODEX_API_KEY",
+          configured: true,
+          secretNames: ["AGENTHUB_CODEX_API_KEY"],
+          updatedAt: "",
+        }],
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        cliTool: "codex",
+        scope: "user",
+        ownerId: "u1",
+        providerType: "proxy",
+        providerId: "relay",
+        providerName: "Relay",
+        baseUrl: "https://relay.example/v1",
+        model: "relay-codex",
+        authEnvKey: "AGENTHUB_CODEX_API_KEY",
+        configured: true,
+        secretNames: ["AGENTHUB_CODEX_API_KEY"],
+        updatedAt: "",
+      }), { status: 200 }));
+
+    const items = await fetchCliCredentials();
+    const saved = await saveCliCredential("codex", {
+      providerType: "proxy",
+      providerId: "relay",
+      providerName: "Relay",
+      baseUrl: "https://relay.example/v1",
+      model: "relay-codex",
+      authEnvKey: "AGENTHUB_CODEX_API_KEY",
+      apiKey: "secret-key",
+    });
+
+    expect(items[0].cliTool).toBe("codex");
+    expect(saved.configured).toBe(true);
+    const listInit = vi.mocked(globalThis.fetch).mock.calls[0][1] as RequestInit;
+    const saveInit = vi.mocked(globalThis.fetch).mock.calls[1][1] as RequestInit;
+    expect(vi.mocked(globalThis.fetch).mock.calls[0][0]).toBe("/api/cli-credentials");
+    expect(vi.mocked(globalThis.fetch).mock.calls[1][0]).toBe("/api/cli-credentials/codex");
+    expect((listInit.headers as Record<string, string>)["X-AgentHub-User-Email"]).toBe("demo@agenthub.local");
+    expect(JSON.parse(String(saveInit.body))).toMatchObject({
+      providerType: "proxy",
+      apiKey: "secret-key",
+    });
+  });
+});
+
+describe("phase9 cloud workspace APIs", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    resetApiClientForTests();
+  });
+
+  it("创建云端项目和团队请求带开发态登录 header", async () => {
+    configureApiClient({ cloudAuthProvider: createDevCloudAuthProvider() });
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        id: "t1",
+        name: "研发团队",
+        role: "owner",
+        memberCount: 1,
+        createdAt: "",
+      }), { status: 201 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        id: "p1",
+        name: "云端",
+        workspaceMode: "cloud",
+        workspaceId: "w1",
+        workspacePath: null,
+        status: "ready",
+        fileCount: 0,
+        totalSizeBytes: 0,
+        createdAt: "",
+      }), { status: 201 }));
+
+    await createTeam("研发团队");
+    await createProject({ name: "云端", workspaceMode: "cloud", teamId: "t1" });
+
+    const teamInit = vi.mocked(globalThis.fetch).mock.calls[0][1] as RequestInit;
+    const projectInit = vi.mocked(globalThis.fetch).mock.calls[1][1] as RequestInit;
+    expect((teamInit.headers as Record<string, string>)["X-AgentHub-User-Email"]).toBe("demo@agenthub.local");
+    expect((projectInit.headers as Record<string, string>)["X-AgentHub-User-Email"]).toBe("demo@agenthub.local");
+    expect(JSON.parse(String(projectInit.body))).toMatchObject({
+      workspaceMode: "cloud",
+      teamId: "t1",
+    });
+  });
+
+  it("读取 workspace、创建快照并排队 GitHub 导入", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        id: "w1",
+        projectId: "p1",
+        provider: "cloud",
+        status: "ready",
+        storageUri: "cloud://agenthub/workspaces/w1",
+        snapshots: [],
+        imports: [],
+        restores: [],
+        createdAt: "",
+        updatedAt: "",
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        id: "snap1",
+        workspaceId: "w1",
+        label: "手动快照",
+        storageUri: "cloud://agenthub/workspaces/w1/snapshots/snap1",
+        createdAt: "",
+      }), { status: 201 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        importId: "imp1",
+        status: "queued",
+      }), { status: 202 }));
+
+    await fetchWorkspace("w1");
+    await createWorkspaceSnapshot("w1", "手动快照");
+    await importWorkspaceGithub("w1", { repoUrl: "https://github.com/example/repo", branch: "main" });
+
+    expect(vi.mocked(globalThis.fetch).mock.calls[0][0]).toBe("/api/workspaces/w1");
+    expect(vi.mocked(globalThis.fetch).mock.calls[1][0]).toBe("/api/workspaces/w1/snapshots");
+    expect(vi.mocked(globalThis.fetch).mock.calls[2][0]).toBe("/api/workspaces/w1/imports/github");
+  });
+});
+
+describe("phase15 runtime APIs", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    resetApiClientForTests();
+  });
+
+  it("读取 runtime images 和 runner nodes 时带云端身份 header", async () => {
+    configureApiClient({ cloudAuthProvider: createDevCloudAuthProvider() });
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        items: [{
+          id: "img-1",
+          label: "默认 CLI Runtime",
+          image: "agenthub/default-cli:phase15",
+          provider: "local_dev",
+          default: true,
+          tools: ["custom-cli"],
+        }],
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        items: [{
+          id: "runner-1",
+          provider: "local_dev",
+          region: "local",
+          status: "healthy",
+          capacity: { concurrentRuns: 2 },
+          createdAt: "",
+        }],
+      }), { status: 200 }));
+
+    const images = await fetchRuntimeImages();
+    const nodes = await fetchRunnerNodes();
+
+    expect(images[0].image).toBe("agenthub/default-cli:phase15");
+    expect(nodes[0].status).toBe("healthy");
+    const imageInit = vi.mocked(globalThis.fetch).mock.calls[0][1] as RequestInit;
+    const nodeInit = vi.mocked(globalThis.fetch).mock.calls[1][1] as RequestInit;
+    expect(vi.mocked(globalThis.fetch).mock.calls[0][0]).toBe("/api/runtime/images");
+    expect(vi.mocked(globalThis.fetch).mock.calls[1][0]).toBe("/api/runtime/runner-nodes");
+    expect((imageInit.headers as Record<string, string>)["X-AgentHub-User-Email"]).toBe("demo@agenthub.local");
+    expect((nodeInit.headers as Record<string, string>)["X-AgentHub-User-Email"]).toBe("demo@agenthub.local");
+  });
+});
+
 describe("agent debug APIs", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -592,7 +962,10 @@ describe("agent debug APIs", () => {
 
     const agents = await configureBuiltinAgentsCodex();
 
-    expect(globalThis.fetch).toHaveBeenCalledWith("/api/agents/configure-builtins-codex", { method: "POST" });
+    expect(globalThis.fetch).toHaveBeenCalledWith("/api/agents/configure-builtins-codex", {
+      method: "POST",
+      headers: {},
+    });
     expect(agents[0].cliTool).toBe("codex");
   });
 });

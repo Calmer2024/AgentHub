@@ -127,6 +127,7 @@ function MarkdownContent({ content }: { content: string }) {
 function MessageBubbleBase({
   message, artifacts = [], relatedArtifacts, run = null, tasks = [],
   approvals = [], relatedApprovals, artifactById,
+  isStreaming = false,
   agent, parentMessage, highlighted = false, selectionMode = false, selected = false,
   onReply, onRegenerate, onTogglePin, onForward, onMultiSelect, onToggleSelect,
   onCopy, onJumpToMessage, onArtifactsChanged,
@@ -138,7 +139,11 @@ function MessageBubbleBase({
   const orchestratorPlan = message.metadata?.orchestratorPlan;
   const orchestratorPlanError = message.metadata?.orchestratorPlanError;
   const orchestratorExecution = message.metadata?.orchestratorExecution;
-  const showEmptyAssistant = !isUser && isEmpty;
+  const traceStatus = message.metadata?.executionTrace?.status;
+  const traceFinished = traceStatus === "completed" || traceStatus === "error" || traceStatus === "cancelled";
+  const runActive = run?.status === "queued" || run?.status === "running" || run?.status === "pausing" || run?.status === "cancelling";
+  const suppressEmptyAssistant = !isUser && isEmpty && !traceFinished && (isStreaming || runActive);
+  const showEmptyAssistant = !isUser && isEmpty && !suppressEmptyAssistant;
   const isSummary = message.sourceType === "orchestrator" || message.contentType === "orchestrator_summary";
   const isCollaborating = Boolean(message.isCollaborating || message.agentRole);
   const roleStyle = message.agentRole
@@ -297,7 +302,7 @@ function MessageBubbleBase({
             <MarkdownContent content={message.content} />
           ) : showEmptyAssistant ? (
             <EmptyAssistantReply />
-          ) : (
+          ) : suppressEmptyAssistant ? null : (
             <MarkdownContent content={message.content} />
           )}
           {!isUser && orchestratorExecution && (

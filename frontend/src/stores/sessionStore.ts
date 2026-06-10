@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { Session, AgentConfig, Project } from "../types";
 
-export type SidebarTab = "sessions" | "agents";
+export type SidebarTab = "sessions" | "agents" | "workspace";
 
 interface SessionState {
   projects: Project[];

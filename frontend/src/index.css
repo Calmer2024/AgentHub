@@ -390,6 +390,19 @@ body {
   color: var(--ah-muted);
 }
 
+.agenthub-confirm-danger {
+  color: #f2a0a0 !important;
+}
+
+:root[data-theme="light"] .agenthub-confirm-danger {
+  color: #9f3f3f !important;
+}
+
+.agenthub-confirm-danger svg {
+  color: inherit !important;
+  stroke: currentColor !important;
+}
+
 .agenthub-faint {
   color: var(--ah-faint);
 }
@@ -446,15 +459,18 @@ body {
   overflow-x: hidden;
 }
 
-.agenthub-expand-scroll-open {
-  max-height: min(34dvh, 280px);
+.agenthub-friends-scroll {
+  max-height: 232px;
   overflow-y: auto;
   overscroll-behavior: contain;
   padding-right: 2px;
 }
 
-.agenthub-expand-scroll-friends.agenthub-expand-scroll-open {
-  max-height: min(26dvh, 220px);
+.agenthub-expand-scroll-open {
+  max-height: min(34dvh, 280px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
 }
 
 .agenthub-expand-scroll-projects.agenthub-expand-scroll-open {
@@ -479,15 +495,15 @@ body {
   background: var(--ah-card-bg);
   border-color: var(--ah-border);
   color: var(--ah-text);
-  box-shadow: 0 10px 30px rgb(0 0 0 / 0.08);
-  backdrop-filter: blur(14px) saturate(125%);
+  box-shadow: none;
+  backdrop-filter: none;
 }
 
 .agenthub-bubble-user {
   background: var(--ah-user-bg);
   border: 1px solid var(--ah-border);
   color: var(--ah-user-text);
-  box-shadow: 0 10px 24px rgb(28 39 56 / 0.1);
+  box-shadow: none;
 }
 
 .agenthub-agent-namebar {

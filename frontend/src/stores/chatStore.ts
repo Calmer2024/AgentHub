@@ -722,7 +722,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
           truncated: Boolean(currentTrace?.truncated) || totalItemCount > nextItems.length,
           items: nextItems,
         };
-        return { ...m, metadata };
+        return {
+          ...m,
+          agentName: m.agentName ?? seed?.agentName ?? currentTrace?.agentName ?? null,
+          metadata,
+        };
       });
       return {
         messagesBySession: { ...s.messagesBySession, [sessionId]: messages },

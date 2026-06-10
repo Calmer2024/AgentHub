@@ -7,7 +7,10 @@ import type {
   Project, ProjectCreateInput, ProjectUpdateInput, ProjectDeleteResult, FolderPickResult,
   PreviewResult, WorkspaceFile,
   BuildList, BuildLogs, BuildQueuedResult, ProjectPreviewResult,
+  PreviewSession, Deployment, DeploymentLogs,
   ExecutionTraceItem,
+  CurrentUser, Team, TeamMember, TeamRole, CloudWorkspace, WorkspaceSnapshot, AuditLog,
+  Sandbox, RuntimeImage, RunnerNode, QuotaSummary, SecretCreateInput, SecretRef, RuntimeLogs,
   CodexLocalConfig, CodexLocalConfigUpdate,
   SkillDefinition,
   BuildOrchestratorInputRequest, BuildOrchestratorInputResult,
@@ -16,38 +19,198 @@ import type {
   OrchestratorExecution,
   RunRead, TaskRead, ApprovalCheckpoint, SystemHealthRead, CodeReference,
   StewardDecisionEvent,
+  Comment, Attachment, ArtifactReference, Notification, MobileSessionSummary,
+  RenderedArtifact, AgentTemplateSession, GitSyncJob,
+  RuntimeCapabilities, AuthProvider, AuthSession,
+  CliCredentialConfig, CliCredentialTool, CliCredentialUpdateInput, CliModelList,
 } from "../types";
 import { parseDagPhases, parseTasks } from "./orchestratorEvents";
 import { chinaNowIso } from "../utils/time";
 
-const API_BASE = "/api";
+type ApiAuthProvider = () => Record<string, string>;
+
+interface ApiClientConfig {
+  apiBaseUrl?: string;
+  cloudAuthProvider?: ApiAuthProvider | null;
+}
+
+const AUTH_SESSION_STORAGE_KEY = "agenthub.authSession";
+
+let activeApiBase = normalizeApiBase(import.meta.env.VITE_AGENTHUB_API_BASE);
+let activeCloudAuthProvider: ApiAuthProvider | null = null;
+let activeAuthSession: AuthSession | null = readStoredAuthSession();
+
+const API_BASE = {
+  toString: () => activeApiBase,
+};
+
+const DEV_CLOUD_USER_HEADERS: Record<string, string> = {
+  "X-AgentHub-User-Email": "demo@agenthub.local",
+  "X-AgentHub-User-Name": "AgentHub Demo",
+};
+
+export function configureApiClient(config: ApiClientConfig = {}): void {
+  if (typeof config.apiBaseUrl === "string") {
+    activeApiBase = normalizeApiBase(config.apiBaseUrl);
+  }
+  if ("cloudAuthProvider" in config) {
+    activeCloudAuthProvider = config.cloudAuthProvider ?? null;
+  }
+}
+
+export function createApiClient(config: ApiClientConfig = {}) {
+  configureApiClient(config);
+  return {
+    fetchCapabilities,
+    fetchCurrentUser,
+    fetchProjects,
+    fetchTeams,
+  };
+}
+
+export function createDevCloudAuthProvider(): ApiAuthProvider {
+  return () => ({ ...DEV_CLOUD_USER_HEADERS });
+}
+
+export function resetApiClientForTests(): void {
+  activeApiBase = "/api";
+  activeCloudAuthProvider = null;
+  activeAuthSession = null;
+}
+
+export function getStoredAuthSession(): AuthSession | null {
+  return activeAuthSession;
+}
+
+function setAuthSession(session: AuthSession): void {
+  activeAuthSession = session;
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(session));
+}
+
+function clearAuthSession(): void {
+  activeAuthSession = null;
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
+}
+
+function readStoredAuthSession(): AuthSession | null {
+  if (typeof window === "undefined") return null;
+  const raw = window.localStorage.getItem(AUTH_SESSION_STORAGE_KEY);
+  if (!raw) return null;
+  try {
+    const data = JSON.parse(raw) as Partial<AuthSession>;
+    if (typeof data.accessToken !== "string" || typeof data.refreshToken !== "string") return null;
+    if (!data.user || typeof data.user !== "object") return null;
+    return {
+      accessToken: data.accessToken,
+      refreshToken: data.refreshToken,
+      tokenType: "bearer",
+      expiresAt: typeof data.expiresAt === "string" ? data.expiresAt : "",
+      user: data.user as CurrentUser,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function normalizeApiBase(value?: string): string {
+  const trimmed = value?.trim().replace(/\/+$/, "");
+  if (!trimmed) return "/api";
+  if (trimmed === "/api" || trimmed.endsWith("/api")) return trimmed;
+  if (trimmed.startsWith("/")) return `${trimmed}/api`;
+  return `${trimmed}/api`;
+}
+
+function cloudHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  if (activeAuthSession?.accessToken) {
+    return { ...extra, Authorization: `Bearer ${activeAuthSession.accessToken}` };
+  }
+  return { ...extra, ...(activeCloudAuthProvider?.() ?? {}) };
+}
+
+function optionalCloudHeaders(extra: Record<string, string> = {}): RequestInit | undefined {
+  const headers = cloudHeaders(extra);
+  return Object.keys(headers).length > 0 ? { headers } : undefined;
+}
+
+function cloudJsonHeaders(): Record<string, string> {
+  return cloudHeaders({ "Content-Type": "application/json" });
+}
 
 async function readApiError(res: Response, fallback: string) {
   try {
     const data = await res.json();
     if (data && typeof data === "object" && "detail" in data) {
       const detail = (data as { detail?: unknown }).detail;
-      if (typeof detail === "string") return detail;
+      const message = formatApiDetail(detail);
+      if (message) return message;
     }
   } catch { /* keep fallback */ }
   return fallback;
 }
 
+function formatApiDetail(detail: unknown): string | null {
+  if (typeof detail === "string") return translateApiMessage(detail);
+  if (!Array.isArray(detail)) return null;
+  const messages = detail.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const data = item as Record<string, unknown>;
+    const msg = typeof data.msg === "string" ? data.msg : "";
+    const loc = Array.isArray(data.loc) ? data.loc.map(String) : [];
+    const field = loc[loc.length - 1] ?? "";
+    const translated = translateValidationMessage(field, msg);
+    return translated ? [translated] : [];
+  });
+  return messages.length > 0 ? Array.from(new Set(messages)).join("；") : null;
+}
+
+function translateValidationMessage(field: string, message: string): string {
+  const source = message.toLowerCase();
+  if (field === "username") {
+    if (source.includes("3-32") || source.includes("too_short") || source.includes("too_long")) return "用户名需要 3-32 个字符";
+    if (source.includes("invalid") || source.includes("characters")) return "用户名只能包含字母、数字、下划线或连字符";
+    return "用户名格式不正确";
+  }
+  if (field === "email") return "请输入有效邮箱";
+  if (field === "password") {
+    if (source.includes("at least 8") || source.includes("too_short")) return "密码至少 8 位";
+    return "密码格式不正确";
+  }
+  if (message) return translateApiMessage(message);
+  return "";
+}
+
+function translateApiMessage(message: string): string {
+  const lower = message.toLowerCase();
+  if (lower.includes("username already registered")) return "用户名已被注册";
+  if (lower.includes("email already registered")) return "邮箱已被注册";
+  if (lower.includes("invalid username or password")) return "用户名或密码错误";
+  if (lower.includes("identifier required") || lower.includes("identifier is required")) return "请输入用户名或邮箱";
+  if (lower.includes("password required")) return "请输入密码";
+  if (lower.includes("username length must be 3-32")) return "用户名需要 3-32 个字符";
+  if (lower.includes("username contains invalid characters")) return "用户名只能包含字母、数字、下划线或连字符";
+  if (lower.includes("username must start")) return "用户名必须以字母或数字开头";
+  if (lower.includes("password length must be at least 8")) return "密码至少 8 位";
+  if (lower.includes("email must be valid")) return "请输入有效邮箱";
+  return message;
+}
+
 export async function fetchAgents(): Promise<AgentConfig[]> {
-  const res = await fetch(`${API_BASE}/agents`);
-  if (!res.ok) throw new Error("Failed to fetch agents");
+  const res = await fetch(`${API_BASE}/agents`, optionalCloudHeaders());
+  if (!res.ok) throw new Error(await readApiError(res, "Agent 加载失败"));
   return res.json();
 }
 
 export async function seedDefaultAgents(): Promise<AgentConfig[]> {
-  const res = await fetch(`${API_BASE}/agents/seed-defaults`, { method: "POST" });
-  if (!res.ok) throw new Error("Failed to seed default agents");
+  const res = await fetch(`${API_BASE}/agents/seed-defaults`, { method: "POST", headers: cloudHeaders() });
+  if (!res.ok) throw new Error(await readApiError(res, "默认 Agent 初始化失败"));
   return res.json();
 }
 
 export async function configureBuiltinAgentsCodex(): Promise<AgentConfig[]> {
-  const res = await fetch(`${API_BASE}/agents/configure-builtins-codex`, { method: "POST" });
-  if (!res.ok) throw new Error("Failed to configure builtin agents as Codex");
+  const res = await fetch(`${API_BASE}/agents/configure-builtins-codex`, { method: "POST", headers: cloudHeaders() });
+  if (!res.ok) throw new Error(await readApiError(res, "内置 Agent 配置失败"));
   return res.json();
 }
 
@@ -57,28 +220,118 @@ export async function fetchSkills(): Promise<SkillDefinition[]> {
   return res.json();
 }
 
+export async function fetchCapabilities(): Promise<RuntimeCapabilities> {
+  const res = await fetch(`${API_BASE}/capabilities`);
+  if (!res.ok) throw new Error(await readApiError(res, "能力矩阵加载失败"));
+  return res.json();
+}
+
+export async function fetchAuthProviders(): Promise<AuthProvider[]> {
+  const res = await fetch(`${API_BASE}/auth/providers`);
+  if (!res.ok) throw new Error(await readApiError(res, "登录方式加载失败"));
+  const data = await res.json() as { items?: AuthProvider[] };
+  return Array.isArray(data.items) ? data.items : [];
+}
+
+export async function loginWithEmail(input: {
+  email?: string;
+  username?: string;
+  identifier?: string;
+  password?: string;
+  displayName?: string;
+}): Promise<AuthSession> {
+  const res = await fetch(`${API_BASE}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({
+      identifier: input.identifier,
+      email: input.email,
+      username: input.username,
+      password: input.password,
+      displayName: input.displayName,
+    }),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, "登录失败"));
+  const session = await res.json() as AuthSession;
+  setAuthSession(session);
+  return session;
+}
+
+export async function registerWithPassword(input: {
+  username: string;
+  email: string;
+  password: string;
+  displayName?: string;
+}): Promise<AuthSession> {
+  const res = await fetch(`${API_BASE}/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({
+      username: input.username,
+      email: input.email,
+      password: input.password,
+      displayName: input.displayName,
+    }),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, "注册失败"));
+  const session = await res.json() as AuthSession;
+  setAuthSession(session);
+  return session;
+}
+
+export async function refreshAuthSession(): Promise<AuthSession> {
+  const refreshToken = activeAuthSession?.refreshToken;
+  const res = await fetch(`${API_BASE}/auth/refresh`, {
+    method: "POST",
+    headers: refreshToken ? { "Content-Type": "application/json" } : undefined,
+    credentials: "include",
+    body: refreshToken ? JSON.stringify({ refreshToken }) : undefined,
+  });
+  if (!res.ok) {
+    clearAuthSession();
+    throw new Error(await readApiError(res, "登录已过期"));
+  }
+  const session = await res.json() as AuthSession;
+  setAuthSession(session);
+  return session;
+}
+
+export async function logoutCurrentUser(): Promise<void> {
+  const refreshToken = activeAuthSession?.refreshToken;
+  const res = await fetch(`${API_BASE}/auth/logout`, {
+    method: "POST",
+    headers: cloudJsonHeaders(),
+    credentials: "include",
+    body: JSON.stringify({ refreshToken }),
+  });
+  clearAuthSession();
+  if (!res.ok && res.status !== 204) throw new Error(await readApiError(res, "退出登录失败"));
+}
+
 export async function createAgent(data: AgentConfigCreate): Promise<AgentConfig> {
   const res = await fetch(`${API_BASE}/agents`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: cloudJsonHeaders(),
     body: JSON.stringify(data),
   });
-  if (!res.ok) throw new Error("Failed to create agent");
+  if (!res.ok) throw new Error(await readApiError(res, "创建 Agent 失败"));
   return res.json();
 }
 
 export async function updateAgent(id: string, data: AgentConfigUpdate): Promise<AgentConfig> {
   const res = await fetch(`${API_BASE}/agents/${id}`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
+    headers: cloudJsonHeaders(),
     body: JSON.stringify(data),
   });
-  if (!res.ok) throw new Error("Failed to update agent");
+  if (!res.ok) throw new Error(await readApiError(res, "更新 Agent 失败"));
   return res.json();
 }
 
 export async function deleteAgent(id: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/agents/${id}`, { method: "DELETE" });
+  const res = await fetch(`${API_BASE}/agents/${id}`, { method: "DELETE", headers: cloudHeaders() });
   if (!res.ok) throw new Error("Failed to delete agent");
 }
 
@@ -130,19 +383,89 @@ export async function replyToInteractivePrompt(
   if (!res.ok) throw new Error("Failed to reply to interactive prompt");
 }
 
+export async function fetchCurrentUser(): Promise<CurrentUser> {
+  const res = await fetch(`${API_BASE}/auth/me`, { headers: cloudHeaders(), credentials: "include" });
+  if (res.status === 401) {
+    try {
+      await refreshAuthSession();
+    } catch {
+      throw new Error(await readApiError(res, "请先登录后继续"));
+    }
+    const retry = await fetch(`${API_BASE}/auth/me`, { headers: cloudHeaders(), credentials: "include" });
+    if (!retry.ok) throw new Error(await readApiError(retry, "请先登录后继续"));
+    return retry.json();
+  }
+  if (!res.ok) {
+    if (res.status === 401) clearAuthSession();
+    throw new Error(await readApiError(res, "请先登录后继续"));
+  }
+  return res.json();
+}
+
+export async function updateCurrentUserProfile(input: {
+  displayName?: string;
+  avatarUrl?: string | null;
+}): Promise<CurrentUser> {
+  const res = await fetch(`${API_BASE}/auth/me`, {
+    method: "PUT",
+    headers: cloudJsonHeaders(),
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, "资料保存失败"));
+  const user = await res.json() as CurrentUser;
+  if (activeAuthSession) {
+    setAuthSession({ ...activeAuthSession, user });
+  }
+  return user;
+}
+
+export async function fetchTeams(): Promise<Team[]> {
+  const res = await fetch(`${API_BASE}/teams`, { headers: cloudHeaders() });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to fetch teams"));
+  const data = await res.json() as { items?: Team[] };
+  return Array.isArray(data.items) ? data.items : [];
+}
+
+export async function createTeam(name: string): Promise<Team> {
+  const res = await fetch(`${API_BASE}/teams`, {
+    method: "POST",
+    headers: cloudJsonHeaders(),
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to create team"));
+  return res.json();
+}
+
+export async function addTeamMember(
+  teamId: string,
+  email: string,
+  role: TeamRole,
+): Promise<TeamMember> {
+  const res = await fetch(`${API_BASE}/teams/${teamId}/members`, {
+    method: "POST",
+    headers: cloudJsonHeaders(),
+    body: JSON.stringify({ email, role }),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to add team member"));
+  return res.json();
+}
+
 export async function fetchProjects(): Promise<Project[]> {
-  const res = await fetch(`${API_BASE}/projects`);
+  const res = await fetch(`${API_BASE}/projects`, { headers: cloudHeaders() });
   if (!res.ok) throw new Error("Failed to fetch projects");
   return res.json();
 }
 
 export async function createProject(data: ProjectCreateInput): Promise<Project> {
+  const headers = data.workspaceMode === "cloud" || data.teamId
+    ? cloudJsonHeaders()
+    : { "Content-Type": "application/json" };
   const res = await fetch(`${API_BASE}/projects`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify(data),
   });
-  if (!res.ok) throw new Error("Failed to create project");
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to create project"));
   return res.json();
 }
 
@@ -158,7 +481,7 @@ export async function updateProject(
 ): Promise<Project> {
   const res = await fetch(`${API_BASE}/projects/${projectId}`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
+    headers: cloudJsonHeaders(),
     body: JSON.stringify(data),
   });
   if (!res.ok) throw new Error("Failed to update project");
@@ -166,7 +489,10 @@ export async function updateProject(
 }
 
 export async function archiveProject(projectId: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/projects/${projectId}/archive`, { method: "POST" });
+  const res = await fetch(`${API_BASE}/projects/${projectId}/archive`, {
+    method: "POST",
+    headers: cloudHeaders(),
+  });
   if (!res.ok) throw new Error("Failed to archive project");
 }
 
@@ -178,7 +504,7 @@ export async function createProjectPreview(
   if (filePath) body.filePath = filePath;
   const res = await fetch(`${API_BASE}/projects/${projectId}/preview`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: cloudJsonHeaders(),
     body: JSON.stringify(body),
   });
   if (!res.ok) {
@@ -198,7 +524,7 @@ export async function startProjectBuild(
 ): Promise<BuildQueuedResult> {
   const res = await fetch(`${API_BASE}/projects/${projectId}/builds`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: cloudJsonHeaders(),
     body: JSON.stringify(input),
   });
   if (!res.ok) throw new Error(await readApiError(res, "Failed to start project build"));
@@ -206,13 +532,13 @@ export async function startProjectBuild(
 }
 
 export async function fetchProjectBuilds(projectId: string): Promise<BuildList> {
-  const res = await fetch(`${API_BASE}/projects/${projectId}/builds`);
+  const res = await fetch(`${API_BASE}/projects/${projectId}/builds`, { headers: cloudHeaders() });
   if (!res.ok) throw new Error(await readApiError(res, "Failed to fetch project builds"));
   return res.json();
 }
 
 export async function fetchProjectBuildLogs(projectId: string, buildId: string): Promise<BuildLogs> {
-  const res = await fetch(`${API_BASE}/projects/${projectId}/builds/${buildId}/logs`);
+  const res = await fetch(`${API_BASE}/projects/${projectId}/builds/${buildId}/logs`, { headers: cloudHeaders() });
   if (!res.ok) throw new Error(await readApiError(res, "Failed to fetch project build logs"));
   return res.json();
 }
@@ -223,10 +549,249 @@ export async function createProjectBuildPreview(
 ): Promise<ProjectPreviewResult> {
   const res = await fetch(`${API_BASE}/projects/${projectId}/previews`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: cloudJsonHeaders(),
     body: JSON.stringify(input),
   });
   if (!res.ok) throw new Error(await readApiError(res, "Failed to create project preview"));
+  return res.json();
+}
+
+export async function createArtifactPreview(
+  artifactId: string,
+  input: {
+    source?: "static" | "build" | "dev_server";
+    artifactVersionId?: string | null;
+    ttlSeconds?: number;
+    visibility?: "public" | "team" | "private";
+  } = {},
+): Promise<PreviewSession> {
+  const res = await fetch(`${API_BASE}/artifacts/${artifactId}/previews`, {
+    method: "POST",
+    headers: cloudJsonHeaders(),
+    body: JSON.stringify({
+      source: input.source ?? "static",
+      artifactVersionId: input.artifactVersionId ?? undefined,
+      ttlSeconds: input.ttlSeconds,
+      visibility: input.visibility ?? "team",
+    }),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to create cloud preview"));
+  return res.json();
+}
+
+export async function fetchPreview(previewId: string): Promise<PreviewSession> {
+  const res = await fetch(`${API_BASE}/previews/${previewId}`, { headers: cloudHeaders() });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to fetch cloud preview"));
+  return res.json();
+}
+
+export async function revokePreview(previewId: string, reason?: string): Promise<PreviewSession> {
+  const res = await fetch(`${API_BASE}/previews/${previewId}/revoke`, {
+    method: "POST",
+    headers: cloudJsonHeaders(),
+    body: JSON.stringify({ reason }),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to revoke cloud preview"));
+  return res.json();
+}
+
+export async function createDeployment(input: {
+  artifactId: string;
+  artifactVersionId?: string | null;
+  target?: "static_hosting" | "third_party";
+  visibility?: "public" | "team" | "private";
+}): Promise<Deployment> {
+  const res = await fetch(`${API_BASE}/deployments`, {
+    method: "POST",
+    headers: cloudJsonHeaders(),
+    body: JSON.stringify({
+      artifactId: input.artifactId,
+      artifactVersionId: input.artifactVersionId ?? input.artifactId,
+      target: input.target ?? "static_hosting",
+      visibility: input.visibility ?? "team",
+    }),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to create deployment"));
+  return res.json();
+}
+
+export async function fetchDeployment(deploymentId: string): Promise<Deployment> {
+  const res = await fetch(`${API_BASE}/deployments/${deploymentId}`, { headers: cloudHeaders() });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to fetch deployment"));
+  return res.json();
+}
+
+export async function fetchDeploymentLogs(deploymentId: string): Promise<DeploymentLogs> {
+  const res = await fetch(`${API_BASE}/deployments/${deploymentId}/logs`, { headers: cloudHeaders() });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to fetch deployment logs"));
+  return res.json();
+}
+
+export async function retryDeployment(deploymentId: string, fromStage?: string): Promise<Deployment> {
+  const res = await fetch(`${API_BASE}/deployments/${deploymentId}/retry`, {
+    method: "POST",
+    headers: cloudJsonHeaders(),
+    body: JSON.stringify({ fromStage }),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to retry deployment"));
+  return res.json();
+}
+
+export async function rollbackDeployment(
+  deploymentId: string,
+  targetDeploymentId: string,
+): Promise<Deployment> {
+  const res = await fetch(`${API_BASE}/deployments/${deploymentId}/rollback`, {
+    method: "POST",
+    headers: cloudJsonHeaders(),
+    body: JSON.stringify({ targetDeploymentId }),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to rollback deployment"));
+  return res.json();
+}
+
+export async function createComment(
+  projectId: string,
+  input: { targetType: "message" | "artifact" | "deployment"; targetId: string; body: string },
+): Promise<Comment> {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/comments`, {
+    method: "POST",
+    headers: cloudJsonHeaders(),
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to create comment"));
+  return res.json();
+}
+
+export async function listComments(
+  projectId: string,
+  input: { targetType?: string; targetId?: string } = {},
+): Promise<Comment[]> {
+  const params = new URLSearchParams();
+  if (input.targetType) params.set("targetType", input.targetType);
+  if (input.targetId) params.set("targetId", input.targetId);
+  const query = params.toString();
+  const res = await fetch(`${API_BASE}/projects/${projectId}/comments${query ? `?${query}` : ""}`, {
+    headers: cloudHeaders(),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to list comments"));
+  const data = await res.json() as { items?: Comment[] };
+  return Array.isArray(data.items) ? data.items : [];
+}
+
+export async function uploadAttachment(input: {
+  projectId: string;
+  sessionId?: string | null;
+  file: File;
+}): Promise<Attachment> {
+  const form = new FormData();
+  form.set("projectId", input.projectId);
+  if (input.sessionId) form.set("sessionId", input.sessionId);
+  form.set("file", input.file);
+  const res = await fetch(`${API_BASE}/attachments`, {
+    method: "POST",
+    headers: cloudHeaders(),
+    body: form,
+  });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to upload attachment"));
+  return res.json();
+}
+
+export async function forwardMessageWithArtifacts(
+  messageId: string,
+  input: { targetSessionIds: string[]; includeArtifacts?: boolean },
+): Promise<{ messages: Message[]; artifactReferences: ArtifactReference[] }> {
+  const res = await fetch(`${API_BASE}/messages/${messageId}/forward`, {
+    method: "POST",
+    headers: cloudJsonHeaders(),
+    body: JSON.stringify({
+      targetSessionIds: input.targetSessionIds,
+      includeArtifacts: Boolean(input.includeArtifacts),
+    }),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to forward message"));
+  return res.json();
+}
+
+export async function fetchNotifications(): Promise<Notification[]> {
+  const res = await fetch(`${API_BASE}/notifications`, { headers: cloudHeaders() });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to fetch notifications"));
+  const data = await res.json() as { items?: Notification[] };
+  return Array.isArray(data.items) ? data.items : [];
+}
+
+export async function markNotificationRead(notificationId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/notifications/${notificationId}/read`, {
+    method: "POST",
+    headers: cloudHeaders(),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to mark notification read"));
+}
+
+export async function fetchMobileSessions(): Promise<MobileSessionSummary[]> {
+  const res = await fetch(`${API_BASE}/mobile/sessions`, { headers: cloudHeaders() });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to fetch mobile sessions"));
+  return res.json();
+}
+
+export async function decideMobileApproval(
+  approvalId: string,
+  input: { decision: "approve" | "reject"; comment?: string | null },
+): Promise<ApprovalCheckpoint> {
+  const res = await fetch(`${API_BASE}/mobile/approvals/${approvalId}/decision`, {
+    method: "POST",
+    headers: cloudJsonHeaders(),
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to decide approval"));
+  return res.json();
+}
+
+export async function renderArtifact(
+  artifactId: string,
+  format: "html" | "pdf" | "image" = "html",
+): Promise<RenderedArtifact> {
+  const params = new URLSearchParams({ format });
+  const res = await fetch(`${API_BASE}/artifacts/${artifactId}/render?${params.toString()}`, {
+    headers: cloudHeaders(),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to render artifact"));
+  return res.json();
+}
+
+export async function createAgentTemplateSession(seedPrompt: string): Promise<AgentTemplateSession> {
+  const res = await fetch(`${API_BASE}/agent-template-sessions`, {
+    method: "POST",
+    headers: cloudJsonHeaders(),
+    body: JSON.stringify({ seedPrompt }),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to create agent template session"));
+  return res.json();
+}
+
+export async function finalizeAgentTemplateSession(
+  sessionId: string,
+  input: { name: string; engine: AgentConfig["cliTool"] },
+): Promise<AgentConfig> {
+  const res = await fetch(`${API_BASE}/agent-template-sessions/${sessionId}/finalize`, {
+    method: "POST",
+    headers: cloudJsonHeaders(),
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to finalize agent template"));
+  return res.json();
+}
+
+export async function createGitSyncJob(
+  projectId: string,
+  input: { remote: string; branch: string; mode: "pull" | "push" },
+): Promise<GitSyncJob> {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/git/sync`, {
+    method: "POST",
+    headers: cloudJsonHeaders(),
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to run git sync"));
   return res.json();
 }
 
@@ -240,7 +805,7 @@ export function projectBuildExportUrl(projectId: string, buildId: string): strin
 
 export async function readProjectFile(projectId: string, path: string): Promise<WorkspaceFile> {
   const params = new URLSearchParams({ path });
-  const res = await fetch(`${API_BASE}/projects/${projectId}/files?${params.toString()}`);
+  const res = await fetch(`${API_BASE}/projects/${projectId}/files?${params.toString()}`, { headers: cloudHeaders() });
   if (!res.ok) throw new Error("Failed to read project file");
   return res.json();
 }
@@ -252,7 +817,7 @@ export async function writeProjectFile(
 ): Promise<WorkspaceFile> {
   const res = await fetch(`${API_BASE}/projects/${projectId}/files`, {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
+    headers: cloudJsonHeaders(),
     body: JSON.stringify({ path, content }),
   });
   if (!res.ok) throw new Error("Failed to write project file");
@@ -266,6 +831,7 @@ export async function deleteProject(
   const params = new URLSearchParams({ deleteFiles: String(deleteFiles) });
   const res = await fetch(`${API_BASE}/projects/${projectId}?${params.toString()}`, {
     method: "DELETE",
+    headers: cloudHeaders(),
   });
   if (!res.ok) {
     let detail = "Failed to delete project";
@@ -278,12 +844,179 @@ export async function deleteProject(
   return res.json();
 }
 
+export async function fetchWorkspace(workspaceId: string): Promise<CloudWorkspace> {
+  const res = await fetch(`${API_BASE}/workspaces/${workspaceId}`, { headers: cloudHeaders() });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to fetch workspace"));
+  return res.json();
+}
+
+export async function createWorkspaceSnapshot(
+  workspaceId: string,
+  label?: string,
+): Promise<WorkspaceSnapshot> {
+  const res = await fetch(`${API_BASE}/workspaces/${workspaceId}/snapshots`, {
+    method: "POST",
+    headers: cloudJsonHeaders(),
+    body: JSON.stringify({ label: label || undefined }),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to create workspace snapshot"));
+  return res.json();
+}
+
+export async function restoreWorkspaceSnapshot(
+  workspaceId: string,
+  snapshotId: string,
+  strategy: "replace" | "branch" = "replace",
+): Promise<{ restoreId: string }> {
+  const res = await fetch(`${API_BASE}/workspaces/${workspaceId}/snapshots/${snapshotId}/restore`, {
+    method: "POST",
+    headers: cloudJsonHeaders(),
+    body: JSON.stringify({ strategy }),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to restore workspace snapshot"));
+  return res.json();
+}
+
+export async function importWorkspaceZip(
+  workspaceId: string,
+  file: File,
+): Promise<{ importId: string; status: string }> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const res = await fetch(`${API_BASE}/workspaces/${workspaceId}/imports/zip`, {
+    method: "POST",
+    headers: cloudHeaders(),
+    body: formData,
+  });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to import workspace zip"));
+  return res.json();
+}
+
+export async function importWorkspaceGithub(
+  workspaceId: string,
+  input: { repoUrl: string; branch?: string | null },
+): Promise<{ importId: string; status: string }> {
+  const res = await fetch(`${API_BASE}/workspaces/${workspaceId}/imports/github`, {
+    method: "POST",
+    headers: cloudJsonHeaders(),
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to import GitHub repo"));
+  return res.json();
+}
+
+export async function createSandbox(input: {
+  workspaceId: string;
+  image?: string;
+  ttlSeconds?: number | null;
+}): Promise<Sandbox> {
+  const res = await fetch(`${API_BASE}/sandboxes`, {
+    method: "POST",
+    headers: cloudJsonHeaders(),
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to create sandbox"));
+  return res.json();
+}
+
+export async function fetchSandbox(sandboxId: string): Promise<Sandbox> {
+  const res = await fetch(`${API_BASE}/sandboxes/${sandboxId}`, { headers: cloudHeaders() });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to fetch sandbox"));
+  return res.json();
+}
+
+export async function stopSandbox(sandboxId: string, reason?: string): Promise<{ id: string; status: string }> {
+  const res = await fetch(`${API_BASE}/sandboxes/${sandboxId}/stop`, {
+    method: "POST",
+    headers: cloudJsonHeaders(),
+    body: JSON.stringify({ reason: reason ?? "" }),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to stop sandbox"));
+  return res.json();
+}
+
+export async function fetchRuntimeImages(): Promise<RuntimeImage[]> {
+  const res = await fetch(`${API_BASE}/runtime/images`, { headers: cloudHeaders() });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to fetch runtime images"));
+  const data = await res.json() as { items?: RuntimeImage[] };
+  return Array.isArray(data.items) ? data.items : [];
+}
+
+export async function fetchRunnerNodes(): Promise<RunnerNode[]> {
+  const res = await fetch(`${API_BASE}/runtime/runner-nodes`, { headers: cloudHeaders() });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to fetch runner nodes"));
+  const data = await res.json() as { items?: RunnerNode[] };
+  return Array.isArray(data.items) ? data.items : [];
+}
+
+export async function fetchQuotaSummary(): Promise<QuotaSummary> {
+  const res = await fetch(`${API_BASE}/quotas/me`, { headers: cloudHeaders() });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to fetch quota"));
+  return res.json();
+}
+
+export async function createSecret(input: SecretCreateInput): Promise<SecretRef> {
+  const res = await fetch(`${API_BASE}/secrets`, {
+    method: "POST",
+    headers: cloudJsonHeaders(),
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to save secret"));
+  return res.json();
+}
+
+export async function fetchCliCredentials(): Promise<CliCredentialConfig[]> {
+  const res = await fetch(`${API_BASE}/cli-credentials`, { headers: cloudHeaders() });
+  if (!res.ok) throw new Error(await readApiError(res, "CLI 凭据加载失败"));
+  const data = await res.json() as { items?: CliCredentialConfig[] };
+  return Array.isArray(data.items) ? data.items : [];
+}
+
+export async function fetchCliCredentialModels(
+  cliTool: CliCredentialTool,
+  providerId: string,
+): Promise<CliModelList> {
+  const params = new URLSearchParams({ providerId });
+  const res = await fetch(`${API_BASE}/cli-credentials/${cliTool}/models?${params.toString()}`, {
+    headers: cloudHeaders(),
+  });
+  if (!res.ok) throw new Error("加载模型列表失败");
+  return await res.json() as CliModelList;
+}
+
+export async function saveCliCredential(
+  cliTool: CliCredentialTool,
+  input: CliCredentialUpdateInput,
+): Promise<CliCredentialConfig> {
+  const res = await fetch(`${API_BASE}/cli-credentials/${cliTool}`, {
+    method: "PUT",
+    headers: cloudJsonHeaders(),
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, "CLI 凭据保存失败"));
+  return res.json();
+}
+
+export async function fetchAuditLogs(input: {
+  projectId?: string | null;
+  teamId?: string | null;
+}): Promise<AuditLog[]> {
+  const params = new URLSearchParams();
+  if (input.projectId) params.set("projectId", input.projectId);
+  if (input.teamId) params.set("teamId", input.teamId);
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  const res = await fetch(`${API_BASE}/audit-logs${suffix}`, { headers: cloudHeaders() });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to fetch audit logs"));
+  const data = await res.json() as { items?: AuditLog[] };
+  return Array.isArray(data.items) ? data.items : [];
+}
+
 export async function fetchSessions(projectId?: string, includeArchived = false): Promise<Session[]> {
   const params = new URLSearchParams();
   if (projectId) params.set("projectId", projectId);
   if (includeArchived) params.set("includeArchived", "true");
   const suffix = params.toString() ? `?${params.toString()}` : "";
-  const res = await fetch(`${API_BASE}/sessions${suffix}`);
+  const res = await fetch(`${API_BASE}/sessions${suffix}`, { headers: cloudHeaders() });
   if (!res.ok) throw new Error("Failed to fetch sessions");
   return res.json();
 }
@@ -295,7 +1028,7 @@ export async function createGroupSession(
 ): Promise<Session> {
   const res = await fetch(`${API_BASE}/sessions`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: cloudJsonHeaders(),
     body: JSON.stringify({ title: title || "群聊", mode: "group", agentConfigIds, projectId }),
   });
   if (!res.ok) throw new Error("Failed to create group session");
@@ -312,7 +1045,7 @@ export async function createSession(
   if (projectId) body.projectId = projectId;
   const res = await fetch(`${API_BASE}/sessions`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: cloudJsonHeaders(),
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error("Failed to create session");
@@ -320,13 +1053,13 @@ export async function createSession(
 }
 
 export async function deleteSession(sessionId: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/sessions/${sessionId}`, { method: "DELETE" });
+  const res = await fetch(`${API_BASE}/sessions/${sessionId}`, { method: "DELETE", headers: cloudHeaders() });
   if (!res.ok) throw new Error(await readApiError(res, "Failed to delete session"));
 }
 
 export async function renameSession(sessionId: string, title: string): Promise<Session> {
   const res = await fetch(`${API_BASE}/sessions/${sessionId}`, {
-    method: "PATCH", headers: { "Content-Type": "application/json" },
+    method: "PATCH", headers: cloudJsonHeaders(),
     body: JSON.stringify({ title }),
   });
   if (!res.ok) throw new Error(await readApiError(res, "Failed to rename session"));
@@ -336,7 +1069,7 @@ export async function renameSession(sessionId: string, title: string): Promise<S
 export async function pinSession(sessionId: string, isPinned: boolean): Promise<Session> {
   const res = await fetch(`${API_BASE}/sessions/${sessionId}`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
+    headers: cloudJsonHeaders(),
     body: JSON.stringify({ isPinned }),
   });
   if (!res.ok) throw new Error("Failed to update session pin");
@@ -346,7 +1079,7 @@ export async function pinSession(sessionId: string, isPinned: boolean): Promise<
 export async function archiveSession(sessionId: string, archived = true): Promise<Session> {
   const res = await fetch(`${API_BASE}/sessions/${sessionId}`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
+    headers: cloudJsonHeaders(),
     body: JSON.stringify({ archived }),
   });
   if (!res.ok) throw new Error("Failed to archive session");
@@ -356,7 +1089,7 @@ export async function archiveSession(sessionId: string, archived = true): Promis
 export async function muteSession(sessionId: string, isMuted: boolean): Promise<Session> {
   const res = await fetch(`${API_BASE}/sessions/${sessionId}`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
+    headers: cloudJsonHeaders(),
     body: JSON.stringify({ isMuted }),
   });
   if (!res.ok) throw new Error("Failed to update session mute");
@@ -364,7 +1097,7 @@ export async function muteSession(sessionId: string, isMuted: boolean): Promise<
 }
 
 export async function markSessionRead(sessionId: string): Promise<Session> {
-  const res = await fetch(`${API_BASE}/sessions/${sessionId}/read`, { method: "POST" });
+  const res = await fetch(`${API_BASE}/sessions/${sessionId}/read`, { method: "POST", headers: cloudHeaders() });
   if (!res.ok) throw new Error("Failed to mark session read");
   return res.json();
 }
@@ -388,7 +1121,7 @@ export async function forwardMessages(
 ): Promise<{ messages: Message[] }> {
   const res = await fetch(`${API_BASE}/sessions/forward`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: cloudJsonHeaders(),
     body: JSON.stringify({ messageIds, targetSessionIds }),
   });
   if (!res.ok) throw new Error("Failed to forward messages");
@@ -396,7 +1129,7 @@ export async function forwardMessages(
 }
 
 export async function fetchSessionMembers(sessionId: string): Promise<SessionMember[]> {
-  const res = await fetch(`${API_BASE}/sessions/${sessionId}/members`);
+  const res = await fetch(`${API_BASE}/sessions/${sessionId}/members`, { headers: cloudHeaders() });
   if (!res.ok) return [];
   return res.json();
 }
@@ -404,7 +1137,7 @@ export async function fetchSessionMembers(sessionId: string): Promise<SessionMem
 export async function addGroupMember(sessionId: string, agentConfigId: string): Promise<SessionMember[]> {
   const res = await fetch(`${API_BASE}/sessions/${sessionId}/members`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: cloudJsonHeaders(),
     body: JSON.stringify({ agentConfigId }),
   });
   if (!res.ok) throw new Error(await readApiError(res, "Failed to add group member"));
@@ -414,19 +1147,20 @@ export async function addGroupMember(sessionId: string, agentConfigId: string): 
 export async function removeGroupMember(sessionId: string, agentConfigId: string): Promise<SessionMember[]> {
   const res = await fetch(`${API_BASE}/sessions/${sessionId}/members/${encodeURIComponent(agentConfigId)}`, {
     method: "DELETE",
+    headers: cloudHeaders(),
   });
   if (!res.ok) throw new Error(await readApiError(res, "Failed to remove group member"));
   return res.json();
 }
 
 export async function fetchMessages(sessionId: string): Promise<Message[]> {
-  const res = await fetch(`${API_BASE}/sessions/${sessionId}/messages`);
+  const res = await fetch(`${API_BASE}/sessions/${sessionId}/messages`, { headers: cloudHeaders() });
   if (!res.ok) throw new Error("Failed to fetch messages");
   return res.json();
 }
 
 export async function fetchRuns(sessionId: string): Promise<RunRead[]> {
-  const res = await fetch(`${API_BASE}/sessions/${sessionId}/runs`);
+  const res = await fetch(`${API_BASE}/sessions/${sessionId}/runs`, { headers: cloudHeaders() });
   if (!res.ok) throw new Error("Failed to fetch runs");
   return res.json();
 }
@@ -434,21 +1168,27 @@ export async function fetchRuns(sessionId: string): Promise<RunRead[]> {
 export async function cancelRun(runId: string, reason?: string): Promise<RunRead> {
   const res = await fetch(`${API_BASE}/runs/${runId}/cancel`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: cloudJsonHeaders(),
     body: JSON.stringify({ reason: reason ?? "" }),
   });
   if (!res.ok) throw new Error("Failed to cancel run");
   return res.json();
 }
 
+export async function fetchRunLogs(runId: string): Promise<RuntimeLogs> {
+  const res = await fetch(`${API_BASE}/runs/${runId}/logs`, { headers: cloudHeaders() });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to fetch run logs"));
+  return res.json();
+}
+
 export async function fetchRunTasks(runId: string): Promise<TaskRead[]> {
-  const res = await fetch(`${API_BASE}/runs/${runId}/tasks`);
+  const res = await fetch(`${API_BASE}/runs/${runId}/tasks`, { headers: cloudHeaders() });
   if (!res.ok) throw new Error("Failed to fetch run tasks");
   return res.json();
 }
 
 export async function fetchApprovals(sessionId: string): Promise<ApprovalCheckpoint[]> {
-  const res = await fetch(`${API_BASE}/sessions/${sessionId}/approvals`);
+  const res = await fetch(`${API_BASE}/sessions/${sessionId}/approvals`, { headers: cloudHeaders() });
   if (!res.ok) throw new Error("Failed to fetch approvals");
   return res.json();
 }
@@ -459,7 +1199,7 @@ export async function approveCheckpoint(
 ): Promise<ApprovalCheckpoint> {
   const res = await fetch(`${API_BASE}/approvals/${checkpointId}/approve`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: cloudJsonHeaders(),
     body: JSON.stringify(input),
   });
   if (!res.ok) throw new Error("Failed to approve checkpoint");
@@ -477,7 +1217,7 @@ export async function rejectCheckpoint(
 ): Promise<ApprovalCheckpoint> {
   const res = await fetch(`${API_BASE}/approvals/${checkpointId}/reject`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: cloudJsonHeaders(),
     body: JSON.stringify(input),
   });
   if (!res.ok) throw new Error("Failed to reject checkpoint");
@@ -574,6 +1314,7 @@ export function createChatStream(
   callbacks: StreamCallbacks,
   chainConfig?: ChainConfigInput,
   parentMessageId?: string | null,
+  attachmentIds?: string[],
 ): () => void {
   const {
     onToken, onDone, onRoute, onTaskStarted, onStewardDecision, onChainStep, onPhaseChange,
@@ -592,6 +1333,7 @@ export function createChatStream(
     const body: Record<string, unknown> = { content };
     if (mentions.length > 0) body.mentions = mentions;
     if (parentMessageId) body.parentMessageId = parentMessageId;
+    if (attachmentIds && attachmentIds.length > 0) body.attachmentIds = attachmentIds;
     if (chainConfig) {
       body.chainConfig = {
         chainName: chainConfig.chainName,
@@ -600,7 +1342,7 @@ export function createChatStream(
     }
     const response = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: cloudJsonHeaders(),
       body: JSON.stringify(body),
       signal: abortCtrl.signal,
     });
@@ -968,7 +1710,7 @@ export function createChatStream(
 export async function replyToMessage(messageId: string, content: string): Promise<Message> {
   const res = await fetch(`${API_BASE}/messages/${messageId}/reply`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: cloudJsonHeaders(),
     body: JSON.stringify({ content }),
   });
   if (!res.ok) throw new Error("Failed to reply to message");
@@ -976,13 +1718,13 @@ export async function replyToMessage(messageId: string, content: string): Promis
 }
 
 export async function pinMessage(messageId: string): Promise<{ isPinned: boolean }> {
-  const res = await fetch(`${API_BASE}/messages/${messageId}/pin`, { method: "POST" });
+  const res = await fetch(`${API_BASE}/messages/${messageId}/pin`, { method: "POST", headers: cloudHeaders() });
   if (!res.ok) throw new Error("Failed to pin message");
   return res.json();
 }
 
 export async function unpinMessage(messageId: string): Promise<{ isPinned: boolean }> {
-  const res = await fetch(`${API_BASE}/messages/${messageId}/pin`, { method: "DELETE" });
+  const res = await fetch(`${API_BASE}/messages/${messageId}/pin`, { method: "DELETE", headers: cloudHeaders() });
   if (!res.ok) throw new Error("Failed to unpin message");
   return res.json();
 }
@@ -993,13 +1735,13 @@ export async function searchMessages(
   limit = 20,
 ): Promise<Message[]> {
   const params = new URLSearchParams({ session_id: sessionId, q: query, limit: String(limit) });
-  const res = await fetch(`${API_BASE}/messages/search?${params.toString()}`);
+  const res = await fetch(`${API_BASE}/messages/search?${params.toString()}`, { headers: cloudHeaders() });
   if (!res.ok) throw new Error("Failed to search messages");
   return res.json();
 }
 
 export async function fetchMessage(messageId: string): Promise<Message> {
-  const res = await fetch(`${API_BASE}/messages/${messageId}`);
+  const res = await fetch(`${API_BASE}/messages/${messageId}`, { headers: cloudHeaders() });
   if (!res.ok) throw new Error("Failed to fetch message");
   return res.json();
 }
@@ -1013,6 +1755,7 @@ export function regenerateMessageStream(
   (async () => {
     const response = await fetch(`${API_BASE}/messages/${messageId}/regenerate`, {
       method: "POST",
+      headers: cloudHeaders(),
       signal: abortCtrl.signal,
     });
     if (!response.ok) {
@@ -1084,6 +1827,14 @@ function normalizeArtifactEvent(data: Record<string, unknown>): Artifact | null 
     filePath: typeof raw.filePath === "string" ? raw.filePath : null,
     previewId: typeof raw.previewId === "string" ? raw.previewId : null,
     source: typeof raw.source === "string" ? raw.source : null,
+    previewKind: typeof raw.previewKind === "string" ? raw.previewKind : undefined,
+    previewLabel: typeof raw.previewLabel === "string" ? raw.previewLabel : null,
+    mediaType: typeof raw.mediaType === "string" ? raw.mediaType : null,
+    fileExtension: typeof raw.fileExtension === "string" ? raw.fileExtension : null,
+    canInlinePreview: typeof raw.canInlinePreview === "boolean" ? raw.canInlinePreview : undefined,
+    isBinary: typeof raw.isBinary === "boolean" ? raw.isBinary : undefined,
+    rawUrl: typeof raw.rawUrl === "string" ? raw.rawUrl : null,
+    downloadUrl: typeof raw.downloadUrl === "string" ? raw.downloadUrl : null,
     createdAt: typeof raw.createdAt === "string" ? raw.createdAt : chinaNowIso(),
   };
 }
@@ -1263,13 +2014,13 @@ function processStartText(agentName: string, data: Record<string, unknown>) {
 }
 
 export async function fetchArtifacts(sessionId: string): Promise<Artifact[]> {
-  const res = await fetch(`${API_BASE}/sessions/${sessionId}/artifacts`);
+  const res = await fetch(`${API_BASE}/sessions/${sessionId}/artifacts`, { headers: cloudHeaders() });
   if (!res.ok) throw new Error("Failed to fetch artifacts");
   return res.json();
 }
 
 export async function fetchArtifactVersions(artifactId: string): Promise<ArtifactVersion[]> {
-  const res = await fetch(`${API_BASE}/artifacts/${artifactId}/versions`);
+  const res = await fetch(`${API_BASE}/artifacts/${artifactId}/versions`, { headers: cloudHeaders() });
   if (!res.ok) throw new Error("Failed to fetch artifact versions");
   return res.json();
 }
@@ -1283,7 +2034,7 @@ export async function fetchArtifactDiff(
     v1: String(fromVersion),
     v2: String(toVersion),
   });
-  const res = await fetch(`${API_BASE}/artifacts/${artifactId}/diff?${params.toString()}`);
+  const res = await fetch(`${API_BASE}/artifacts/${artifactId}/diff?${params.toString()}`, { headers: cloudHeaders() });
   if (!res.ok) throw new Error("Failed to fetch artifact diff");
   return res.json();
 }
@@ -1294,7 +2045,7 @@ export async function editArtifact(
 ): Promise<ArtifactEditResult> {
   const res = await fetch(`${API_BASE}/artifacts/${artifactId}/edit`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: cloudJsonHeaders(),
     body: JSON.stringify(data),
   });
   if (!res.ok) throw new Error("Failed to edit artifact");
@@ -1422,7 +2173,7 @@ export async function saveArtifactContent(
   if (title) body.title = title;
   const res = await fetch(`${API_BASE}/artifacts/${artifactId}/save`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: cloudJsonHeaders(),
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error("Failed to save artifact");
@@ -1435,7 +2186,7 @@ export async function restoreArtifactVersion(
 ): Promise<Artifact> {
   const res = await fetch(`${API_BASE}/artifacts/${artifactId}/restore`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: cloudJsonHeaders(),
     body: JSON.stringify({ version, writeWorkspace: true }),
   });
   if (!res.ok) throw new Error("Failed to restore artifact version");
@@ -1448,7 +2199,7 @@ export async function scanMessageArtifacts(
 ): Promise<ArtifactScanResult> {
   const res = await fetch(`${API_BASE}/messages/${messageId}/artifacts/scan`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: cloudJsonHeaders(),
     body: JSON.stringify({ force }),
   });
   if (!res.ok) throw new Error("Failed to scan message artifacts");

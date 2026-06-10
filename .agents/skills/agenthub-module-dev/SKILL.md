@@ -94,3 +94,21 @@ description: AgentHub 项目标准模块开发流程。当用户要求开发新�
 - 引用仍有效：`docs/specs/`、`docs/TEST_PROTOCOL.md`、`docs/testing/UX_TEST_SPEC.md`、`docs/GIT_PROTOCOL.md`、`AGENTS.md` 均存在。
 - 测试说明已从“内存数据库”修正为项目当前协议要求的真实迁移文件数据库。
 - 新增提醒：IM 能力（置顶、归档、未读、免打扰、转发、多选）必须走真实 API/持久化状态；Reply/Pin 仍必须影响 Agent 上下文。
+
+## Phase 9 审计 (2026-06-08)
+
+- 引用仍有效：`docs/specs/phase9/README.md`、`docs/TEST_PROTOCOL.md`、`docs/GIT_PROTOCOL.md`、`AGENTS.md` 均存在。
+- 流程补充：Phase 9 起模块开发必须同时验证 P1 local 零回归与 P2 cloud slice，不得只跑新增 cloud API 测试。
+- 新增提醒：cloud Project 不能暴露本机或服务器物理路径；前端类型必须把 `workspacePath` 视为 local-only 可选字段，把 `workspaceId` 视为 cloud 主锚点。
+
+## Phase 10 审计 (2026-06-08)
+
+- 引用仍有效：`docs/specs/phase10/README.md`、`docs/deliverables/phase10-cloud-runtime/`、`docs/dev-logs/phase10-dev-log.md`、`docs/TEST_PROTOCOL.md`、`AGENTS.md` 均存在。
+- 流程补充：开发 cloud runtime 时必须复用真实 CLI Adapter / RunService / ArtifactOutputBridge，不得新增裸 HTTP LLM 或 cloud-only MessageList 分支。
+- 验证补充：Phase 10 起至少覆盖 sandbox ready、真实 CLI 输出、Artifact 创建、runtime logs 脱敏、配额阻断和 `runtime=local` 无 `sandboxId` 回归。
+
+## Phase 14 审计 (2026-06-09)
+
+- 引用仍有效：`docs/specs/phase14/README.md`、`docs/dev-logs/phase14-dev-log.md`、`docs/TEST_PROTOCOL.md`、`docs/GIT_PROTOCOL.md`、`AGENTS.md` 均存在。
+- 流程补充：开发 SaaS/Mobile cloud API 时必须先确认 `TenantScope` / `TenantGuard` 契约，禁止只靠前端隐藏入口或请求参数声明租户。
+- 验证补充：Phase 14 起生产 Auth 相关增量必须覆盖 dev header 禁用、401/403 边界、个人/团队 Project 列表过滤、viewer 写操作阻断和本地桌面端不强制登录。

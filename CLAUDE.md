@@ -68,19 +68,16 @@ IM 式聊天平台，用户可与 AI Agent（Claude Code、Codex、OpenCode 等�
 - 小步提交：每个可运行函数 = 一次 commit。
 - **自动化优先**：任何功能设计在前端上的体现是让任务尽量自动化处理，不要让用户做太多配置。复杂决策（链式触发、角色分配、Agent 选择）由后端自动完成。
 
-### 每轮结束服务交接（硬性要求）
+### 真实服务验收
 
-每轮开发/修复结束必须完成以下流程：
+涉及 API、前端交互、运行时、部署、代理或端到端用户路径的改动，必须在当前代码上执行真实服务验收；纯文档、纯类型、纯单元逻辑或不影响服务行为的小修，不要求每轮固定启动本地前后端。
 
-1. **清理旧进程**：检查后端（默认 `127.0.0.1:8000`）和前端（默认 `127.0.0.1:5173`）端口，停止运行旧代码的进程。
-2. **启动当前代码服务**：
-   - 后端：用项目 Python 环境运行当前 `backend/app/main.py`
-   - 前端：运行当前 Vite 应用（`frontend/`）
-   - 若默认端口被占用，使用下一个空闲端口并明确报告
-3. **在真实服务上验证**：检查后端根路径/OpenAPI、前端根路径、`/api` 代理、以及改动功能的真实验收路径。不能只依赖单元测试或临时 ASGI 客户端。
-4. **报告访问地址**：始终给出前端 URL、后端 URL、API 文档 URL，和任何端口变更。
+需要真实服务验收时：
 
-旧进程仍在运行旧代码、或未提供服务 URL，本轮不结束。
+1. 检查相关端口是否被旧进程占用，避免旧代码参与验收。
+2. 从当前仓库启动需要验证的服务；若默认端口被占用，使用下一个空闲端口并报告。
+3. 验证后端根路径/OpenAPI、前端根路径、`/api` 代理，以及本轮改动的关键用户路径。
+4. 最终报告实际访问地址和任何端口变更。
 
 ### Python（后端）
 
@@ -119,7 +116,7 @@ IM 式聊天平台，用户可与 AI Agent（Claude Code、Codex、OpenCode 等�
 - 结束增量时没有可演示的前端。
 - 跳过验收标准就标记 Phase 完成。
 - 添加当前 Spec 范围之外的功能。
-- 结束开发轮次时仍有旧后端/前端进程在运行旧代码，或未报告服务访问 URL。
+- 需要真实服务验收的改动，却只跑单元测试或临时 ASGI 客户端就声称完成。
 - **执行任何 Git 操作（add/commit/push）前，必须先获得用户明确的"人工验收"确认。** 即使模块开发 Skill 中已进入 Step 6，也必须等待用户说"人工验收认可"/"验收通过"/"批准提交"等确认口令。未获确认前，Git 操作等同于 Spec 之外的功能——禁止执行。
 
 ---
@@ -131,10 +128,10 @@ Debug 不是"让 bug 消失"，而是"让系统更正确"：
 1. **修根因，不修表象** — 找到问题的系统性原因（如字段命名不一致、架构设计缺陷），不写补丁式修复。
 2. **保持代码质量不降级** — 修复不能引入 `any`、绕过类型检查、破坏分层架构、添加临时 hack。
 3. **前瞻性** — 修复方案要考虑同一类问题在项目中其他地方是否也存在，一并修复。
-4. **全局性** — 一个 bug 修复后，检查相关联的模块是否受影响（运行全量测试，不仅是相关测试）。
+4. **影响面判断** — 一个 bug 修复后，先判断相关联模块是否受影响；小问题跑直接相关测试，高风险或跨模块改动再扩大测试范围。
 5. **安全性** — 不为了"快速修复"而降级 API Key 校验、跳过输入验证、暴露错误详情给前端。
 6. **字段命名一致性** — 前后端字段名必须严格一致。后端 Pydantic 模型必须用 `Field(alias="camelCase")` + `populate_by_name=True` 统一输出 camelCase。
-7. **每轮修复后全量测试零回归** — `pytest test_api/` + `npx vitest run` + `npx tsc --noEmit` 三者必须全部通过。
+7. **风险分级回归** — 小修只要求相关单元/API/组件测试与必要的类型检查；大型 Phase、跨模块架构改动、Auth/租户/Secret/运行时/部署等高风险改动，才要求 `pytest test_api/` + `npx vitest run` + `npx tsc --noEmit` 等完整回归组合。
 8. **主动发现问题** — 用户的验收反馈是片面的，不应只修复用户提出的问题。必须从用户反馈延申出去，主动审查相关功能是否存在同类设计缺陷、UI/UX 问题、边界条件遗漏。从"这段代码还能怎么出问题"的角度思考，而不是"用户说了什么我就修什么"。
 
 ---
@@ -153,7 +150,7 @@ Debug 不是"让 bug 消失"，而是"让系统更正确"：
 
 ## 阶段感知
 
-当前处于 **Phase 7（任务可控性 + 审批 + 环境体检 + IM 体验 + 演示闭环）— v1.0 baseline 发布**。Phase 6 Workspace Runtime、CLI Adapter、Artifact Bridge 已完成并通过验收；Phase 7A-7C 的运行取消/恢复、审批卡片、环境体检已验收；Phase 7D 的会话置顶/归档/未读/免打扰/转发/多选、消息右键菜单、明亮主题与圆角布局、执行过程全屏已实现。真实 Claude Code 完整自动化演示脚本、截图审计和 Store 领域拆分继续作为后续增强项沉淀。
+当前处于 **Phase 15-16（SaaS 生产化收口后半段）规划期**。Phase 9-12 已在 P1 本地版基线上递增出 P2 SaaS cloud workspace、sandbox runtime、cloud preview/deployment、协作通知、移动端审批预览、附件和高级 Artifact 的最小可运行切片；Phase 13 已把本地版、SaaS 版和移动端拆成独立 shell、独立构建命令、独立能力矩阵和独立验收闭环；Phase 14 已完成生产 Auth、跨端登录态、TenantScope、RBAC 与 cloud 资源租户隔离收口。Phase 15-16 将分别收口真实云 sandbox/runtime 与真实一键部署 provider。后续开发不得让本地版依赖云端登录/团队，也不得让移动端承载本机 CLI 或完整桌面工作区设置。
 
 完整 Phase 状态表见 [CONTEXT.md §开发阶段](CONTEXT.md)。
 
@@ -162,8 +159,8 @@ Debug 不是"让 bug 消失"，而是"让系统更正确"：
 | 优先级 | 产品形态 | 架构 | 一键部署 |
 |--------|---------|------|---------|
 | **P1（当前）** | **桌面版**：桌面端（Tauri/Node.js）= 本地无头服务器 + 本地特权执行引擎；Web 端（浏览器）= 主力 UI | 浏览器 → localhost 后端 → 本机文件系统 + 本机 CLI Agent | ❌ |
-| **P2（远期）** | **SaaS 云版**：Web 浏览器 + 云端后端 + 云端容器沙箱 | 浏览器 → 云端后端 → 云端沙箱 + 云端 CLI Agent → 云端 URL | ✅ |
+| **P2（云端协作切片已启动，产品壳已拆分）** | **SaaS 云版**：Web 浏览器 + 云端后端 + 云端容器沙箱 | 浏览器 → 云端后端 → 云端沙箱 + 云端 CLI Agent → 云端 URL | ✅ |
 
-**Project-first 工作流**：用户必须先创建 Project（新建空白 workspace 目录，或通过系统原生目录选择器选择已有目录），然后在 Project 下创建私聊或群聊。所有聊天必须属于某个 Project。Project 不再暴露“静态网页 / Vite React / 已有项目”等用户可选属性。Project 内所有 Agent 共享 `Project.workspace_path` 作为 `cwd`。详见 [ADR-0009](docs/adr/0009-project-workspace-model.md)。
+**Project-first 工作流**：用户必须先创建 Project，然后在 Project 下创建私聊或群聊。P1 本地 Project 使用新建空白 workspace 目录或系统原生目录选择器绑定已有目录，Project 内所有本地 Agent 共享 `Project.workspace_path` 作为 `cwd`；P2 云端 Project 使用 `workspaceId` 和 `cloud://agenthub/workspaces/{id}` 逻辑 URI，前端不应看到服务器或用户本机物理路径，云端 runner 将其映射到隔离 cloud workspace 目录。Project 不再暴露“静态网页 / Vite React / 已有项目”等用户可选属性。详见 [ADR-0009](docs/adr/0009-project-workspace-model.md)、[Phase 9 Spec](docs/specs/phase9/README.md)、[Phase 10 Spec](docs/specs/phase10/README.md) 与 [Phase 13 Spec](docs/specs/phase13/README.md)。
 
 > 完整的 P1/P2 定义、Workspace 位置、运行环境、安全边界见 [CONTEXT.md §产品交付阶段](CONTEXT.md)。

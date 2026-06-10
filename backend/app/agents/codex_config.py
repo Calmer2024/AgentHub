@@ -19,6 +19,8 @@ AGENTHUB_CODEX_KEYS = {
     "auth_mode": "AGENTHUB_CODEX_AUTH_MODE",
     "wire_api": "AGENTHUB_CODEX_WIRE_API",
     "home": "AGENTHUB_CODEX_HOME",
+    "provider_id": "AGENTHUB_CODEX_PROVIDER_ID",
+    "provider_name": "AGENTHUB_CODEX_PROVIDER_NAME",
 }
 
 
@@ -35,6 +37,7 @@ class CodexConnectionSettings:
     source: str = "agenthub"
     api_key_source: str = ""
     missing_env_key: str = ""
+    auth_env_key: str = ""
     has_chatgpt_auth: bool = False
 
 
@@ -44,6 +47,7 @@ class CodexAuthSettings:
     auth_mode: str = "none"
     api_key_source: str = ""
     missing_env_key: str = ""
+    auth_env_key: str = ""
     has_chatgpt_auth: bool = False
 
 
@@ -83,6 +87,8 @@ def _settings_from_agent_env(agent_env: Mapping[str, str]) -> CodexConnectionSet
     model = agent_env.get(AGENTHUB_CODEX_KEYS["model"], "").strip()
     auth_mode = agent_env.get(AGENTHUB_CODEX_KEYS["auth_mode"], "").strip().lower()
     wire_api = agent_env.get(AGENTHUB_CODEX_KEYS["wire_api"], "responses").strip() or "responses"
+    provider_id = agent_env.get(AGENTHUB_CODEX_KEYS["provider_id"], "").strip()
+    provider_name = agent_env.get(AGENTHUB_CODEX_KEYS["provider_name"], "").strip()
 
     if connection == "auto":
         return CodexConnectionSettings(connection="auto", model=model)
@@ -105,7 +111,10 @@ def _settings_from_agent_env(agent_env: Mapping[str, str]) -> CodexConnectionSet
         model=model,
         auth_mode=auth_mode,
         wire_api=wire_api,
+        provider_name=provider_name or "AgentHub Codex Provider",
+        provider_id=provider_id,
         source="agenthub",
+        auth_env_key="AGENTHUB_CODEX_PROVIDER_TOKEN" if api_key else "",
     )
 
 
@@ -147,6 +156,7 @@ def _settings_from_codex_home(
         source="codex_config",
         api_key_source=auth.api_key_source,
         missing_env_key=auth.missing_env_key,
+        auth_env_key=auth.auth_env_key,
         has_chatgpt_auth=auth.has_chatgpt_auth,
     )
 
@@ -195,6 +205,7 @@ def _detect_auth_for_provider(
                 api_key=fallback.value,
                 auth_mode="command",
                 api_key_source=fallback.source,
+                auth_env_key=_env_key_from_secret_source(fallback.source),
                 has_chatgpt_auth=has_chatgpt_auth,
             )
         return CodexAuthSettings(
@@ -209,6 +220,7 @@ def _detect_auth_for_provider(
                 api_key=secret.value,
                 auth_mode="env_key",
                 api_key_source=secret.source,
+                auth_env_key=env_key_name,
                 has_chatgpt_auth=has_chatgpt_auth,
             )
         if connection == "proxy":
@@ -218,6 +230,7 @@ def _detect_auth_for_provider(
                     api_key=fallback.value,
                     auth_mode="env_key",
                     api_key_source=fallback.source,
+                    auth_env_key=_env_key_from_secret_source(fallback.source),
                     has_chatgpt_auth=has_chatgpt_auth,
                 )
         return CodexAuthSettings(
@@ -243,6 +256,7 @@ def _detect_auth_for_provider(
                 "openai_auth" if requires_openai_auth or has_chatgpt_auth else "none"
             ),
             api_key_source=secret.source,
+            auth_env_key=_env_key_from_secret_source(secret.source),
             has_chatgpt_auth=has_chatgpt_auth,
         )
 
@@ -259,6 +273,7 @@ def _detect_auth_for_provider(
         api_key=secret.value,
         auth_mode=auth_mode,
         api_key_source=secret.source,
+        auth_env_key=_env_key_from_secret_source(secret.source),
         has_chatgpt_auth=has_chatgpt_auth,
     )
 
@@ -341,6 +356,15 @@ def _auth_command(provider: dict) -> str:
     if not isinstance(auth, dict):
         return ""
     return _string(auth.get("command"))
+
+
+def _env_key_from_secret_source(source: str) -> str:
+    if ":" not in source:
+        return ""
+    prefix, name = source.split(":", 1)
+    if prefix not in {"environment", "dotenv"}:
+        return ""
+    return name.strip()
 
 
 def _is_official_openai_url(base_url: str) -> bool:

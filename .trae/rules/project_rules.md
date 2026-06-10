@@ -22,8 +22,8 @@
 
 ## 当前开发阶段
 
-**Phase 7: 任务可控性 + 审批 + 环境体检 + IM 体验 + 演示闭环** — v1.0 baseline 发布 (2026-06-07)
+**Phase 15-16: SaaS 生产化收口后半段** — Phase 14 生产 Auth 与租户隔离已完成人工验收，准备进入真实云 Sandbox Runtime 与真实一键部署 Provider。
 
-范围：运行取消/恢复、审批卡片、环境体检、消息级 Artifact 体验、会话 IM 基线、明亮主题与圆角布局、真实 Claude Code 演示脚本。
+范围：在 Phase 9-14 的 cloud workspace、开发态 sandbox runtime、cloud preview/deployment、协作通知、多端壳、生产 Auth、TenantScope 和 RBAC 基线上，继续把云端 runtime 与部署 provider 从占位/本机模拟推进为真实生产能力。大型 Phase 验收和发布候选需要保持 P1 本地 `workspace_path`、本机 CLI、build/preview/export 主路径零回归；小修按影响面选择相关测试。
 
-Phase 1-6 核心闭环已验收通过；Phase 7A-7C 已验收；Phase 7D 的会话置顶/归档/未读/免打扰/转发/多选、消息右键菜单、执行过程全屏已实现。真实 cc 完整自动化 E2E、截图审计和 Store 领域拆分作为后续增强继续沉淀。
+Phase 1-14 当前代码已完成阶段实现与自动化/真实服务验收。后续开发不得让本地版必须依赖云端登录或云端 workspace，不得让 SaaS 版暴露本机特权能力，也不得让移动端承载本机 CLI 或完整桌面工作区设置。

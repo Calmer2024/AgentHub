@@ -1,6 +1,7 @@
-import { AlertTriangle, FileCode2, FileText, Files, Globe2, Loader2 } from "lucide-react";
+import { AlertTriangle, FileCode2, FileImage, FileText, Files, Globe2, Loader2 } from "lucide-react";
 import type { Artifact, Message } from "../types";
 import { ArtifactCard } from "./ArtifactCard";
+import { getArtifactPreviewInfo } from "../utils/artifactPreview";
 
 interface Props {
   message: Message;
@@ -9,11 +10,13 @@ interface Props {
   onChanged?: () => void;
 }
 
-function iconFor(type: Artifact["type"]) {
+function iconForArtifact(artifact: Artifact) {
   const props = { size: 14, "aria-hidden": true };
-  if (type === "web_preview") return <Globe2 {...props} />;
-  if (type === "code_diff") return <FileCode2 {...props} />;
-  if (type === "file_tree") return <Files {...props} />;
+  const preview = getArtifactPreviewInfo(artifact);
+  if (preview.kind === "html") return <Globe2 {...props} />;
+  if (preview.kind === "diff") return <FileCode2 {...props} />;
+  if (preview.kind === "file_tree") return <Files {...props} />;
+  if (preview.kind === "image") return <FileImage {...props} />;
   return <FileText {...props} />;
 }
 
@@ -66,7 +69,7 @@ export function MessageArtifactStrip({ message, artifacts, relatedArtifacts, onC
     <div className="mt-3 min-w-0 max-w-full space-y-2">
       <div className="agenthub-muted flex min-w-0 items-center gap-2 text-[11px] font-medium">
         <span className="inline-flex items-center gap-1.5">
-          {iconFor(related[0].type)}
+          {iconForArtifact(related[0])}
           本轮产物
         </span>
         <span className="h-px flex-1 bg-[color:var(--ah-border)]" />

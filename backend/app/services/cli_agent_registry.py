@@ -22,6 +22,7 @@ from ..core.agent_env import (
     clean_cli_agent_env,
     encode_cli_agent_env,
 )
+from ..core.process_utils import hidden_subprocess_kwargs
 from ..models import AgentConfig
 
 
@@ -59,19 +60,23 @@ class ExecutableStatus:
 class CliAgentRegistry:
     """Persistence and health checks for CLI wrapper Agents."""
 
-    def __init__(self, db: AsyncSession):
+    def __init__(self, db: AsyncSession, owner_user_id: str | None = None):
         self.db = db
+        self.owner_user_id = owner_user_id
 
     async def list_active(self) -> list[AgentConfig]:
         result = await self.db.execute(
             select(AgentConfig)
-            .where(AgentConfig.is_active == True)
+            .where(AgentConfig.is_active == True, self._owner_filter())
             .order_by(AgentConfig.updated_at.desc())
         )
         return list(result.scalars().all())
 
     async def get(self, agent_id: str) -> AgentConfig:
-        agent = await self.db.get(AgentConfig, agent_id)
+        result = await self.db.execute(
+            select(AgentConfig).where(AgentConfig.id == agent_id, self._owner_filter())
+        )
+        agent = result.scalars().first()
         if not agent:
             raise CliAgentNotFoundError(agent_id)
         return agent
@@ -83,6 +88,7 @@ class CliAgentRegistry:
         defaults = DEFAULT_CLI_AGENTS.get(data.cli_tool, {})
         agent = AgentConfig(
             id=str(uuid.uuid4()),
+            owner_user_id=self.owner_user_id,
             name=data.name,
             description=data.description or "",
             system_prompt=data.system_prompt or "",
@@ -105,6 +111,11 @@ class CliAgentRegistry:
         await self.db.commit()
         await self.db.refresh(agent)
         return agent
+
+    def _owner_filter(self):
+        if self.owner_user_id is None:
+            return AgentConfig.owner_user_id.is_(None)
+        return AgentConfig.owner_user_id == self.owner_user_id
 
     async def update(self, agent_id: str, data) -> AgentConfig:
         agent = await self.get(agent_id)
@@ -153,7 +164,7 @@ class CliAgentRegistry:
         await self.db.commit()
 
     @staticmethod
-    def executable_status(executable: str | None) -> ExecutableStatus:
+    def executable_status(executable: str | None, *, include_version: bool = False) -> ExecutableStatus:
         if not executable:
             return ExecutableStatus("not_found")
 
@@ -165,7 +176,7 @@ class CliAgentRegistry:
 
         return ExecutableStatus(
             status="ready",
-            version=_detect_version(resolved),
+            version=_detect_version(resolved) if include_version else None,
             executable_path=resolved,
         )
 
@@ -235,6 +246,7 @@ def _detect_version(executable: str) -> str | None:
                 text=True,
                 timeout=2,
                 check=False,
+                **hidden_subprocess_kwargs(),
             )
         except Exception:
             continue

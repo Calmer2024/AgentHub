@@ -7,6 +7,7 @@ import { useMemo, useState } from "react";
 import { Check, Users, X } from "lucide-react";
 import type { AgentConfig } from "../types";
 import { AgentAvatar } from "./AgentAvatar";
+import { GlobalModal } from "./GlobalModal";
 
 const MAX_GROUP_AGENTS = 12;
 
@@ -34,26 +35,47 @@ export function GroupChatCreator({ agents, onConfirm, onCancel }: Props) {
   const canCreate = selectedList.length >= 2 && selectedList.length <= MAX_GROUP_AGENTS;
 
   return (
-    <div className="agenthub-backdrop fixed inset-0 z-50 flex items-center justify-center px-4">
-      <div className="agenthub-modal max-h-[90vh] w-full max-w-sm overflow-y-auto rounded-3xl border p-5">
-        <div className="mb-1 flex items-center gap-2">
-          <span className="agenthub-soft flex h-9 w-9 items-center justify-center rounded-full border">
-            <Users size={17} />
-          </span>
-          <h2 className="agenthub-strong text-lg font-semibold">新建群聊</h2>
+    <GlobalModal
+      title="新建群聊"
+      subtitle={`默认带上调度器，最多选择 ${MAX_GROUP_AGENTS} 个 Agent`}
+      icon={<Users size={18} />}
+      zIndexClass="z-[1200]"
+      panelClassName="max-w-3xl"
+      onClose={onCancel}
+      footer={(
+        <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="agenthub-icon-button inline-flex items-center justify-center gap-1.5 rounded-full px-4 py-2.5 text-sm"
+          >
+            <X size={15} />
+            取消
+          </button>
+          <button
+            type="button"
+            onClick={() => onConfirm(title, selectedList)}
+            disabled={!canCreate}
+            className="agenthub-primary-button inline-flex items-center justify-center gap-1.5 rounded-full px-5 py-2.5 text-sm disabled:cursor-not-allowed disabled:opacity-50">
+            <Check size={15} />
+            {selected.size > MAX_GROUP_AGENTS ? `最多 ${MAX_GROUP_AGENTS} 个` : `创建 (${selected.size})`}
+          </button>
         </div>
-        <p className="agenthub-muted mb-3 text-xs">
-          默认带上调度器；在群聊中 @调度器 生成计划，普通消息仍按群聊协作处理。最多选择 {MAX_GROUP_AGENTS} 个 Agent。
+      )}
+    >
+      <div className="space-y-4">
+        <p className="agenthub-muted text-sm leading-6">
+          在群聊中 @调度器 生成计划，普通消息仍按群聊协作处理。
         </p>
 
         <input value={title} onChange={(e) => setTitle(e.target.value)}
           placeholder="群聊名称（可选）"
-          className="agenthub-composer agenthub-textarea agenthub-focus-ring mb-3 w-full rounded-2xl border px-3 py-2 text-sm"
+          className="agenthub-composer agenthub-textarea agenthub-focus-ring w-full rounded-2xl border px-3 py-3 text-sm"
         />
 
-        <div className="max-h-48 overflow-y-auto space-y-1 mb-4">
+        <div className="grid max-h-[54dvh] gap-2 overflow-y-auto pr-1 md:grid-cols-2">
           {agents.map((a) => (
-            <label key={a.id} className={`flex cursor-pointer items-center gap-2 rounded-2xl px-3 py-2 transition-colors ${selected.has(a.id) ? "agenthub-nav-active" : "agenthub-nav-idle"}`}>
+            <label key={a.id} className={`flex cursor-pointer items-center gap-2 rounded-2xl px-3 py-2.5 transition-colors ${selected.has(a.id) ? "agenthub-nav-active" : "agenthub-nav-idle"}`}>
               <input type="checkbox" checked={selected.has(a.id)} onChange={() => toggle(a.id)}
                 className="h-4 w-4 rounded accent-[color:var(--ah-accent-strong)]" />
               <AgentAvatar agent={a} size="sm" />
@@ -68,26 +90,8 @@ export function GroupChatCreator({ agents, onConfirm, onCancel }: Props) {
             </label>
           ))}
         </div>
-
-        <div className="flex gap-3">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="agenthub-icon-button inline-flex flex-1 items-center justify-center gap-1.5 rounded-full py-2.5 text-sm"
-          >
-            <X size={15} />
-            取消
-          </button>
-          <button
-            type="button"
-            onClick={() => onConfirm(title, selectedList)}
-            disabled={!canCreate}
-            className="agenthub-primary-button inline-flex flex-1 items-center justify-center gap-1.5 rounded-full py-2.5 text-sm disabled:cursor-not-allowed disabled:opacity-50">
-            <Check size={15} />
-            {selected.size > MAX_GROUP_AGENTS ? `最多 ${MAX_GROUP_AGENTS} 个` : `创建 (${selected.size})`}
-          </button>
-        </div>
       </div>
-    </div>
+    </GlobalModal>
   );
 }
+

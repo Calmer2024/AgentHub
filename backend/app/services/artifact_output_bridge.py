@@ -14,7 +14,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.timezone import china_now_iso
 from ..event_bus.event_types import EventType
 from ..models import Artifact, Message, Project, Session as DBSession
+from .artifact_preview import (
+    IMAGE_MEDIA_TYPES,
+    MARKDOWN_EXTENSIONS,
+    PDF_EXTENSIONS,
+    PRESENTATION_EXTENSIONS,
+    SPREADSHEET_EXTENSIONS,
+    WORD_EXTENSIONS,
+    artifact_preview_payload,
+    infer_artifact_preview,
+)
 from .artifact_service import ArtifactDetection, ArtifactService
+from .cloud_storage import ensure_cloud_workspace
 from .file_change_detector import FileChangeDetector
 from .workspace_provider import WorkspaceSecurityError
 
@@ -49,12 +60,20 @@ class ArtifactCandidate:
     status: str = "ready"
 
     def to_metadata(self) -> dict[str, Any]:
+        preview = infer_artifact_preview(
+            artifact_type=self.artifact_type,
+            title=self.title,
+            content=self.content,
+            file_path=self.file_path,
+        )
         return {
             "artifactType": self.artifact_type,
             "title": self.title,
             "source": self.source,
             "confidence": round(self.confidence, 2),
             "reason": self.reason,
+            "previewKind": preview.kind,
+            "previewLabel": preview.label,
             "contentPreview": self.content[:500],
         }
 
@@ -197,7 +216,7 @@ class ArtifactOutputBridge:
         project = await self.db.get(Project, session.project_id)
         if not project:
             raise SessionWithoutProjectError("project not found")
-        return session, project, project.workspace_path
+        return session, project, _project_workspace_path(project)
 
     async def _publish_detected(
         self,
@@ -224,7 +243,7 @@ class ArtifactOutputBridge:
 
 
 def artifact_to_event_payload(artifact: Artifact) -> dict[str, Any]:
-    return {
+    payload = {
         "id": artifact.id,
         "sessionId": artifact.session_id,
         "messageId": artifact.message_id,
@@ -240,6 +259,8 @@ def artifact_to_event_payload(artifact: Artifact) -> dict[str, Any]:
         "source": artifact.source,
         "createdAt": artifact.created_at.isoformat() if artifact.created_at else "",
     }
+    payload.update(artifact_preview_payload(artifact))
+    return payload
 
 
 def _workspace_candidates(workspace_path: str, changes: list[dict]) -> list[ArtifactCandidate]:
@@ -251,20 +272,61 @@ def _workspace_candidates(workspace_path: str, changes: list[dict]) -> list[Arti
 
     for change in text_changes:
         path = str(change["path"])
-        if Path(path).suffix.lower() not in {".html", ".htm"}:
+        suffix = Path(path).suffix.lower()
+        if suffix not in {
+            ".html",
+            ".htm",
+            *MARKDOWN_EXTENSIONS,
+            *PDF_EXTENSIONS,
+            *IMAGE_MEDIA_TYPES.keys(),
+            *PRESENTATION_EXTENSIONS,
+            *WORD_EXTENSIONS,
+            *SPREADSHEET_EXTENSIONS,
+        }:
             continue
-        content, status, reason = _read_workspace_text(root, path)
-        if status == "ready" and not _looks_like_html(content):
+        if suffix in {".html", ".htm"}:
+            content, status, reason = _read_workspace_text(root, path)
+            if status == "ready" and not _looks_like_html(content):
+                continue
+            candidates.append(_candidate(
+                artifact_type="web_preview",
+                title=Path(path).name or "网页预览",
+                content=content if status == "ready" else reason,
+                source="workspace_diff",
+                confidence=0.90,
+                reason=reason if status == "error" else "workspace html file changed",
+                file_path=path,
+                status=status,
+            ))
             continue
+
+        if suffix in MARKDOWN_EXTENSIONS or suffix in {".csv", ".tsv"}:
+            content, status, reason = _read_workspace_text(root, path)
+            if status == "ready" and suffix in MARKDOWN_EXTENSIONS and not _looks_like_document(content):
+                continue
+            candidates.append(_candidate(
+                artifact_type="document",
+                title=_document_title(content) or Path(path).name or "文档",
+                content=content if status == "ready" else reason,
+                source="workspace_diff",
+                confidence=0.88,
+                reason=reason if status == "error" else "workspace text document changed",
+                file_path=path,
+                status=status,
+            ))
+            continue
+
+        content, status, reason = _read_workspace_file_card(root, path)
         candidates.append(_candidate(
-            artifact_type="web_preview",
-            title=Path(path).name or "网页预览",
-            content=content if status == "ready" else reason,
+            artifact_type="document",
+            title=Path(path).name or "文件产物",
+            content=content,
             source="workspace_diff",
-            confidence=0.90,
-            reason=reason if status == "error" else "workspace html file changed",
+            confidence=0.86,
+            reason=reason,
             file_path=path,
             status=status,
+            content_hash_basis=f"{path}:{content}",
         ))
 
     if len(changed) >= 2 and any(_is_frontend_entry(str(item["path"])) for item in changed):
@@ -348,9 +410,9 @@ def _workspace_hint_candidates(
                 file_path=rel_path,
                 status=status,
             ))
-        elif suffix in {".md", ".markdown"}:
+        elif suffix in MARKDOWN_EXTENSIONS or suffix in {".csv", ".tsv"}:
             content, status, reason = _read_workspace_text(root, rel_path)
-            if status == "ready" and not _looks_like_document(content):
+            if status == "ready" and suffix in MARKDOWN_EXTENSIONS and not _looks_like_document(content):
                 continue
             candidates.append(_candidate(
                 artifact_type="document",
@@ -361,6 +423,19 @@ def _workspace_hint_candidates(
                 reason=reason if status == "error" else "workspace document hint matched",
                 file_path=rel_path,
                 status=status,
+            ))
+        elif suffix in PDF_EXTENSIONS or suffix in IMAGE_MEDIA_TYPES or suffix in PRESENTATION_EXTENSIONS or suffix in WORD_EXTENSIONS or suffix in SPREADSHEET_EXTENSIONS:
+            content, status, reason = _read_workspace_file_card(root, rel_path)
+            candidates.append(_candidate(
+                artifact_type="document",
+                title=Path(rel_path).name,
+                content=content,
+                source=source,
+                confidence=0.80,
+                reason=reason,
+                file_path=rel_path,
+                status=status,
+                content_hash_basis=f"{rel_path}:{content}",
             ))
 
     if len(existing_paths) >= 2 and any(_is_frontend_entry(path) for path in existing_paths):
@@ -578,6 +653,34 @@ def _read_workspace_text(root: Path, rel_path: str) -> tuple[str, str, str]:
         return "", "error", f"文件读取失败: {exc}"
 
 
+def _read_workspace_file_card(root: Path, rel_path: str) -> tuple[str, str, str]:
+    try:
+        target = (root / rel_path).resolve()
+        if target != root and root not in target.parents:
+            raise WorkspaceSecurityError("path outside workspace")
+        size = target.stat().st_size
+        digest = hashlib.sha256(target.read_bytes()).hexdigest()
+        suffix = target.suffix.lower()
+        preview = infer_artifact_preview(
+            artifact_type="document",
+            title=target.name,
+            content="",
+            file_path=rel_path,
+        )
+        payload = {
+            "path": rel_path.replace("\\", "/"),
+            "filename": target.name,
+            "sizeBytes": size,
+            "sha256": digest,
+            "extension": suffix or None,
+            "previewKind": preview.kind,
+            "mediaType": preview.media_type,
+        }
+        return json.dumps(payload, ensure_ascii=False, indent=2), "ready", f"workspace {preview.kind} file changed"
+    except Exception as exc:
+        return json.dumps({"path": rel_path, "error": str(exc)}, ensure_ascii=False), "error", f"文件读取失败: {exc}"
+
+
 def _looks_like_html(content: str) -> bool:
     return bool(re.search(r"<!doctype\s+html|<html\b|<body\b|<div\b|<main\b|<section\b", content, re.I))
 
@@ -637,7 +740,7 @@ def _extract_workspace_path_hints(text: str, trace: dict[str, Any] | None) -> li
     seen: set[str] = set()
     paths: list[str] = []
     pattern = re.compile(
-        r"(?<![\w./\\-])([A-Za-z0-9_.@/\\-]+\.(?:html?|md|markdown|tsx|jsx|js|ts|json|css))(?![\w.-])",
+        r"(?<![\w./\\-])([A-Za-z0-9_.@/\\-]+\.(?:html?|md|markdown|mdx|pdf|png|jpe?g|gif|webp|svg|bmp|ico|docx?|pptx?|xlsx?|csv|tsv|rtf|tsx|jsx|js|ts|json|css))(?![\w.-])",
         re.I,
     )
     for haystack in haystacks:
@@ -651,3 +754,12 @@ def _extract_workspace_path_hints(text: str, trace: dict[str, Any] | None) -> li
             seen.add(lowered)
             paths.append(value)
     return paths
+
+
+def _project_workspace_path(project: Project) -> str:
+    if project.workspace_mode == "cloud" and project.workspace_id:
+        return str(ensure_cloud_workspace(project.workspace_id, {
+            "projectId": project.id,
+            "projectName": project.name,
+        }))
+    return project.workspace_path

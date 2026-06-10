@@ -1,8 +1,8 @@
 # Phase 11：Cloud Preview 与 Deployment
 
-**版本**: v1.0  
-**创建日期**: 2026-06-08  
-**状态**: Draft  
+**版本**: v1.1
+**创建日期**: 2026-06-08
+**状态**: Completed
 **关联 ADR/PRD**: [AgentHub-多Agent协作平台设计](../../archive/AgentHub-多Agent协作平台设计.md)、[ADR-0010](../../adr/0010-message-level-artifact-experience.md)、[PRD-03](../../PRD/03-User_Experience.md)、[PRD-05](../../PRD/05-End_to_End_Product_Flow.md)、[PRD-06](../../PRD/06-MVP_Local_Workspace_Delivery.md)、[PRD-07](../../PRD/07-SaaS_Cloud_Workspace_Delivery.md)  
 **依赖模块**: Phase 9 Cloud Workspace Foundation、Phase 10 Sandbox Runner 与 Cloud Agent Runtime、Phase 8 Build/Export/Preview baseline
 
@@ -23,6 +23,8 @@ Phase 11 解决云端产物的外部可访问性和发布闭环。目标用户�
 - [ ] 用户批准后可创建 Deployment，前端显示 queued/install/build/upload/published/failed 阶段。
 - [ ] Deployment 成功后返回最终 URL，并与 Artifact 版本绑定。
 - [ ] Deployment 失败时有日志、错误摘要、重试和回滚路径。
+- [ ] P1 本地 preview/export/build 能力继续可用，不被 cloud preview/deploy 替换或隐藏。
+- [ ] 本阶段 SaaS 最小可运行切片为：cloud Artifact → preview URL → deployment job → stage 事件 → published/failed 终态。
 - [ ] 不通过标准：只给出本地 localhost 链接，或部署状态只做静态 UI 不接真实事件。
 
 ---
@@ -45,6 +47,15 @@ Phase 10 cloud Agent modifies workspace
 | **上游输入** | ApprovalService、Artifact version、SecretProvider | 发布前审批、版本绑定、部署密钥注入 |
 | **下游产出** | preview URL、deployment URL、deploy logs、deployment events | Artifact Card、Deployment Card、后续移动端通知消费 |
 | **本模块不通** | 团队评论、移动端推送、PPT/文档高级浏览 | Phase 12 负责 |
+
+### 2.3 双运行时兼容门禁
+
+Phase 11 的 cloud preview/deploy 是 P2 新能力，不替代 P1 本地交付能力：
+
+- local Project 的 preview 仍可使用 localhost 或本地服务地址，export 仍可生成本地包。
+- cloud Project 的 preview 必须返回非 localhost 的 cloud URL，并带鉴权、TTL 或 revoke 能力。
+- ArtifactCard 操作区可以扩展 DeploymentCard，但不得恢复右侧 Drawer，也不得移除 P1 本地预览/导出入口。
+- 阶段完成报告必须同时列出 P1 local build/preview/export 回归结果和 Phase 11 cloud preview/deploy 真实服务结果。
 
 ---
 
@@ -278,6 +289,8 @@ ArtifactCard
 - [ ] AC-P11-06: 部署失败时可查询日志、显示失败阶段、重试。
 - [ ] AC-P11-07: 用户权限不足时不能创建 preview/deployment。
 - [ ] AC-P11-08: Artifact Card 仍是消息级体验，不引入右侧 Drawer。
+- [ ] AC-P11-09: P1 local build、localhost preview、export zip/source bundle 真实服务回归通过。
+- [ ] AC-P11-10: Phase 11 cloud slice 在真实服务上完成 preview URL 创建、deployment stage 事件、published 或 failed 终态展示。
 
 ---
 
@@ -305,6 +318,12 @@ ArtifactCard
 - 点击发布，观察 Deployment Card 从 queued 到 published。
 - 模拟失败部署，查看日志并重试。
 
+### 8.4 P1/P2 兼容门禁
+
+- P1 local 回归：对本地 Artifact 执行 build、preview、export，确认 local URL 和导出包不依赖 CloudWorkspaceProvider。
+- P2 cloud slice：对 cloud Artifact 创建 preview 和 deployment，确认 URL 非 localhost，deployment stage 事件驱动 DeploymentCard。
+- 多端视口：桌面宽度验证 PreviewModal/DeploymentLogModal；移动宽度验证 preview/deploy 链接可查看或明确提示需在 Web 打开。
+
 ---
 
 ## 9. 架构约束追溯
@@ -322,10 +341,10 @@ ArtifactCard
 
 | 依赖模块 | 需要的接口 | 当前状态 |
 |---------|-----------|---------|
-| Phase 10 Sandbox/Runtime | build output、workspace files、artifact detection | 📋 计划中 |
-| Phase 9 Cloud Workspace | workspaceId、storage_uri、RBAC | 📋 计划中 |
+| Phase 10 Sandbox/Runtime | build output、workspace files、artifact detection | ✅ 已就绪（开发态 runner + 真实 CLI + Artifact/logs 契约） |
+| Phase 9 Cloud Workspace | workspaceId、storage_uri、RBAC | ✅ 已就绪（元数据基座；真实 preview/deploy 产物存储由 Phase 11 接入） |
 | ArtifactService | artifact/version metadata | ✅ P1 基线 |
-| SecretProvider | deploy target secrets | 📋 Phase 10 |
+| SecretProvider | deploy target secrets | ✅ Phase 10 已提供开发态 Secret 存储/注入/脱敏；生产 KMS 后续替换 |
 | Hosting provider adapter | static hosting publish/revoke | ❌ 未开始 |
 
 ---
@@ -351,4 +370,6 @@ ArtifactCard
 | Artifact Card | 仅预览/编辑/版本 | 增加 preview/deploy 状态 | 扩展现有 MessageArtifactStrip |
 
 > **版本历史**
+> - v1.2 (2026-06-09): 根据 Phase 11 实现与验收结果，将状态更新为 Completed；完整实现以当前代码和验收记录为准。
+> - v1.1 (2026-06-08): 增加 P1 本地交付能力零回归与 Phase 11 cloud preview/deploy 可运行切片门禁。
 > - v1.0 (2026-06-08): 按 `SPEC_TEMPLATE.md` 创建 Phase 11 独立 Spec。

@@ -15,6 +15,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.process_utils import hidden_subprocess_kwargs
 from ..core.timezone import china_now
 from ..event_bus.event_types import EventType
 from ..models import BuildLog, BuildRun, Project
@@ -65,6 +66,7 @@ class BuildService:
         artifact_path: str | None = None,
     ) -> BuildRun:
         project = await self._get_project(project_id)
+        self._ensure_local_project(project)
         workspace = self.provider.safe_resolve(project.workspace_path)
         if not workspace.is_dir():
             raise BuildValidationError("workspace not found")
@@ -174,6 +176,7 @@ class BuildService:
 
     async def export_source(self, project_id: str) -> tuple[bytes, str]:
         project = await self._get_project(project_id)
+        self._ensure_local_project(project)
         await self._ensure_no_active_build(project.id)
         root = self.provider.safe_resolve(project.workspace_path)
         data = _zip_path(root, root, archive_root_name=Path(project.workspace_path).name or "workspace")
@@ -181,6 +184,7 @@ class BuildService:
 
     async def export_build(self, project_id: str, build_id: str) -> tuple[bytes, str]:
         project = await self._get_project(project_id)
+        self._ensure_local_project(project)
         build = await self.get_build(project.id, build_id)
         if build.status != "succeeded":
             raise BuildNotReadyError("build is not completed")
@@ -202,6 +206,7 @@ class BuildService:
         build_id: str | None = None,
     ) -> dict:
         project = await self._get_project(project_id)
+        self._ensure_local_project(project)
         if source not in {"workspace", "build"}:
             raise BuildValidationError("unsupported preview source")
         entry = _clean_path(path)
@@ -235,6 +240,7 @@ class BuildService:
             cwd=str(workspace),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            **hidden_subprocess_kwargs(),
         )
         sequence = await self._next_log_sequence(build.id)
         stdout_task = asyncio.create_task(
@@ -360,6 +366,10 @@ class BuildService:
         if not project or project.status == "archived":
             raise BuildNotFoundError(project_id)
         return project
+
+    def _ensure_local_project(self, project: Project) -> None:
+        if project.workspace_mode == "cloud":
+            raise BuildValidationError("cloud workspace build/preview/export is available from Phase 11")
 
     async def _publish(self, event_type: EventType, payload: dict[str, Any]) -> None:
         if self.event_bus:

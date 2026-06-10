@@ -46,6 +46,23 @@ def test_stream_sanitizer_removes_ansi_and_carriage_returns():
     assert StreamSanitizer.clean("\x1b[31mError\x1b[0m\rDone") == "Error\nDone"
 
 
+def test_stream_sanitizer_removes_split_osc_and_opentui_residue():
+    sanitizer = StreamSanitizer()
+    assert sanitizer.clean_chunk("\x1b]1337;Capabilities") == ""
+    assert sanitizer.clean_chunk("66;w=1\x1b\\OpenCode visible") == "OpenCode visible"
+
+    noisy = (
+        "10;?11;?99;i=opentui-notifications:p=?;1337;Capabilities66;w=1; "
+        "OpenCode [0m ▄ Update Available esc A new release v1.17.0 is available."
+    )
+    cleaned = StreamSanitizer.clean(noisy)
+
+    assert "opentui" not in cleaned
+    assert "1337;Capabilities" not in cleaned
+    assert "[0m" not in cleaned
+    assert "Update Available" not in cleaned
+
+
 def test_prompt_interceptor_detects_confirm_prompt_across_chunks():
     interceptor = PromptInterceptor()
     assert interceptor.detect("Do you want") is None
@@ -559,6 +576,29 @@ def test_opencode_invocation_resumes_existing_engine_session():
     assert close_stdin is True
 
 
+def test_opencode_prepared_docker_invocation_appends_run_message():
+    adapter = OpenCodeAdapter()
+    args, stdin_prompt, close_stdin = adapter.prepare_prepared_invocation(
+        [
+            "run",
+            "--rm",
+            "-i",
+            "agenthub-runtime",
+            "opencode",
+            "run",
+            "--pure",
+            "--format",
+            "json",
+            "--dangerously-skip-permissions",
+        ],
+        "hello opencode\n",
+    )
+
+    assert args[-1] == "hello opencode\n"
+    assert stdin_prompt == ""
+    assert close_stdin is True
+
+
 def test_opencode_session_event_captures_engine_session_metadata():
     adapter = OpenCodeAdapter()
 
@@ -650,6 +690,53 @@ def test_codex_persistent_rpc_invocation_uses_mcp_server_tool_call():
     assert request.native_session_param == "arguments.threadId"
 
 
+def test_codex_persistent_rpc_invocation_preserves_docker_wrapper():
+    adapter = CodexAdapter()
+
+    args, request = adapter.prepare_persistent_rpc_invocation(
+        [
+            "run",
+            "--rm",
+            "-i",
+            "--workdir",
+            "/workspace",
+            "--mount",
+            "type=bind,source=D:/host,target=/workspace",
+            "agenthub-runtime",
+            "codex",
+            "exec",
+            "-c",
+            'model="gpt-5"',
+            "--skip-git-repo-check",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "--json",
+            "-",
+        ],
+        "hello from cloud",
+        cwd="D:/host",
+    )
+
+    assert args == [
+        "run",
+        "--rm",
+        "-i",
+        "--workdir",
+        "/workspace",
+        "--mount",
+        "type=bind,source=D:/host,target=/workspace",
+        "agenthub-runtime",
+        "codex",
+        "mcp-server",
+        "-c",
+        'model="gpt-5"',
+    ]
+    assert request.params["arguments"]["prompt"] == "hello from cloud"
+    assert request.params["arguments"]["cwd"] == "/workspace"
+    assert request.params["arguments"]["sandbox"] == "danger-full-access"
+    assert request.params["arguments"]["approval-policy"] == "never"
+    assert request.params["arguments"]["config"]["skip_git_repo_check"] is True
+
+
 def test_opencode_persistent_rpc_invocation_uses_acp_prompt():
     adapter = OpenCodeAdapter()
 
@@ -665,6 +752,46 @@ def test_opencode_persistent_rpc_invocation_uses_acp_prompt():
         "prompt": [{"type": "text", "text": "hello opencode"}],
     }
     assert request.native_session_param == "sessionId"
+
+
+def test_opencode_persistent_rpc_invocation_preserves_docker_wrapper():
+    adapter = OpenCodeAdapter()
+
+    args, request = adapter.prepare_persistent_rpc_invocation(
+        [
+            "run",
+            "--rm",
+            "-i",
+            "--workdir",
+            "/workspace",
+            "agenthub-runtime",
+            "opencode",
+            "run",
+            "--pure",
+            "--format",
+            "json",
+            "--dangerously-skip-permissions",
+        ],
+        "hello opencode\n",
+        cwd="D:/host/workspace",
+    )
+
+    assert args == [
+        "run",
+        "--rm",
+        "-i",
+        "--workdir",
+        "/workspace",
+        "agenthub-runtime",
+        "opencode",
+        "acp",
+        "--pure",
+        "--cwd",
+        "/workspace",
+    ]
+    assert "D:/host/workspace" not in args
+    assert request.method == "session/prompt"
+    assert request.params["prompt"] == [{"type": "text", "text": "hello opencode"}]
 
 
 def test_codex_proxy_settings_become_isolated_one_off_config_overrides():
@@ -697,7 +824,29 @@ def test_codex_proxy_settings_become_isolated_one_off_config_overrides():
     }
 
 
-def test_codex_proxy_settings_add_v1_to_gateway_origin():
+def test_codex_proxy_settings_keep_user_provider_id_and_env_key():
+    adapter = CodexAdapter()
+    args, env = adapter._apply_connection_settings(
+        ["exec", "--json", "-"],
+        {
+            "AGENTHUB_CODEX_CONNECTION": "proxy",
+            "AGENTHUB_CODEX_BASE_URL": "https://relay.example.com/custom-api",
+            "AGENTHUB_CODEX_API_KEY": "proxy-key",
+            "AGENTHUB_CODEX_MODEL": "relay-codex",
+            "AGENTHUB_CODEX_PROVIDER_ID": "OpenAI",
+            "AGENTHUB_CODEX_PROVIDER_NAME": "OpenAI",
+        },
+    )
+
+    joined = "\n".join(args)
+    assert 'model_provider="OpenAI"' in joined
+    assert 'model_providers.OpenAI.name="OpenAI"' in joined
+    assert 'model_providers.OpenAI.base_url="https://relay.example.com/custom-api"' in joined
+    assert 'model_providers.OpenAI.env_key="AGENTHUB_CODEX_PROVIDER_TOKEN"' in joined
+    assert env == {"AGENTHUB_CODEX_PROVIDER_TOKEN": "proxy-key"}
+
+
+def test_codex_proxy_settings_preserve_gateway_base_url():
     adapter = CodexAdapter()
     args, _ = adapter._apply_connection_settings(
         ["exec", "--json", "-"],
@@ -709,7 +858,7 @@ def test_codex_proxy_settings_add_v1_to_gateway_origin():
     )
 
     joined = "\n".join(args)
-    assert 'model_providers.agenthub_proxy.base_url="https://proxy.example.com/v1"' in joined
+    assert 'model_providers.agenthub_proxy.base_url="https://proxy.example.com"' in joined
 
 
 def test_codex_proxy_requires_scoped_api_key():
@@ -742,13 +891,8 @@ def test_codex_auto_detects_proxy_provider_from_codex_home(tmp_path, monkeypatch
 
     args, env = CodexAdapter()._apply_connection_settings(["exec", "--json", "-"], {})
 
-    joined = "\n".join(args)
-    assert "--ignore-user-config" in args
-    assert 'model="gpt-5.5"' in joined
-    assert 'model_providers.agenthub_proxy.name="Local Proxy"' in joined
-    assert 'model_providers.agenthub_proxy.base_url="https://proxy.example.com/v1"' in joined
-    assert 'model_providers.agenthub_proxy.env_key="AGENTHUB_CODEX_PROVIDER_TOKEN"' in joined
-    assert env == {"AGENTHUB_CODEX_PROVIDER_TOKEN": "proxy-key"}
+    assert args == ["exec", "--json", "-"]
+    assert env == {"OPENAI_API_KEY": "proxy-key"}
 
 
 def test_codex_auto_detects_command_backed_proxy_auth(tmp_path, monkeypatch):
@@ -774,11 +918,8 @@ def test_codex_auto_detects_command_backed_proxy_auth(tmp_path, monkeypatch):
 
     args, env = CodexAdapter()._apply_connection_settings(["exec", "--json", "-"], {})
 
-    joined = "\n".join(args)
-    assert "--ignore-user-config" in args
-    assert 'model_providers.agenthub_proxy.base_url="https://proxy.example.com/v1"' in joined
-    assert 'model_providers.agenthub_proxy.env_key="AGENTHUB_CODEX_PROVIDER_TOKEN"' in joined
-    assert env == {"AGENTHUB_CODEX_PROVIDER_TOKEN": "proxy-key"}
+    assert args == ["exec", "--json", "-"]
+    assert env == {"CODEX_API_KEY": "proxy-key"}
 
 
 def test_codex_auto_detects_official_openai_base_url(tmp_path, monkeypatch):
@@ -793,10 +934,7 @@ def test_codex_auto_detects_official_openai_base_url(tmp_path, monkeypatch):
 
     args, env = CodexAdapter()._apply_connection_settings(["exec", "--json", "-"], {})
 
-    joined = "\n".join(args)
-    assert "--ignore-user-config" in args
-    assert 'model_providers.agenthub_proxy.base_url="https://api.openai.com/v1"' in joined
-    assert "requires_openai_auth=true" in joined
+    assert args == ["exec", "--json", "-"]
     assert env == {}
 
 

@@ -9,16 +9,19 @@ const apiMocks = vi.hoisted(() => ({
   addGroupMember: vi.fn(),
   archiveProject: vi.fn(),
   archiveSession: vi.fn(),
+  createTeam: vi.fn(),
   createGroupSession: vi.fn(),
   createProject: vi.fn(),
   createSession: vi.fn(),
   deleteProject: vi.fn(),
   deleteSession: vi.fn(),
   fetchAgents: vi.fn(),
+  fetchCurrentUser: vi.fn(),
   fetchApprovals: vi.fn(),
   fetchArtifacts: vi.fn(),
   fetchMessages: vi.fn(),
   fetchProjects: vi.fn(),
+  fetchTeams: vi.fn(),
   fetchRuns: vi.fn(),
   fetchSessionMembers: vi.fn(),
   fetchSessions: vi.fn(),
@@ -92,6 +95,9 @@ const projects: Project[] = [
     id: "p-a",
     name: "项目 A",
     workspacePath: "D:/workspace/a",
+    workspaceMode: "local",
+    workspaceId: null,
+    teamId: null,
     status: "ready",
     fileCount: 0,
     totalSizeBytes: 0,
@@ -101,10 +107,26 @@ const projects: Project[] = [
     id: "p-b",
     name: "项目 B",
     workspacePath: "D:/workspace/b",
+    workspaceMode: "local",
+    workspaceId: null,
+    teamId: null,
     status: "ready",
     fileCount: 0,
     totalSizeBytes: 0,
     createdAt: "2026-06-06T00:00:00.000Z",
+  },
+];
+
+const mixedProjects: Project[] = [
+  projects[0],
+  {
+    ...projects[1],
+    id: "p-cloud",
+    name: "云端项目",
+    workspacePath: null,
+    workspaceMode: "cloud",
+    workspaceId: "w1",
+    teamId: "t1",
   },
 ];
 
@@ -137,6 +159,13 @@ describe("useWorkspaceRuntime hydration", () => {
     resetStores();
     apiMocks.fetchProjects.mockResolvedValue(projects);
     apiMocks.fetchAgents.mockResolvedValue([]);
+    apiMocks.fetchCurrentUser.mockResolvedValue({
+      id: "u1",
+      email: "demo@agenthub.local",
+      displayName: "Demo",
+      createdAt: "",
+    });
+    apiMocks.fetchTeams.mockResolvedValue([]);
     apiMocks.fetchSessions.mockImplementation((projectId?: string | null) => (
       Promise.resolve(projectId === "p-a" ? [sessionA] : [])
     ));
@@ -173,6 +202,13 @@ describe("useWorkspaceRuntime hydration", () => {
     resetStores();
     apiMocks.fetchProjects.mockResolvedValue(projects);
     apiMocks.fetchAgents.mockResolvedValue([]);
+    apiMocks.fetchCurrentUser.mockResolvedValue({
+      id: "u1",
+      email: "demo@agenthub.local",
+      displayName: "Demo",
+      createdAt: "",
+    });
+    apiMocks.fetchTeams.mockResolvedValue([]);
     apiMocks.fetchSessions.mockResolvedValue([sessionA]);
     apiMocks.fetchMessages.mockResolvedValue([hydratedMessage]);
     apiMocks.fetchArtifacts.mockResolvedValue([]);
@@ -208,5 +244,22 @@ describe("useWorkspaceRuntime hydration", () => {
     });
 
     await waitFor(() => expect(result.current.sessions[0].title).toBe("自动总结标题"));
+  });
+
+  it("local runtime 只加载本机项目且不请求云端身份", async () => {
+    resetStores();
+    apiMocks.fetchProjects.mockResolvedValue(mixedProjects);
+    apiMocks.fetchAgents.mockResolvedValue([]);
+    apiMocks.fetchSessions.mockResolvedValue([]);
+    apiMocks.fetchSystemHealth.mockResolvedValue(null);
+
+    const { result } = renderHook(() => useWorkspaceRuntime({
+      projectMode: "local",
+      loadCloudIdentity: false,
+    }));
+
+    await waitFor(() => expect(result.current.projects.map((item) => item.workspaceMode)).toEqual(["local"]));
+    expect(apiMocks.fetchCurrentUser).not.toHaveBeenCalled();
+    expect(apiMocks.fetchTeams).not.toHaveBeenCalled();
   });
 });

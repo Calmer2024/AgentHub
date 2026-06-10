@@ -1,29 +1,59 @@
+from pathlib import Path
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..config import settings
 from ..database import get_db
 from ..models import AgentConfig
 from ..agents.cli_runtime_registry import cli_runtime_registry
 from ..services.cli_agent_registry import (
     CliAgentNotFoundError,
     CliAgentRegistry,
+    ExecutableStatus,
     InvalidCliAgentError,
     decode_json_dict,
     decode_json_list,
 )
 from ..services.agent_seed import (
     configure_builtin_role_agents_as_codex,
+    ensure_user_default_cli_agents,
     seed_default_cli_agents,
 )
 from ..services.codex_local_config_service import (
     CodexLocalConfigError,
     CodexLocalConfigService,
 )
+from ..services.auth_service import AuthRequiredError, AuthService, cloud_auth_required
 
-router = APIRouter(prefix="/agents", tags=["agents"])
+
+RUNTIME_CLI_TOOLS = {
+    "claude_code": "claude",
+    "codex": "codex",
+    "opencode": "opencode",
+}
+RUNTIME_EXECUTABLE_TOOLS = {"claude", "codex", "opencode"}
+
+
+async def require_agents_api_access(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    if not cloud_auth_required():
+        return
+    try:
+        await AuthService(db).require_request_user(request)
+    except AuthRequiredError:
+        raise HTTPException(status_code=401, detail="请先登录后继续")
+
+
+router = APIRouter(
+    prefix="/agents",
+    tags=["agents"],
+    dependencies=[Depends(require_agents_api_access)],
+)
 
 
 class AgentConfigCreate(BaseModel):
@@ -91,8 +121,8 @@ class AgentConfigRead(BaseModel):
     model_config = {"from_attributes": True, "populate_by_name": True}
 
     @classmethod
-    def from_model(cls, agent: AgentConfig):
-        status = CliAgentRegistry.executable_status(agent.executable)
+    def from_model(cls, agent: AgentConfig, *, include_version: bool = False):
+        status = _agent_executable_status(agent, include_version=include_version)
         return cls(
             id=agent.id,
             name=agent.name,
@@ -116,6 +146,50 @@ class AgentConfigRead(BaseModel):
             created_at=agent.created_at.isoformat() if agent.created_at else "",
             updated_at=agent.updated_at.isoformat() if agent.updated_at else "",
         )
+
+
+def _agent_executable_status(agent: AgentConfig, *, include_version: bool = False) -> ExecutableStatus:
+    runtime_status = _cloud_runtime_executable_status(agent)
+    if runtime_status:
+        return runtime_status
+    return CliAgentRegistry.executable_status(agent.executable, include_version=include_version)
+
+
+def _cloud_runtime_executable_status(agent: AgentConfig) -> ExecutableStatus | None:
+    if not cloud_auth_required():
+        return None
+    if settings.agenthub_runner_provider.strip().lower() not in {"docker", "ssh_docker", "remote_docker"}:
+        return None
+    tool = _runtime_tool_name(agent)
+    if not tool:
+        return None
+    images = _configured_runtime_images()
+    if any(tool in image.lower() for image in images):
+        return ExecutableStatus(
+            status="ready",
+            version=f"{tool} 由云端 Runtime Image 提供",
+            executable_path=None,
+        )
+    return None
+
+
+def _runtime_tool_name(agent: AgentConfig) -> str | None:
+    cli_tool = (agent.cli_tool or "").strip().lower()
+    if cli_tool in RUNTIME_CLI_TOOLS:
+        return RUNTIME_CLI_TOOLS[cli_tool]
+    executable = Path(agent.executable or "").name.lower()
+    if executable in RUNTIME_EXECUTABLE_TOOLS:
+        return executable
+    return None
+
+
+def _configured_runtime_images() -> list[str]:
+    configured = [
+        item.strip()
+        for item in (settings.agenthub_runtime_images or "").split(",")
+        if item.strip()
+    ]
+    return [item.lower() for item in (configured or [settings.agenthub_runtime_image]) if item.strip()]
 
 
 class CodexLocalConfigRead(BaseModel):
@@ -153,34 +227,50 @@ class CodexLocalConfigUpdate(BaseModel):
     model_config = {"populate_by_name": True}
 
 
-def _registry(db: AsyncSession) -> CliAgentRegistry:
-    return CliAgentRegistry(db)
+async def _owner_user_id_for_agents(request: Request, db: AsyncSession) -> str | None:
+    if not cloud_auth_required():
+        return None
+    try:
+        user = await AuthService(db).require_request_user(request)
+    except AuthRequiredError:
+        raise HTTPException(status_code=401, detail="请先登录后继续")
+    await ensure_user_default_cli_agents(db, user.id)
+    return user.id
+
+
+def _registry(db: AsyncSession, owner_user_id: str | None = None) -> CliAgentRegistry:
+    return CliAgentRegistry(db, owner_user_id=owner_user_id)
 
 
 @router.get("", response_model=List[AgentConfigRead])
-async def list_agents(db: AsyncSession = Depends(get_db)):
-    agents = await _registry(db).list_active()
+async def list_agents(request: Request, db: AsyncSession = Depends(get_db)):
+    owner_user_id = await _owner_user_id_for_agents(request, db)
+    agents = await _registry(db, owner_user_id).list_active()
     return [AgentConfigRead.from_model(agent) for agent in agents]
 
 
 @router.post("/seed-defaults", response_model=List[AgentConfigRead])
-async def seed_default_agents(db: AsyncSession = Depends(get_db)):
-    await seed_default_cli_agents(db)
-    agents = await _registry(db).list_active()
+async def seed_default_agents(request: Request, db: AsyncSession = Depends(get_db)):
+    owner_user_id = await _owner_user_id_for_agents(request, db)
+    if owner_user_id is None:
+        await seed_default_cli_agents(db)
+    agents = await _registry(db, owner_user_id).list_active()
     return [AgentConfigRead.from_model(agent) for agent in agents]
 
 
 @router.post("/configure-builtins-codex", response_model=List[AgentConfigRead])
-async def configure_builtin_agents_codex(db: AsyncSession = Depends(get_db)):
-    await configure_builtin_role_agents_as_codex(db)
-    agents = await _registry(db).list_active()
+async def configure_builtin_agents_codex(request: Request, db: AsyncSession = Depends(get_db)):
+    owner_user_id = await _owner_user_id_for_agents(request, db)
+    await configure_builtin_role_agents_as_codex(db, owner_user_id=owner_user_id)
+    agents = await _registry(db, owner_user_id).list_active()
     return [AgentConfigRead.from_model(agent) for agent in agents]
 
 
 @router.post("", response_model=AgentConfigRead, status_code=201)
-async def create_agent(data: AgentConfigCreate, db: AsyncSession = Depends(get_db)):
+async def create_agent(data: AgentConfigCreate, request: Request, db: AsyncSession = Depends(get_db)):
+    owner_user_id = await _owner_user_id_for_agents(request, db)
     try:
-        agent = await _registry(db).create(data)
+        agent = await _registry(db, owner_user_id).create(data)
     except InvalidCliAgentError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return AgentConfigRead.from_model(agent)
@@ -190,7 +280,7 @@ async def create_agent(data: AgentConfigCreate, db: AsyncSession = Depends(get_d
 async def check_executable(path: str):
     if not path.strip():
         raise HTTPException(status_code=400, detail="path must not be empty")
-    return CliAgentRegistry.executable_status(path).to_api()
+    return CliAgentRegistry.executable_status(path, include_version=True).to_api()
 
 
 @router.get("/codex-config", response_model=CodexLocalConfigRead)
@@ -221,18 +311,20 @@ async def list_cli_processes(sessionId: str | None = None):
 
 
 @router.get("/{agent_id}", response_model=AgentConfigRead)
-async def get_agent(agent_id: str, db: AsyncSession = Depends(get_db)):
+async def get_agent(agent_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    owner_user_id = await _owner_user_id_for_agents(request, db)
     try:
-        agent = await _registry(db).get(agent_id)
+        agent = await _registry(db, owner_user_id).get(agent_id)
     except CliAgentNotFoundError:
         raise HTTPException(status_code=404, detail="Agent 不存在")
     return AgentConfigRead.from_model(agent)
 
 
 @router.patch("/{agent_id}", response_model=AgentConfigRead)
-async def update_agent(agent_id: str, data: AgentConfigUpdate, db: AsyncSession = Depends(get_db)):
+async def update_agent(agent_id: str, data: AgentConfigUpdate, request: Request, db: AsyncSession = Depends(get_db)):
+    owner_user_id = await _owner_user_id_for_agents(request, db)
     try:
-        agent = await _registry(db).update(agent_id, data)
+        agent = await _registry(db, owner_user_id).update(agent_id, data)
     except CliAgentNotFoundError:
         raise HTTPException(status_code=404, detail="Agent 不存在")
     except InvalidCliAgentError as exc:
@@ -241,9 +333,10 @@ async def update_agent(agent_id: str, data: AgentConfigUpdate, db: AsyncSession 
 
 
 @router.delete("/{agent_id}")
-async def delete_agent(agent_id: str, db: AsyncSession = Depends(get_db)):
+async def delete_agent(agent_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    owner_user_id = await _owner_user_id_for_agents(request, db)
     try:
-        await _registry(db).soft_delete(agent_id)
+        await _registry(db, owner_user_id).soft_delete(agent_id)
     except CliAgentNotFoundError:
         raise HTTPException(status_code=404, detail="Agent 不存在")
     return {"ok": True}

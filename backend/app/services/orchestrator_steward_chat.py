@@ -18,7 +18,7 @@ from ..core.timezone import china_now
 from ..domain.orchestrator_plan import extract_json_object
 from ..models import AgentConfig, Message as DBMessage, Session as DBSession
 from .cli_agent_service import CliAgentService
-from .run_service import RunService, run_to_read, task_to_read
+from .run_service import RunNotFoundError, RunService, run_to_read, task_to_read
 from .session_service import SessionService
 
 
@@ -540,5 +540,8 @@ def _float_or_zero(value: object) -> float:
 
 
 async def _run_is_cancelled(run_service: RunService, run_id: str) -> bool:
-    run = await run_service.get_run(run_id)
+    try:
+        run = await run_service.get_run(run_id)
+    except RunNotFoundError:
+        return False
     return run.status in {"cancelling", "cancelled"}

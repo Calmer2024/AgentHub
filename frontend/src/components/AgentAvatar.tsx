@@ -61,6 +61,12 @@ export const AGENT_AVATAR_PRESETS: Array<{
   className: string;
 }> = [
   {
+    id: "preset:custom",
+    label: "自定义",
+    icon: Sparkles,
+    className: "border-teal-100/35 bg-[linear-gradient(135deg,#0f766e,#334155,#f59e0b)] text-white",
+  },
+  {
     id: "preset:blue",
     label: "蓝图",
     icon: Code2,
@@ -98,6 +104,8 @@ export const AGENT_AVATAR_PRESETS: Array<{
   },
 ];
 
+export const CUSTOM_AGENT_DEFAULT_AVATAR = "preset:custom";
+
 type ResolvedCustomAvatar = {
   label: string;
   icon: LucideIcon;
@@ -107,8 +115,8 @@ type ResolvedCustomAvatar = {
 
 const TOOL_LOOK: Record<string, { icon: LucideIcon; className: string }> = {
   custom: {
-    icon: Cpu,
-    className: "border-fuchsia-300/25 bg-fuchsia-400/15 text-fuchsia-100",
+    icon: Sparkles,
+    className: "border-teal-100/35 bg-[linear-gradient(135deg,#0f766e,#334155,#f59e0b)] text-white",
   },
 };
 
