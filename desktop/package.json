@@ -3,6 +3,15 @@
   "private": true,
   "version": "0.1.0",
   "scripts": {
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "build:frontend": "node scripts/build-local-frontend.mjs",
+    "build:backend": "node scripts/build-backend-sidecar.mjs",
+    "build:tauri": "node scripts/build-tauri-release.mjs",
+    "package:portable": "node scripts/package-portable.mjs",
+    "build": "npm run smoke && npm run build:backend && npm run build:frontend && npm run build:tauri && npm run package:portable",
+    "build:installer": "npm run smoke && npm run build:backend && npx tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0"
   }
 }

@@ -5,7 +5,7 @@
   "identifier": "local.agenthub.desktop",
   "build": {
     "beforeDevCommand": "cd ../frontend && npm run dev:local",
-    "beforeBuildCommand": "cd ../frontend && npm run build:local",
+    "beforeBuildCommand": "npm run build:frontend",
     "devUrl": "http://127.0.0.1:5173",
     "frontendDist": "../../frontend/dist-local"
   },
@@ -19,5 +19,10 @@
         "minHeight": 720
       }
     ]
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "resources": ["resources/agenthub-backend.exe"]
   }
 }

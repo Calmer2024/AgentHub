@@ -6,3 +6,4 @@ pydantic-settings>=2.2.0
 openai>=1.0.0
 python-multipart>=0.0.9
 tzdata>=2024.1
+paramiko>=3.4.0

@@ -32,6 +32,13 @@ frontend/dist-saas/
 frontend/dist-mobile/
 frontend/test-results/
 *.local
+.acceptance-*.log
+
+# Desktop build artifacts
+desktop/src-tauri/target/
+desktop/src-tauri/gen/
+desktop/src-tauri/resources/
+deploy/desktop-demo/
 
 # Database
 *.db
