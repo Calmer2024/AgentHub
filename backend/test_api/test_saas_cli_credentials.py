@@ -130,6 +130,47 @@ async def test_cli_credentials_save_status_and_runtime_config(test_client, db_se
 
 
 @pytest.mark.asyncio
+async def test_cloud_system_health_uses_user_credentials_and_runtime_image(test_client):
+    _agent, _project, session = await _create_codex_cloud_session(test_client)
+
+    initial = await test_client.get(f"/api/system/health?sessionId={session['id']}", headers=OWNER)
+    assert initial.status_code == 200, initial.text
+    initial_body = initial.json()
+    initial_items = {item["key"]: item for item in initial_body["items"]}
+    assert "agent.codex.config" not in initial_items
+    assert "runtime.node" not in initial_items
+    assert initial_items["cloud.runtime.image"]["status"] == "ok"
+    assert initial_items["cloud.credentials.codex"]["status"] == "warning"
+    assert initial_items["system.deepseek"]["status"] == "ok"
+    assert initial_body["overall"] == "warning"
+    assert "codex-secret-value" not in initial.text
+
+    saved = await test_client.put(
+        "/api/cli-credentials/codex",
+        json={
+            "providerType": "proxy",
+            "providerId": "OpenAI",
+            "providerName": "OpenAI",
+            "baseUrl": "https://relay.example/v1",
+            "model": "gpt-5.5",
+            "authEnvKey": "OPENAI_API_KEY",
+            "apiKey": "codex-secret-value",
+        },
+        headers=OWNER,
+    )
+    assert saved.status_code == 200, saved.text
+
+    ready = await test_client.get(f"/api/system/health?sessionId={session['id']}", headers=OWNER)
+    assert ready.status_code == 200, ready.text
+    ready_body = ready.json()
+    ready_items = {item["key"]: item for item in ready_body["items"]}
+    assert ready_items["cloud.credentials.codex"]["status"] == "ok"
+    assert ready_items["cloud.credentials.codex"]["metadata"]["configured"] is True
+    assert ready_body["overall"] == "ok"
+    assert "codex-secret-value" not in ready.text
+
+
+@pytest.mark.asyncio
 async def test_opencode_model_catalog_uses_models_dev_source(test_client, monkeypatch):
     def fake_models(provider_id: str):
         assert provider_id == "deepseek"
