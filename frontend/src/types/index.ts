@@ -257,6 +257,14 @@ export interface Artifact {
   filePath?: string | null;
   previewId?: string | null;
   source?: string | null;
+  previewKind?: "html" | "markdown" | "pdf" | "image" | "presentation" | "word" | "spreadsheet" | "text" | "diff" | "file_tree" | string;
+  previewLabel?: string | null;
+  mediaType?: string | null;
+  fileExtension?: string | null;
+  canInlinePreview?: boolean;
+  isBinary?: boolean;
+  rawUrl?: string | null;
+  downloadUrl?: string | null;
   createdAt: string;
 }
 
@@ -411,6 +419,10 @@ export interface RenderedArtifact {
   renderId: string;
   content: string;
   fileName: string;
+  previewKind?: string;
+  mediaType?: string | null;
+  rawUrl?: string | null;
+  downloadUrl?: string | null;
 }
 
 export interface AgentTemplateSession {
@@ -474,6 +486,7 @@ export type TeamRole = "owner" | "admin" | "member" | "viewer";
 export interface CurrentUser {
   id: string;
   email: string;
+  username?: string | null;
   displayName: string;
   avatarUrl?: string | null;
   status?: string;
@@ -490,7 +503,7 @@ export interface CurrentUser {
 export interface AuthProvider {
   id: string;
   label: string;
-  type: "email" | "external" | "dev_header";
+  type: "email" | "password" | "external" | "dev_header";
   enabled: boolean;
   devOnly: boolean;
 }
@@ -501,6 +514,57 @@ export interface AuthSession {
   tokenType: "bearer";
   expiresAt: string;
   user: CurrentUser;
+}
+
+export type CliCredentialTool = "claude_code" | "codex" | "opencode";
+export type CliCredentialProviderType = "official" | "proxy" | "cc_switch" | "custom";
+
+export interface CliCredentialConfig {
+  cliTool: CliCredentialTool;
+  scope: "user" | "team" | "project" | string;
+  ownerId: string;
+  providerType: CliCredentialProviderType | string;
+  providerId: string;
+  providerName: string;
+  baseUrl?: string | null;
+  model?: string | null;
+  authEnvKey: string;
+  configured: boolean;
+  secretNames: string[];
+  config?: Record<string, unknown>;
+  updatedAt?: string | null;
+}
+
+export interface CliCredentialUpdateInput {
+  scope?: "user" | "team" | "project";
+  ownerId?: string | null;
+  providerType?: CliCredentialProviderType;
+  providerId?: string | null;
+  providerName?: string | null;
+  baseUrl?: string | null;
+  model?: string | null;
+  authEnvKey?: string | null;
+  apiKey?: string | null;
+  config?: Record<string, unknown>;
+}
+
+export interface CliModelOption {
+  id: string;
+  name: string;
+  label: string;
+  providerId: string;
+  reasoning: boolean;
+  toolCall: boolean;
+  context?: number | null;
+  output?: number | null;
+  lastUpdated?: string | null;
+}
+
+export interface CliModelList {
+  cliTool: CliCredentialTool;
+  providerId: string;
+  source: string;
+  items: CliModelOption[];
 }
 
 export interface Team {
@@ -570,13 +634,37 @@ export type RuntimeMode = "local" | "cloud";
 export interface Sandbox {
   id: string;
   workspaceId: string;
-  status: "creating" | "ready" | "stopping" | "stopped" | "failed" | string;
+  status: "creating" | "provisioning" | "ready" | "running" | "syncing" | "stopping" | "stopped" | "disposed" | "failed" | string;
   image: string;
   runnerNodeId?: string | null;
+  provider?: string | null;
+  externalId?: string | null;
+  region?: string | null;
   resourceLimits: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
   stoppedAt?: string | null;
+  disposedAt?: string | null;
+}
+
+export interface RuntimeImage {
+  id: string;
+  label: string;
+  image: string;
+  provider: string;
+  default: boolean;
+  tools: string[];
+  createdAt?: string | null;
+}
+
+export interface RunnerNode {
+  id: string;
+  provider: string;
+  region?: string | null;
+  status: string;
+  capacity: Record<string, unknown>;
+  lastHeartbeatAt?: string | null;
+  createdAt: string;
 }
 
 export interface QuotaSummary {

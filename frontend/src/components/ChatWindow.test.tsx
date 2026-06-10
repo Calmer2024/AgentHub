@@ -229,4 +229,47 @@ describe("ChatWindow runtime cancel", () => {
     expect(screen.getByText(/本次运行已中止成功/)).toBeInTheDocument();
     expect(screen.queryByText("正在生成")).not.toBeInTheDocument();
   });
+
+  it("当前空回复占位在流式运行中不显示冗余等待态", () => {
+    resetStore();
+    useChatStore.setState({
+      messages: [{
+        id: "m-pending",
+        sessionId: "s-cancel",
+        role: "assistant",
+        content: "",
+        agentName: agent.name,
+        createdAt: "2026-06-06T00:00:00.000Z",
+      }],
+      messagesBySession: {
+        "s-cancel": [{
+          id: "m-pending",
+          sessionId: "s-cancel",
+          role: "assistant",
+          content: "",
+          agentName: agent.name,
+          createdAt: "2026-06-06T00:00:00.000Z",
+        }],
+      },
+      isStreaming: true,
+      activeStreamKey: "stream-pending",
+      activeStreamsByKey: {
+        "stream-pending": { sessionId: "s-cancel", abort: vi.fn() },
+      },
+      runtimeBySession: {
+        "s-cancel": {
+          isStreaming: true,
+          activeStreamKey: "stream-pending",
+          activeRunId: null,
+          activeStreamAbort: vi.fn(),
+          activeProgress: null,
+        },
+      },
+    });
+
+    render(<Harness />);
+
+    expect(screen.queryByLabelText("正在等待 Agent 回复")).not.toBeInTheDocument();
+    expect(screen.queryByText("未返回可见回复")).not.toBeInTheDocument();
+  });
 });

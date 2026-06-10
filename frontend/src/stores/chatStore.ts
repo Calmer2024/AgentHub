@@ -716,7 +716,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
           exitCode: currentTrace?.exitCode ?? null,
           items: [...(currentTrace?.items ?? []), item].slice(-300),
         };
-        return { ...m, metadata };
+        return {
+          ...m,
+          agentName: m.agentName ?? seed?.agentName ?? currentTrace?.agentName ?? null,
+          metadata,
+        };
       });
       return {
         messagesBySession: { ...s.messagesBySession, [sessionId]: messages },

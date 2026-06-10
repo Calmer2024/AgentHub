@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { FileCode2, FileText, Files, Globe2, LayoutPanelTop, Search, X } from "lucide-react";
+import { FileCode2, FileImage, FileText, Files, Globe2, LayoutPanelTop, Search, X } from "lucide-react";
 import type { Artifact } from "../types";
 import { ArtifactCard } from "./ArtifactCard";
+import { getArtifactPreviewInfo } from "../utils/artifactPreview";
 
 interface Props {
   open: boolean;
@@ -11,19 +12,18 @@ interface Props {
   onChanged?: () => void;
 }
 
-function typeIcon(type: Artifact["type"]) {
+function typeIcon(artifact: Artifact) {
   const props = { size: 15, "aria-hidden": true };
-  if (type === "web_preview") return <Globe2 {...props} />;
-  if (type === "code_diff") return <FileCode2 {...props} />;
-  if (type === "file_tree") return <Files {...props} />;
+  const preview = getArtifactPreviewInfo(artifact);
+  if (preview.kind === "html") return <Globe2 {...props} />;
+  if (preview.kind === "diff") return <FileCode2 {...props} />;
+  if (preview.kind === "file_tree") return <Files {...props} />;
+  if (preview.kind === "image") return <FileImage {...props} />;
   return <FileText {...props} />;
 }
 
-function typeLabel(type: Artifact["type"]) {
-  if (type === "web_preview") return "网页";
-  if (type === "code_diff") return "Diff";
-  if (type === "file_tree") return "文件";
-  return "文档";
+function typeLabel(artifact: Artifact) {
+  return getArtifactPreviewInfo(artifact).shortLabel;
 }
 
 export function SessionArtifactManager({ open, artifacts, onClose, onChanged }: Props) {
@@ -133,14 +133,14 @@ export function SessionArtifactManager({ open, artifacts, onClose, onChanged }: 
                         }`}
                       >
                         <span className="agenthub-soft inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border">
-                          {typeIcon(artifact.type)}
+                          {typeIcon(artifact)}
                         </span>
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-sm font-medium">
                             {artifact.title || artifact.filePath || "产物"}
                           </span>
                           <span className="agenthub-faint mt-0.5 block truncate text-[11px]">
-                            {typeLabel(artifact.type)} · v{artifact.version}
+                            {typeLabel(artifact)} · v{artifact.version}
                             {artifact.filePath ? ` · ${artifact.filePath}` : ""}
                           </span>
                         </span>

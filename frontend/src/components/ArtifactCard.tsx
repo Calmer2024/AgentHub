@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type {
   Artifact,
   ArtifactDiff,
@@ -26,9 +28,11 @@ import {
   startProjectBuild,
 } from "../api/client";
 import {
+  Download,
   ExternalLink,
   FilePenLine,
   FileCode2,
+  FileImage,
   FileText,
   Files,
   GitCompareArrows,
@@ -46,6 +50,7 @@ import { ArtifactVersionManager } from "./ArtifactVersionManager";
 import { useCapabilities } from "../app/ShellProvider";
 import { LocalArtifactActions } from "../features/artifacts/LocalArtifactActions";
 import { CloudArtifactActions } from "../features/artifacts/CloudArtifactActions";
+import { artifactDisplayTitle, getArtifactPreviewInfo, isMetadataOnlyContent } from "../utils/artifactPreview";
 
 interface Props {
   artifact: Artifact;
@@ -59,17 +64,16 @@ interface FileTreeChange {
 }
 
 function artifactLabel(artifact: Artifact) {
-  if (artifact.type === "code_diff") return "代码变更";
-  if (artifact.type === "web_preview") return "网页预览";
-  if (artifact.type === "file_tree") return "文件变更";
-  return "文档";
+  return getArtifactPreviewInfo(artifact).label;
 }
 
 function artifactIcon(artifact: Artifact, className = "agenthub-muted") {
   const props = { size: 15, className: `shrink-0 ${className}`, "aria-hidden": true };
-  if (artifact.type === "code_diff") return <FileCode2 {...props} />;
-  if (artifact.type === "web_preview") return <Globe2 {...props} />;
-  if (artifact.type === "file_tree") return <Files {...props} />;
+  const preview = getArtifactPreviewInfo(artifact);
+  if (preview.kind === "diff" || artifact.type === "code_diff") return <FileCode2 {...props} />;
+  if (preview.kind === "html" || artifact.type === "web_preview") return <Globe2 {...props} />;
+  if (preview.kind === "file_tree" || artifact.type === "file_tree") return <Files {...props} />;
+  if (preview.kind === "image") return <FileImage {...props} />;
   return <FileText {...props} />;
 }
 
@@ -294,15 +298,17 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
     return latestVersion?.content ?? artifact.content;
   }, [artifact.content, latestVersion?.content]);
 
-  const iframeProps = previewUrl
-    ? { src: previewUrl }
+  const previewInfo = useMemo(() => getArtifactPreviewInfo(artifact), [artifact]);
+  const artifactFileUrl = previewUrl ?? previewInfo.rawUrl;
+  const iframeProps = artifactFileUrl && previewInfo.kind === "html"
+    ? { src: artifactFileUrl }
     : { srcDoc: displayedContent };
 
   const fileTreeChanges = useMemo(() => parseFileTreeChanges(displayedContent), [displayedContent]);
   const contentDiff = useMemo(() => normalizeDiffContent(displayedContent), [displayedContent]);
   const inspectorDiff = diff;
   const showInspector = artifact.type === "code_diff" || Boolean(inspectorDiff);
-  const canEditArtifact = artifact.type !== "file_tree" && (
+  const canEditArtifact = !previewInfo.isBinary && artifact.type !== "file_tree" && (
     artifact.type !== "code_diff" || Boolean(artifact.projectId && artifact.filePath)
   );
   const canManageVersions = true;
@@ -312,10 +318,11 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
   const showLocalActions = projectActionsEnabled && (canUseLocalPreview || canUseLocalBuildExport);
   const showCloudActions = projectActionsEnabled && (canUseCloudPreview || canUseDeployment);
   const canEditInShell = capabilities.surface !== "mobile";
-  const previewLabel = showCloudActions && !showLocalActions ? "云端预览" : "本机工作区预览";
+  const previewLabel = showCloudActions && !showLocalActions ? "云端预览" : "工作区预览";
 
   const openExternalPreview = () => {
-    if (previewUrl) window.open(previewUrl, "_blank", "noopener,noreferrer");
+    const url = artifactFileUrl ?? previewInfo.downloadUrl;
+    if (url) window.open(url, "_blank", "noopener,noreferrer");
   };
 
   const refreshBuilds = async () => {
@@ -561,7 +568,7 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
             <div className="flex items-center gap-2">
               {showLocalActions && renderBuildActions()}
               {showCloudActions && renderDeliveryActions()}
-              {previewUrl && artifact.type === "web_preview" && (
+              {artifactFileUrl && (
                 <button
                   type="button"
                   onClick={openExternalPreview}
@@ -618,7 +625,7 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
                 iframeProps={iframeProps}
                 previewLoading={previewLoading}
                 previewError={previewError}
-                previewUrl={previewUrl}
+                previewUrl={artifactFileUrl}
                 previewLabel={previewLabel}
                 onEditFile={(change) => setEditingFile(change)}
               />
@@ -770,6 +777,17 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
           <div className="flex shrink-0 items-center gap-1">
             {showLocalActions && renderBuildActions()}
             {showCloudActions && renderDeliveryActions()}
+            {previewInfo.downloadUrl && previewInfo.downloadUrl !== artifactFileUrl && (
+              <button
+                type="button"
+                onClick={() => window.open(previewInfo.downloadUrl ?? "", "_blank", "noopener,noreferrer")}
+                className="agenthub-icon-button inline-flex h-8 w-8 items-center justify-center rounded-md"
+                aria-label="下载原文件"
+                title="下载原文件"
+              >
+                <Download size={14} />
+              </button>
+            )}
             {canManageVersions && (
               <button
                 type="button"
@@ -845,6 +863,7 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
             iframeProps={iframeProps}
             previewLoading={previewLoading}
             previewError={previewError}
+            previewUrl={artifactFileUrl}
             previewLabel={previewLabel}
             onEditFile={(change) => setEditingFile(change)}
           />
@@ -887,6 +906,7 @@ function ArtifactPreview({
   iframeProps,
   previewLoading,
   previewError,
+  previewUrl,
   previewLabel,
   onEditFile,
 }: {
@@ -897,6 +917,7 @@ function ArtifactPreview({
   iframeProps: { src: string } | { srcDoc: string };
   previewLoading: boolean;
   previewError: string | null;
+  previewUrl: string | null;
   previewLabel: string;
   onEditFile?: (change: FileTreeChange) => void;
 }) {
@@ -908,7 +929,9 @@ function ArtifactPreview({
     return <FileTreePreview changes={fileTreeChanges} compact onEditFile={onEditFile} />;
   }
 
-  if (artifact.type === "web_preview") {
+  const preview = getArtifactPreviewInfo(artifact);
+
+  if (preview.kind === "html") {
     return (
       <div className="relative h-80 overflow-hidden rounded-2xl border bg-white md:h-96" style={{ borderColor: "var(--ah-border)" }}>
         {previewLoading && (
@@ -927,9 +950,25 @@ function ArtifactPreview({
     );
   }
 
+  if (preview.kind === "image") {
+    return <ImageArtifactPreview artifact={artifact} previewUrl={previewUrl} compact />;
+  }
+
+  if (preview.kind === "pdf") {
+    return <PdfArtifactPreview artifact={artifact} previewUrl={previewUrl} compact />;
+  }
+
+  if (preview.kind === "markdown") {
+    return <MarkdownArtifactPreview content={content} compact />;
+  }
+
+  if (["presentation", "word", "spreadsheet"].includes(preview.kind)) {
+    return <DocumentFilePreview artifact={artifact} content={content} previewUrl={previewUrl} compact />;
+  }
+
   return (
     <pre className="agenthub-code-surface max-h-48 overflow-auto whitespace-pre-wrap rounded-2xl border p-3 text-xs">
-      {content}
+      {isMetadataOnlyContent(content) ? `${preview.label} · ${artifact.filePath ?? artifact.title}` : content}
     </pre>
   );
 }
@@ -957,7 +996,9 @@ function ArtifactFullPreview({
   previewLabel: string;
   onEditFile?: (change: FileTreeChange) => void;
 }) {
-  if (artifact.type === "web_preview") {
+  const preview = getArtifactPreviewInfo(artifact);
+
+  if (preview.kind === "html") {
     return (
       <div className="flex h-[76vh] min-h-0 flex-col overflow-hidden rounded-2xl border bg-white" style={{ borderColor: "var(--ah-border)" }}>
         {(previewUrl || previewError || previewLoading) && (
@@ -984,6 +1025,22 @@ function ArtifactFullPreview({
     );
   }
 
+  if (preview.kind === "image") {
+    return <ImageArtifactPreview artifact={artifact} previewUrl={previewUrl} />;
+  }
+
+  if (preview.kind === "pdf") {
+    return <PdfArtifactPreview artifact={artifact} previewUrl={previewUrl} />;
+  }
+
+  if (preview.kind === "markdown") {
+    return <MarkdownArtifactPreview content={content} />;
+  }
+
+  if (["presentation", "word", "spreadsheet"].includes(preview.kind)) {
+    return <DocumentFilePreview artifact={artifact} content={content} previewUrl={previewUrl} />;
+  }
+
   if (artifact.type === "file_tree") {
     return <FileTreePreview changes={fileTreeChanges} expanded onEditFile={onEditFile} />;
   }
@@ -994,8 +1051,144 @@ function ArtifactFullPreview({
 
   return (
     <pre className="agenthub-code-surface min-h-80 overflow-auto rounded-2xl border p-3 text-xs leading-5">
-      <code>{content}</code>
+      <code>{isMetadataOnlyContent(content) ? `${preview.label} · ${artifact.filePath ?? artifact.title}` : content}</code>
     </pre>
+  );
+}
+
+function MarkdownArtifactPreview({ content, compact = false }: { content: string; compact?: boolean }) {
+  return (
+    <div
+      className={`agent-markdown agenthub-code-surface overflow-auto rounded-2xl border p-4 text-sm ${
+        compact ? "max-h-56" : "min-h-80"
+      }`}
+    >
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{content || "暂无 Markdown 内容"}</ReactMarkdown>
+    </div>
+  );
+}
+
+function ImageArtifactPreview({
+  artifact,
+  previewUrl,
+  compact = false,
+}: {
+  artifact: Artifact;
+  previewUrl: string | null;
+  compact?: boolean;
+}) {
+  if (!previewUrl) {
+    return <DocumentFilePreview artifact={artifact} content={artifact.content} previewUrl={previewUrl} compact={compact} />;
+  }
+  return (
+    <div className={`agenthub-code-surface flex items-center justify-center overflow-hidden rounded-2xl border bg-white ${compact ? "h-56" : "min-h-[70vh]"}`}>
+      <img
+        src={previewUrl}
+        alt={artifactDisplayTitle(artifact)}
+        className="max-h-full max-w-full object-contain"
+      />
+    </div>
+  );
+}
+
+function PdfArtifactPreview({
+  artifact,
+  previewUrl,
+  compact = false,
+}: {
+  artifact: Artifact;
+  previewUrl: string | null;
+  compact?: boolean;
+}) {
+  if (!previewUrl) {
+    return <DocumentFilePreview artifact={artifact} content={artifact.content} previewUrl={previewUrl} compact={compact} />;
+  }
+  if (compact) {
+    return (
+      <div className="agenthub-code-surface rounded-2xl border p-3 text-xs">
+        <div className="agenthub-strong flex items-center gap-2 font-medium">
+          <FileText size={15} aria-hidden="true" />
+          <span className="truncate">{artifactDisplayTitle(artifact)}</span>
+        </div>
+        <div className="agenthub-faint mt-2 line-clamp-2">
+          PDF 可在完整预览中阅读，也可在新标签页打开。
+        </div>
+      </div>
+    );
+  }
+  return (
+    <object
+      data={previewUrl}
+      type="application/pdf"
+      className="h-[74vh] w-full rounded-2xl border bg-white"
+      aria-label={artifactDisplayTitle(artifact)}
+    >
+      <DocumentFilePreview artifact={artifact} content={artifact.content} previewUrl={previewUrl} />
+    </object>
+  );
+}
+
+function DocumentFilePreview({
+  artifact,
+  content,
+  previewUrl,
+  compact = false,
+}: {
+  artifact: Artifact;
+  content: string;
+  previewUrl: string | null;
+  compact?: boolean;
+}) {
+  const preview = getArtifactPreviewInfo(artifact);
+  const title = artifactDisplayTitle(artifact);
+  const summary = isMetadataOnlyContent(content)
+    ? `${preview.label}${artifact.filePath ? ` · ${artifact.filePath}` : ""}`
+    : content.trim().slice(0, compact ? 160 : 480);
+  return (
+    <div className={`agenthub-code-surface rounded-2xl border p-4 ${compact ? "" : "min-h-72"}`}>
+      <div className="flex min-w-0 items-start gap-3">
+        <span className="agenthub-soft inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border">
+          {artifactIcon(artifact, "agenthub-strong")}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="agenthub-strong truncate text-sm font-semibold">{title}</div>
+          <div className="agenthub-faint mt-1 truncate text-xs">
+            {preview.label}
+            {preview.extension ? ` · ${preview.extension.replace(".", "").toUpperCase()}` : ""}
+            {preview.mediaType ? ` · ${preview.mediaType}` : ""}
+          </div>
+        </div>
+      </div>
+      {summary && (
+        <p className={`agenthub-muted mt-3 whitespace-pre-wrap text-xs leading-5 ${compact ? "line-clamp-3" : ""}`}>
+          {summary}
+        </p>
+      )}
+      {previewUrl && (
+        <div className="mt-4 flex flex-wrap gap-2">
+          <a
+            href={previewUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="agenthub-icon-button inline-flex h-8 items-center gap-2 rounded-md px-3 text-xs"
+          >
+            <ExternalLink size={13} aria-hidden="true" />
+            打开原文件
+          </a>
+          {preview.downloadUrl && (
+            <a
+              href={preview.downloadUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="agenthub-icon-button inline-flex h-8 items-center gap-2 rounded-md px-3 text-xs"
+            >
+              <Download size={13} aria-hidden="true" />
+              下载
+            </a>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

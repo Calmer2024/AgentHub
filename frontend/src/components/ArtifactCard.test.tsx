@@ -455,4 +455,63 @@ describe("ArtifactCard", () => {
 
     expect(screen.getAllByRole("button", { name: "版本管理" }).length).toBeGreaterThan(0);
   });
+
+  it("Markdown 文档产物以内联卡片渲染", async () => {
+    const markdownArtifact: Artifact = {
+      ...artifact,
+      id: "md-a1",
+      type: "document",
+      title: "README.md",
+      content: "# 项目说明\n\n- 支持 Markdown 预览\n- 支持表格和列表\n",
+      filePath: "README.md",
+      previewKind: "markdown",
+      previewLabel: "Markdown 文档",
+      version: 1,
+      parentArtifactId: null,
+    };
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = String(input);
+      if (url.endsWith("/versions")) {
+        return jsonResponse([{ id: "md-a1", version: 1, content: markdownArtifact.content, createdAt: "" }]);
+      }
+      return jsonResponse({});
+    });
+
+    render(<ArtifactCard artifact={markdownArtifact} />);
+
+    expect(await screen.findByText("项目说明")).toBeInTheDocument();
+    expect(screen.getByText("支持 Markdown 预览")).toBeInTheDocument();
+  });
+
+  it("图片产物使用 rawUrl 预览并隐藏文本编辑入口", async () => {
+    const imageArtifact: Artifact = {
+      ...artifact,
+      id: "img-a1",
+      type: "document",
+      title: "diagram.png",
+      content: JSON.stringify({ path: "diagram.png", previewKind: "image" }),
+      filePath: "diagram.png",
+      previewKind: "image",
+      previewLabel: "图片预览",
+      mediaType: "image/png",
+      rawUrl: "/api/artifacts/img-a1/raw",
+      downloadUrl: "/api/artifacts/img-a1/raw?download=true",
+      isBinary: true,
+      version: 1,
+      parentArtifactId: null,
+    };
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = String(input);
+      if (url.endsWith("/versions")) {
+        return jsonResponse([{ id: "img-a1", version: 1, content: imageArtifact.content, createdAt: "" }]);
+      }
+      return jsonResponse({});
+    });
+
+    render(<ArtifactCard artifact={imageArtifact} />);
+
+    const img = await screen.findByRole("img", { name: "diagram.png" });
+    expect(img).toHaveAttribute("src", "/api/artifacts/img-a1/raw");
+    expect(screen.queryByRole("button", { name: "编辑文件" })).not.toBeInTheDocument();
+  });
 });

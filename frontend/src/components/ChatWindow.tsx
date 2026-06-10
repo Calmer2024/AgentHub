@@ -599,10 +599,13 @@ export function ChatWindow({
               const prompts = promptsByMessageId.get(msg.id) ?? [];
               const messageRun = latestRunByMessageId.get(msg.id) ?? null;
               const relatedApprovals = approvalsByMessageId.get(msg.id) ?? EMPTY_APPROVALS;
+              const messageRunActive = messageRun ? ACTIVE_RUN_STATUSES.has(messageRun.status) : false;
+              const isPendingAssistant = msg.role === "assistant" && msg.content === "" && (isStreaming || messageRunActive);
               return (
                 <div key={msg.id} ref={(el) => { messageRefs.current[msg.id] = el; }}>
                   <MessageBubble
                     message={msg}
+                    isStreaming={isPendingAssistant}
                     relatedArtifacts={artifactsByMessageId.get(msg.id) ?? EMPTY_ARTIFACTS}
                     run={messageRun}
                     tasks={messageRun ? tasksByRun[messageRun.id] ?? EMPTY_TASKS : EMPTY_TASKS}
