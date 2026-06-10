@@ -31,6 +31,7 @@ from ..models import (
     TeamMember,
     User,
 )
+from .artifact_preview import artifact_preview_payload, infer_artifact_preview
 from .approval_service import ApprovalService
 from .audit_service import AuditService
 from .message_service_sqlalchemy import message_to_read
@@ -352,16 +353,28 @@ class CollaborationService:
         render_id = str(uuid.uuid4())
         title = artifact.title or artifact.file_path or "Artifact"
         body = artifact.content
-        content = (
-            f"<article data-render-id=\"{render_id}\">"
-            f"<h1>{_escape_html(title)}</h1>"
-            f"<pre>{_escape_html(body)}</pre>"
-            f"</article>"
+        preview = artifact_preview_payload(artifact)
+        info = infer_artifact_preview(
+            artifact_type=artifact.type,
+            title=artifact.title,
+            content=artifact.content,
+            file_path=artifact.file_path,
+        )
+        raw_url = preview["rawUrl"] if isinstance(preview["rawUrl"], str) else None
+        content = _render_artifact_html(
+            render_id=render_id,
+            title=title,
+            body=body,
+            kind=info.kind,
+            label=info.label,
+            raw_url=raw_url,
+            media_type=info.media_type,
         )
         await self._publish(EventType.ARTIFACT_RENDERED, {
             "artifactId": artifact.id,
             "format": fmt,
             "renderId": render_id,
+            "previewKind": info.kind,
         })
         return RenderedArtifactRead(
             artifact_id=artifact.id,
@@ -369,6 +382,10 @@ class CollaborationService:
             render_id=render_id,
             content=content,
             file_name=f"{_safe_filename(title)}.{fmt}",
+            preview_kind=info.kind,
+            media_type=info.media_type,
+            raw_url=raw_url,
+            download_url=preview["downloadUrl"] if isinstance(preview["downloadUrl"], str) else None,
         )
 
     async def create_agent_template_session(self, seed_prompt: str, actor: User) -> AgentTemplateSessionRead:
@@ -405,6 +422,7 @@ class CollaborationService:
         cli_tool = engine if engine in {"claude_code", "codex", "opencode", "custom"} else "custom"
         agent = AgentConfig(
             id=str(uuid.uuid4()),
+            owner_user_id=actor.id,
             name=name,
             description="通过对话创建的 Agent",
             system_prompt=str(draft.get("systemPrompt") or ""),
@@ -629,6 +647,44 @@ async def attachment_context_metadata(
 def _safe_filename(name: str) -> str:
     normalized = re.sub(r"[^A-Za-z0-9._-]+", "-", (name or "attachment").strip()).strip(".-")
     return normalized or "attachment"
+
+
+def _render_artifact_html(
+    *,
+    render_id: str,
+    title: str,
+    body: str,
+    kind: str,
+    label: str,
+    raw_url: str | None,
+    media_type: str | None,
+) -> str:
+    safe_title = _escape_html(title)
+    safe_body = _escape_html(body)
+    safe_label = _escape_html(label)
+    safe_url = _escape_html(raw_url or "")
+    if kind == "image" and raw_url:
+        preview = f'<img src="{safe_url}" alt="{safe_title}" style="max-width:100%;height:auto;display:block;margin:auto;" />'
+    elif kind == "pdf" and raw_url:
+        preview = f'<iframe src="{safe_url}" title="{safe_title}" style="width:100%;height:72vh;border:0;"></iframe>'
+    elif kind in {"presentation", "word", "spreadsheet"} and raw_url:
+        preview = (
+            f'<p style="color:#475569;">{safe_label} 可在浏览器新标签页打开或下载。</p>'
+            f'<p><a href="{safe_url}" target="_blank" rel="noreferrer">打开原文件</a></p>'
+        )
+    else:
+        preview = f"<pre>{safe_body}</pre>"
+    return (
+        "<article "
+        f'data-render-id="{_escape_html(render_id)}" '
+        f'data-preview-kind="{_escape_html(kind)}" '
+        f'data-media-type="{_escape_html(media_type or "")}" '
+        'style="font-family:Inter,system-ui,sans-serif;padding:16px;color:#0f172a;">'
+        f"<h1>{safe_title}</h1>"
+        f"<p>{safe_label}</p>"
+        f"{preview}"
+        "</article>"
+    )
 
 
 def _escape_html(text: str) -> str:

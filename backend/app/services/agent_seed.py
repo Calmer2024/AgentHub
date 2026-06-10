@@ -78,11 +78,23 @@ LEGACY_CLI_DEFAULT_ARGS = {
 
 
 async def seed_default_cli_agents(db: AsyncSession) -> None:
-    await archive_non_cli_agents(db)
+    await _seed_default_cli_agents(db, owner_user_id=None)
+
+
+async def ensure_user_default_cli_agents(db: AsyncSession, owner_user_id: str) -> None:
+    await _seed_default_cli_agents(db, owner_user_id=owner_user_id)
+
+
+async def _seed_default_cli_agents(db: AsyncSession, owner_user_id: str | None) -> None:
+    await archive_non_cli_agents(db, owner_user_id=owner_user_id)
     defaults_by_tool: dict[str, AgentConfig] = {}
     for cli_tool, defaults in DEFAULT_CLI_AGENTS.items():
         result = await db.execute(
-            select(AgentConfig).where(AgentConfig.cli_tool == cli_tool).limit(1)
+            select(AgentConfig).where(
+                _owner_filter(owner_user_id),
+                AgentConfig.cli_tool == cli_tool,
+                AgentConfig.name == defaults["name"],
+            ).limit(1)
         )
         existing = result.scalars().first()
         if existing:
@@ -94,6 +106,7 @@ async def seed_default_cli_agents(db: AsyncSession) -> None:
             continue
         agent = AgentConfig(
             id=str(uuid.uuid4()),
+            owner_user_id=owner_user_id,
             name=defaults["name"],
             description=defaults["description"],
             system_prompt="",
@@ -110,18 +123,20 @@ async def seed_default_cli_agents(db: AsyncSession) -> None:
             auxiliary_skills="[]",
             toolset="[]",
             context_policy="workspace_coding",
-            avatar="preset:blue",
+            avatar="",
         )
         db.add(agent)
         defaults_by_tool[cli_tool] = agent
-    await _ensure_orchestrator_agent(db, defaults_by_tool)
-    await _archive_template_agents(db)
+    await _ensure_orchestrator_agent(db, defaults_by_tool, owner_user_id=owner_user_id)
+    await _archive_template_agents(db, owner_user_id=owner_user_id)
     await db.commit()
 
 
-async def archive_non_cli_agents(db: AsyncSession) -> None:
+async def archive_non_cli_agents(db: AsyncSession, owner_user_id: str | None = None) -> None:
     """Hide non-CLI records from the CLI friends list."""
-    result = await db.execute(select(AgentConfig).where(AgentConfig.is_active == True))
+    result = await db.execute(
+        select(AgentConfig).where(AgentConfig.is_active == True, _owner_filter(owner_user_id))
+    )
     default_tools = set(DEFAULT_CLI_AGENTS)
     default_names = {item["name"] for item in DEFAULT_CLI_AGENTS.values()}
     for agent in result.scalars().all():
@@ -157,6 +172,8 @@ def _upgrade_legacy_defaults(agent: AgentConfig, cli_tool: str, defaults: dict) 
         agent.executable = defaults["executable"]
     if decode_json_dict(agent.env_vars, cli_tool=cli_tool) == {} and defaults["env_vars"]:
         agent.env_vars = json.dumps(defaults["env_vars"], ensure_ascii=False)
+    if agent.name == defaults["name"] and (getattr(agent, "avatar", "") or "") in {"", "preset:blue"}:
+        agent.avatar = ""
 
 
 def _clean_env_vars(raw: str | None, cli_tool: str | None) -> str:
@@ -182,9 +199,12 @@ def _ensure_skill_profile(agent: AgentConfig) -> None:
 async def _ensure_orchestrator_agent(
     db: AsyncSession,
     defaults_by_tool: dict[str, AgentConfig],
+    *,
+    owner_user_id: str | None = None,
 ) -> None:
     result = await db.execute(
         select(AgentConfig).where(
+            _owner_filter(owner_user_id),
             AgentConfig.primary_skill == "orchestrator_planner",
             AgentConfig.is_active == True,
         ).limit(1)
@@ -209,6 +229,7 @@ async def _ensure_orchestrator_agent(
     defaults = DEFAULT_CLI_AGENTS.get(base.cli_tool if base else "codex", DEFAULT_CLI_AGENTS["codex"])
     db.add(AgentConfig(
         id=str(uuid.uuid4()),
+        owner_user_id=owner_user_id,
         name="Orchestrator 调度器",
         description="负责需求拆解、DAG 计划和 Agent 分配建议；只输出计划，不直接执行子任务。",
         system_prompt=_orchestrator_system_prompt(),
@@ -374,13 +395,14 @@ async def _ensure_lifecycle_agents(
     return
 
 
-async def _archive_template_agents(db: AsyncSession) -> None:
+async def _archive_template_agents(db: AsyncSession, owner_user_id: str | None = None) -> None:
     """隐藏旧版本自动 seed 到好友列表里的专家模板。"""
-    await _archive_retired_builtin_roles(db)
+    await _archive_retired_builtin_roles(db, owner_user_id=owner_user_id)
     for spec in LIFECYCLE_AGENT_SPECS:
         names = [str(spec["name"]), *[str(name) for name in spec.get("aliases", [])]]
         result = await db.execute(
             select(AgentConfig).where(
+                _owner_filter(owner_user_id),
                 AgentConfig.name.in_(names),
                 AgentConfig.primary_skill == str(spec["primary_skill"]),
                 AgentConfig.is_active == True,
@@ -390,9 +412,10 @@ async def _archive_template_agents(db: AsyncSession) -> None:
             existing.is_active = False
 
 
-async def _archive_retired_builtin_roles(db: AsyncSession) -> None:
+async def _archive_retired_builtin_roles(db: AsyncSession, owner_user_id: str | None = None) -> None:
     result = await db.execute(
         select(AgentConfig).where(
+            _owner_filter(owner_user_id),
             AgentConfig.name.in_(RETIRED_BUILTIN_ROLE_AGENT_NAMES),
             AgentConfig.is_active == True,
         )
@@ -401,11 +424,12 @@ async def _archive_retired_builtin_roles(db: AsyncSession) -> None:
         agent.is_active = False
 
 
-async def configure_builtin_role_agents_as_codex(db: AsyncSession) -> int:
+async def configure_builtin_role_agents_as_codex(db: AsyncSession, owner_user_id: str | None = None) -> int:
     """把内置模板 Agent 统一切到 Codex 引擎，保留身份与工具集配置。"""
-    await seed_default_cli_agents(db)
+    await _seed_default_cli_agents(db, owner_user_id=owner_user_id)
     result = await db.execute(
         select(AgentConfig).where(
+            _owner_filter(owner_user_id),
             AgentConfig.name.in_(BUILTIN_ROLE_AGENT_NAMES),
             AgentConfig.is_active == True,
         )
@@ -474,7 +498,7 @@ def _fallback_engine() -> AgentConfig:
         auxiliary_skills="[]",
         toolset="[]",
         context_policy="workspace_coding",
-        avatar="preset:blue",
+        avatar="",
     )
 
 
@@ -504,3 +528,9 @@ def _json_list(value: str | None) -> list[str]:
     except json.JSONDecodeError:
         return []
     return [str(item) for item in parsed] if isinstance(parsed, list) else []
+
+
+def _owner_filter(owner_user_id: str | None):
+    if owner_user_id is None:
+        return AgentConfig.owner_user_id.is_(None)
+    return AgentConfig.owner_user_id == owner_user_id

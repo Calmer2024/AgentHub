@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Boolean, DateTime, Text
+from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Text
 
 from ..database import Base
 from ..core.timezone import china_now
@@ -12,6 +12,7 @@ class AgentConfig(Base):
     __tablename__ = "agent_configs"
 
     id = Column(String, primary_key=True)
+    owner_user_id = Column(String, ForeignKey("users.id"), nullable=True)
     name = Column(String, nullable=False)
     description = Column(String, nullable=False, default="")
     system_prompt = Column(String, nullable=False, default="")

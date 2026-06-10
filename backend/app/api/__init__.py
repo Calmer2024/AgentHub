@@ -18,7 +18,9 @@ from .workspaces import router as workspaces_router
 from .audit_logs import router as audit_logs_router
 from .sandboxes import router as sandboxes_router
 from .secrets import router as secrets_router
+from .cli_credentials import router as cli_credentials_router
 from .quotas import router as quotas_router
+from .runtime import router as runtime_router
 from .cloud_delivery import router as cloud_delivery_router
 from .collaboration import router as collaboration_router
 from .capabilities import router as capabilities_router
@@ -32,7 +34,9 @@ api_router.include_router(workspaces_router)
 api_router.include_router(audit_logs_router)
 api_router.include_router(sandboxes_router)
 api_router.include_router(secrets_router)
+api_router.include_router(cli_credentials_router)
 api_router.include_router(quotas_router)
+api_router.include_router(runtime_router)
 api_router.include_router(cloud_delivery_router)
 api_router.include_router(collaboration_router)
 api_router.include_router(sessions_router)

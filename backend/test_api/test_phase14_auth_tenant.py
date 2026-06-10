@@ -15,9 +15,20 @@ def _enable_saas_production(monkeypatch):
 
 
 async def _login(test_client, email: str, name: str):
+    username = email.split("@")[0].replace(".", "-")
+    register = await test_client.post(
+        "/api/auth/register",
+        json={
+            "username": username,
+            "email": email,
+            "password": "Phase14-passw0rd",
+            "displayName": name,
+        },
+    )
+    assert register.status_code == 201, register.text
     response = await test_client.post(
         "/api/auth/login",
-        json={"email": email, "displayName": name},
+        json={"identifier": email, "password": "Phase14-passw0rd"},
     )
     assert response.status_code == 200, response.text
     data = response.json()
@@ -39,7 +50,11 @@ async def test_production_auth_disables_dev_headers_and_rotates_session(test_cli
 
     disabled_provider = await test_client.post(
         "/api/auth/login",
-        json={"email": "spoof@example.com", "provider": "dev_header"},
+        json={
+            "identifier": "spoof@example.com",
+            "password": "Phase14-passw0rd",
+            "provider": "dev_header",
+        },
     )
     assert disabled_provider.status_code == 401
 
@@ -47,7 +62,16 @@ async def test_production_auth_disables_dev_headers_and_rotates_session(test_cli
     me = await test_client.get("/api/auth/me", headers=headers)
     assert me.status_code == 200
     assert me.json()["email"] == "owner14@example.com"
+    assert me.json()["username"] == "owner14"
     assert me.json()["defaultSpace"]["kind"] == "personal"
+
+    updated = await test_client.put(
+        "/api/auth/me",
+        json={"displayName": "Phase14 Renamed", "avatarUrl": "https://avatar.example/u.png"},
+        headers=headers,
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["displayName"] == "Phase14 Renamed"
 
     refreshed = await test_client.post(
         "/api/auth/refresh",
@@ -64,6 +88,38 @@ async def test_production_auth_disables_dev_headers_and_rotates_session(test_cli
     assert logged_out.status_code == 204
     expired = await test_client.get("/api/auth/me", headers=new_headers)
     assert expired.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_password_registration_rejects_duplicates_and_wrong_password(test_client, monkeypatch):
+    _enable_saas_production(monkeypatch)
+
+    created = await test_client.post(
+        "/api/auth/register",
+        json={
+            "username": "phase14user",
+            "email": "phase14-user@example.com",
+            "password": "Phase14-passw0rd",
+            "displayName": "Phase14 User",
+        },
+    )
+    assert created.status_code == 201, created.text
+
+    duplicate_username = await test_client.post(
+        "/api/auth/register",
+        json={
+            "username": "phase14user",
+            "email": "phase14-user-2@example.com",
+            "password": "Phase14-passw0rd",
+        },
+    )
+    assert duplicate_username.status_code == 409
+
+    wrong_password = await test_client.post(
+        "/api/auth/login",
+        json={"identifier": "phase14user", "password": "wrong-password"},
+    )
+    assert wrong_password.status_code == 401
 
 
 @pytest.mark.asyncio

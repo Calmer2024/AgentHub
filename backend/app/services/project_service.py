@@ -26,6 +26,7 @@ from ..models import (
     WorkspaceSnapshot,
 )
 from .audit_service import AuditService
+from .cloud_storage import ensure_cloud_workspace
 from .cloud_workspace_provider import CloudWorkspaceProvider
 from .file_change_detector import FileChangeDetector
 from .preview_service import PreviewService
@@ -298,21 +299,21 @@ class ProjectService:
 
     async def get_tree(self, project_id: str, subpath: str | None = None) -> list[dict]:
         project = await self._get_project(project_id)
-        self._ensure_local_project(project)
-        entries = self.provider.list_tree(project.workspace_path, subpath)
+        workspace_path = self._file_workspace_path(project)
+        entries = self.provider.list_tree(workspace_path, subpath)
         return [entry.__dict__ for entry in entries]
 
     async def read_file(self, project_id: str, path: str) -> dict:
         project = await self._get_project(project_id)
-        self._ensure_local_project(project)
-        content, size = self.provider.read_text_file(project.workspace_path, path)
+        workspace_path = self._file_workspace_path(project)
+        content, size = self.provider.read_text_file(workspace_path, path)
         return {"path": path.replace("\\", "/"), "content": content, "size": size}
 
     async def write_file(self, project_id: str, path: str, content: str) -> dict:
         project = await self._get_project(project_id)
-        self._ensure_local_project(project)
-        target = self.provider.safe_resolve(project.workspace_path, path)
-        workspace_root = Path(project.workspace_path).expanduser().resolve()
+        workspace_path = self._file_workspace_path(project)
+        target = self.provider.safe_resolve(workspace_path, path)
+        workspace_root = Path(workspace_path).expanduser().resolve()
         if target == workspace_root or (target.exists() and target.is_dir()):
             raise ProjectValidationError("path must be a file")
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -326,11 +327,11 @@ class ProjectService:
 
     async def create_snapshot(self, project_id: str, label: str) -> dict:
         project = await self._get_project(project_id)
-        self._ensure_local_project(project)
+        workspace_path = self._file_workspace_path(project)
         clean_label = label.strip()
         if not clean_label:
             raise ProjectValidationError("snapshot label must not be empty")
-        snap = self.detector.create_snapshot(project.workspace_path, clean_label)
+        snap = self.detector.create_snapshot(workspace_path, clean_label)
         return {
             "snapshotId": snap.snapshot_id,
             "label": snap.label,
@@ -339,8 +340,8 @@ class ProjectService:
 
     async def get_diff(self, project_id: str, base_ref: str) -> dict:
         project = await self._get_project(project_id)
-        self._ensure_local_project(project)
-        changes = self.detector.diff_from_snapshot(project.workspace_path, base_ref)
+        workspace_path = self._file_workspace_path(project)
+        changes = self.detector.diff_from_snapshot(workspace_path, base_ref)
         await self._publish(EventType.WORKSPACE_FILE_CHANGED, {
             "projectId": project.id,
             "changes": [{"path": c["path"], "change": c["change"]} for c in changes],
@@ -359,10 +360,10 @@ class ProjectService:
         entry_path: str | None = None,
     ) -> dict:
         project = await self._get_project(project_id)
-        self._ensure_local_project(project)
+        workspace_path = self._file_workspace_path(project)
         if preview_type not in {"static", "vite-react"}:
             raise ProjectValidationError("unsupported preview type")
-        result = self.preview.create_static_preview(project.id, project.workspace_path, entry_path)
+        result = self.preview.create_static_preview(project.id, workspace_path, entry_path)
         await self._publish(EventType.PREVIEW_READY, {
             "projectId": project.id,
             "previewId": result["previewId"],
@@ -523,6 +524,17 @@ class ProjectService:
     def _ensure_local_project(self, project: Project) -> None:
         if project.workspace_mode == "cloud":
             raise ProjectValidationError("cloud workspace file operations are available from Phase 10")
+
+    def _file_workspace_path(self, project: Project) -> str:
+        if project.workspace_mode == "cloud":
+            if not project.workspace_id:
+                raise ProjectValidationError("cloud workspace is not initialized")
+            return str(ensure_cloud_workspace(
+                project.workspace_id,
+                {"projectId": project.id, "projectName": project.name},
+            ))
+        self._ensure_local_project(project)
+        return project.workspace_path
 
     async def _publish(self, event_type: EventType, payload: dict[str, Any]) -> None:
         if self.event_bus:

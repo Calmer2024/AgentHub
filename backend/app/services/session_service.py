@@ -58,12 +58,15 @@ MIN_GROUP_MEMBERS = 2
 
 class SessionService:
 
-    def __init__(self, db: AsyncSession):
+    def __init__(self, db: AsyncSession, agent_owner_user_id: str | None = None):
         self.db = db
+        self.agent_owner_user_id = agent_owner_user_id
 
     async def create_session(self, data: SessionCreate) -> SessionRead:
         project_id = await self._resolve_project_id(data.project_id)
         group_agent_ids = await self._with_default_orchestrator(data.agent_config_ids or [])
+        for agent_id in group_agent_ids:
+            await self._require_visible_agent(agent_id)
         is_group = data.mode == "group" and len(group_agent_ids) >= 2
 
         session = DBSession(
@@ -76,10 +79,14 @@ class SessionService:
         if is_group and group_agent_ids:
             session.agent_config_id = group_agent_ids[0]
         elif data.agent_config_id:
+            await self._require_visible_agent(data.agent_config_id)
             session.agent_config_id = data.agent_config_id
         else:
             result = await self.db.execute(
-                select(AgentConfig).where(AgentConfig.is_active == True).limit(1)
+                select(AgentConfig)
+                .where(AgentConfig.is_active == True, self._agent_owner_filter())
+                .order_by(AgentConfig.updated_at.desc())
+                .limit(1)
             )
             default_agent = result.scalars().first()
             session.agent_config_id = default_agent.id if default_agent else None
@@ -124,9 +131,7 @@ class SessionService:
         if data.title is not None:
             session.title = data.title
         if data.agent_config_id is not None:
-            agent = await self.db.get(AgentConfig, data.agent_config_id)
-            if not agent:
-                raise AgentNotFoundError(data.agent_config_id)
+            await self._require_visible_agent(data.agent_config_id)
             session.agent_config_id = data.agent_config_id
         if data.is_pinned is not None:
             session.is_pinned = "1" if data.is_pinned else "0"
@@ -199,9 +204,7 @@ class SessionService:
 
     async def add_group_member(self, session_id: str, agent_config_id: str) -> list[MemberRead]:
         session = await self._require_group_session(session_id)
-        agent = await self.db.get(AgentConfig, agent_config_id)
-        if not agent or not agent.is_active:
-            raise AgentNotFoundError(agent_config_id)
+        await self._require_visible_agent(agent_config_id)
 
         members = await self._get_member_rows(session_id)
         if any(member.agent_config_id == agent_config_id for member in members):
@@ -320,6 +323,7 @@ class SessionService:
 
         row = await self.db.execute(
             select(AgentConfig).where(
+                self._agent_owner_filter(),
                 AgentConfig.primary_skill == "orchestrator_planner",
                 AgentConfig.is_active == True,
             ).limit(1)
@@ -328,3 +332,21 @@ class SessionService:
         if orchestrator and orchestrator.id not in seen:
             result.append(orchestrator.id)
         return result
+
+    async def _require_visible_agent(self, agent_id: str) -> AgentConfig:
+        result = await self.db.execute(
+            select(AgentConfig).where(
+                AgentConfig.id == agent_id,
+                AgentConfig.is_active == True,
+                self._agent_owner_filter(),
+            )
+        )
+        agent = result.scalars().first()
+        if not agent:
+            raise AgentNotFoundError(agent_id)
+        return agent
+
+    def _agent_owner_filter(self):
+        if self.agent_owner_user_id is None:
+            return AgentConfig.owner_user_id.is_(None)
+        return AgentConfig.owner_user_id == self.agent_owner_user_id

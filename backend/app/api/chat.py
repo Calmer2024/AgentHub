@@ -78,6 +78,18 @@ async def chat(
     if project and project.workspace_mode == "cloud":
         from ..main import _event_bus
         runtime = CloudAgentRuntimeService(db, event_bus=_event_bus)
+        if session.mode == "group":
+            return StreamingResponse(
+                _safe_sse_stream(runtime.stream_group_chat(
+                    session_id,
+                    data.content,
+                    actor=actor,
+                    mentions=data.mentions,
+                    parent_message_id=data.parent_message_id,
+                    attachment_ids=data.attachment_ids,
+                )),
+                media_type="text/event-stream",
+            )
         return StreamingResponse(
             _safe_sse_stream(runtime.stream_chat(
                 session_id,

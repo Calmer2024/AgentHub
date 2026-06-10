@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from typing import Protocol
 
 from fastapi import Request
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
@@ -28,6 +28,10 @@ class AuthRequiredError(PermissionError):
 
 
 class AuthInvalidError(AuthRequiredError):
+    pass
+
+
+class AuthConflictError(ValueError):
     pass
 
 
@@ -127,56 +131,129 @@ class AuthService:
             avatar_url=avatar_url,
         ))
 
-    async def login(
+    async def register(
         self,
         *,
+        username: str,
         email: str,
+        password: str,
         display_name: str | None,
         avatar_url: str | None,
         request: Request,
-        provider: str = "local_email",
     ) -> AuthSessionResult:
-        clean_provider = (provider or settings.agenthub_auth_provider or "local_email").strip()
-        if clean_provider != "local_email":
-            raise AuthInvalidError("auth provider is not enabled")
-        subject = AuthSubject(
-            provider=clean_provider,
-            subject=email.strip().lower(),
-            email=email.strip().lower(),
-            display_name=display_name,
-            avatar_url=avatar_url,
-        )
-        user = await self.get_or_create_identity_user(subject, commit=False)
-        refresh_token = secrets.token_urlsafe(48)
+        clean_username = _normalize_username(username)
+        clean_email = email.strip().lower()
+        await self._assert_username_available(clean_username)
         now = china_now()
-        auth_session = AuthSession(
-            id=str(uuid.uuid4()),
-            user_id=user.id,
-            refresh_token_hash=_hash_refresh_token(refresh_token),
-            user_agent=request.headers.get("user-agent"),
-            ip_hash=_hash_ip(request.client.host if request.client else None),
-            expires_at=now + timedelta(days=settings.agenthub_refresh_token_days),
-            created_at=now,
-        )
-        self.db.add(auth_session)
+
+        result = await self.db.execute(select(User).where(func.lower(User.email) == clean_email))
+        user = result.scalars().first()
+        if user and user.password_hash:
+            raise AuthConflictError("email already registered")
+        if not user:
+            user = User(
+                id=str(uuid.uuid4()),
+                email=clean_email,
+                username=clean_username,
+                display_name=(display_name or "").strip() or clean_username,
+                avatar_url=avatar_url,
+                password_hash=_hash_password(password),
+                status="active",
+                last_login_at=now,
+                created_at=now,
+                updated_at=now,
+            )
+            self.db.add(user)
+            await self.db.flush()
+        else:
+            user.username = clean_username
+            user.display_name = (display_name or "").strip() or user.display_name or clean_username
+            user.avatar_url = avatar_url or user.avatar_url
+            user.password_hash = _hash_password(password)
+            user.status = "active"
+            user.last_login_at = now
+            user.updated_at = now
+            await self.db.flush()
+
+        await self._ensure_identity(user, provider="local_password", subject=clean_username, email=clean_email, now=now)
+        await self._ensure_identity(user, provider="local_email", subject=clean_email, email=clean_email, now=now)
+        return await self._create_session(user, request=request, provider="local_password", action="auth.register")
+
+    async def login(
+        self,
+        *,
+        identifier: str | None = None,
+        email: str | None = None,
+        username: str | None = None,
+        password: str | None,
+        display_name: str | None,
+        avatar_url: str | None,
+        request: Request,
+        provider: str = "local_password",
+    ) -> AuthSessionResult:
+        clean_provider = (provider or settings.agenthub_auth_provider or "local_password").strip()
+        if clean_provider == "dev_header":
+            raise AuthInvalidError("auth provider is not enabled")
+        if clean_provider == "local_email" and not password and not cloud_auth_required():
+            clean_email = (email or identifier or "").strip().lower()
+            if not clean_email:
+                raise AuthInvalidError("email required")
+            subject = AuthSubject(
+                provider=clean_provider,
+                subject=clean_email,
+                email=clean_email,
+                display_name=display_name,
+                avatar_url=avatar_url,
+            )
+            user = await self.get_or_create_identity_user(subject, commit=False)
+            return await self._create_session(user, request=request, provider=clean_provider)
+        if clean_provider not in {"local_password", "local_email"}:
+            raise AuthInvalidError("auth provider is not enabled")
+
+        clean_identifier = (identifier or username or email or "").strip().lower()
+        if not clean_identifier:
+            raise AuthInvalidError("identifier required")
+        if not password:
+            raise AuthInvalidError("password required")
+
+        user = await self._find_password_user(clean_identifier)
+        if not user or not user.password_hash or not _verify_password(password, user.password_hash):
+            raise AuthInvalidError("invalid username or password")
+        if user.status != "active":
+            raise AuthInvalidError("user disabled")
+
+        now = china_now()
+        user.last_login_at = now
+        user.updated_at = now
+        if display_name and not user.display_name:
+            user.display_name = display_name
+        if avatar_url and not user.avatar_url:
+            user.avatar_url = avatar_url
+        await self._touch_identity(user, now=now)
+        return await self._create_session(user, request=request, provider="local_password")
+
+    async def update_profile(
+        self,
+        user: User,
+        *,
+        display_name: str | None = None,
+        avatar_url: str | None = None,
+    ) -> User:
+        clean_name = (display_name or "").strip()
+        if clean_name:
+            user.display_name = clean_name[:80]
+        if avatar_url is not None:
+            user.avatar_url = avatar_url.strip() or None
+        user.updated_at = china_now()
         await self.audit.record(
             actor_user_id=user.id,
-            action="auth.login",
-            resource_type="auth_session",
-            resource_id=auth_session.id,
-            metadata={"provider": clean_provider},
+            action="auth.profile.updated",
+            resource_type="user",
+            resource_id=user.id,
         )
         await self.db.commit()
         await self.db.refresh(user)
-        await self.db.refresh(auth_session)
-        access_token, expires_at = _make_access_token(auth_session)
-        return AuthSessionResult(
-            user=user,
-            session=auth_session,
-            access_token=access_token,
-            refresh_token=refresh_token,
-            expires_at=expires_at,
-        )
+        return user
 
     async def refresh(self, refresh_token: str | None, request: Request) -> AuthSessionResult:
         clean = (refresh_token or _refresh_token_from_request(request) or "").strip()
@@ -319,6 +396,107 @@ class AuthService:
             await self.db.refresh(user)
         return user
 
+    async def _create_session(
+        self,
+        user: User,
+        *,
+        request: Request,
+        provider: str,
+        action: str = "auth.login",
+    ) -> AuthSessionResult:
+        refresh_token = secrets.token_urlsafe(48)
+        now = china_now()
+        auth_session = AuthSession(
+            id=str(uuid.uuid4()),
+            user_id=user.id,
+            refresh_token_hash=_hash_refresh_token(refresh_token),
+            user_agent=request.headers.get("user-agent"),
+            ip_hash=_hash_ip(request.client.host if request.client else None),
+            expires_at=now + timedelta(days=settings.agenthub_refresh_token_days),
+            created_at=now,
+        )
+        self.db.add(auth_session)
+        await self.audit.record(
+            actor_user_id=user.id,
+            action=action,
+            resource_type="auth_session",
+            resource_id=auth_session.id,
+            metadata={"provider": provider},
+        )
+        await self.db.commit()
+        await self.db.refresh(user)
+        await self.db.refresh(auth_session)
+        access_token, expires_at = _make_access_token(auth_session)
+        return AuthSessionResult(
+            user=user,
+            session=auth_session,
+            access_token=access_token,
+            refresh_token=refresh_token,
+            expires_at=expires_at,
+        )
+
+    async def _assert_username_available(self, username: str) -> None:
+        result = await self.db.execute(
+            select(User).where(func.lower(User.username) == username.lower())
+        )
+        if result.scalars().first():
+            raise AuthConflictError("username already registered")
+
+    async def _find_password_user(self, identifier: str) -> User | None:
+        clean = identifier.strip().lower()
+        result = await self.db.execute(
+            select(User).where(
+                or_(
+                    func.lower(User.email) == clean,
+                    func.lower(User.username) == clean,
+                )
+            )
+        )
+        return result.scalars().first()
+
+    async def _ensure_identity(
+        self,
+        user: User,
+        *,
+        provider: str,
+        subject: str,
+        email: str,
+        now: datetime,
+    ) -> None:
+        result = await self.db.execute(
+            select(AuthIdentity).where(
+                AuthIdentity.provider == provider,
+                AuthIdentity.subject == subject,
+            )
+        )
+        identity = result.scalars().first()
+        if identity:
+            identity.user_id = user.id
+            identity.email = email
+            identity.last_login_at = now
+            return
+        self.db.add(AuthIdentity(
+            id=str(uuid.uuid4()),
+            user_id=user.id,
+            provider=provider,
+            subject=subject,
+            email=email,
+            created_at=now,
+            last_login_at=now,
+        ))
+
+    async def _touch_identity(self, user: User, *, now: datetime) -> None:
+        subjects = [user.email.strip().lower()]
+        if user.username:
+            subjects.append(user.username.strip().lower())
+        result = await self.db.execute(
+            select(AuthIdentity).where(AuthIdentity.user_id == user.id)
+        )
+        identities = result.scalars().all()
+        for identity in identities:
+            if identity.provider in {"local_password", "local_email"} or identity.subject in subjects:
+                identity.last_login_at = now
+
     async def _resolve_access_token(self, token: str) -> User | None:
         payload = _decode_access_token(token)
         if not payload:
@@ -392,6 +570,52 @@ def _decode_access_token(token: str) -> dict | None:
 
 def _hash_refresh_token(token: str) -> str:
     return hashlib.sha256(f"{settings.agenthub_secret_key}:{token}".encode("utf-8")).hexdigest()
+
+
+def _normalize_username(username: str) -> str:
+    clean = (username or "").strip().lower()
+    if len(clean) < 3 or len(clean) > 32:
+        raise AuthInvalidError("username length must be 3-32")
+    if not clean.replace("_", "").replace("-", "").isalnum() or not clean[0].isalnum():
+        raise AuthInvalidError("username contains invalid characters")
+    return clean
+
+
+def _hash_password(password: str) -> str:
+    salt = secrets.token_bytes(16)
+    iterations = 210_000
+    digest = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode("utf-8"),
+        salt,
+        iterations,
+    )
+    return "pbkdf2_sha256${}${}${}".format(
+        iterations,
+        _b64(salt),
+        _b64(digest),
+    )
+
+
+def _verify_password(password: str, stored: str | None) -> bool:
+    if not stored:
+        return False
+    try:
+        algorithm, iteration_text, salt_text, digest_text = stored.split("$", 3)
+        if algorithm != "pbkdf2_sha256":
+            return False
+        iterations = int(iteration_text)
+        salt = base64.urlsafe_b64decode(_pad_b64(salt_text))
+        expected = base64.urlsafe_b64decode(_pad_b64(digest_text))
+    except (ValueError, TypeError):
+        return False
+    actual = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode("utf-8"),
+        salt,
+        iterations,
+    )
+    return hmac.compare_digest(actual, expected)
 
 
 def _hash_ip(ip: str | None) -> str | None:

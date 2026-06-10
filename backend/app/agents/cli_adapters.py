@@ -107,19 +107,31 @@ class CliAgentAdapter:
         event_bus=None,
     ) -> AsyncIterator[CliEvent]:
         interceptor = PromptInterceptor()
+        sanitizer = StreamSanitizer()
         executable = agent.executable or DEFAULT_CLI_AGENTS.get(
             self.cli_tool, {},
         ).get("executable", "")
         args = _json_list(agent.init_args)
         env_vars = _json_dict(agent.env_vars)
         prompt = self.build_prompt(system_prompt, user_prompt)
-        args, stdin_prompt, close_stdin = self.prepare_invocation(
-            args,
-            prompt,
-            system_prompt=system_prompt,
-            engine_session_id=engine_session_id,
-            engine_session_mode=engine_session_mode,
-        )
+        if bool(getattr(agent, "prepared_invocation", False)):
+            args, stdin_prompt, close_stdin = self.prepare_prepared_invocation(
+                args,
+                prompt,
+                system_prompt=system_prompt,
+                engine_session_id=engine_session_id,
+                engine_session_mode=engine_session_mode,
+            )
+            close_stdin = close_stdin or bool(getattr(agent, "close_stdin_after_prompt", self.close_stdin_after_prompt))
+        else:
+            args, stdin_prompt, close_stdin = self.prepare_invocation(
+                args,
+                prompt,
+                system_prompt=system_prompt,
+                engine_session_id=engine_session_id,
+                engine_session_mode=engine_session_mode,
+            )
+            close_stdin = close_stdin or bool(getattr(agent, "close_stdin_after_prompt", False))
 
         if not executable:
             yield CliEvent("error", "", error="当前 Agent 未配置 executable，无法启动 CLI。")
@@ -184,7 +196,7 @@ class CliAgentAdapter:
                     yield CliEvent("error", chunk.process_id, error=chunk.error)
                     continue
 
-                clean = StreamSanitizer.clean(chunk.text)
+                clean = sanitizer.clean_chunk(chunk.text)
                 if not clean:
                     continue
                 if chunk.stream == "stderr":
@@ -240,6 +252,7 @@ class CliAgentAdapter:
             return
 
         interceptor = PromptInterceptor()
+        sanitizer = StreamSanitizer()
         executable = agent.executable or DEFAULT_CLI_AGENTS.get(
             self.cli_tool, {},
         ).get("executable", "")
@@ -353,7 +366,7 @@ class CliAgentAdapter:
                     yield CliEvent("error", chunk.process_id, error=chunk.error)
                     continue
 
-                clean = StreamSanitizer.clean(chunk.text)
+                clean = sanitizer.clean_chunk(chunk.text)
                 if not clean:
                     continue
                 if chunk.stream == "stderr":
@@ -410,6 +423,7 @@ class CliAgentAdapter:
             return
 
         parser = CliOutputParser(self)
+        sanitizer = StreamSanitizer()
         protocol = self.persistent_process_policy.protocol
         try:
             async for chunk in cli_rpc_session_runtime.stream_turn(
@@ -496,7 +510,7 @@ class CliAgentAdapter:
                     yield CliEvent("error", chunk.process_id, error=chunk.error)
                     continue
 
-                clean = StreamSanitizer.clean(chunk.text)
+                clean = sanitizer.clean_chunk(chunk.text)
                 if not clean:
                     continue
                 if chunk.stream == "stderr":
@@ -521,6 +535,20 @@ class CliAgentAdapter:
 
     def render_prompt_messages(self, messages: list[dict]) -> str:
         return render_transcript_prompt(messages)
+
+    def prepare_prepared_invocation(
+        self,
+        args: list[str],
+        prompt: str,
+        *,
+        system_prompt: str = "",
+        engine_session_id: str | None = None,
+        engine_session_mode: str = "resume",
+    ) -> tuple[list[str], str, bool]:
+        del system_prompt
+        del engine_session_id
+        del engine_session_mode
+        return args, prompt, self.close_stdin_after_prompt
 
     def prepare_invocation(
         self,
@@ -1022,16 +1050,24 @@ class CodexAdapter(CliAgentAdapter):
             return next_args, runtime_env
         settings = _normalize_codex_settings(settings)
 
+        if settings.source == "codex_config":
+            if settings.api_key:
+                env_key = settings.auth_env_key or "OPENAI_API_KEY"
+                runtime_env[env_key] = settings.api_key
+            elif settings.connection == "proxy" and settings.auth_mode != "none":
+                raise ValueError(_codex_proxy_key_error(settings))
+            return next_args, runtime_env
+
         if settings.model:
             next_args = _with_codex_config(next_args, "model", _toml_string(settings.model))
 
         next_args = _ensure_codex_flag(next_args, "--ignore-user-config")
         if settings.api_key:
-            runtime_env["AGENTHUB_CODEX_PROVIDER_TOKEN"] = settings.api_key
+            runtime_env[settings.auth_env_key or "AGENTHUB_CODEX_PROVIDER_TOKEN"] = settings.api_key
         elif settings.connection == "proxy" and settings.auth_mode != "none":
             raise ValueError(_codex_proxy_key_error(settings))
 
-        provider = self.CODEX_PROVIDER_ID
+        provider = settings.provider_id or self.CODEX_PROVIDER_ID
         next_args = _with_codex_config(next_args, "model_provider", _toml_string(provider))
         next_args = _with_codex_config(
             next_args,
@@ -1055,10 +1091,11 @@ class CodexAdapter(CliAgentAdapter):
                 "true",
             )
         elif settings.api_key:
+            env_key = settings.auth_env_key or "AGENTHUB_CODEX_PROVIDER_TOKEN"
             next_args = _with_codex_config(
                 next_args,
                 f"model_providers.{provider}.env_key",
-                _toml_string("AGENTHUB_CODEX_PROVIDER_TOKEN"),
+                _toml_string(env_key),
             )
         return next_args, runtime_env
 
@@ -1210,6 +1247,26 @@ class OpenCodeAdapter(CliAgentAdapter):
         if not _opencode_has_message_or_command(run_args):
             run_args = [*run_args, prompt]
         return run_args, "", True
+
+    def prepare_prepared_invocation(
+        self,
+        args: list[str],
+        prompt: str,
+        *,
+        system_prompt: str = "",
+        engine_session_id: str | None = None,
+        engine_session_mode: str = "resume",
+    ) -> tuple[list[str], str, bool]:
+        del system_prompt
+        del engine_session_id
+        del engine_session_mode
+        run_index = _opencode_run_index(args)
+        if run_index is None:
+            return args, prompt, True
+        run_args = args[run_index:]
+        if _opencode_has_message_or_command(run_args):
+            return args, "", True
+        return [*args, prompt], "", True
 
     def prepare_persistent_rpc_invocation(
         self,
@@ -1543,6 +1600,16 @@ _CODEX_MCP_SERVER_BOOL_FLAGS = {
 
 
 def _codex_mcp_server_args(args: list[str]) -> list[str]:
+    executable_index = _codex_executable_index(args)
+    if executable_index is not None:
+        return [
+            *args[:executable_index + 1],
+            *_codex_mcp_server_command(args[executable_index + 1:]),
+        ]
+    return _codex_mcp_server_command(args)
+
+
+def _codex_mcp_server_command(args: list[str]) -> list[str]:
     result = ["mcp-server"]
     index = 1 if args and args[0] in {"exec", "e"} else 0
     while index < len(args):
@@ -1577,16 +1644,19 @@ def _codex_mcp_tool_arguments(
     system_prompt: str,
     cwd: str,
 ) -> dict:
+    executable_index = _codex_executable_index(args)
+    cli_args = args[executable_index + 1:] if executable_index is not None else args
+    tool_cwd = _codex_container_cwd(args) if executable_index is not None else cwd
     result: dict = {"prompt": prompt}
-    if cwd:
-        result["cwd"] = cwd
+    if tool_cwd:
+        result["cwd"] = tool_cwd
     if system_prompt.strip():
         result["developer-instructions"] = system_prompt.strip()
     config: dict = {}
-    index = 1 if args and args[0] in {"exec", "e"} else 0
-    while index < len(args):
-        arg = args[index]
-        value = _option_value(args, index)
+    index = 1 if cli_args and cli_args[0] in {"exec", "e"} else 0
+    while index < len(cli_args):
+        arg = cli_args[index]
+        value = _option_value(cli_args, index)
         if arg in {"-m", "--model"} and value:
             result["model"] = value
         elif arg.startswith("--model="):
@@ -1604,10 +1674,31 @@ def _codex_mcp_tool_arguments(
             result["approval-policy"] = "never"
         elif arg == "--skip-git-repo-check":
             config["skip_git_repo_check"] = True
-        index += _codex_arg_step(args, index)
+        index += _codex_arg_step(cli_args, index)
     if config:
         result["config"] = config
     return result
+
+
+def _codex_executable_index(args: list[str]) -> int | None:
+    for index, value in enumerate(args):
+        if _looks_like_codex_executable(value):
+            return index
+    return None
+
+
+def _looks_like_codex_executable(value: str) -> bool:
+    normalized = value.replace("\\", "/").rsplit("/", 1)[-1].lower()
+    return normalized in {"codex", "codex.cmd", "codex.exe"}
+
+
+def _codex_container_cwd(args: list[str]) -> str:
+    for index, value in enumerate(args):
+        if value in {"--workdir", "-w"} and index + 1 < len(args):
+            return args[index + 1]
+        if value.startswith("--workdir="):
+            return value.split("=", 1)[1]
+    return ""
 
 
 def _codex_arg_step(args: list[str], index: int) -> int:
@@ -1817,6 +1908,7 @@ def _normalize_codex_settings(settings: CodexConnectionSettings) -> CodexConnect
         source=settings.source,
         api_key_source=settings.api_key_source,
         missing_env_key=settings.missing_env_key,
+        auth_env_key=settings.auth_env_key,
         has_chatgpt_auth=settings.has_chatgpt_auth,
     )
 
@@ -1850,10 +1942,7 @@ def _codex_proxy_base_url(base_url: str) -> str:
     parsed = urlsplit(value)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise ValueError("Codex Base URL 必须是完整的 http(s) URL。")
-    if parsed.path.rstrip("/").endswith("/v1"):
-        return value
-    path = f"{parsed.path.rstrip('/')}/v1"
-    return urlunsplit((parsed.scheme, parsed.netloc, path, parsed.query, parsed.fragment))
+    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path.rstrip("/"), parsed.query, parsed.fragment))
 
 
 def render_transcript_prompt(messages: list[dict]) -> str:
@@ -1908,22 +1997,61 @@ def _opencode_has_message_or_command(args: list[str]) -> bool:
     return False
 
 
+def _opencode_run_index(args: list[str]) -> int | None:
+    for index in range(0, max(0, len(args) - 1)):
+        if _looks_like_opencode_executable(args[index]) and args[index + 1] == "run":
+            return index + 1
+    if args and args[0] == "run":
+        return 0
+    return None
+
+
+def _looks_like_opencode_executable(value: str) -> bool:
+    normalized = value.replace("\\", "/").rsplit("/", 1)[-1].lower()
+    return normalized in {"opencode", "opencode.cmd", "opencode.exe"}
+
+
 def _opencode_acp_args(args: list[str], cwd: str) -> list[str]:
-    if args and args[0] == "acp":
+    executable_index = _opencode_executable_index(args)
+    acp_cwd = _opencode_container_cwd(args) if executable_index is not None else cwd
+    if executable_index is not None:
+        result = [*args[:executable_index + 1], *_opencode_acp_command(args)]
+    elif args and args[0] == "acp":
         result = list(args)
     else:
-        result = ["acp"]
-        if "--pure" in args:
-            result.append("--pure")
-        for option in ("--print-logs", "--log-level"):
-            if option in args:
-                index = args.index(option)
-                result.append(option)
-                if option == "--log-level" and index + 1 < len(args):
-                    result.append(args[index + 1])
-    if cwd and not _has_opencode_option(result, "--cwd"):
-        result.extend(["--cwd", cwd])
+        result = _opencode_acp_command(args)
+    if acp_cwd and not _has_opencode_option(result, "--cwd"):
+        result.extend(["--cwd", acp_cwd])
     return result
+
+
+def _opencode_acp_command(args: list[str]) -> list[str]:
+    result = ["acp"]
+    if "--pure" in args:
+        result.append("--pure")
+    for option in ("--print-logs", "--log-level"):
+        if option in args:
+            index = args.index(option)
+            result.append(option)
+            if option == "--log-level" and index + 1 < len(args):
+                result.append(args[index + 1])
+    return result
+
+
+def _opencode_executable_index(args: list[str]) -> int | None:
+    for index, value in enumerate(args):
+        if _looks_like_opencode_executable(value):
+            return index
+    return None
+
+
+def _opencode_container_cwd(args: list[str]) -> str:
+    for index, value in enumerate(args):
+        if value in {"--workdir", "-w"} and index + 1 < len(args):
+            return args[index + 1]
+        if value.startswith("--workdir="):
+            return value.split("=", 1)[1]
+    return ""
 
 
 def _has_opencode_option(args: list[str], option: str) -> bool:

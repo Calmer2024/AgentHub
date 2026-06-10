@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db
 from ..models import User
 from ..services.auth_service import (
+    AuthConflictError,
     AuthInvalidError,
     AuthRequiredError,
     AuthService,
@@ -16,9 +17,11 @@ from ..services.phase14_schemas import (
     AuthLoginRequest,
     AuthLogoutRequest,
     AuthMeRead,
+    AuthProfileUpdate,
     AuthProviderRead,
     AuthProvidersRead,
     AuthRefreshRequest,
+    AuthRegisterRequest,
     AuthTokenRead,
 )
 from ..services.team_service import TeamService
@@ -81,9 +84,9 @@ async def require_current_user_or_dev_header(
 async def list_auth_providers():
     items = [
         AuthProviderRead(
-            id="local_email",
-            label="邮箱登录",
-            type="email",
+            id="local_password",
+            label="用户名密码",
+            type="password",
             enabled=True,
             dev_only=False,
         )
@@ -108,14 +111,42 @@ async def login(
 ):
     try:
         result = await AuthService(db).login(
+            identifier=data.identifier,
             email=data.email,
+            username=data.username,
+            password=data.password,
             display_name=data.display_name,
             avatar_url=data.avatar_url,
-            provider=data.provider or "local_email",
+            provider=data.provider or "local_password",
             request=request,
         )
     except AuthInvalidError as exc:
         raise HTTPException(status_code=401, detail=str(exc))
+    read = await _me_read(db, result.user)
+    _set_auth_cookies(response, result.access_token, result.refresh_token)
+    return auth_token_to_read(result, read)
+
+
+@router.post("/register", response_model=AuthTokenRead, status_code=201)
+async def register(
+    data: AuthRegisterRequest,
+    response: Response,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        result = await AuthService(db).register(
+            username=data.username,
+            email=data.email,
+            password=data.password,
+            display_name=data.display_name,
+            avatar_url=data.avatar_url,
+            request=request,
+        )
+    except AuthConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except AuthInvalidError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     read = await _me_read(db, result.user)
     _set_auth_cookies(response, result.access_token, result.refresh_token)
     return auth_token_to_read(result, read)
@@ -160,6 +191,20 @@ async def get_current_user(user: User = Depends(require_current_user), db: Async
     return await _me_read(db, user)
 
 
+@router.put("/me", response_model=AuthMeRead)
+async def update_current_user(
+    data: AuthProfileUpdate,
+    user: User = Depends(require_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    updated = await AuthService(db).update_profile(
+        user,
+        display_name=data.display_name,
+        avatar_url=data.avatar_url,
+    )
+    return await _me_read(db, updated)
+
+
 async def _me_read(db: AsyncSession, user: User) -> AuthMeRead:
     teams = await TeamService(db).list_teams(user)
     default_team = teams[0] if teams else None
@@ -171,6 +216,7 @@ async def _me_read(db: AsyncSession, user: User) -> AuthMeRead:
     return AuthMeRead(
         id=user.id,
         email=user.email,
+        username=user.username,
         display_name=user.display_name,
         avatar_url=user.avatar_url,
         created_at=user.created_at,

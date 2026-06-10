@@ -91,6 +91,22 @@ async def test_new_columns_exist(test_client):
         assert "context_policy" in agent_cols
         assert "rules" in agent_cols
         assert "avatar" in agent_cols
+        assert "owner_user_id" in agent_cols
+
+        r = await s.execute(text("PRAGMA table_info('deployments')"))
+        deployment_cols = {row[1] for row in r.fetchall()}
+        assert "target_id" in deployment_cols
+        assert "active_release_id" in deployment_cols
+        assert "provider" in deployment_cols
+        assert "bundle_uri" in deployment_cols
+        assert "provider_metadata_json" in deployment_cols
+        assert "published_at" in deployment_cols
+
+        for table in ("deployment_targets", "deployment_releases"):
+            r = await s.execute(text(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name=:table"
+            ), {"table": table})
+            assert r.scalar() is not None
 
 
 @pytest.mark.asyncio

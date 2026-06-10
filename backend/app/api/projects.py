@@ -546,7 +546,7 @@ async def serve_preview_asset(
     try:
         await _authorize_project(request, db, project_id, mode="read")
         project = await svc._get_project(project_id)
-        target = svc.provider.safe_resolve(project.workspace_path, asset_path or "index.html")
+        target = svc.provider.safe_resolve(svc._file_workspace_path(project), asset_path or "index.html")
     except ProjectNotFoundError:
         raise HTTPException(status_code=404, detail="project not found")
     except WorkspaceSecurityError:

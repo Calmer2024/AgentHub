@@ -18,14 +18,21 @@ from ..services.session_service import (
     SessionModeError,
 )
 from ..services.auth_service import AuthService
+from ..services.agent_seed import ensure_user_default_cli_agents
 from ..services.team_service import PermissionDeniedError
-from ..services.tenant_guard import TenantGuard, tenant_scope_required_for_cloud
+from ..services.tenant_guard import TenantGuard, TenantScope, tenant_scope_required_for_cloud
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
 
-def _svc(db: AsyncSession) -> SessionService:
-    return SessionService(db)
+def _svc(db: AsyncSession, agent_owner_user_id: str | None = None) -> SessionService:
+    return SessionService(db, agent_owner_user_id=agent_owner_user_id)
+
+
+def _agent_owner_id(scope: TenantScope | None) -> str | None:
+    if not scope or not tenant_scope_required_for_cloud():
+        return None
+    return scope.actor_user_id
 
 
 async def _require_scope(request: Request, db: AsyncSession):
@@ -35,16 +42,21 @@ async def _require_scope(request: Request, db: AsyncSession):
     return await TenantGuard(db).scope_for_user(user)
 
 
-async def _authorize_project(request: Request, db: AsyncSession, project_id: str | None, mode: str) -> None:
+async def _authorize_project(
+    request: Request,
+    db: AsyncSession,
+    project_id: str | None,
+    mode: str,
+) -> TenantScope | None:
     if not project_id:
         if tenant_scope_required_for_cloud():
             raise HTTPException(status_code=400, detail="cloud session requires project")
-        return
+        return None
     project = await db.get(Project, project_id)
     if not project or project.status == "archived":
         raise HTTPException(status_code=404, detail="project not found")
     if project.workspace_mode != "cloud" and not tenant_scope_required_for_cloud():
-        return
+        return None
     scope = await _require_scope(request, db)
     guard = TenantGuard(db)
     try:
@@ -54,21 +66,28 @@ async def _authorize_project(request: Request, db: AsyncSession, project_id: str
             await guard.assert_project_write(scope, project)
     except PermissionDeniedError as exc:
         raise HTTPException(status_code=403, detail=str(exc))
+    await ensure_user_default_cli_agents(db, scope.actor_user_id)
+    return scope
 
 
-async def _authorize_session(request: Request, db: AsyncSession, session_id: str, mode: str) -> DBSession:
+async def _authorize_session(
+    request: Request,
+    db: AsyncSession,
+    session_id: str,
+    mode: str,
+) -> tuple[DBSession, TenantScope | None]:
     session = await db.get(DBSession, session_id)
     if not session or session.is_active != "1":
         raise HTTPException(status_code=404, detail="session not found")
-    await _authorize_project(request, db, session.project_id, mode)
-    return session
+    scope = await _authorize_project(request, db, session.project_id, mode)
+    return session, scope
 
 
 @router.post("", response_model=SessionRead, status_code=201)
 async def create_session(data: SessionCreate, request: Request, db: AsyncSession = Depends(get_db)):
     try:
-        await _authorize_project(request, db, data.project_id, "write")
-        return await _svc(db).create_session(data)
+        scope = await _authorize_project(request, db, data.project_id, "write")
+        return await _svc(db, _agent_owner_id(scope)).create_session(data)
     except ProjectNotFoundError:
         raise HTTPException(status_code=404, detail="project not found")
     except PermissionDeniedError as exc:
@@ -121,8 +140,8 @@ async def add_member(
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        await _authorize_session(request, db, session_id, "write")
-        return await _svc(db).add_group_member(session_id, data.agent_config_id)
+        _session, scope = await _authorize_session(request, db, session_id, "write")
+        return await _svc(db, _agent_owner_id(scope)).add_group_member(session_id, data.agent_config_id)
     except SessionNotFoundError:
         raise HTTPException(status_code=404, detail="session not found")
     except SessionModeError:
@@ -143,8 +162,8 @@ async def remove_member(
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        await _authorize_session(request, db, session_id, "write")
-        return await _svc(db).remove_group_member(session_id, agent_config_id)
+        _session, scope = await _authorize_session(request, db, session_id, "write")
+        return await _svc(db, _agent_owner_id(scope)).remove_group_member(session_id, agent_config_id)
     except SessionNotFoundError:
         raise HTTPException(status_code=404, detail="session not found")
     except SessionModeError:
@@ -169,8 +188,8 @@ async def get_session_workspace(session_id: str, request: Request, db: AsyncSess
 @router.patch("/{session_id}", response_model=SessionRead)
 async def update_session(session_id: str, data: SessionUpdate, request: Request, db: AsyncSession = Depends(get_db)):
     try:
-        await _authorize_session(request, db, session_id, "write")
-        return await _svc(db).update_session(session_id, data)
+        _session, scope = await _authorize_session(request, db, session_id, "write")
+        return await _svc(db, _agent_owner_id(scope)).update_session(session_id, data)
     except SessionNotFoundError:
         raise HTTPException(status_code=404, detail="session not found")
     except AgentNotFoundError:

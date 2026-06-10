@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .phase9_schemas import CurrentUserRead, TeamRead
 
@@ -13,7 +13,7 @@ from .phase9_schemas import CurrentUserRead, TeamRead
 class AuthProviderRead(BaseModel):
     id: str
     label: str
-    type: Literal["email", "external", "dev_header"] = "email"
+    type: Literal["email", "password", "external", "dev_header"] = "email"
     enabled: bool
     dev_only: bool = Field(default=False, alias="devOnly")
 
@@ -25,7 +25,9 @@ class AuthProvidersRead(BaseModel):
 
 
 class AuthLoginRequest(BaseModel):
-    email: str
+    identifier: str | None = None
+    email: str | None = None
+    username: str | None = None
     password: str | None = None
     display_name: str | None = Field(default=None, alias="displayName")
     avatar_url: str | None = Field(default=None, alias="avatarUrl")
@@ -35,11 +37,75 @@ class AuthLoginRequest(BaseModel):
 
     @field_validator("email")
     @classmethod
-    def validate_email(cls, value: str) -> str:
+    def validate_email(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         clean = value.strip().lower()
         if "@" not in clean or clean.startswith("@") or clean.endswith("@"):
             raise ValueError("email must be valid")
         return clean
+
+    @field_validator("username")
+    @classmethod
+    def normalize_username(cls, value: str | None) -> str | None:
+        clean = (value or "").strip().lower()
+        return clean or None
+
+    @field_validator("identifier")
+    @classmethod
+    def normalize_identifier(cls, value: str | None) -> str | None:
+        clean = (value or "").strip().lower()
+        return clean or None
+
+    @model_validator(mode="after")
+    def validate_identifier(self):
+        if not (self.identifier or self.email or self.username):
+            raise ValueError("identifier is required")
+        return self
+
+
+class AuthRegisterRequest(BaseModel):
+    username: str
+    email: str
+    password: str
+    display_name: str | None = Field(default=None, alias="displayName")
+    avatar_url: str | None = Field(default=None, alias="avatarUrl")
+
+    model_config = {"populate_by_name": True}
+
+    @field_validator("username")
+    @classmethod
+    def validate_username(cls, value: str) -> str:
+        clean = value.strip().lower()
+        if len(clean) < 3 or len(clean) > 32:
+            raise ValueError("username length must be 3-32")
+        if not clean.replace("_", "").replace("-", "").isalnum():
+            raise ValueError("username contains invalid characters")
+        if not clean[0].isalnum():
+            raise ValueError("username must start with letter or number")
+        return clean
+
+    @field_validator("email")
+    @classmethod
+    def validate_register_email(cls, value: str) -> str:
+        clean = value.strip().lower()
+        if "@" not in clean or clean.startswith("@") or clean.endswith("@"):
+            raise ValueError("email must be valid")
+        return clean
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, value: str) -> str:
+        if len(value or "") < 8:
+            raise ValueError("password length must be at least 8")
+        return value
+
+
+class AuthProfileUpdate(BaseModel):
+    display_name: str | None = Field(default=None, alias="displayName")
+    avatar_url: str | None = Field(default=None, alias="avatarUrl")
+
+    model_config = {"populate_by_name": True}
 
 
 class AuthRefreshRequest(BaseModel):
