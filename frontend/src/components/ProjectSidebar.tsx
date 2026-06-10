@@ -25,6 +25,8 @@ import { AgentAvatar } from "./AgentAvatar";
 import type { SidebarTab } from "../stores/sessionStore";
 import { useThemeStore, type ThemeMode } from "../stores/themeStore";
 import { GlobalModal } from "./GlobalModal";
+import { UserAccountMenu } from "./UserAccountMenu";
+import { WorkspaceSettingsPage } from "./WorkspaceSettingsPage";
 
 interface Props {
   projects: Project[];
@@ -40,6 +42,8 @@ interface Props {
   onSelectProject: (id: string) => void;
   onSelectTeam: (id: string | null) => void;
   onCreateTeam: (name: string) => Promise<void>;
+  onUserUpdated?: () => Promise<void> | void;
+  onRefreshProjects?: () => Promise<void> | void;
   onCreateBlankProject: (name?: string) => Promise<void>;
   onCreateCloudProject: (name: string, teamId?: string | null) => Promise<void>;
   onPickExistingFolder: () => Promise<void>;
@@ -81,6 +85,8 @@ export function ProjectSidebar({
   onSelectProject,
   onSelectTeam,
   onCreateTeam,
+  onUserUpdated,
+  onRefreshProjects,
   onCreateBlankProject,
   onCreateCloudProject,
   onPickExistingFolder,
@@ -107,6 +113,7 @@ export function ProjectSidebar({
   const [teamName, setTeamName] = useState("");
   const [teamCreating, setTeamCreating] = useState(false);
   const [projectsExpanded, setProjectsExpanded] = useState(false);
+  const [workspaceSettingsProject, setWorkspaceSettingsProject] = useState<Project | null>(null);
   const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<DeleteConfirmTarget | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -212,6 +219,10 @@ export function ProjectSidebar({
     await onRenameProject(renameTarget.id, name);
   };
 
+  const refreshWorkspaceProjects = async () => {
+    await onRefreshProjects?.();
+  };
+
   const isConfirmingDelete = (kind: DeleteConfirmTarget["kind"], id: string) => (
     deleteConfirmTarget?.kind === kind && deleteConfirmTarget.id === id
   );
@@ -312,6 +323,7 @@ export function ProjectSidebar({
   return (
     <aside className="agenthub-rail w-full md:w-[260px] h-[34dvh] md:h-full flex flex-col shrink-0 border-r transition-colors duration-300">
       <div className="px-3 py-3 space-y-3">
+        <UserAccountMenu currentUser={currentUser} teams={teams} onUserUpdated={onUserUpdated} />
         <ThemeToggle theme={theme} onChange={setTheme} />
         {canUseTeamSpaces && (
           <TeamSwitcher
@@ -335,14 +347,6 @@ export function ProjectSidebar({
           active={activePanel === "sessions"}
           onClick={() => onOpenPanel("sessions")}
         />
-        {!isLocalShell && (
-          <NavButton
-            icon={Settings}
-            label="工作区设置"
-            active={activePanel === "workspace"}
-            onClick={() => onOpenPanel("workspace")}
-          />
-        )}
         <NavButton icon={Bot} label="添加 Agent" onClick={onCreateAgent} />
       </div>
 
@@ -481,6 +485,17 @@ export function ProjectSidebar({
                 </button>
                 {projectMenuOpen === project.id && (
                   <div className="agenthub-menu absolute right-1 top-10 z-50 w-44 rounded-2xl border p-1">
+                    {!isLocalShell && (
+                      <MenuItem
+                        icon={Settings}
+                        label="工作区设置"
+                        onClick={() => {
+                          setWorkspaceSettingsProject(project);
+                          setProjectMenuOpen(null);
+                          setDeleteConfirmTarget(null);
+                        }}
+                      />
+                    )}
                     <MenuItem
                       icon={Pencil}
                       label="重命名"
@@ -557,6 +572,15 @@ export function ProjectSidebar({
           onNameChange={setTeamName}
           onCancel={() => setTeamCreateOpen(false)}
           onSubmit={() => void submitCreateTeam()}
+        />
+      )}
+      {workspaceSettingsProject && (
+        <WorkspaceSettingsDialog
+          project={workspaceSettingsProject}
+          currentUser={currentUser}
+          teams={teams}
+          onRefreshProjects={refreshWorkspaceProjects}
+          onClose={() => setWorkspaceSettingsProject(null)}
         />
       )}
       {renameTarget && (
@@ -824,6 +848,41 @@ function ProjectRenameDialog({
           autoFocus
         />
       </label>
+    </GlobalModal>
+  );
+}
+
+function WorkspaceSettingsDialog({
+  project,
+  currentUser,
+  teams,
+  onRefreshProjects,
+  onClose,
+}: {
+  project: Project;
+  currentUser: CurrentUser | null;
+  teams: Team[];
+  onRefreshProjects: () => Promise<void>;
+  onClose: () => void;
+}) {
+  return (
+    <GlobalModal
+      title="工作区设置"
+      subtitle={project.workspaceMode === "cloud" ? "云端项目运行时、导入、快照与权限" : "当前项目工作区"}
+      icon={<Settings size={18} />}
+      zIndexClass="z-[1300]"
+      panelClassName="max-w-5xl"
+      bodyClassName="p-0"
+      onClose={onClose}
+    >
+      <div className="flex h-[min(78dvh,760px)] min-h-[420px] flex-col">
+        <WorkspaceSettingsPage
+          project={project}
+          currentUser={currentUser}
+          teams={teams}
+          onRefreshProjects={onRefreshProjects}
+        />
+      </div>
     </GlobalModal>
   );
 }

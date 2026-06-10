@@ -495,15 +495,15 @@ body {
   background: var(--ah-card-bg);
   border-color: var(--ah-border);
   color: var(--ah-text);
-  box-shadow: 0 10px 30px rgb(0 0 0 / 0.08);
-  backdrop-filter: blur(14px) saturate(125%);
+  box-shadow: none;
+  backdrop-filter: none;
 }
 
 .agenthub-bubble-user {
   background: var(--ah-user-bg);
   border: 1px solid var(--ah-border);
   color: var(--ah-user-text);
-  box-shadow: 0 10px 24px rgb(28 39 56 / 0.1);
+  box-shadow: none;
 }
 
 .agenthub-agent-namebar {

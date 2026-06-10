@@ -94,6 +94,7 @@ function resetStore() {
 function renderSessionList(
   input: {
     sessions?: Session[];
+    project?: Project | null;
     onPinSession?: (id: string, isPinned: boolean) => void;
     onArchiveSession?: (id: string, archived?: boolean) => void;
   onMuteSession?: (id: string, isMuted: boolean) => void;
@@ -102,7 +103,7 @@ function renderSessionList(
 ) {
   return render(
     <SessionList
-      project={project}
+      project={input.project ?? project}
       sessions={input.sessions ?? sessions}
       currentSessionId="s-idle"
       agents={[agent]}
@@ -142,6 +143,21 @@ describe("SessionList", () => {
     expect(screen.getByText("后台对话")).toBeInTheDocument();
     expect(screen.getByText("对方正在输入")).toBeInTheDocument();
     expect(screen.getByText("空闲对话")).toBeInTheDocument();
+  });
+
+  it("云端项目副标题不暴露 workspace id", () => {
+    resetStore();
+    renderSessionList({
+      project: {
+        ...project,
+        workspaceMode: "cloud",
+        workspacePath: null,
+        workspaceId: "d4d8eea0-8473-4e12-baea-d99a",
+      },
+    });
+
+    expect(screen.getByText("云端工作区 · 就绪")).toBeInTheDocument();
+    expect(screen.queryByText(/d4d8eea0/)).not.toBeInTheDocument();
   });
 
   it("支持按标题搜索会话", () => {

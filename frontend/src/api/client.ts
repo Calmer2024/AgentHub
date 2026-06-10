@@ -10,7 +10,7 @@ import type {
   PreviewSession, Deployment, DeploymentLogs,
   ExecutionTraceItem,
   CurrentUser, Team, TeamMember, TeamRole, CloudWorkspace, WorkspaceSnapshot, AuditLog,
-  Sandbox, QuotaSummary, SecretCreateInput, SecretRef, RuntimeLogs,
+  Sandbox, RuntimeImage, RunnerNode, QuotaSummary, SecretCreateInput, SecretRef, RuntimeLogs,
   CodexLocalConfig, CodexLocalConfigUpdate,
   SkillDefinition,
   BuildOrchestratorInputRequest, BuildOrchestratorInputResult,
@@ -22,6 +22,7 @@ import type {
   Comment, Attachment, ArtifactReference, Notification, MobileSessionSummary,
   RenderedArtifact, AgentTemplateSession, GitSyncJob,
   RuntimeCapabilities, AuthProvider, AuthSession,
+  CliCredentialConfig, CliCredentialTool, CliCredentialUpdateInput, CliModelList,
 } from "../types";
 import { parseDagPhases, parseTasks } from "./orchestratorEvents";
 import { chinaNowIso } from "../utils/time";
@@ -128,6 +129,11 @@ function cloudHeaders(extra: Record<string, string> = {}): Record<string, string
   return { ...extra, ...(activeCloudAuthProvider?.() ?? {}) };
 }
 
+function optionalCloudHeaders(extra: Record<string, string> = {}): RequestInit | undefined {
+  const headers = cloudHeaders(extra);
+  return Object.keys(headers).length > 0 ? { headers } : undefined;
+}
+
 function cloudJsonHeaders(): Record<string, string> {
   return cloudHeaders({ "Content-Type": "application/json" });
 }
@@ -137,27 +143,74 @@ async function readApiError(res: Response, fallback: string) {
     const data = await res.json();
     if (data && typeof data === "object" && "detail" in data) {
       const detail = (data as { detail?: unknown }).detail;
-      if (typeof detail === "string") return detail;
+      const message = formatApiDetail(detail);
+      if (message) return message;
     }
   } catch { /* keep fallback */ }
   return fallback;
 }
 
+function formatApiDetail(detail: unknown): string | null {
+  if (typeof detail === "string") return translateApiMessage(detail);
+  if (!Array.isArray(detail)) return null;
+  const messages = detail.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const data = item as Record<string, unknown>;
+    const msg = typeof data.msg === "string" ? data.msg : "";
+    const loc = Array.isArray(data.loc) ? data.loc.map(String) : [];
+    const field = loc[loc.length - 1] ?? "";
+    const translated = translateValidationMessage(field, msg);
+    return translated ? [translated] : [];
+  });
+  return messages.length > 0 ? Array.from(new Set(messages)).join("；") : null;
+}
+
+function translateValidationMessage(field: string, message: string): string {
+  const source = message.toLowerCase();
+  if (field === "username") {
+    if (source.includes("3-32") || source.includes("too_short") || source.includes("too_long")) return "用户名需要 3-32 个字符";
+    if (source.includes("invalid") || source.includes("characters")) return "用户名只能包含字母、数字、下划线或连字符";
+    return "用户名格式不正确";
+  }
+  if (field === "email") return "请输入有效邮箱";
+  if (field === "password") {
+    if (source.includes("at least 8") || source.includes("too_short")) return "密码至少 8 位";
+    return "密码格式不正确";
+  }
+  if (message) return translateApiMessage(message);
+  return "";
+}
+
+function translateApiMessage(message: string): string {
+  const lower = message.toLowerCase();
+  if (lower.includes("username already registered")) return "用户名已被注册";
+  if (lower.includes("email already registered")) return "邮箱已被注册";
+  if (lower.includes("invalid username or password")) return "用户名或密码错误";
+  if (lower.includes("identifier required") || lower.includes("identifier is required")) return "请输入用户名或邮箱";
+  if (lower.includes("password required")) return "请输入密码";
+  if (lower.includes("username length must be 3-32")) return "用户名需要 3-32 个字符";
+  if (lower.includes("username contains invalid characters")) return "用户名只能包含字母、数字、下划线或连字符";
+  if (lower.includes("username must start")) return "用户名必须以字母或数字开头";
+  if (lower.includes("password length must be at least 8")) return "密码至少 8 位";
+  if (lower.includes("email must be valid")) return "请输入有效邮箱";
+  return message;
+}
+
 export async function fetchAgents(): Promise<AgentConfig[]> {
-  const res = await fetch(`${API_BASE}/agents`);
-  if (!res.ok) throw new Error("Failed to fetch agents");
+  const res = await fetch(`${API_BASE}/agents`, optionalCloudHeaders());
+  if (!res.ok) throw new Error(await readApiError(res, "Agent 加载失败"));
   return res.json();
 }
 
 export async function seedDefaultAgents(): Promise<AgentConfig[]> {
-  const res = await fetch(`${API_BASE}/agents/seed-defaults`, { method: "POST" });
-  if (!res.ok) throw new Error("Failed to seed default agents");
+  const res = await fetch(`${API_BASE}/agents/seed-defaults`, { method: "POST", headers: cloudHeaders() });
+  if (!res.ok) throw new Error(await readApiError(res, "默认 Agent 初始化失败"));
   return res.json();
 }
 
 export async function configureBuiltinAgentsCodex(): Promise<AgentConfig[]> {
-  const res = await fetch(`${API_BASE}/agents/configure-builtins-codex`, { method: "POST" });
-  if (!res.ok) throw new Error("Failed to configure builtin agents as Codex");
+  const res = await fetch(`${API_BASE}/agents/configure-builtins-codex`, { method: "POST", headers: cloudHeaders() });
+  if (!res.ok) throw new Error(await readApiError(res, "内置 Agent 配置失败"));
   return res.json();
 }
 
@@ -181,15 +234,20 @@ export async function fetchAuthProviders(): Promise<AuthProvider[]> {
 }
 
 export async function loginWithEmail(input: {
-  email: string;
+  email?: string;
+  username?: string;
+  identifier?: string;
   password?: string;
   displayName?: string;
 }): Promise<AuthSession> {
   const res = await fetch(`${API_BASE}/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    credentials: "include",
     body: JSON.stringify({
+      identifier: input.identifier,
       email: input.email,
+      username: input.username,
       password: input.password,
       displayName: input.displayName,
     }),
@@ -200,11 +258,35 @@ export async function loginWithEmail(input: {
   return session;
 }
 
+export async function registerWithPassword(input: {
+  username: string;
+  email: string;
+  password: string;
+  displayName?: string;
+}): Promise<AuthSession> {
+  const res = await fetch(`${API_BASE}/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({
+      username: input.username,
+      email: input.email,
+      password: input.password,
+      displayName: input.displayName,
+    }),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, "注册失败"));
+  const session = await res.json() as AuthSession;
+  setAuthSession(session);
+  return session;
+}
+
 export async function refreshAuthSession(): Promise<AuthSession> {
   const refreshToken = activeAuthSession?.refreshToken;
   const res = await fetch(`${API_BASE}/auth/refresh`, {
     method: "POST",
     headers: refreshToken ? { "Content-Type": "application/json" } : undefined,
+    credentials: "include",
     body: refreshToken ? JSON.stringify({ refreshToken }) : undefined,
   });
   if (!res.ok) {
@@ -221,6 +303,7 @@ export async function logoutCurrentUser(): Promise<void> {
   const res = await fetch(`${API_BASE}/auth/logout`, {
     method: "POST",
     headers: cloudJsonHeaders(),
+    credentials: "include",
     body: JSON.stringify({ refreshToken }),
   });
   clearAuthSession();
@@ -230,25 +313,25 @@ export async function logoutCurrentUser(): Promise<void> {
 export async function createAgent(data: AgentConfigCreate): Promise<AgentConfig> {
   const res = await fetch(`${API_BASE}/agents`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: cloudJsonHeaders(),
     body: JSON.stringify(data),
   });
-  if (!res.ok) throw new Error("Failed to create agent");
+  if (!res.ok) throw new Error(await readApiError(res, "创建 Agent 失败"));
   return res.json();
 }
 
 export async function updateAgent(id: string, data: AgentConfigUpdate): Promise<AgentConfig> {
   const res = await fetch(`${API_BASE}/agents/${id}`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
+    headers: cloudJsonHeaders(),
     body: JSON.stringify(data),
   });
-  if (!res.ok) throw new Error("Failed to update agent");
+  if (!res.ok) throw new Error(await readApiError(res, "更新 Agent 失败"));
   return res.json();
 }
 
 export async function deleteAgent(id: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/agents/${id}`, { method: "DELETE" });
+  const res = await fetch(`${API_BASE}/agents/${id}`, { method: "DELETE", headers: cloudHeaders() });
   if (!res.ok) throw new Error("Failed to delete agent");
 }
 
@@ -301,10 +384,14 @@ export async function replyToInteractivePrompt(
 }
 
 export async function fetchCurrentUser(): Promise<CurrentUser> {
-  const res = await fetch(`${API_BASE}/auth/me`, { headers: cloudHeaders() });
-  if (res.status === 401 && activeAuthSession?.refreshToken) {
-    await refreshAuthSession();
-    const retry = await fetch(`${API_BASE}/auth/me`, { headers: cloudHeaders() });
+  const res = await fetch(`${API_BASE}/auth/me`, { headers: cloudHeaders(), credentials: "include" });
+  if (res.status === 401) {
+    try {
+      await refreshAuthSession();
+    } catch {
+      throw new Error(await readApiError(res, "请先登录后继续"));
+    }
+    const retry = await fetch(`${API_BASE}/auth/me`, { headers: cloudHeaders(), credentials: "include" });
     if (!retry.ok) throw new Error(await readApiError(retry, "请先登录后继续"));
     return retry.json();
   }
@@ -313,6 +400,23 @@ export async function fetchCurrentUser(): Promise<CurrentUser> {
     throw new Error(await readApiError(res, "请先登录后继续"));
   }
   return res.json();
+}
+
+export async function updateCurrentUserProfile(input: {
+  displayName?: string;
+  avatarUrl?: string | null;
+}): Promise<CurrentUser> {
+  const res = await fetch(`${API_BASE}/auth/me`, {
+    method: "PUT",
+    headers: cloudJsonHeaders(),
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, "资料保存失败"));
+  const user = await res.json() as CurrentUser;
+  if (activeAuthSession) {
+    setAuthSession({ ...activeAuthSession, user });
+  }
+  return user;
 }
 
 export async function fetchTeams(): Promise<Team[]> {
@@ -831,6 +935,20 @@ export async function stopSandbox(sandboxId: string, reason?: string): Promise<{
   return res.json();
 }
 
+export async function fetchRuntimeImages(): Promise<RuntimeImage[]> {
+  const res = await fetch(`${API_BASE}/runtime/images`, { headers: cloudHeaders() });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to fetch runtime images"));
+  const data = await res.json() as { items?: RuntimeImage[] };
+  return Array.isArray(data.items) ? data.items : [];
+}
+
+export async function fetchRunnerNodes(): Promise<RunnerNode[]> {
+  const res = await fetch(`${API_BASE}/runtime/runner-nodes`, { headers: cloudHeaders() });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to fetch runner nodes"));
+  const data = await res.json() as { items?: RunnerNode[] };
+  return Array.isArray(data.items) ? data.items : [];
+}
+
 export async function fetchQuotaSummary(): Promise<QuotaSummary> {
   const res = await fetch(`${API_BASE}/quotas/me`, { headers: cloudHeaders() });
   if (!res.ok) throw new Error(await readApiError(res, "Failed to fetch quota"));
@@ -844,6 +962,38 @@ export async function createSecret(input: SecretCreateInput): Promise<SecretRef>
     body: JSON.stringify(input),
   });
   if (!res.ok) throw new Error(await readApiError(res, "Failed to save secret"));
+  return res.json();
+}
+
+export async function fetchCliCredentials(): Promise<CliCredentialConfig[]> {
+  const res = await fetch(`${API_BASE}/cli-credentials`, { headers: cloudHeaders() });
+  if (!res.ok) throw new Error(await readApiError(res, "CLI 凭据加载失败"));
+  const data = await res.json() as { items?: CliCredentialConfig[] };
+  return Array.isArray(data.items) ? data.items : [];
+}
+
+export async function fetchCliCredentialModels(
+  cliTool: CliCredentialTool,
+  providerId: string,
+): Promise<CliModelList> {
+  const params = new URLSearchParams({ providerId });
+  const res = await fetch(`${API_BASE}/cli-credentials/${cliTool}/models?${params.toString()}`, {
+    headers: cloudHeaders(),
+  });
+  if (!res.ok) throw new Error("加载模型列表失败");
+  return await res.json() as CliModelList;
+}
+
+export async function saveCliCredential(
+  cliTool: CliCredentialTool,
+  input: CliCredentialUpdateInput,
+): Promise<CliCredentialConfig> {
+  const res = await fetch(`${API_BASE}/cli-credentials/${cliTool}`, {
+    method: "PUT",
+    headers: cloudJsonHeaders(),
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, "CLI 凭据保存失败"));
   return res.json();
 }
 
@@ -1656,6 +1806,14 @@ function normalizeArtifactEvent(data: Record<string, unknown>): Artifact | null 
     filePath: typeof raw.filePath === "string" ? raw.filePath : null,
     previewId: typeof raw.previewId === "string" ? raw.previewId : null,
     source: typeof raw.source === "string" ? raw.source : null,
+    previewKind: typeof raw.previewKind === "string" ? raw.previewKind : undefined,
+    previewLabel: typeof raw.previewLabel === "string" ? raw.previewLabel : null,
+    mediaType: typeof raw.mediaType === "string" ? raw.mediaType : null,
+    fileExtension: typeof raw.fileExtension === "string" ? raw.fileExtension : null,
+    canInlinePreview: typeof raw.canInlinePreview === "boolean" ? raw.canInlinePreview : undefined,
+    isBinary: typeof raw.isBinary === "boolean" ? raw.isBinary : undefined,
+    rawUrl: typeof raw.rawUrl === "string" ? raw.rawUrl : null,
+    downloadUrl: typeof raw.downloadUrl === "string" ? raw.downloadUrl : null,
     createdAt: typeof raw.createdAt === "string" ? raw.createdAt : chinaNowIso(),
   };
 }

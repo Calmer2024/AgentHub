@@ -12,7 +12,15 @@ import {
   restoreWorkspaceSnapshot,
 } from "../api/client";
 import { useToastStore } from "../stores/toastStore";
-import type { AuditLog, CloudWorkspace, CurrentUser, Project, QuotaSummary, Team, TeamRole } from "../types";
+import type {
+  AuditLog,
+  CloudWorkspace,
+  CurrentUser,
+  Project,
+  QuotaSummary,
+  Team,
+  TeamRole,
+} from "../types";
 import { formatChinaDateTime } from "../utils/time";
 
 interface Props {

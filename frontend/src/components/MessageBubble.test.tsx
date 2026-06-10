@@ -24,6 +24,20 @@ const handlers = {
 };
 
 describe("MessageBubble", () => {
+  it("流式占位消息不显示冗余等待态或空回复", () => {
+    render(
+      <MessageBubble
+        message={baseMessage}
+        isStreaming
+        {...handlers}
+      />,
+    );
+
+    expect(screen.queryByLabelText("正在等待 Agent 回复")).not.toBeInTheDocument();
+    expect(screen.queryByText("OpenCode 正在组织回复")).not.toBeInTheDocument();
+    expect(screen.queryByText("未返回可见回复")).not.toBeInTheDocument();
+  });
+
   it("进程已完成但正文为空时不显示等待回复", () => {
     render(
       <MessageBubble

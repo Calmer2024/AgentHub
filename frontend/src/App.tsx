@@ -216,6 +216,8 @@ export function AgentHubWorkbench() {
             "团队已创建",
             "创建团队失败",
           )}
+          onUserUpdated={loadData}
+          onRefreshProjects={loadData}
           onCreateBlankProject={(name) => runCrudAction(
             () => handleCreateBlankProject(name),
             "项目已创建",
@@ -275,6 +277,8 @@ export function AgentHubWorkbench() {
             "团队已创建",
             "创建团队失败",
           )}
+          onUserUpdated={loadData}
+          onRefreshProjects={loadData}
           onCreateBlankProject={(name) => runCrudAction(
             () => handleCreateBlankProject(name),
             "项目已创建",

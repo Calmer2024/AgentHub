@@ -328,7 +328,7 @@ export function SessionList({
               <h2 className="agenthub-strong truncate text-sm font-semibold">{project.name}</h2>
               <p className="agenthub-muted mt-0.5 truncate text-xs">
                 {project.workspaceMode === "cloud"
-                  ? `云端 · ${project.workspaceId ?? "workspace 未创建"}`
+                  ? `云端工作区 · ${projectStatusLabel(project.status)}`
                   : `本机 · ${project.workspacePath ?? "未绑定"}`}
               </p>
             </div>
@@ -471,6 +471,16 @@ export function SessionList({
       </div>
     </div>
   );
+}
+
+function projectStatusLabel(status: Project["status"]) {
+  return {
+    creating: "创建中",
+    ready: "就绪",
+    building: "构建中",
+    error: "异常",
+    archived: "已归档",
+  }[status];
 }
 
 function SessionListSkeleton() {

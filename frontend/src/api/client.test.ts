@@ -16,11 +16,14 @@ import {
   fetchArtifactDiff,
   fetchArtifactVersions,
   fetchArtifacts,
+  fetchCurrentUser,
   fetchDeploymentLogs,
   fetchProjectBuildLogs,
   fetchProjectBuilds,
   fetchWorkspace,
   importWorkspaceGithub,
+  fetchRuntimeImages,
+  fetchRunnerNodes,
   projectBuildExportUrl,
   projectSourceExportUrl,
   readProjectFile,
@@ -29,7 +32,9 @@ import {
   startProjectBuild,
   retryDeployment,
   resetApiClientForTests,
+  fetchCliCredentials,
   loginWithEmail,
+  saveCliCredential,
   writeProjectFile,
 } from "./client";
 
@@ -650,13 +655,118 @@ describe("production auth headers", () => {
       }), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify([]), { status: 200 }));
 
-    await loginWithEmail({ email: "prod@example.com", displayName: "Prod User" });
+    await loginWithEmail({ identifier: "prod@example.com", password: "Prod-passw0rd" });
     await fetchProjects();
 
+    const loginInit = vi.mocked(globalThis.fetch).mock.calls[0][1] as RequestInit;
     const init = vi.mocked(globalThis.fetch).mock.calls[1][1] as RequestInit;
     const headers = init.headers as Record<string, string>;
+    expect(loginInit.credentials).toBe("include");
     expect(headers.Authorization).toBe("Bearer access-1");
     expect(headers["X-AgentHub-User-Email"]).toBeUndefined();
+  });
+
+  it("localStorage 丢失但 refresh cookie 有效时自动恢复登录态", async () => {
+    const currentUser = {
+      id: "u-cookie",
+      email: "cookie@example.com",
+      displayName: "Cookie User",
+      createdAt: "2026-06-09T12:00:00",
+      status: "active",
+      teams: [],
+      defaultSpace: { kind: "personal", id: "u-cookie", name: "个人空间" },
+    };
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({ detail: "请先登录后继续" }), { status: 401 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        accessToken: "access-cookie",
+        refreshToken: "refresh-cookie",
+        tokenType: "bearer",
+        expiresAt: "2026-06-09T12:15:00",
+        user: currentUser,
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(currentUser), { status: 200 }));
+
+    const user = await fetchCurrentUser();
+
+    expect(user.email).toBe("cookie@example.com");
+    expect(vi.mocked(globalThis.fetch).mock.calls[0][0]).toBe("/api/auth/me");
+    expect(vi.mocked(globalThis.fetch).mock.calls[1][0]).toBe("/api/auth/refresh");
+    expect(vi.mocked(globalThis.fetch).mock.calls[2][0]).toBe("/api/auth/me");
+    const firstMeInit = vi.mocked(globalThis.fetch).mock.calls[0][1] as RequestInit;
+    const refreshInit = vi.mocked(globalThis.fetch).mock.calls[1][1] as RequestInit;
+    const retryInit = vi.mocked(globalThis.fetch).mock.calls[2][1] as RequestInit;
+    expect(firstMeInit.credentials).toBe("include");
+    expect(refreshInit.credentials).toBe("include");
+    expect(refreshInit.body).toBeUndefined();
+    expect(retryInit.credentials).toBe("include");
+    expect((retryInit.headers as Record<string, string>).Authorization).toBe("Bearer access-cookie");
+  });
+});
+
+describe("SaaS CLI credentials APIs", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    resetApiClientForTests();
+    localStorage.clear();
+  });
+
+  it("读取并保存 CLI 凭据时使用云端认证头且不回传明文 key", async () => {
+    configureApiClient({ cloudAuthProvider: createDevCloudAuthProvider() });
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        items: [{
+          cliTool: "codex",
+          scope: "user",
+          ownerId: "u1",
+          providerType: "proxy",
+          providerId: "relay",
+          providerName: "Relay",
+          baseUrl: "https://relay.example/v1",
+          model: "relay-codex",
+          authEnvKey: "AGENTHUB_CODEX_API_KEY",
+          configured: true,
+          secretNames: ["AGENTHUB_CODEX_API_KEY"],
+          updatedAt: "",
+        }],
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        cliTool: "codex",
+        scope: "user",
+        ownerId: "u1",
+        providerType: "proxy",
+        providerId: "relay",
+        providerName: "Relay",
+        baseUrl: "https://relay.example/v1",
+        model: "relay-codex",
+        authEnvKey: "AGENTHUB_CODEX_API_KEY",
+        configured: true,
+        secretNames: ["AGENTHUB_CODEX_API_KEY"],
+        updatedAt: "",
+      }), { status: 200 }));
+
+    const items = await fetchCliCredentials();
+    const saved = await saveCliCredential("codex", {
+      providerType: "proxy",
+      providerId: "relay",
+      providerName: "Relay",
+      baseUrl: "https://relay.example/v1",
+      model: "relay-codex",
+      authEnvKey: "AGENTHUB_CODEX_API_KEY",
+      apiKey: "secret-key",
+    });
+
+    expect(items[0].cliTool).toBe("codex");
+    expect(saved.configured).toBe(true);
+    const listInit = vi.mocked(globalThis.fetch).mock.calls[0][1] as RequestInit;
+    const saveInit = vi.mocked(globalThis.fetch).mock.calls[1][1] as RequestInit;
+    expect(vi.mocked(globalThis.fetch).mock.calls[0][0]).toBe("/api/cli-credentials");
+    expect(vi.mocked(globalThis.fetch).mock.calls[1][0]).toBe("/api/cli-credentials/codex");
+    expect((listInit.headers as Record<string, string>)["X-AgentHub-User-Email"]).toBe("demo@agenthub.local");
+    expect(JSON.parse(String(saveInit.body))).toMatchObject({
+      providerType: "proxy",
+      apiKey: "secret-key",
+    });
   });
 });
 
@@ -737,6 +847,50 @@ describe("phase9 cloud workspace APIs", () => {
   });
 });
 
+describe("phase15 runtime APIs", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    resetApiClientForTests();
+  });
+
+  it("读取 runtime images 和 runner nodes 时带云端身份 header", async () => {
+    configureApiClient({ cloudAuthProvider: createDevCloudAuthProvider() });
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        items: [{
+          id: "img-1",
+          label: "默认 CLI Runtime",
+          image: "agenthub/default-cli:phase15",
+          provider: "local_dev",
+          default: true,
+          tools: ["custom-cli"],
+        }],
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        items: [{
+          id: "runner-1",
+          provider: "local_dev",
+          region: "local",
+          status: "healthy",
+          capacity: { concurrentRuns: 2 },
+          createdAt: "",
+        }],
+      }), { status: 200 }));
+
+    const images = await fetchRuntimeImages();
+    const nodes = await fetchRunnerNodes();
+
+    expect(images[0].image).toBe("agenthub/default-cli:phase15");
+    expect(nodes[0].status).toBe("healthy");
+    const imageInit = vi.mocked(globalThis.fetch).mock.calls[0][1] as RequestInit;
+    const nodeInit = vi.mocked(globalThis.fetch).mock.calls[1][1] as RequestInit;
+    expect(vi.mocked(globalThis.fetch).mock.calls[0][0]).toBe("/api/runtime/images");
+    expect(vi.mocked(globalThis.fetch).mock.calls[1][0]).toBe("/api/runtime/runner-nodes");
+    expect((imageInit.headers as Record<string, string>)["X-AgentHub-User-Email"]).toBe("demo@agenthub.local");
+    expect((nodeInit.headers as Record<string, string>)["X-AgentHub-User-Email"]).toBe("demo@agenthub.local");
+  });
+});
+
 describe("agent debug APIs", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -769,7 +923,10 @@ describe("agent debug APIs", () => {
 
     const agents = await configureBuiltinAgentsCodex();
 
-    expect(globalThis.fetch).toHaveBeenCalledWith("/api/agents/configure-builtins-codex", { method: "POST" });
+    expect(globalThis.fetch).toHaveBeenCalledWith("/api/agents/configure-builtins-codex", {
+      method: "POST",
+      headers: {},
+    });
     expect(agents[0].cliTool).toBe("codex");
   });
 });

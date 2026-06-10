@@ -4,6 +4,36 @@ import type { ComponentProps } from "react";
 import { ProjectSidebar } from "./ProjectSidebar";
 import type { AgentConfig, Project } from "../types";
 
+const workspaceApiMocks = vi.hoisted(() => ({
+  fetchWorkspace: vi.fn().mockResolvedValue({
+    id: "w1",
+    projectId: "p-cloud",
+    provider: "cloud",
+    status: "ready",
+    storageUri: "cloud://agenthub/workspaces/w1",
+    imports: [],
+    snapshots: [],
+    createdAt: "",
+    updatedAt: "",
+  }),
+  fetchAuditLogs: vi.fn().mockResolvedValue([]),
+  fetchQuotaSummary: vi.fn().mockResolvedValue({
+    concurrentRunsUsed: 0,
+    concurrentRunsLimit: 2,
+    runtimeSecondsLimit: 3600,
+    memoryMbLimit: 2048,
+    diskMbLimit: 10240,
+  }),
+  addTeamMember: vi.fn().mockResolvedValue(undefined),
+  createSecret: vi.fn().mockResolvedValue(undefined),
+  createWorkspaceSnapshot: vi.fn().mockResolvedValue(undefined),
+  importWorkspaceGithub: vi.fn().mockResolvedValue(undefined),
+  importWorkspaceZip: vi.fn().mockResolvedValue(undefined),
+  restoreWorkspaceSnapshot: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("../api/client", () => workspaceApiMocks);
+
 const project: Project = {
   id: "p1",
   name: "大作业",
@@ -254,7 +284,7 @@ describe("ProjectSidebar", () => {
     expect(screen.queryByText("云端项目")).not.toBeInTheDocument();
   });
 
-  it("SaaS 壳隐藏本机目录入口，只显示云端项目", () => {
+  it("SaaS 壳隐藏本机目录入口，只显示云端项目，工作区设置进入项目更多菜单", async () => {
     renderSidebar({
       productEdition: "saas",
       projects: [project, cloudProject],
@@ -263,13 +293,21 @@ describe("ProjectSidebar", () => {
     });
 
     expect(screen.getByLabelText("团队空间")).toBeInTheDocument();
-    expect(screen.getByText("工作区设置")).toBeInTheDocument();
+    expect(screen.queryByText("工作区设置")).not.toBeInTheDocument();
     fireEvent.click(screen.getByTitle("创建项目"));
     expect(screen.getByText("新建云端项目")).toBeInTheDocument();
     expect(screen.queryByText("新建空白项目")).not.toBeInTheDocument();
     expect(screen.queryByText("选择现有文件夹")).not.toBeInTheDocument();
     expect(screen.getAllByText("云端项目").length).toBeGreaterThan(0);
     expect(screen.queryByText("大作业")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText("项目操作"));
+    fireEvent.click(screen.getByRole("button", { name: "工作区设置" }));
+
+    const workspaceDialog = screen.getByRole("dialog", { name: "工作区设置" });
+    expect(workspaceDialog).toHaveClass("fixed");
+    expect(workspaceDialog).toHaveClass("items-center");
+    expect(await screen.findByText("云端工作区设置")).toBeInTheDocument();
   });
 
   it("SaaS 团队创建使用全局弹窗", () => {

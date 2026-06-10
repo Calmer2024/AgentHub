@@ -107,6 +107,7 @@ describe("WorkspaceSettingsPage", () => {
     expect(screen.getByLabelText("正在加载工作区")).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText("cloud://agenthub/workspaces/w1")).toBeInTheDocument());
     expect(screen.getByText("1/2")).toBeInTheDocument();
+    expect(screen.queryByText("CLI 凭据")).not.toBeInTheDocument();
     expect(screen.getByText("zip · completed")).toBeInTheDocument();
     expect(screen.getByText("导入后")).toBeInTheDocument();
     expect(screen.getByText("workspace.created")).toBeInTheDocument();
