@@ -12,9 +12,13 @@ from ..services.cloud_delivery_service import (
 from ..services.phase11_schemas import (
     DeploymentCreate,
     DeploymentLogsRead,
+    DeploymentProviderListRead,
     DeploymentRead,
     DeploymentRetryRequest,
     DeploymentRollbackRequest,
+    DeploymentTargetCreate,
+    DeploymentTargetListRead,
+    DeploymentTargetRead,
     PreviewCreate,
     PreviewRevokeRead,
     PreviewRevokeRequest,
@@ -40,6 +44,46 @@ async def create_artifact_preview(
 ):
     try:
         return await _svc(db).create_preview(artifact_id, data, user)
+    except CloudDeliveryNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    except CloudDeliveryValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.get("/deployment-providers", response_model=DeploymentProviderListRead)
+async def list_deployment_providers(
+    db: AsyncSession = Depends(get_db),
+    user=Depends(require_current_user),
+):
+    try:
+        return await _svc(db).list_deployment_providers(user)
+    except CloudDeliveryValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.get("/deployment-targets", response_model=DeploymentTargetListRead)
+async def list_deployment_targets(
+    db: AsyncSession = Depends(get_db),
+    user=Depends(require_current_user),
+):
+    try:
+        return await _svc(db).list_deployment_targets(user)
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    except CloudDeliveryValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/deployment-targets", response_model=DeploymentTargetRead, status_code=201)
+async def create_deployment_target(
+    data: DeploymentTargetCreate,
+    db: AsyncSession = Depends(get_db),
+    user=Depends(require_current_user),
+):
+    try:
+        return await _svc(db).create_deployment_target(data, user)
     except CloudDeliveryNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except PermissionDeniedError as exc:

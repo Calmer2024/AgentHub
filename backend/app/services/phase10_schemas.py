@@ -9,8 +9,28 @@ from pydantic import BaseModel, Field
 
 
 RuntimeMode = Literal["local", "cloud"]
-SandboxStatus = Literal["creating", "ready", "stopping", "stopped", "failed"]
-RuntimeRunStatus = Literal["queued", "running", "waiting_input", "cancelling", "completed", "failed", "cancelled"]
+SandboxStatus = Literal[
+    "creating",
+    "provisioning",
+    "ready",
+    "running",
+    "syncing",
+    "stopping",
+    "stopped",
+    "failed",
+    "disposed",
+]
+RuntimeRunStatus = Literal[
+    "queued",
+    "running",
+    "waiting_input",
+    "syncing",
+    "cancelling",
+    "completed",
+    "failed",
+    "cancelled",
+    "timed_out",
+]
 SecretScope = Literal["user", "team", "project"]
 
 
@@ -28,10 +48,14 @@ class SandboxRead(BaseModel):
     status: str
     image: str
     runner_node_id: str | None = Field(default=None, alias="runnerNodeId")
+    provider: str | None = None
+    external_id: str | None = Field(default=None, alias="externalId")
+    region: str | None = None
     resource_limits: dict = Field(default_factory=dict, alias="resourceLimits")
     created_at: datetime = Field(alias="createdAt")
     updated_at: datetime = Field(alias="updatedAt")
     stopped_at: datetime | None = Field(default=None, alias="stoppedAt")
+    disposed_at: datetime | None = Field(default=None, alias="disposedAt")
 
     model_config = {"populate_by_name": True, "from_attributes": True}
 
@@ -109,3 +133,35 @@ class QuotaSummaryRead(BaseModel):
     network: str
 
     model_config = {"populate_by_name": True}
+
+
+class RuntimeImageRead(BaseModel):
+    id: str
+    label: str
+    image: str
+    provider: str
+    default: bool = False
+    tools: list[str] = Field(default_factory=list)
+    created_at: datetime | None = Field(default=None, alias="createdAt")
+
+    model_config = {"populate_by_name": True}
+
+
+class RuntimeImageListRead(BaseModel):
+    items: list[RuntimeImageRead]
+
+
+class RunnerNodeRead(BaseModel):
+    id: str
+    provider: str
+    region: str | None = None
+    status: str
+    capacity: dict = Field(default_factory=dict)
+    last_heartbeat_at: datetime | None = Field(default=None, alias="lastHeartbeatAt")
+    created_at: datetime = Field(alias="createdAt")
+
+    model_config = {"populate_by_name": True}
+
+
+class RunnerNodeListRead(BaseModel):
+    items: list[RunnerNodeRead]

@@ -21,6 +21,13 @@ from .quota_service import (
     parse_resource_limits,
     resource_limits_json,
 )
+from .runner_provider import (
+    RunnerProviderError,
+    SandboxRequest,
+    ensure_runner_node,
+    ensure_workspace_volume,
+    get_runner_provider,
+)
 from .team_service import TeamService
 
 
@@ -53,13 +60,17 @@ class SandboxService:
             })
             raise QuotaExceededError("cloud sandbox concurrent quota exceeded")
 
-        ensure_cloud_workspace(workspace.id, {"projectId": project.id})
+        provider = get_runner_provider()
+        node = await ensure_runner_node(self.db, provider)
+        await ensure_workspace_volume(self.db, workspace.id, provider=provider.name)
         sandbox = Sandbox(
             id=str(uuid.uuid4()),
             workspace_id=workspace.id,
-            status="ready",
-            image=(data.image or "agenthub/default-cli:phase10").strip(),
-            runner_node_id=settings.agenthub_cloud_runner_node_id,
+            status="provisioning",
+            image=(data.image or settings.agenthub_runtime_image).strip(),
+            runner_node_id=node.id,
+            provider=provider.name,
+            region=settings.agenthub_runner_region,
             resource_limits_json=resource_limits_json(self.quota.resource_limits()),
         )
         self.db.add(sandbox)
@@ -71,9 +82,36 @@ class SandboxService:
             "projectId": project.id,
             "image": sandbox.image,
         })
+        await self._publish(EventType.SANDBOX_PROVISIONING, {
+            "sandboxId": sandbox.id,
+            "workspaceId": workspace.id,
+            "provider": provider.name,
+            "image": sandbox.image,
+        })
+        try:
+            handle = await provider.create_sandbox(SandboxRequest(
+                sandbox_id=sandbox.id,
+                workspace_id=workspace.id,
+                image=sandbox.image,
+                resource_limits=parse_resource_limits(sandbox.resource_limits_json),
+                region=settings.agenthub_runner_region,
+            ))
+        except RunnerProviderError as exc:
+            sandbox.status = "failed"
+            await self.db.commit()
+            raise SandboxValidationError(str(exc)) from exc
+        sandbox.provider = handle.provider
+        sandbox.external_id = handle.external_id
+        sandbox.runner_node_id = handle.runner_node_id
+        sandbox.region = handle.region
+        sandbox.status = "ready"
+        await self.db.commit()
+        await self.db.refresh(sandbox)
         await self._publish(EventType.SANDBOX_READY, {
             "sandboxId": sandbox.id,
             "workspaceId": workspace.id,
+            "runnerNodeId": sandbox.runner_node_id,
+            "resourceLimits": parse_resource_limits(sandbox.resource_limits_json),
             "projectId": project.id,
         })
         return sandbox_to_read(sandbox)
@@ -94,37 +132,58 @@ class SandboxService:
         *,
         workspace_id: str,
         actor: User,
-        image: str = "agenthub/default-cli:phase10",
+        image: str | None = None,
     ) -> Sandbox:
         workspace, project = await self._workspace_project(workspace_id)
         await self.team_service.assert_workspace_write_allowed(project, actor)
-        result = await self.db.execute(
-            select(Sandbox)
-            .where(
-                Sandbox.workspace_id == workspace.id,
-                Sandbox.status.in_(ACTIVE_SANDBOX_STATUSES),
+        provider = get_runner_provider()
+        if not provider.requires_fresh_sandbox:
+            result = await self.db.execute(
+                select(Sandbox)
+                .where(
+                    Sandbox.workspace_id == workspace.id,
+                    Sandbox.status.in_(ACTIVE_SANDBOX_STATUSES),
+                )
+                .order_by(Sandbox.created_at.desc())
+                .limit(1)
             )
-            .order_by(Sandbox.created_at.desc())
-            .limit(1)
+            existing = result.scalars().first()
+            if existing:
+                return existing
+        read = await self.create_sandbox(
+            SandboxCreate(workspace_id=workspace_id, image=image or settings.agenthub_runtime_image),
+            actor,
         )
-        existing = result.scalars().first()
-        if existing:
-            return existing
-        read = await self.create_sandbox(SandboxCreate(workspace_id=workspace_id, image=image), actor)
         sandbox = await self.db.get(Sandbox, read.id)
         if not sandbox:
             raise SandboxNotFoundError(read.id)
         return sandbox
 
-    async def mark_stopped(self, sandbox: Sandbox, *, reason: str | None = None) -> None:
-        if sandbox.status == "stopped":
+    async def mark_stopped(
+        self,
+        sandbox: Sandbox,
+        *,
+        reason: str | None = None,
+        run_id: str | None = None,
+    ) -> None:
+        if sandbox.status in {"stopped", "disposed"}:
             return
-        sandbox.status = "stopped"
+        provider = get_runner_provider()
+        sandbox.status = "stopping"
+        await self.db.commit()
+        await provider.dispose(sandbox, run_id=run_id, reason=reason)
+        sandbox.status = "disposed"
         sandbox.updated_at = china_now()
         sandbox.stopped_at = sandbox.stopped_at or china_now()
+        sandbox.disposed_at = sandbox.disposed_at or china_now()
         await self.db.commit()
         await self.db.refresh(sandbox)
         await self._publish(EventType.SANDBOX_STOPPED, {
+            "sandboxId": sandbox.id,
+            "workspaceId": sandbox.workspace_id,
+            "reason": reason,
+        })
+        await self._publish(EventType.SANDBOX_DISPOSED, {
             "sandboxId": sandbox.id,
             "workspaceId": sandbox.workspace_id,
             "reason": reason,
@@ -165,4 +224,8 @@ def sandbox_to_read(sandbox: Sandbox) -> SandboxRead:
         created_at=sandbox.created_at,
         updated_at=sandbox.updated_at,
         stopped_at=sandbox.stopped_at,
+        provider=sandbox.provider,
+        external_id=sandbox.external_id,
+        region=sandbox.region,
+        disposed_at=sandbox.disposed_at,
     )

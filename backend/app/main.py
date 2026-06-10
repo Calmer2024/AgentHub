@@ -24,8 +24,10 @@ async def lifespan(app: FastAPI):
     async with AsyncSessionLocal() as db:
         from .services.project_service import ProjectService
         from .services.agent_seed import seed_default_cli_agents
+        from .services.auth_service import cloud_auth_required
         await ProjectService(db, event_bus=_event_bus).attach_legacy_sessions_to_default_project()
-        await seed_default_cli_agents(db)
+        if not cloud_auth_required():
+            await seed_default_cli_agents(db)
 
     yield
 

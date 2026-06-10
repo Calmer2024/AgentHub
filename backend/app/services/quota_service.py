@@ -16,8 +16,8 @@ from ..models import QuotaUsage, RuntimeRun, Sandbox, User
 from .phase10_schemas import QuotaSummaryRead
 
 
-ACTIVE_RUNTIME_STATUSES = {"queued", "running", "waiting_input", "cancelling"}
-ACTIVE_SANDBOX_STATUSES = {"creating", "ready", "stopping"}
+ACTIVE_RUNTIME_STATUSES = {"queued", "running", "waiting_input", "syncing", "cancelling"}
+ACTIVE_SANDBOX_STATUSES = {"creating", "provisioning", "ready", "running", "syncing", "stopping"}
 
 
 class QuotaExceededError(RuntimeError):
@@ -66,7 +66,7 @@ class QuotaService:
             runtime_seconds_limit=self.runtime_seconds_limit,
             memory_mb_limit=self.memory_mb_limit,
             disk_mb_limit=self.disk_mb_limit,
-            network="disabled_by_default",
+            network=_network_policy_label(),
         )
 
     async def record_runtime_seconds(self, actor: User, seconds: int) -> None:
@@ -83,7 +83,7 @@ class QuotaService:
             "cpuSeconds": self.runtime_seconds_limit,
             "memoryMb": self.memory_mb_limit,
             "diskMb": self.disk_mb_limit,
-            "network": "disabled_by_default",
+            "network": _network_policy_label(),
         }
 
     @property
@@ -92,7 +92,7 @@ class QuotaService:
 
     @property
     def runtime_seconds_limit(self) -> int:
-        return max(5, int(settings.agenthub_cloud_runtime_seconds or 30))
+        return max(5, int(settings.agenthub_cloud_runtime_seconds or 180))
 
     @property
     def memory_mb_limit(self) -> int:
@@ -139,3 +139,8 @@ def parse_resource_limits(raw: str | None) -> dict[str, Any]:
     except json.JSONDecodeError:
         return {}
     return value if isinstance(value, dict) else {}
+
+
+def _network_policy_label() -> str:
+    value = (settings.agenthub_runner_network_policy or "").strip().lower()
+    return "bridge" if value == "bridge" else "none"

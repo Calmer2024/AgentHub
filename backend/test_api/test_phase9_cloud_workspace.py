@@ -159,6 +159,42 @@ async def test_cloud_project_workspace_snapshot_restore_import_and_audit(test_cl
 
 
 @pytest.mark.asyncio
+async def test_cloud_project_file_api_uses_cloud_workspace_storage(test_client):
+    team = (await test_client.post("/api/teams", json={"name": "Cloud Files"}, headers=OWNER)).json()
+    project_response = await test_client.post(
+        "/api/projects",
+        json={"name": "Cloud File API", "workspaceMode": "cloud", "teamId": team["id"]},
+        headers=OWNER,
+    )
+    assert project_response.status_code == 201, project_response.text
+    project = project_response.json()
+    assert project["workspacePath"] is None
+
+    write_response = await test_client.put(
+        f"/api/projects/{project['id']}/files",
+        json={"path": "notes/agent-output.txt", "content": "CLOUD_FILE_OK"},
+        headers=OWNER,
+    )
+    assert write_response.status_code == 200, write_response.text
+    assert write_response.json()["path"] == "notes/agent-output.txt"
+
+    read_response = await test_client.get(
+        f"/api/projects/{project['id']}/files",
+        params={"path": "notes/agent-output.txt"},
+        headers=OWNER,
+    )
+    assert read_response.status_code == 200, read_response.text
+    assert read_response.json()["content"] == "CLOUD_FILE_OK"
+
+    tree_response = await test_client.get(
+        f"/api/projects/{project['id']}/tree",
+        headers=OWNER,
+    )
+    assert tree_response.status_code == 200, tree_response.text
+    assert any(item["path"] == "notes/agent-output.txt" for item in tree_response.json()["tree"])
+
+
+@pytest.mark.asyncio
 async def test_phase9_keeps_local_project_creation_unauthenticated(test_client):
     response = await test_client.post("/api/projects", json={"name": "Local Still Works"})
 

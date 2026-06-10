@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Any
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -9,7 +10,7 @@ PreviewStatus = Literal["creating", "ready", "expired", "revoked", "failed"]
 DeliveryVisibility = Literal["public", "team", "private"]
 DeploymentTarget = Literal["static_hosting", "third_party"]
 DeploymentStatus = Literal["queued", "running", "published", "failed", "rolled_back"]
-DeploymentStage = Literal["queued", "install", "build", "upload", "publish", "verify"]
+DeploymentStage = Literal["queued", "install", "build", "package", "upload", "publish", "verify"]
 
 
 class PreviewCreate(BaseModel):
@@ -48,6 +49,7 @@ class DeploymentCreate(BaseModel):
     artifact_id: str = Field(alias="artifactId")
     artifact_version_id: str = Field(alias="artifactVersionId")
     target: str = "static_hosting"
+    target_id: str | None = Field(default=None, alias="targetId")
     visibility: str = "private"
 
     model_config = {"populate_by_name": True}
@@ -58,12 +60,18 @@ class DeploymentRead(BaseModel):
     artifact_id: str = Field(alias="artifactId")
     artifact_version_id: str = Field(alias="artifactVersionId")
     project_id: str = Field(alias="projectId")
+    target_id: str | None = Field(default=None, alias="targetId")
+    active_release_id: str | None = Field(default=None, alias="activeReleaseId")
+    provider: str | None = None
     target: str
     visibility: str
     status: str
     stage: str
     url: str | None = None
+    bundle_uri: str | None = Field(default=None, alias="bundleUri")
+    provider_metadata: dict[str, Any] = Field(default_factory=dict, alias="providerMetadata")
     error_summary: str | None = Field(default=None, alias="errorSummary")
+    published_at: datetime | None = Field(default=None, alias="publishedAt")
     created_at: datetime = Field(alias="createdAt")
     updated_at: datetime = Field(alias="updatedAt")
 
@@ -93,5 +101,53 @@ class DeploymentRetryRequest(BaseModel):
 
 class DeploymentRollbackRequest(BaseModel):
     target_deployment_id: str = Field(alias="targetDeploymentId")
+
+    model_config = {"populate_by_name": True}
+
+
+class DeploymentProviderRead(BaseModel):
+    id: str
+    name: str
+    kind: str
+    capabilities: list[str]
+    status: str
+    public_base_url: str = Field(alias="publicBaseUrl")
+    requires_secret: bool = Field(default=False, alias="requiresSecret")
+
+    model_config = {"populate_by_name": True}
+
+
+class DeploymentProviderListRead(BaseModel):
+    items: list[DeploymentProviderRead]
+
+    model_config = {"populate_by_name": True}
+
+
+class DeploymentTargetCreate(BaseModel):
+    name: str
+    provider: str = "static_site"
+    scope: str = "user"
+    owner_id: str | None = Field(default=None, alias="ownerId")
+    config: dict[str, Any] = Field(default_factory=dict)
+
+    model_config = {"populate_by_name": True}
+
+
+class DeploymentTargetRead(BaseModel):
+    id: str
+    scope: str
+    owner_id: str = Field(alias="ownerId")
+    provider: str
+    name: str
+    config: dict[str, Any] = Field(default_factory=dict)
+    status: str
+    created_at: datetime = Field(alias="createdAt")
+    updated_at: datetime = Field(alias="updatedAt")
+
+    model_config = {"from_attributes": True, "populate_by_name": True}
+
+
+class DeploymentTargetListRead(BaseModel):
+    items: list[DeploymentTargetRead]
 
     model_config = {"populate_by_name": True}

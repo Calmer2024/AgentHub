@@ -15,6 +15,7 @@ TeamRole = Literal["owner", "admin", "member", "viewer"]
 class CurrentUserRead(BaseModel):
     id: str
     email: str
+    username: str | None = None
     display_name: str = Field(alias="displayName")
     avatar_url: str | None = Field(default=None, alias="avatarUrl")
     created_at: datetime = Field(alias="createdAt")

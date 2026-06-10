@@ -15,8 +15,17 @@ from .engine_session import EngineSession
 from .build import BuildRun, BuildLog
 from .context_pack import ContextPackSnapshot
 from .orchestrator_plan import OrchestratorPlanRecord
-from .runtime import Sandbox, RuntimeRun, RuntimeLog, Secret, QuotaUsage
-from .delivery import PreviewSession, Deployment, DeploymentLog
+from .runtime import (
+    CliCredentialConfig,
+    QuotaUsage,
+    RunnerNode,
+    RuntimeLog,
+    RuntimeRun,
+    Sandbox,
+    Secret,
+    WorkspaceVolume,
+)
+from .delivery import Deployment, DeploymentLog, DeploymentRelease, DeploymentTarget, PreviewSession
 from .collaboration import (
     Comment,
     Attachment,
@@ -56,9 +65,14 @@ __all__ = [
     "RuntimeRun",
     "RuntimeLog",
     "Secret",
+    "CliCredentialConfig",
     "QuotaUsage",
+    "RunnerNode",
+    "WorkspaceVolume",
     "PreviewSession",
     "Deployment",
+    "DeploymentTarget",
+    "DeploymentRelease",
     "DeploymentLog",
     "Comment",
     "Attachment",

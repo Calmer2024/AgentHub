@@ -110,6 +110,10 @@ class RenderedArtifactRead(BaseModel):
     render_id: str = Field(alias="renderId")
     content: str
     file_name: str = Field(alias="fileName")
+    preview_kind: str = Field(alias="previewKind")
+    media_type: str | None = Field(default=None, alias="mediaType")
+    raw_url: str | None = Field(default=None, alias="rawUrl")
+    download_url: str | None = Field(default=None, alias="downloadUrl")
 
     model_config = {"populate_by_name": True}
 
