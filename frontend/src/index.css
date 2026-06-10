@@ -18,8 +18,9 @@
     linear-gradient(180deg, rgb(255 255 255 / 0.045), transparent 30%),
     linear-gradient(180deg, #111111 0%, #080808 100%);
   --ah-header-bg: rgb(20 20 20 / 0.78);
-  --ah-input-bg: rgb(18 18 18 / 0.84);
+  --ah-input-bg: transparent;
   --ah-composer-bg: rgb(246 246 246 / 0.08);
+  --ah-chat-composer-bg: rgb(20 20 20 / 0.72);
   --ah-card-bg: rgb(255 255 255 / 0.08);
   --ah-card-soft: rgb(255 255 255 / 0.065);
   --ah-menu-bg: rgb(30 30 30 / 0.96);
@@ -95,6 +96,7 @@
   --ah-header-bg: rgb(255 255 255 / 0.92);
   --ah-input-bg: transparent;
   --ah-composer-bg: #ffffff;
+  --ah-chat-composer-bg: rgb(255 255 255 / 0.9);
   --ah-card-bg: #ffffff;
   --ah-card-soft: #f7f8fa;
   --ah-menu-bg: rgb(255 255 255 / 0.96);
@@ -325,7 +327,7 @@ body {
   left: 0;
   z-index: 20;
   pointer-events: none;
-  background: var(--ah-input-bg);
+  background: transparent;
   border-color: transparent;
   box-shadow: none;
   backdrop-filter: none;
@@ -343,9 +345,10 @@ body {
 
 .agenthub-chat-composer {
   pointer-events: auto;
-  background: transparent;
+  background: var(--ah-chat-composer-bg);
   border-color: var(--ah-border-strong);
-  box-shadow: 0 16px 38px rgb(24 34 50 / 0.08);
+  box-shadow: 0 16px 38px rgb(24 34 50 / 0.12);
+  backdrop-filter: blur(18px) saturate(135%);
 }
 
 .agenthub-card {
@@ -613,7 +616,7 @@ body {
 }
 
 :root[data-theme="light"] .agenthub-chat-composer {
-  background: #ffffff !important;
+  background: var(--ah-chat-composer-bg) !important;
   border-color: var(--ah-border-strong);
   box-shadow: 0 12px 28px rgb(24 34 50 / 0.08);
 }

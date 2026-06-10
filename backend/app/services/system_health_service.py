@@ -14,9 +14,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..agents.cli_runtime_registry import cli_runtime_registry
 from ..core.timezone import china_now_iso
-from ..models import AgentConfig, Project, Session as DBSession, SessionMember
+from ..models import AgentConfig, Project, Session as DBSession, SessionMember, User
 from .cli_agent_registry import CliAgentRegistry
+from .cli_credential_service import NATIVE_CLI_TOOLS, TOOL_LABELS, CliCredentialService
 from .codex_local_config_service import CodexLocalConfigService
+from .runner_provider import list_runtime_images
 from .system_llm import system_model_status
 
 
@@ -60,6 +62,7 @@ class SystemHealthService:
         project_id: str | None = None,
         session_id: str | None = None,
         agent_id: str | None = None,
+        actor: User | None = None,
     ) -> SystemHealthRead:
         session = await self.db.get(DBSession, session_id) if session_id else None
         effective_project_id = project_id or (session.project_id if session else None)
@@ -69,11 +72,15 @@ class SystemHealthService:
 
         items: list[SystemHealthItem] = []
         items.extend(await self._agent_items(effective_agent_ids, cloud_mode=cloud_mode))
-        items.append(self._codex_item())
-        items.append(self._runtime_item("node", "node", warning_if_missing=True))
+        if cloud_mode:
+            items.extend(await self._cloud_cli_credential_items(effective_agent_ids, actor=actor, project=project))
+            items.append(self._cloud_runtime_image_item())
+        else:
+            items.append(self._codex_item())
+            items.append(self._runtime_item("node", "node", warning_if_missing=True))
         items.append(self._python_item())
         items.append(await self._workspace_item(effective_project_id))
-        items.append(self._system_model_item())
+        items.append(self._system_model_item(warning_if_unconfigured=not cloud_mode))
         items.append(self._process_item(session_id))
 
         blocking = [item.detail for item in items if item.severity == "blocking"]
@@ -173,6 +180,81 @@ class SystemHealthService:
             ))
         return items
 
+    async def _cloud_cli_credential_items(
+        self,
+        agent_ids: list[str],
+        *,
+        actor: User | None,
+        project: Project | None,
+    ) -> list[SystemHealthItem]:
+        if not project:
+            return []
+        cli_tools = await self._native_cli_tools_for_agents(agent_ids)
+        if not cli_tools:
+            return []
+        if not actor:
+            return [SystemHealthItem(
+                key="cloud.credentials.auth",
+                label="CLI 云端凭据",
+                status="warning",
+                severity="warning",
+                detail="未识别当前登录用户，无法检查云端 CLI 凭据",
+                action=SystemHealthAction(label="打开 Agent 配置", target="agent_panel"),
+            )]
+
+        service = CliCredentialService(self.db)
+        items: list[SystemHealthItem] = []
+        for cli_tool in cli_tools:
+            credential = await service.read_effective_for_project(cli_tool, actor=actor, project=project)
+            label = TOOL_LABELS.get(cli_tool, cli_tool)
+            configured = credential.configured
+            provider = credential.provider_name or credential.provider_id
+            model_suffix = f" / {credential.model}" if credential.model else ""
+            items.append(SystemHealthItem(
+                key=f"cloud.credentials.{cli_tool}",
+                label=f"{label} 云端凭据",
+                status="ok" if configured else "warning",
+                severity="info" if configured else "warning",
+                detail=(
+                    f"已配置 {provider}{model_suffix}，Runtime 启动时会注入隔离凭据"
+                    if configured else f"请先配置 {label} API Key，否则云端 CLI 无法启动"
+                ),
+                action=None if configured else SystemHealthAction(label="打开 Agent 配置", target="agent_panel"),
+                metadata={
+                    "cliTool": credential.cli_tool,
+                    "scope": credential.scope,
+                    "providerId": credential.provider_id,
+                    "providerName": credential.provider_name,
+                    "model": credential.model,
+                    "authEnvKey": credential.auth_env_key,
+                    "configured": configured,
+                },
+            ))
+        return items
+
+    async def _native_cli_tools_for_agents(self, agent_ids: list[str]) -> list[str]:
+        if not agent_ids:
+            result = await self.db.execute(
+                select(AgentConfig)
+                .where(AgentConfig.is_active == True)
+                .order_by(AgentConfig.updated_at.desc())
+                .limit(5)
+            )
+            agents = list(result.scalars().all())
+        else:
+            agents = []
+            for agent_id in agent_ids:
+                agent = await self.db.get(AgentConfig, agent_id)
+                if agent and agent.is_active:
+                    agents.append(agent)
+
+        ordered_tools: list[str] = []
+        for agent in agents:
+            cli_tool = str(agent.cli_tool or "")
+            if cli_tool in NATIVE_CLI_TOOLS and cli_tool not in ordered_tools:
+                ordered_tools.append(cli_tool)
+        return ordered_tools
+
     def _codex_item(self) -> SystemHealthItem:
         status = CodexLocalConfigService().status()
         if status.ready:
@@ -196,6 +278,32 @@ class SystemHealthService:
                 "providerId": status.provider_id,
                 "apiKeySet": status.api_key_set,
                 "hasChatgptAuth": status.has_chatgpt_auth,
+            },
+        )
+
+    def _cloud_runtime_image_item(self) -> SystemHealthItem:
+        images = list_runtime_images().items
+        runtime = next((item for item in images if item.default), images[0] if images else None)
+        if not runtime:
+            return SystemHealthItem(
+                key="cloud.runtime.image",
+                label="云端 Runtime Image",
+                status="missing",
+                severity="blocking",
+                detail="未配置云端 Runtime Image，CLI 无法在云端启动",
+                action=SystemHealthAction(label="重试", target="retry"),
+            )
+        return SystemHealthItem(
+            key="cloud.runtime.image",
+            label="云端 Runtime Image",
+            status="ok",
+            severity="info",
+            detail=f"{runtime.image} · {runtime.provider}",
+            metadata={
+                "image": runtime.image,
+                "provider": runtime.provider,
+                "tools": ", ".join(runtime.tools),
+                "default": runtime.default,
             },
         )
 
@@ -306,14 +414,15 @@ class SystemHealthService:
             metadata={"projectId": project.id},
         )
 
-    def _system_model_item(self) -> SystemHealthItem:
+    def _system_model_item(self, *, warning_if_unconfigured: bool = True) -> SystemHealthItem:
         status = system_model_status()
         configured = status.get("isConfigured") is True
+        warning = not configured and warning_if_unconfigured
         return SystemHealthItem(
             key="system.deepseek",
             label="DeepSeek 系统模型",
-            status="ok" if configured else "warning",
-            severity="info" if configured else "warning",
+            status="ok" if not warning else "warning",
+            severity="info" if not warning else "warning",
             detail="系统模型可用" if configured else "标题、总结、编辑辅助能力将降级",
             metadata={
                 "provider": str(status.get("systemModelProvider") or "deepseek"),

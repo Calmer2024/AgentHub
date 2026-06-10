@@ -203,6 +203,17 @@ describe("SessionList", () => {
     expect(onArchiveSession).toHaveBeenCalledWith("s-running", true);
   });
 
+  it("点击会话菜单外部时自动收起更多菜单", () => {
+    resetStore();
+    renderSessionList();
+
+    fireEvent.click(screen.getAllByLabelText("会话操作")[0]);
+    expect(screen.getByText("重命名")).toBeInTheDocument();
+
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByText("重命名")).not.toBeInTheDocument();
+  });
+
   it("删除会话使用原按钮二次确认", () => {
     resetStore();
     const onDeleteSession = vi.fn().mockResolvedValue(undefined);

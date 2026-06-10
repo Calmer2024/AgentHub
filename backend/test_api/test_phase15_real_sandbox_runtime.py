@@ -184,7 +184,7 @@ async def test_cloud_regenerate_reuses_runtime_and_replaces_assistant_message(te
 
 
 @pytest.mark.asyncio
-async def test_cloud_group_chat_runs_all_non_orchestrator_members(test_client):
+async def test_cloud_group_chat_mentions_run_only_named_members(test_client):
     scripts = [
         "import os, sys; os.read(sys.stdin.fileno(), 65536); print('GROUP_AGENT_ONE_OK')",
         "import os, sys; os.read(sys.stdin.fileno(), 65536); print('GROUP_AGENT_TWO_OK')",
@@ -223,7 +223,10 @@ async def test_cloud_group_chat_runs_all_non_orchestrator_members(test_client):
 
     response = await test_client.post(
         f"/api/sessions/{session.json()['id']}/chat",
-        json={"content": "请两个 Agent 都执行"},
+        json={
+            "content": "请两个 Agent 都执行",
+            "mentions": [agent["id"] for agent in agents],
+        },
         headers=OWNER,
     )
     assert response.status_code == 200, response.text
@@ -238,6 +241,224 @@ async def test_cloud_group_chat_runs_all_non_orchestrator_members(test_client):
     assistant_contents = [item["content"] for item in messages.json() if item["role"] == "assistant"]
     assert any("GROUP_AGENT_ONE_OK" in content for content in assistant_contents)
     assert any("GROUP_AGENT_TWO_OK" in content for content in assistant_contents)
+
+
+@pytest.mark.asyncio
+async def test_cloud_group_chat_mentions_orchestrator_runs_planner_not_fallback(test_client):
+    product = await test_client.post(
+        "/api/agents",
+        json={
+            "name": "云端产品经理",
+            "description": "产品范围和验收标准",
+            "cliTool": "custom",
+            "executable": sys.executable,
+            "initArgs": ["-c", "import os, sys; os.read(sys.stdin.fileno(), 65536); print('PRODUCT_SHOULD_NOT_RUN')"],
+            "primarySkill": "product_manager",
+        },
+    )
+    assert product.status_code == 201, product.text
+    plan_payload = {
+        "plan_id": "cloud_plan_mention_orchestrator",
+        "tasks": [{
+            "task_id": "T1",
+            "title": "需求澄清",
+            "goal": "先对齐预约单页范围",
+            "required_skills": ["product_manager"],
+            "assigned_agent_id": product.json()["id"],
+            "assigned_agent_name": "云端产品经理",
+            "depends_on": [],
+        }],
+    }
+    orchestrator = await test_client.post(
+        "/api/agents",
+        json={
+            "name": "云端 Orchestrator 调度器",
+            "description": "云端计划调度器",
+            "cliTool": "custom",
+            "executable": sys.executable,
+            "initArgs": ["-c", f"import os, sys; os.read(sys.stdin.fileno(), 65536); sys.stdout.buffer.write({json.dumps(json.dumps(plan_payload, ensure_ascii=False))}.encode('utf-8'))"],
+            "primarySkill": "orchestrator_planner",
+            "contextPolicy": "planning_only",
+        },
+    )
+    assert orchestrator.status_code == 201, orchestrator.text
+    project = await test_client.post(
+        "/api/projects",
+        json={"name": "Phase15 Cloud Orchestrator Mention", "workspaceMode": "cloud"},
+        headers=OWNER,
+    )
+    assert project.status_code == 201, project.text
+    session = await test_client.post(
+        "/api/sessions",
+        json={
+            "title": "Phase15 云端调度器群聊",
+            "projectId": project.json()["id"],
+            "mode": "group",
+            "agentConfigIds": [product.json()["id"], orchestrator.json()["id"]],
+        },
+        headers=OWNER,
+    )
+    assert session.status_code == 201, session.text
+
+    response = await test_client.post(
+        f"/api/sessions/{session.json()['id']}/chat",
+        json={
+            "content": "@云端 Orchestrator 调度器 先做预约单页计划",
+            "mentions": [orchestrator.json()["id"]],
+        },
+        headers=OWNER,
+    )
+    assert response.status_code == 200, response.text
+    events = _events(response.text)
+    event_types = [event.get("type") for event in events]
+    assert "agent.start" in event_types
+    assert "orchestrator.route" not in event_types
+    assert "orchestrator.task_started" not in event_types
+    assert "PRODUCT_SHOULD_NOT_RUN" not in response.text
+    assert [event.get("done") for event in events].count(True) == 1
+
+    messages = await test_client.get(f"/api/sessions/{session.json()['id']}/messages", headers=OWNER)
+    assert messages.status_code == 200, messages.text
+    assistants = [item for item in messages.json() if item["role"] == "assistant"]
+    assert assistants[-1]["agentName"] == "云端 Orchestrator 调度器"
+    assert assistants[-1]["metadata"]["orchestratorPlan"]["ok"] is True
+    assert assistants[-1]["metadata"]["orchestratorPlan"]["normalizedPlan"]["tasks"][0]["title"] == "需求澄清"
+
+
+@pytest.mark.asyncio
+async def test_cloud_group_chat_without_mentions_uses_steward_then_plan_first(test_client):
+    roles = [
+        ("云端产品经理", "product_manager", "PRODUCT_SHOULD_NOT_RUN"),
+        ("云端 UI 设计师", "ux_ui_designer", "DESIGNER_SHOULD_NOT_RUN"),
+        ("云端前端工程师", "frontend_engineer", "FRONTEND_SHOULD_NOT_RUN"),
+    ]
+    agents = []
+    for name, primary_skill, marker in roles:
+        response = await test_client.post(
+            "/api/agents",
+            json={
+                "name": name,
+                "description": name,
+                "cliTool": "custom",
+                "executable": sys.executable,
+                "initArgs": ["-c", f"import os, sys; os.read(sys.stdin.fileno(), 65536); print({json.dumps(marker)})"],
+                "primarySkill": primary_skill,
+            },
+        )
+        assert response.status_code == 201, response.text
+        agents.append(response.json())
+    steward_payload = {
+        "route_type": "mini_collab",
+        "reply": "我先生成一份小型协作计划，再按产品、设计、前端推进。",
+        "reason": "用户明确要求先产品经理、再 UI、再前端。",
+        "selected_agent_ids": [agent["id"] for agent in agents],
+        "task_brief": "宠物洗护店单页预约介绍页面",
+        "confidence": 0.93,
+        "requires_approval": True,
+        "risk_level": "medium",
+    }
+    plan_payload = {
+        "plan_id": "cloud_pet_booking_page",
+        "tasks": [
+            {
+                "task_id": "T1",
+                "title": "产品范围对齐",
+                "goal": "明确服务、价格、预约须知和表单字段",
+                "required_skills": ["product_manager"],
+                "assigned_agent_id": agents[0]["id"],
+                "assigned_agent_name": agents[0]["name"],
+                "depends_on": [],
+            },
+            {
+                "task_id": "T2",
+                "title": "页面体验设计",
+                "goal": "输出单页信息架构和视觉方向",
+                "required_skills": ["ux_ui_designer"],
+                "assigned_agent_id": agents[1]["id"],
+                "assigned_agent_name": agents[1]["name"],
+                "depends_on": ["T1"],
+            },
+            {
+                "task_id": "T3",
+                "title": "静态页面实现",
+                "goal": "实现静态 HTML 预约介绍页",
+                "required_skills": ["frontend_engineer"],
+                "assigned_agent_id": agents[2]["id"],
+                "assigned_agent_name": agents[2]["name"],
+                "depends_on": ["T2"],
+            },
+        ],
+    }
+    steward_json = json.dumps(steward_payload, ensure_ascii=False)
+    plan_json = json.dumps(plan_payload, ensure_ascii=False)
+    orchestrator_script = (
+        "import os, sys\n"
+        "data = os.read(sys.stdin.fileno(), 65536).decode('utf-8', errors='replace')\n"
+        f"steward = {json.dumps(steward_json)}\n"
+        f"plan = {json.dumps(plan_json)}\n"
+        "sys.stdout.buffer.write((plan if 'route_type=mini_collab' in data else steward).encode('utf-8'))\n"
+    )
+    orchestrator = await test_client.post(
+        "/api/agents",
+        json={
+            "name": "云端 Orchestrator 调度器",
+            "description": "云端计划调度器",
+            "cliTool": "custom",
+            "executable": sys.executable,
+            "initArgs": ["-c", orchestrator_script],
+            "primarySkill": "orchestrator_planner",
+            "contextPolicy": "planning_only",
+        },
+    )
+    assert orchestrator.status_code == 201, orchestrator.text
+    project = await test_client.post(
+        "/api/projects",
+        json={"name": "Phase15 Cloud Steward", "workspaceMode": "cloud"},
+        headers=OWNER,
+    )
+    assert project.status_code == 201, project.text
+    session = await test_client.post(
+        "/api/sessions",
+        json={
+            "title": "Phase15 云端管家群聊",
+            "projectId": project.json()["id"],
+            "mode": "group",
+            "agentConfigIds": [agent["id"] for agent in agents] + [orchestrator.json()["id"]],
+        },
+        headers=OWNER,
+    )
+    assert session.status_code == 201, session.text
+
+    response = await test_client.post(
+        f"/api/sessions/{session.json()['id']}/chat",
+        json={"content": "我经营一家小型宠物洗护店，先和产品经理对齐一下，然后还要UI设计师，然后做前端"},
+        headers=OWNER,
+    )
+    assert response.status_code == 200, response.text
+    events = _events(response.text)
+    event_types = [event.get("type") for event in events]
+    agent_starts = [event.get("agentName") for event in events if event.get("type") == "agent.start"]
+    assert "orchestrator.steward_decision" in event_types
+    assert "orchestrator.route" not in event_types
+    assert "orchestrator.task_started" not in event_types
+    assert agent_starts == ["云端 Orchestrator 调度器", "云端 Orchestrator 调度器"]
+    assert "PRODUCT_SHOULD_NOT_RUN" not in response.text
+    assert "DESIGNER_SHOULD_NOT_RUN" not in response.text
+    assert "FRONTEND_SHOULD_NOT_RUN" not in response.text
+    assert [event.get("done") for event in events].count(True) == 1
+
+    messages = await test_client.get(f"/api/sessions/{session.json()['id']}/messages", headers=OWNER)
+    assert messages.status_code == 200, messages.text
+    assistants = [item for item in messages.json() if item["role"] == "assistant"]
+    assert assistants[0]["metadata"]["stewardDecision"]["routeType"] == "mini_collab"
+    assert assistants[0]["content"] == "我先生成一份小型协作计划，再按产品、设计、前端推进。"
+    assert assistants[1]["metadata"]["orchestratorPlan"]["ok"] is True
+    plan = assistants[1]["metadata"]["orchestratorPlan"]["normalizedPlan"]
+    assert [task["assigned_agent_name"] for task in plan["tasks"]] == [
+        "云端产品经理",
+        "云端 UI 设计师",
+        "云端前端工程师",
+    ]
 
 
 @pytest.mark.asyncio

@@ -226,6 +226,23 @@ class CliCredentialService:
             items=items[:80],
         )
 
+    async def read_effective_for_project(
+        self,
+        cli_tool: str,
+        *,
+        actor: User,
+        project: Project,
+    ) -> CliCredentialConfigRead:
+        if cli_tool not in NATIVE_CLI_TOOLS:
+            raise CliCredentialError("unsupported CLI tool")
+        config = await self._effective_config(cli_tool, actor=actor, project=project)
+        return await self._read_for_tool(
+            cli_tool,
+            config,
+            scope=config.scope if config else "user",
+            owner_id=config.owner_id if config else actor.id,
+        )
+
     async def assert_ready_for_agent(self, agent: AgentConfig, *, actor: User, project: Project) -> None:
         cli_tool = str(agent.cli_tool or "")
         if cli_tool not in NATIVE_CLI_TOOLS:

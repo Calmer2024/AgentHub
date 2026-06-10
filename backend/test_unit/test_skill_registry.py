@@ -45,9 +45,13 @@ def test_cli_agent_service_injects_filesystem_skill_prompts():
     assert "[Local Tool: local-fixture-skill]" in prompt
     assert "Use fixture skill instructions." in prompt
     assert "[Agent Toolset]\nworkspace_editing" in prompt
+    assert "[Language Policy]" in prompt
+    assert "用户用中文提出需求时" in prompt
     assert "[Agent System Prompt]\nPrefer small focused changes." in prompt
     assert "[Agent Rules]\n回答先给结论，再列风险。" in prompt
     assert "[Context Policy: workspace_coding]" in prompt
+    assert prompt.index("[AgentHub Agent Profile]") < prompt.index("[Language Policy]")
+    assert prompt.index("[Language Policy]") < prompt.index("[Agent System Prompt]")
     assert prompt.index("[Agent System Prompt]") < prompt.index("[Agent Rules]")
     assert prompt.index("[Agent Rules]") < prompt.index("[Local Tool: local-fixture-skill]")
     assert prompt.index("[Local Tool: local-fixture-skill]") < prompt.index("[Agent Toolset]")

@@ -9,6 +9,20 @@ describe("ChatInput", () => {
     useChatStore.setState({ codeReference: null, replyTarget: null });
   });
 
+  it("输入栏外层只作为透明悬浮层，内部聊天框保留半透明背景", () => {
+    const { container } = render(<ChatInput onSubmit={vi.fn()} mentionableAgents={[]} />);
+
+    const inputbar = container.querySelector("form.agenthub-inputbar");
+    const composer = container.querySelector(".agenthub-chat-composer");
+
+    expect(inputbar).toBeInTheDocument();
+    expect(inputbar).not.toHaveClass("agenthub-composer");
+    expect(inputbar).not.toHaveClass("agenthub-card");
+    expect(inputbar).not.toHaveClass("agenthub-soft");
+    expect(composer).toBeInTheDocument();
+    expect(composer).toHaveClass("agenthub-chat-composer");
+  });
+
   it("发送时携带代码片段引用块并清空引用", () => {
     const onSubmit = vi.fn();
     useChatStore.setState({

@@ -271,7 +271,7 @@ export function AgentCliForm({
   const isBuiltinCloudEngine = runtimeScope === "cloud" && Boolean(
     initial
     && isCliCredentialTool(cliTool)
-    && (isNativeDefaultAgent(initial) || initial.executable === null),
+    && isNativeCloudEngine(initial),
   );
   const cloudCredentialMeta = isCliCredentialTool(cliTool) ? CLOUD_CLI_CREDENTIAL_META[cliTool] : null;
   const cloudProviderPresets = isCliCredentialTool(cliTool) ? CLOUD_CLI_PROVIDER_PRESETS[cliTool] : [];
@@ -1090,8 +1090,8 @@ export function AgentCliForm({
               </div>
             )}
 
+            {runtimeScope === "local" && (
             <div className="lg:col-span-2">
-              {runtimeScope === "local" && (
               <ConfigSection icon={SlidersHorizontal} title="高级环境变量" description="仅用于非密钥类命令行覆盖，密钥会被过滤">
                 <textarea
                   value={envText}
@@ -1101,8 +1101,8 @@ export function AgentCliForm({
                   className={`${inputClass} resize-none font-mono text-xs leading-5`}
                 />
               </ConfigSection>
-              )}
             </div>
+            )}
           </div>
       </form>
     </GlobalModal>
@@ -1203,6 +1203,13 @@ function isNativeDefaultAgent(agent: AgentConfig) {
     || (agent.cliTool === "codex" && agent.name === "Codex")
     || (agent.cliTool === "opencode" && agent.name === "OpenCode")
   );
+}
+
+function isNativeCloudEngine(agent: AgentConfig) {
+  if (!isCliCredentialTool(agent.cliTool)) return false;
+  if (isNativeDefaultAgent(agent)) return true;
+  if (agent.executable === null || agent.executable === "") return true;
+  return agent.avatar === "" && CLI_PRESETS[agent.cliTool].executable === agent.executable;
 }
 
 const inputClass = "agenthub-composer agenthub-textarea agenthub-focus-ring w-full rounded-2xl border px-3 py-2 text-sm placeholder:text-[color:var(--ah-faint)]";

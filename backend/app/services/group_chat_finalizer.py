@@ -55,6 +55,8 @@ class GroupChatFinalizer:
             "summary": f"{completed_count} agents completed",
             "total_tokens": sum(len(t) for t in agent_texts.values()),
             "phases_completed": len(result.dag_phases) if result.dag_phases else None,
+            "token": "",
+            "done": True,
         })
         await self._pipeline.emit_completed(
             session_id,

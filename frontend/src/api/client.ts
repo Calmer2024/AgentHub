@@ -1238,7 +1238,10 @@ export async function fetchSystemHealth(input: {
   if (input.sessionId) params.set("sessionId", input.sessionId);
   if (input.agentId) params.set("agentId", input.agentId);
   const suffix = params.toString() ? `?${params.toString()}` : "";
-  const res = await fetch(`${API_BASE}/system/health${suffix}`);
+  const res = await fetch(`${API_BASE}/system/health${suffix}`, {
+    headers: cloudHeaders(),
+    credentials: "include",
+  });
   if (!res.ok) throw new Error("Failed to fetch system health");
   return res.json();
 }
@@ -1250,7 +1253,8 @@ export async function checkSystemHealth(input: {
 } = {}): Promise<SystemHealthRead> {
   const res = await fetch(`${API_BASE}/system/health/check`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: cloudJsonHeaders(),
+    credentials: "include",
     body: JSON.stringify(input),
   });
   if (!res.ok) throw new Error("Failed to check system health");
@@ -1497,9 +1501,9 @@ export function createChatStream(
 
             if (data.type === "orchestrator.task_completed") {
               if (onTaskCompleted) onTaskCompleted(data.summary ?? "");
-              if (!completed) {
+              if (data.done === true && !completed) {
                 completed = true;
-                onDone(undefined, undefined);
+                onDone(data.messageId, data.error);
               }
               continue;
             }

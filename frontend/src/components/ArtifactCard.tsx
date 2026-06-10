@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -1242,10 +1242,35 @@ function FileChangeRow({
   expanded: boolean;
   onEditFile?: (change: FileTreeChange) => void;
 }) {
+  const rowRef = useRef<HTMLDivElement | null>(null);
+  const [hoverPreviewPosition, setHoverPreviewPosition] = useState<{ left: number; top: number; width: number } | null>(null);
   const hasDiff = Boolean(change.diffPreview?.trim());
+  const hoverDiff = hasDiff && !expanded ? normalizeDiffContent(change.diffPreview ?? "") : null;
+
+  const showHoverPreview = () => {
+    if (!hasDiff || expanded || !rowRef.current) return;
+    const rect = rowRef.current.getBoundingClientRect();
+    const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 1024;
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 768;
+    const gutter = 24;
+    const width = Math.min(620, Math.max(280, viewportWidth - gutter * 2));
+    const left = Math.min(Math.max(gutter, rect.left), Math.max(gutter, viewportWidth - width - gutter));
+    const estimatedHeight = 280;
+    const top = rect.bottom + estimatedHeight + 12 > viewportHeight && rect.top > estimatedHeight
+      ? Math.max(gutter, rect.top - estimatedHeight - 6)
+      : rect.bottom + 6;
+    setHoverPreviewPosition({ left, top, width });
+  };
 
   return (
-    <div className="group/row relative">
+    <div
+      ref={rowRef}
+      className="group/row relative hover:z-[120]"
+      onMouseEnter={showHoverPreview}
+      onMouseLeave={() => setHoverPreviewPosition(null)}
+      onFocus={showHoverPreview}
+      onBlur={() => setHoverPreviewPosition(null)}
+    >
       <div className="agenthub-code-surface flex min-h-9 items-center gap-2 rounded-xl border px-2.5 py-1.5 text-xs transition group-hover/row:border-[color:var(--ah-border-strong)]">
         <span className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border font-mono text-[10px] ${changeClass(change.change)}`}>
           {changeLabel(change.change)}
@@ -1266,14 +1291,19 @@ function FileChangeRow({
           </button>
         )}
       </div>
-      {hasDiff && !expanded && (
-        <div className="pointer-events-none absolute left-0 top-[calc(100%+6px)] z-20 hidden w-[min(620px,calc(100vw-3rem))] group-hover/row:block">
+      {hoverDiff && hoverPreviewPosition && createPortal(
+        <div
+          data-testid="artifact-diff-hover-preview"
+          className="pointer-events-none fixed z-[1500]"
+          style={{ left: hoverPreviewPosition.left, top: hoverPreviewPosition.top, width: hoverPreviewPosition.width }}
+        >
           <DiffViewer
-            diff={normalizeDiffContent(change.diffPreview ?? "")}
+            diff={hoverDiff}
             compact
             title={change.path}
           />
-        </div>
+        </div>,
+        document.body,
       )}
       {hasDiff && expanded && (
         <div className="mt-1.5">

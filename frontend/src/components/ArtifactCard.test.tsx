@@ -456,6 +456,58 @@ describe("ArtifactCard", () => {
     expect(screen.getAllByRole("button", { name: "版本管理" }).length).toBeGreaterThan(0);
   });
 
+  it("file_tree 差异悬停预览挂到 body 高层级浮层", async () => {
+    const fileTreeArtifact: Artifact = {
+      ...artifact,
+      id: "tree-hover",
+      type: "file_tree",
+      title: "本次文件变更",
+      content: JSON.stringify({
+        changes: [{
+          path: "src/App.tsx",
+          change: "modified",
+          diffPreview: "@@ -1,1 +1,1 @@\n-old\n+new",
+        }],
+      }),
+      version: 1,
+      parentArtifactId: null,
+    };
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = String(input);
+      if (url.endsWith("/versions")) {
+        return jsonResponse([{ id: "tree-hover", version: 1, content: fileTreeArtifact.content, createdAt: "" }]);
+      }
+      return jsonResponse({});
+    });
+
+    render(<ArtifactCard artifact={fileTreeArtifact} />);
+
+    const path = screen.getByText("src/App.tsx");
+    const row = path.parentElement?.parentElement;
+    expect(row).toBeTruthy();
+    row!.getBoundingClientRect = () => ({
+      x: 120,
+      y: 100,
+      left: 120,
+      right: 520,
+      top: 100,
+      bottom: 136,
+      width: 400,
+      height: 36,
+      toJSON: () => ({}),
+    });
+
+    fireEvent.mouseEnter(row!);
+
+    const preview = await screen.findByTestId("artifact-diff-hover-preview");
+    expect(preview.parentElement).toBe(document.body);
+    expect(preview).toHaveClass("fixed");
+    expect(preview).toHaveClass("z-[1500]");
+
+    fireEvent.mouseLeave(row!);
+    await vi.waitFor(() => expect(screen.queryByTestId("artifact-diff-hover-preview")).not.toBeInTheDocument());
+  });
+
   it("Markdown 文档产物以内联卡片渲染", async () => {
     const markdownArtifact: Artifact = {
       ...artifact,

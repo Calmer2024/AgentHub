@@ -17,6 +17,7 @@ import {
   fetchArtifactVersions,
   fetchArtifacts,
   fetchCurrentUser,
+  fetchSystemHealth,
   fetchDeploymentLogs,
   fetchProjectBuildLogs,
   fetchProjectBuilds,
@@ -73,11 +74,11 @@ describe("createChatStream", () => {
     });
   });
 
-  it("把 orchestrator.task_completed 视为群聊正常结束", async () => {
+  it("把带 done 的 orchestrator.task_completed 视为群聊正常结束", async () => {
     const onDone = vi.fn();
     const onTaskCompleted = vi.fn();
     vi.spyOn(globalThis, "fetch").mockResolvedValue(sseResponse([
-      JSON.stringify({ type: "orchestrator.task_completed", summary: "4 agents completed" }),
+      JSON.stringify({ type: "orchestrator.task_completed", summary: "4 agents completed", done: true }),
     ]));
 
     createChatStream("s1", "hello", [], {
@@ -91,11 +92,50 @@ describe("createChatStream", () => {
     expect(onDone).toHaveBeenCalledWith(undefined, undefined);
   });
 
+  it("不会把云端单个 Agent 的 task_completed 当作整轮结束", async () => {
+    const onDone = vi.fn();
+    const onTaskCompleted = vi.fn();
+    const onAgentToken = vi.fn();
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(sseResponse([
+      JSON.stringify({ type: "orchestrator.task_completed", summary: "产品经理 completed" }),
+      JSON.stringify({
+        type: "agent.output",
+        agentId: "designer",
+        agentName: "UI 设计师",
+        messageId: "m-designer",
+        callKey: "designer:1:primary",
+        token: "后续设计输出",
+        chunkType: "text",
+      }),
+      JSON.stringify({ token: "", done: true, messageId: "m-final" }),
+    ]));
+
+    createChatStream("s1", "hello", [], {
+      onToken: vi.fn(),
+      onDone,
+      onTaskCompleted,
+      onAgentToken,
+    });
+
+    await vi.waitFor(() => expect(onDone).toHaveBeenCalled());
+    expect(onTaskCompleted).toHaveBeenCalledWith("产品经理 completed");
+    expect(onAgentToken).toHaveBeenCalledWith(
+      "designer",
+      "UI 设计师",
+      "后续设计输出",
+      "m-designer",
+      undefined,
+      undefined,
+      undefined,
+    );
+    expect(onDone).toHaveBeenCalledWith("m-final", undefined);
+  });
+
   it("群聊完成后继续读取会话标题更新事件", async () => {
     const onDone = vi.fn();
     const onSessionTitleUpdated = vi.fn();
     vi.spyOn(globalThis, "fetch").mockResolvedValue(sseResponse([
-      JSON.stringify({ type: "orchestrator.task_completed", summary: "done" }),
+      JSON.stringify({ type: "orchestrator.task_completed", summary: "done", done: true }),
       JSON.stringify({
         type: "session.title_updated",
         sessionId: "s1",
@@ -130,7 +170,7 @@ describe("createChatStream", () => {
   it("没有任务完成回调时也会把群聊完成视为正常结束", async () => {
     const onDone = vi.fn();
     vi.spyOn(globalThis, "fetch").mockResolvedValue(sseResponse([
-      JSON.stringify({ type: "orchestrator.task_completed", summary: "done" }),
+      JSON.stringify({ type: "orchestrator.task_completed", summary: "done", done: true }),
     ]));
 
     createChatStream("s1", "hello", [], {
@@ -190,7 +230,7 @@ describe("createChatStream", () => {
         plan_summary: "已安排: 先由@架构师规划。",
         tasks: [],
       }),
-      JSON.stringify({ type: "orchestrator.task_completed", summary: "done" }),
+      JSON.stringify({ token: "", done: true }),
     ]));
 
     createChatStream("s1", "hello", [], {
@@ -261,7 +301,7 @@ describe("createChatStream", () => {
           requiredTags: ["API", "后端"],
         },
       }),
-      JSON.stringify({ type: "orchestrator.task_completed", summary: "done" }),
+      JSON.stringify({ token: "", done: true }),
     ]));
 
     createChatStream("s1", "后端看看这个 API", [], {
@@ -372,7 +412,7 @@ describe("createChatStream", () => {
         token: "综合结论",
       }),
       JSON.stringify({ type: "orchestrator.summary_completed", messageId: "sum-1" }),
-      JSON.stringify({ type: "orchestrator.task_completed", summary: "done" }),
+      JSON.stringify({ token: "", done: true }),
     ]));
 
     createChatStream("s1", "hello", [], {
@@ -780,6 +820,26 @@ describe("production auth headers", () => {
     expect(refreshInit.body).toBeUndefined();
     expect(retryInit.credentials).toBe("include");
     expect((retryInit.headers as Record<string, string>).Authorization).toBe("Bearer access-cookie");
+  });
+
+  it("环境体检请求携带云端身份和 cookie 登录态", async () => {
+    configureApiClient({ cloudAuthProvider: createDevCloudAuthProvider() });
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      overall: "ok",
+      checkedAt: "2026-06-10T10:00:00+08:00",
+      projectId: null,
+      sessionId: "s1",
+      blockingReasons: [],
+      items: [],
+    }), { status: 200 }));
+
+    const health = await fetchSystemHealth({ sessionId: "s1" });
+
+    expect(health.overall).toBe("ok");
+    expect(vi.mocked(globalThis.fetch).mock.calls[0][0]).toBe("/api/system/health?sessionId=s1");
+    const init = vi.mocked(globalThis.fetch).mock.calls[0][1] as RequestInit;
+    expect(init.credentials).toBe("include");
+    expect((init.headers as Record<string, string>)["X-AgentHub-User-Email"]).toBe("demo@agenthub.local");
   });
 });
 

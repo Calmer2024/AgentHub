@@ -207,6 +207,7 @@ describe("AgentCliForm", () => {
     await screen.findByText("Engine 凭据");
     expect(screen.getByTestId("agent-cli-form-grid")).toHaveClass("grid");
     expect(screen.getByTestId("agent-cli-form-grid")).not.toHaveClass("lg:grid-cols-2");
+    expect(screen.getByTestId("agent-cli-form-grid").children).toHaveLength(2);
     expect(screen.getAllByRole("heading", { level: 3 }).map((item) => item.textContent)).toEqual(["基础信息", "Engine 凭据"]);
     expect(screen.queryByText("身份与规则")).not.toBeInTheDocument();
     expect(screen.queryByText("能力配置")).not.toBeInTheDocument();
@@ -246,7 +247,28 @@ describe("AgentCliForm", () => {
 
     await screen.findByText("Engine 凭据");
     expect(screen.getByTestId("agent-cli-form-grid")).not.toHaveClass("lg:grid-cols-2");
+    expect(screen.getByTestId("agent-cli-form-grid").children).toHaveLength(2);
     expect(screen.getAllByRole("heading", { level: 3 }).map((item) => item.textContent)).toEqual(["基础信息", "Engine 凭据"]);
+  });
+
+  it("云端内置 Engine 旧数据带 executable 时仍保持上下排列", async () => {
+    const claudeEngine: AgentConfig = {
+      ...existingAgent,
+      id: "claude-engine",
+      name: "Claude Code",
+      description: "云端 Claude Code",
+      cliTool: "claude_code",
+      executable: "claude",
+      avatar: "",
+    };
+    render(<AgentCliForm initial={claudeEngine} runtimeScope="cloud" onSave={vi.fn()} onCancel={vi.fn()} />);
+
+    await screen.findByText("Engine 凭据");
+    expect(screen.getByTestId("agent-cli-form-grid")).not.toHaveClass("lg:grid-cols-2");
+    expect(screen.getByTestId("agent-cli-form-grid").children).toHaveLength(2);
+    expect(screen.getAllByRole("heading", { level: 3 }).map((item) => item.textContent)).toEqual(["基础信息", "Engine 凭据"]);
+    expect(screen.queryByText("身份与规则")).not.toBeInTheDocument();
+    expect(screen.queryByText("能力配置")).not.toBeInTheDocument();
   });
 
   it("云端 Codex 不再展示固定中转预设，统一走自定义 OpenAI 兼容中转", async () => {
