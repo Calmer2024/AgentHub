@@ -79,6 +79,8 @@
 
 ## 开发阶段
 
+当前项目已进入**产品优化结尾状态**：Phase 1-14 的主要功能板块已完成，Phase 15-16 聚焦 SaaS 生产化最后收口、真实运行环境验证、用户可感知缺陷修复和稳定性打磨。早期用于模块开发、代码审查、阶段收尾和 QA 审计的 AgentHub 开发阶段 Skill 已退役，后续工作以 Rules、Spec/PRD/ADR、真实服务验证和人工验收为准。
+
 ### Phase 总览
 
 | Phase | 名称 | 状态 | 核心交付 |
@@ -98,8 +100,8 @@
 | **Phase 12** | 协作、多端与高级 Artifact | ✅ | 团队评论/通知、移动端审批预览、附件/图片输入、Artifact 引用、Git sync、对话式 Agent 创建已完成 |
 | **Phase 13** | 多端产品壳拆分 | ✅ | Local Desktop、SaaS Web、Mobile 三端 shell、构建命令、能力矩阵、Tauri/Capacitor skeleton 和真实服务验收闭环已完成 |
 | **Phase 14** | 生产 Auth 与租户隔离收口 | ✅ | 已将开发态请求头 auth 收口为生产登录、跨端用户、TenantScope、RBAC 和所有 cloud 资源租户过滤 |
-| **Phase 15** | 真实云 Sandbox Runtime | 📋 | 将 Phase 10 的本机模拟 cloud runtime 替换为真实容器/K8s/microVM runner、隔离卷、资源限制和运行清理 |
-| **Phase 16** | 真实一键部署 Provider | 📋 | 将 Phase 11 的 preview/deployment 占位链路替换为真实 HTTPS 发布、provider、release、回滚和移动端审批 |
+| **Phase 15** | 真实云 Sandbox Runtime | 优化收口 | 将 Phase 10 的本机模拟 cloud runtime 替换为真实容器/K8s/microVM runner、隔离卷、资源限制和运行清理 |
+| **Phase 16** | 真实一键部署 Provider | 优化收口 | 将 Phase 11 的 preview/deployment 占位链路替换为真实 HTTPS 发布、provider、release、回滚和移动端审批 |
 
 Phase 4-16 采用**功能板块制**：每板块独立完整交付。板块间按用户可感知价值排序。详见 [ADR-0008](docs/adr/0008-revised-development-strategy.md)。
 
@@ -227,12 +229,14 @@ PRD 系列与早期核心设计文档共同构成需求权威。早期设计定�
 
 ### Skills — AI 能力复用
 
-| Skill | 文件 | 用途 |
-|-------|------|------|
-| agenthub-module-dev | `.agents/skills/agenthub-module-dev/SKILL.md`（`.claude/skills/` 保留镜像） | 标准模块开发流程 |
-| agenthub-code-review | `.agents/skills/agenthub-code-review/SKILL.md`（`.claude/skills/` 保留镜像） | 标准代码审查 |
-| agenthub-phase-wrapup | `.agents/skills/agenthub-phase-wrapup/SKILL.md`（`.claude/skills/` 保留镜像） | Phase 收尾流程 |
-| agenthub-qa-audit | `.agents/skills/agenthub-qa-audit/SKILL.md`（`.claude/skills/` 保留镜像） | 企业级质量审计 |
+AgentHub 早期开发阶段 Skill 已退役。以下文件只作为历史流程资产保留，不再作为当前产品优化、真实服务验证、修复或收尾工作的触发入口：
+
+| Skill | 文件 | 当前状态 |
+|-------|------|---------|
+| agenthub-module-dev | `.agents/skills/agenthub-module-dev/SKILL.md`（`.claude/skills/` 保留镜像） | 停用；不再用于模块开发 |
+| agenthub-code-review | `.agents/skills/agenthub-code-review/SKILL.md`（`.claude/skills/` 保留镜像） | 停用；不再用于代码审查 |
+| agenthub-phase-wrapup | `.agents/skills/agenthub-phase-wrapup/SKILL.md`（`.claude/skills/` 保留镜像） | 停用；不再用于阶段收尾 |
+| agenthub-qa-audit | `.agents/skills/agenthub-qa-audit/SKILL.md`（`.claude/skills/` 保留镜像） | 停用；不再用于质量审计 |
 
 ---
 

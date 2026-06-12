@@ -8,6 +8,8 @@
 > **2026-06-04 修订说明**：Phase 6 重构后，HTTP API 伪 Agent 已被淘汰。用户可见 Agent 只保留 CLI Wrapper；DeepSeek 保留为后端内部系统模型，不进入 Agent 配置面。
 >
 > **2026-06-06 修订说明**：Phase 6F 验收后，P1 Artifact 体验从右侧 Drawer 调整为消息级 Artifact 卡片 + 页面级预览/编辑/版本管理，详见 [ADR-0010](0010-message-level-artifact-experience.md)。因此本文 §7 的旧 Phase 7 模块划分仅保留历史路线背景，当前 Phase 7 执行规格以 [docs/specs/phase7/README.md](../specs/phase7/README.md) 为准。
+>
+> **2026-06-11 修订说明**：项目进入产品优化结尾状态后，早期开发阶段 Skill 已退役。本文中与 `agenthub-phase-wrapup` 相关的表述仅保留为历史策略背景，不再作为当前文档审计或阶段收尾流程入口。
 
 ---
 
@@ -345,5 +347,5 @@ Phase 5 的边界：它完成的是对已有 Artifact 的工作台能力。Agent
 - Phase 3 的 Orchestrator 成果被冻结为基础设施，后续板块在其上构建但不再追加 Orchestrator 功能
 - Workspace Runtime + CLI 适配器（Phase 6）替换旧 HTTP 伪 Agent 路线；Phase 6 同时承担 Agent 输出和 workspace 文件变更到 Artifact 的入口桥接
 - Phase 7 不只是 UX 打磨，必须以 PRD-05 的 MVP 演示脚本作为最终完成标准
-- 文档周期性审计纳入 agenthub-phase-wrapup 标准流程
+- 文档周期性审计改由当前 Rules 与人工验收流程约束；`agenthub-phase-wrapup` 仅作为历史流程资产保留
 - CONTEXT.md 的 Phase 描述从五阶段更新为七阶段模型

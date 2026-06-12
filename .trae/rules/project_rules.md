@@ -22,8 +22,10 @@
 
 ## 当前开发阶段
 
-**Phase 15-16: SaaS 生产化收口后半段** — Phase 14 生产 Auth 与租户隔离已完成人工验收，准备进入真实云 Sandbox Runtime 与真实一键部署 Provider。
+**产品优化结尾状态（Phase 15-16: SaaS 生产化收口后半段）** — Phase 14 生产 Auth 与租户隔离已完成人工验收，当前重点是围绕真实云 Sandbox Runtime、真实一键部署 Provider、线上真实 CLI Runtime 和用户可感知缺陷做实测、修复、打磨与稳定化。
 
 范围：在 Phase 9-14 的 cloud workspace、开发态 sandbox runtime、cloud preview/deployment、协作通知、多端壳、生产 Auth、TenantScope 和 RBAC 基线上，继续把云端 runtime 与部署 provider 从占位/本机模拟推进为真实生产能力。大型 Phase 验收和发布候选需要保持 P1 本地 `workspace_path`、本机 CLI、build/preview/export 主路径零回归；小修按影响面选择相关测试。
 
 Phase 1-14 当前代码已完成阶段实现与自动化/真实服务验收。后续开发不得让本地版必须依赖云端登录或云端 workspace，不得让 SaaS 版暴露本机特权能力，也不得让移动端承载本机 CLI 或完整桌面工作区设置。
+
+`agenthub-module-dev`、`agenthub-code-review`、`agenthub-phase-wrapup`、`agenthub-qa-audit` 四个早期开发阶段 Skill 已退役，只保留历史文件供追溯；产品优化结尾状态下不得再调用这些 Skill 作为开发、审查、收尾或 QA 流程入口。

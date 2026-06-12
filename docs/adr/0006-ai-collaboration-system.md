@@ -1,7 +1,9 @@
 # ADR-0006: AI 协作规范体系 —— Rules / Spec / Skill 三层沉淀
 
 **Date**: 2026-05-26
-**Status**: Accepted
+**Status**: Accepted（历史决策；开发阶段 Skill 层已部分退役）
+
+> **2026-06-11 当前状态说明**：项目已进入产品优化结尾状态。Rules 与 Spec/PRD/ADR 仍是当前协作基座；`agenthub-module-dev`、`agenthub-code-review`、`agenthub-phase-wrapup`、`agenthub-qa-audit` 四个早期开发阶段 Skill 不再作为活动流程入口，只保留历史文件供追溯。
 
 ## Context
 
@@ -61,6 +63,8 @@ Spec 必须包含的章节：
 6. **不在范围内**：明确不做什么（防止范围蔓延）
 
 #### Skill 层（能力复用，按需触发）
+
+> 本节记录 Phase 0-4 期间的历史设计。产品优化结尾状态下，开发阶段 Skill 不再作为当前工作流入口。
 
 | Skill | 作用 | 适用场景 |
 |-------|------|---------|

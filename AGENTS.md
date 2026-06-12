@@ -117,7 +117,7 @@ IM 式聊天平台，用户可与 AI Agent（Claude Code、Codex、OpenCode 等�
 - 跳过验收标准就标记 Phase 完成。
 - 添加当前 Spec 范围之外的功能。
 - 需要真实服务验收的改动，却只跑单元测试或临时 ASGI 客户端就声称完成。
-- **执行任何 Git 操作（add/commit/push）前，必须先获得用户明确的"人工验收"确认。** 即使模块开发 Skill 中已进入 Step 6，也必须等待用户说"人工验收认可"/"验收通过"/"批准提交"等确认口令。未获确认前，Git 操作等同于 Spec 之外的功能——禁止执行。
+- **执行任何 Git 操作（add/commit/push）前，必须先获得用户明确的"人工验收"确认。** 任何自动化开发、审查或发布流程都不能替代人工验收；必须等待用户说"人工验收认可"/"验收通过"/"批准提交"等确认口令。未获确认前，Git 操作等同于 Spec 之外的功能——禁止执行。
 
 ---
 
@@ -138,19 +138,28 @@ Debug 不是"让 bug 消失"，而是"让系统更正确"：
 
 ## AI 协作体系
 
-三层协作体系：Rules（始终生效）→ Spec（按功能加载）→ Skill（按需调用）
+当前协作体系：Rules（始终生效）→ Spec/PRD/ADR（按问题域加载）→ 直接真实验证与修复闭环。项目已进入产品优化结尾状态，不再使用早期开发阶段的标准化 Skill 流程作为工作入口。
 
 | 层 | 文件位置 | 生效时机 | 用途 |
 |----|---------|---------|------|
 | **Rules** | `AGENTS.md`、`.trae/rules/project_rules.md` | 每次 AI 对话 | 技术栈锁定、架构约束、代码规则、禁止事项 |
 | **Spec** | `docs/specs/phaseN/` | 按功能开发 | 定义要构建什么、输入输出、行为、验收标准、非目标 |
-| **Skill** | `.agents/skills/*.md`（`.claude/skills/` 保留镜像） | 按需调用 | 标准化开发流程、代码审查清单 |
+| **Skill** | `.agents/skills/*.md`（`.claude/skills/` 保留镜像） | 仅按用户明确要求或非退役场景使用 | 辅助专项工作；不得覆盖本文件规则 |
+
+### 退役的开发阶段 Skill
+
+以下 AgentHub 早期开发阶段 Skill 已停用，只保留历史文件供追溯，不得在后续产品优化、真实服务验证、修复或收尾工作中调用：
+
+- `agenthub-module-dev`
+- `agenthub-code-review`
+- `agenthub-phase-wrapup`
+- `agenthub-qa-audit`
 
 ---
 
 ## 阶段感知
 
-当前处于 **Phase 15-16（SaaS 生产化收口后半段）规划期**。Phase 9-12 已在 P1 本地版基线上递增出 P2 SaaS cloud workspace、sandbox runtime、cloud preview/deployment、协作通知、移动端审批预览、附件和高级 Artifact 的最小可运行切片；Phase 13 已把本地版、SaaS 版和移动端拆成独立 shell、独立构建命令、独立能力矩阵和独立验收闭环；Phase 14 已完成生产 Auth、跨端登录态、TenantScope、RBAC 与 cloud 资源租户隔离收口。Phase 15-16 将分别收口真实云 sandbox/runtime 与真实一键部署 provider。后续开发不得让本地版依赖云端登录/团队，也不得让移动端承载本机 CLI 或完整桌面工作区设置。
+当前处于 **产品优化结尾状态（Phase 15-16 SaaS 生产化收口后半段）**。Phase 9-12 已在 P1 本地版基线上递增出 P2 SaaS cloud workspace、sandbox runtime、cloud preview/deployment、协作通知、移动端审批预览、附件和高级 Artifact 的最小可运行切片；Phase 13 已把本地版、SaaS 版和移动端拆成独立 shell、独立构建命令、独立能力矩阵和独立验收闭环；Phase 14 已完成生产 Auth、跨端登录态、TenantScope、RBAC 与 cloud 资源租户隔离收口。Phase 15-16 的工作重点是围绕真实云 sandbox/runtime、真实一键部署 provider 和用户可感知缺陷做实测、修复、打磨与稳定化。后续不得再按早期开发阶段 Skill 流程推进，不得让本地版依赖云端登录/团队，也不得让移动端承载本机 CLI 或完整桌面工作区设置。
 
 完整 Phase 状态表见 [CONTEXT.md §开发阶段](CONTEXT.md)。
 
