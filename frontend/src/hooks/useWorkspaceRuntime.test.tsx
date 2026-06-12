@@ -130,6 +130,27 @@ const mixedProjects: Project[] = [
   },
 ];
 
+const saasProjects: Project[] = [
+  {
+    ...projects[0],
+    id: "p-personal-cloud",
+    name: "个人云端项目",
+    workspacePath: null,
+    workspaceMode: "cloud",
+    workspaceId: "w-personal",
+    teamId: null,
+  },
+  {
+    ...projects[1],
+    id: "p-team-cloud",
+    name: "团队云端项目",
+    workspacePath: null,
+    workspaceMode: "cloud",
+    workspaceId: "w-team",
+    teamId: "t1",
+  },
+];
+
 const sessionA: Session = {
   id: "s-a",
   title: "缓存会话",
@@ -244,6 +265,85 @@ describe("useWorkspaceRuntime hydration", () => {
     });
 
     await waitFor(() => expect(result.current.sessions[0].title).toBe("自动总结标题"));
+  });
+
+  it("发送流兜底刷新会话后也同步列表和项目缓存", async () => {
+    resetStores();
+    apiMocks.fetchProjects.mockResolvedValue(projects);
+    apiMocks.fetchAgents.mockResolvedValue([]);
+    apiMocks.fetchCurrentUser.mockResolvedValue({
+      id: "u1",
+      email: "demo@agenthub.local",
+      displayName: "Demo",
+      createdAt: "",
+    });
+    apiMocks.fetchTeams.mockResolvedValue([]);
+    apiMocks.fetchSessions.mockImplementation((projectId?: string | null) => (
+      Promise.resolve(projectId === "p-a" ? [sessionA] : [])
+    ));
+    apiMocks.fetchMessages.mockResolvedValue([hydratedMessage]);
+    apiMocks.fetchArtifacts.mockResolvedValue([]);
+    apiMocks.fetchRuns.mockResolvedValue([]);
+    apiMocks.fetchApprovals.mockResolvedValue([]);
+    apiMocks.fetchSystemHealth.mockResolvedValue(null);
+
+    const { result } = renderHook(() => useWorkspaceRuntime());
+
+    await waitFor(() => expect(result.current.currentProjectId).toBe("p-a"));
+    const updated = {
+      ...sessionA,
+      title: "兜底刷新标题",
+      updatedAt: "2026-06-06T00:02:00.000Z",
+    };
+    act(() => {
+      window.dispatchEvent(new CustomEvent("agenthub:session-updated", {
+        detail: { session: updated },
+      }));
+    });
+
+    await waitFor(() => expect(result.current.sessions[0].title).toBe("兜底刷新标题"));
+
+    await act(async () => {
+      result.current.handleSelectProject("p-b");
+    });
+    await act(async () => {
+      result.current.handleSelectProject("p-a");
+    });
+
+    await waitFor(() => expect(result.current.sessions[0].title).toBe("兜底刷新标题"));
+  });
+
+  it("SaaS 首次进入默认选择个人空间项目", async () => {
+    resetStores();
+    apiMocks.fetchProjects.mockResolvedValue(saasProjects);
+    apiMocks.fetchAgents.mockResolvedValue([]);
+    apiMocks.fetchCurrentUser.mockResolvedValue({
+      id: "u1",
+      email: "demo@agenthub.local",
+      displayName: "Demo",
+      createdAt: "",
+    });
+    apiMocks.fetchTeams.mockResolvedValue([
+      { id: "t1", name: "研发团队", role: "owner", memberCount: 2, createdAt: "" },
+    ]);
+    apiMocks.fetchSessions.mockResolvedValue([]);
+    apiMocks.fetchSystemHealth.mockResolvedValue(null);
+
+    const { result } = renderHook(() => useWorkspaceRuntime({
+      projectMode: "cloud",
+      loadCloudIdentity: true,
+    }));
+
+    await waitFor(() => expect(result.current.currentTeamId).toBeNull());
+    await waitFor(() => expect(result.current.currentProjectId).toBe("p-personal-cloud"));
+    expect(result.current.currentProject?.teamId).toBeNull();
+
+    act(() => {
+      result.current.setCurrentTeamId("t1");
+    });
+
+    await waitFor(() => expect(result.current.currentTeamId).toBe("t1"));
+    await waitFor(() => expect(result.current.currentProjectId).toBe("p-team-cloud"));
   });
 
   it("local runtime 只加载本机项目且不请求云端身份", async () => {

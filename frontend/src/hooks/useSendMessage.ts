@@ -8,11 +8,12 @@ import {
   fetchArtifacts,
   fetchMessages,
   fetchRuns,
+  fetchSession,
   markSessionRead,
 } from "../api/client";
 import type {
   Message, CollabTask, DAGPhase, PhaseChangeEvent, AgentStartEvent, Artifact, StewardDecisionEvent,
-  OrchestratorExecution,
+  OrchestratorExecution, Session,
 } from "../types";
 import { chinaNowIso } from "../utils/time";
 
@@ -54,6 +55,15 @@ const findPhaseTasks = (phases: DAGPhase[], event: PhaseChangeEvent): CollabTask
     phase: event.phase,
   }));
 };
+
+function publishSessionUpdated(session: Session) {
+  useSessionStore.getState().updateSession(session);
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("agenthub:session-updated", {
+      detail: { session },
+    }));
+  }
+}
 
 function stewardSummary(decision: StewardDecisionEvent): string {
   if (decision.routeType === "context_only") return "Orchestrator 调度器已记录到群聊上下文";
@@ -103,7 +113,6 @@ export function useSendMessage() {
   const saveCollab = useChatStore((state) => state.saveCollab);
   const setReplyTarget = useChatStore((state) => state.setReplyTarget);
   const sessions = useSessionStore((state) => state.sessions);
-  const updateSession = useSessionStore((state) => state.updateSession);
 
   return useCallback(async (content: string, mentions: string[], attachmentIds: string[] = []) => {
     if (!currentSessionId) return;
@@ -253,6 +262,9 @@ export function useSendMessage() {
         fetchApprovals(currentSessionId)
           .then((approvals) => setApprovalsForSession(currentSessionId, approvals))
           .catch(() => {});
+        fetchSession(currentSessionId)
+          .then(publishSessionUpdated)
+          .catch(() => {});
         markSessionRead(currentSessionId).catch(() => {});
       },
       onRoute: (agents) => {
@@ -296,7 +308,7 @@ export function useSendMessage() {
         upsertApproval(approval);
       },
       onSessionTitleUpdated: (session) => {
-        updateSession(session);
+        publishSessionUpdated(session);
       },
       onTraceDelta: (messageId, item, meta) => {
         if (!isLiveStream()) return;
@@ -479,6 +491,5 @@ export function useSendMessage() {
     setSystemHealth, setHealthBlockingError,
     appendStreamingTokenToSessionMessage, startStreamRun, finishStreamRun,
     setActiveRunId, setActiveStreamAbort, getCollab, saveCollab, replyTarget, setReplyTarget,
-    updateSession,
   ]);
 }

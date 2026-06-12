@@ -21,6 +21,7 @@ import {
   fetchSessionMembers,
   fetchSessions,
   fetchSystemHealth,
+  joinTeamByCode,
   markSessionRead,
   muteSession,
   pickProjectFolder,
@@ -65,6 +66,17 @@ function mergeSessionsByFreshness(incoming: Session[], existing: Session[]) {
 const hasStoredProjectSessions = (projectId: string | null, cache: Record<string, Session[]>) => (
   Boolean(projectId && Object.prototype.hasOwnProperty.call(cache, projectId))
 );
+
+function projectInSpace(project: { teamId?: string | null }, teamId: string | null) {
+  return teamId ? project.teamId === teamId : !project.teamId;
+}
+
+function firstProjectInSpace<T extends { teamId?: string | null; id: string }>(
+  projects: T[],
+  teamId: string | null,
+) {
+  return projects.find((project) => projectInSpace(project, teamId)) ?? null;
+}
 
 interface WorkspaceRuntimeOptions {
   projectMode?: "local" | "cloud";
@@ -137,6 +149,17 @@ export function useWorkspaceRuntime(options: WorkspaceRuntimeOptions = {}) {
     }
     setSessions(nextSessions);
   }, [setSessions]);
+
+  useEffect(() => {
+    const handleSessionUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<{ session?: Session }>).detail;
+      const session = detail?.session;
+      if (!session?.id) return;
+      replaceSessionEverywhere(session);
+    };
+    window.addEventListener("agenthub:session-updated", handleSessionUpdated);
+    return () => window.removeEventListener("agenthub:session-updated", handleSessionUpdated);
+  }, [replaceSessionEverywhere]);
 
   const refreshRealtimeSession = useCallback(async (sessionId: string) => {
     const [messages, artifacts, runs, approvals] = await Promise.allSettled([
@@ -454,10 +477,14 @@ export function useWorkspaceRuntime(options: WorkspaceRuntimeOptions = {}) {
         const visibleProjects = projectMode
           ? loadedProjects.value.filter((project) => project.workspaceMode === projectMode)
           : loadedProjects.value;
+        const activeTeamId = currentTeamId;
+        const visibleSpaceProjects = visibleProjects.filter((project) => projectInSpace(project, activeTeamId));
         setProjects(visibleProjects);
         const activeProjectId = useSessionStore.getState().currentProjectId;
-        const activeStillVisible = visibleProjects.some((project) => project.id === activeProjectId);
-        const nextProjectId = activeStillVisible ? activeProjectId : visibleProjects[0]?.id ?? null;
+        const activeStillVisible = visibleSpaceProjects.some((project) => project.id === activeProjectId);
+        const nextProjectId = activeStillVisible
+          ? activeProjectId
+          : firstProjectInSpace(visibleProjects, activeTeamId)?.id ?? null;
         const cached = hasStoredProjectSessions(nextProjectId, sessionsByProjectRef.current)
           ? sessionsByProjectRef.current[nextProjectId as string]
           : null;
@@ -489,7 +516,9 @@ export function useWorkspaceRuntime(options: WorkspaceRuntimeOptions = {}) {
       if (!loadCloudIdentity) setCurrentUser(null);
       if (loadedTeams.status === "fulfilled") {
         setTeams(loadedTeams.value);
-        setCurrentTeamId((current) => current ?? loadedTeams.value[0]?.id ?? null);
+        setCurrentTeamId((current) => (
+          current && loadedTeams.value.some((team) => team.id === current) ? current : null
+        ));
       }
     } catch { /* ignore bootstrap failures */ }
     finally {
@@ -500,6 +529,7 @@ export function useWorkspaceRuntime(options: WorkspaceRuntimeOptions = {}) {
     hydrateSession,
     loadSessionsForProject,
     loadCloudIdentity,
+    currentTeamId,
     projectMode,
     setAgents,
     setCurrentProjectId,
@@ -603,6 +633,37 @@ export function useWorkspaceRuntime(options: WorkspaceRuntimeOptions = {}) {
     setCurrentTeamId(team.id);
   };
 
+  const handleJoinTeam = async (code: string) => {
+    const team = await joinTeamByCode(code);
+    setTeams((items) => [team, ...items.filter((item) => item.id !== team.id)]);
+    setCurrentTeamId(team.id);
+    await loadData();
+  };
+
+  const handleSelectTeamSpace = (teamId: string | null) => {
+    setCurrentTeamId(teamId);
+    const scopedProjects = projects.filter((project) => projectMode
+      ? project.workspaceMode === projectMode
+      : true);
+    const nextProject = firstProjectInSpace(scopedProjects, teamId);
+    if (nextProject?.id && nextProject.id !== currentProjectId) {
+      handleSelectProject(nextProject.id);
+      return;
+    }
+    if (!nextProject && currentProjectId) {
+      setCurrentProjectId(null);
+      setSessions([]);
+      setCurrentSessionId(null);
+      setMessages([]);
+      setArtifacts([]);
+      resetSessionView(null);
+      setSessionMembers([]);
+      setSessionsLoading(false);
+      setSessionHydrating(false);
+      setStreamingError(null);
+    }
+  };
+
   const handlePickExistingFolder = async () => {
     setCreatingProject(true);
     try {
@@ -623,7 +684,7 @@ export function useWorkspaceRuntime(options: WorkspaceRuntimeOptions = {}) {
     delete sessionsByProjectRef.current[id];
     setProjects(remaining);
     if (currentProjectId === id) {
-      const nextId = remaining[0]?.id ?? null;
+      const nextId = firstProjectInSpace(remaining, currentTeamId)?.id ?? null;
       setCurrentProjectId(nextId);
       setCurrentSessionId(null);
       setMessages([]);
@@ -643,7 +704,7 @@ export function useWorkspaceRuntime(options: WorkspaceRuntimeOptions = {}) {
     delete sessionsByProjectRef.current[id];
     setProjects(remaining);
     if (currentProjectId === id) {
-      const nextId = remaining[0]?.id ?? null;
+      const nextId = firstProjectInSpace(remaining, currentTeamId)?.id ?? null;
       setCurrentProjectId(nextId);
       setSessions([]);
       setCurrentSessionId(null);
@@ -793,7 +854,7 @@ export function useWorkspaceRuntime(options: WorkspaceRuntimeOptions = {}) {
     currentUser,
     teams,
     currentTeamId,
-    setCurrentTeamId,
+    setCurrentTeamId: handleSelectTeamSpace,
     setSidebarTab,
     loadData,
     handleSelectProject,
@@ -801,6 +862,7 @@ export function useWorkspaceRuntime(options: WorkspaceRuntimeOptions = {}) {
     handleCreateBlankProject,
     handleCreateCloudProject,
     handleCreateTeam,
+    handleJoinTeam,
     handlePickExistingFolder,
     handleArchiveProject,
     handleRenameProject,
