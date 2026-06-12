@@ -13,6 +13,7 @@ class Sandbox(Base):
 
     id = Column(String, primary_key=True)
     workspace_id = Column(String, ForeignKey("workspaces.id"), nullable=False)
+    actor_user_id = Column(String, ForeignKey("users.id"), nullable=True)
     status = Column(String, nullable=False, default="creating")
     image = Column(String, nullable=False)
     runner_node_id = Column(String, nullable=True)
@@ -32,6 +33,7 @@ class RuntimeRun(Base):
     id = Column(String, primary_key=True)
     session_id = Column(String, ForeignKey("sessions.id"), nullable=False)
     agent_id = Column(String, ForeignKey("agent_configs.id"), nullable=False)
+    actor_user_id = Column(String, ForeignKey("users.id"), nullable=True)
     sandbox_id = Column(String, ForeignKey("sandboxes.id"), nullable=True)
     runtime_mode = Column(String, nullable=False)
     status = Column(String, nullable=False, default="queued")

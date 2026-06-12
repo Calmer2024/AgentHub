@@ -12,9 +12,9 @@ class Settings(BaseSettings):
     agenthub_secret_key: str = "agenthub-dev-secret"
     agenthub_cloud_runner_node_id: str = "local-dev-runner"
     agenthub_cloud_runtime_seconds: int = 600
-    agenthub_cloud_concurrent_runs: int = 2
+    agenthub_cloud_concurrent_runs: int = 4
     agenthub_cloud_memory_mb: int = 1024
-    agenthub_cloud_disk_mb: int = 512
+    agenthub_cloud_disk_mb: int = 1024
     agenthub_runner_provider: str = "local_dev"
     agenthub_runtime_image: str = "agenthub/default-cli:phase15"
     agenthub_runtime_images: str = ""
