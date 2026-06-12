@@ -9,10 +9,13 @@ const apiMocks = vi.hoisted(() => ({
   createWorkspaceSnapshot: vi.fn(),
   fetchAuditLogs: vi.fn(),
   fetchQuotaSummary: vi.fn(),
+  fetchTeamMembers: vi.fn().mockResolvedValue([]),
   fetchWorkspace: vi.fn(),
   importWorkspaceGithub: vi.fn(),
   importWorkspaceZip: vi.fn(),
+  removeTeamMember: vi.fn(),
   restoreWorkspaceSnapshot: vi.fn(),
+  updateTeamMemberRole: vi.fn(),
 }));
 
 vi.mock("../api/client", () => apiMocks);
@@ -79,6 +82,11 @@ function renderPage(project: Project | null = cloudProject, onRefreshProjects = 
       onRefreshProjects={onRefreshProjects}
     />,
   );
+}
+
+function chooseMenuOption(label: string, option: string) {
+  fireEvent.click(screen.getByLabelText(label));
+  fireEvent.click(screen.getByRole("option", { name: option }));
 }
 
 describe("WorkspaceSettingsPage", () => {
@@ -174,6 +182,112 @@ describe("WorkspaceSettingsPage", () => {
       value: "secret",
       scope: "user",
     }));
+  });
+
+  it("保存项目共享 Secret 时带上项目归属", async () => {
+    apiMocks.fetchWorkspace.mockResolvedValue(workspace);
+    apiMocks.fetchQuotaSummary.mockResolvedValue({
+      subjectType: "team",
+      subjectId: "t1",
+      concurrentRunsLimit: 2,
+      concurrentRunsUsed: 0,
+      runtimeSecondsLimit: 30,
+      memoryMbLimit: 1024,
+      diskMbLimit: 512,
+      network: "disabled_by_default",
+    });
+    apiMocks.fetchAuditLogs.mockResolvedValue([]);
+    apiMocks.createSecret.mockResolvedValue({
+      id: "sec-project",
+      name: "PROJECT_TOKEN",
+      scope: "project",
+      ownerId: "p-cloud",
+      createdAt: "",
+    });
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("cloud://agenthub/workspaces/w1")).toBeInTheDocument());
+
+    chooseMenuOption("Secret 作用域", "项目共享");
+    fireEvent.change(screen.getByLabelText("Secret 名称"), { target: { value: "PROJECT_TOKEN" } });
+    fireEvent.change(screen.getByLabelText("Secret 值"), { target: { value: "secret" } });
+    fireEvent.click(screen.getByLabelText("保存 Secret"));
+
+    await waitFor(() => expect(apiMocks.createSecret).toHaveBeenCalledWith({
+      name: "PROJECT_TOKEN",
+      value: "secret",
+      scope: "project",
+      ownerId: "p-cloud",
+    }));
+  });
+
+  it("列出、添加、改角色并移除团队成员", async () => {
+    apiMocks.fetchWorkspace.mockResolvedValue(workspace);
+    apiMocks.fetchQuotaSummary.mockResolvedValue({
+      subjectType: "team",
+      subjectId: "t1",
+      concurrentRunsLimit: 2,
+      concurrentRunsUsed: 0,
+      runtimeSecondsLimit: 30,
+      memoryMbLimit: 1024,
+      diskMbLimit: 512,
+      network: "disabled_by_default",
+    });
+    apiMocks.fetchAuditLogs.mockResolvedValue([]);
+    apiMocks.fetchTeamMembers.mockResolvedValue([
+      {
+        id: "tm-owner",
+        teamId: "t1",
+        userId: "u1",
+        email: "owner@example.com",
+        displayName: "Owner",
+        role: "owner",
+        createdAt: "",
+      },
+      {
+        id: "tm-viewer",
+        teamId: "t1",
+        userId: "u2",
+        email: "viewer@example.com",
+        displayName: "Viewer",
+        role: "viewer",
+        createdAt: "",
+      },
+    ]);
+    apiMocks.addTeamMember.mockResolvedValue({
+      id: "tm-new",
+      teamId: "t1",
+      userId: "u3",
+      email: "new@example.com",
+      displayName: "new@example.com",
+      role: "member",
+      createdAt: "",
+    });
+    apiMocks.updateTeamMemberRole.mockResolvedValue({
+      id: "tm-viewer",
+      teamId: "t1",
+      userId: "u2",
+      email: "viewer@example.com",
+      displayName: "Viewer",
+      role: "member",
+      createdAt: "",
+    });
+    apiMocks.removeTeamMember.mockResolvedValue(undefined);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("viewer@example.com")).toBeInTheDocument());
+
+    fireEvent.change(screen.getByLabelText("成员邮箱"), { target: { value: "new@example.com" } });
+    fireEvent.click(screen.getByLabelText("添加成员"));
+    await waitFor(() => expect(apiMocks.addTeamMember).toHaveBeenCalledWith("t1", "new@example.com", "member"));
+
+    await waitFor(() => expect(screen.getByLabelText("成员角色 viewer@example.com")).not.toBeDisabled());
+    chooseMenuOption("成员角色 viewer@example.com", "member");
+    await waitFor(() => expect(apiMocks.updateTeamMemberRole).toHaveBeenCalledWith("t1", "tm-viewer", "member"));
+
+    await waitFor(() => expect(screen.getByLabelText("移除成员 viewer@example.com")).not.toBeDisabled());
+    fireEvent.click(screen.getByLabelText("移除成员 viewer@example.com"));
+    await waitFor(() => expect(apiMocks.removeTeamMember).toHaveBeenCalledWith("t1", "tm-viewer"));
   });
 
   it("本机项目不再提供本机项目设置页", () => {

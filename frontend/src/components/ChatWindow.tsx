@@ -83,6 +83,39 @@ const EMPTY_TASKS: TaskRead[] = [];
 const EMPTY_ARTIFACTS: Artifact[] = [];
 const EMPTY_APPROVALS: ApprovalCheckpoint[] = [];
 
+export async function copyTextToClipboard(content: string): Promise<void> {
+  const clipboard = typeof navigator === "undefined" ? undefined : navigator.clipboard;
+  if (clipboard?.writeText) {
+    try {
+      await clipboard.writeText(content);
+      return;
+    } catch {
+      // 浏览器可能因非安全上下文或权限限制拒绝 clipboard API，继续走 textarea 降级。
+    }
+  }
+
+  if (typeof document === "undefined" || !document.body || typeof document.execCommand !== "function") {
+    throw new Error("clipboard unavailable");
+  }
+
+  const textArea = document.createElement("textarea");
+  textArea.value = content;
+  textArea.setAttribute("readonly", "true");
+  textArea.style.position = "fixed";
+  textArea.style.top = "-1000px";
+  textArea.style.left = "-1000px";
+  textArea.style.opacity = "0";
+  document.body.appendChild(textArea);
+  textArea.focus();
+  textArea.select();
+  try {
+    const copied = document.execCommand("copy");
+    if (!copied) throw new Error("clipboard copy failed");
+  } finally {
+    document.body.removeChild(textArea);
+  }
+}
+
 export function ChatWindow({
   messages, artifacts, isStreaming, streamingError,
   hydrating = false,
@@ -128,6 +161,7 @@ export function ChatWindow({
   const setApprovalsForSession = useChatStore((state) => state.setApprovalsForSession);
   const setArtifactsForSession = useChatStore((state) => state.setArtifactsForSession);
   const setMessagesForSession = useChatStore((state) => state.setMessagesForSession);
+  const appendMessageToSession = useChatStore((state) => state.appendMessageToSession);
   const setRunsForSession = useChatStore((state) => state.setRunsForSession);
   const setSystemHealth = useChatStore((state) => state.setSystemHealth);
   const setStreamingError = useChatStore((state) => state.setStreamingError);
@@ -335,8 +369,14 @@ export function ChatWindow({
   ]);
 
   const copyContent = useCallback((content: string) => {
-    void navigator.clipboard?.writeText(content);
-  }, []);
+    void copyTextToClipboard(content)
+      .then(() => {
+        pushToast({ kind: "success", title: "已复制到剪贴板" });
+      })
+      .catch(() => {
+        pushToast({ kind: "error", title: "复制失败" });
+      });
+  }, [pushToast]);
 
   const beginMultiSelect = useCallback((message: Message) => {
     setSelectionMode(true);
@@ -375,7 +415,10 @@ export function ChatWindow({
     if (!forwardingIds || forwardingIds.length === 0 || forwardTargetIds.size === 0) return;
     setForwardingBusy(true);
     try {
-      await forwardMessages(forwardingIds, [...forwardTargetIds]);
+      const result = await forwardMessages(forwardingIds, [...forwardTargetIds]);
+      result.messages.forEach((message) => {
+        appendMessageToSession(message.sessionId, message);
+      });
       await refreshRuntime();
       setSelectionMode(false);
       setSelectedMessageIds(new Set());
@@ -388,6 +431,7 @@ export function ChatWindow({
       setForwardingBusy(false);
     }
   }, [
+    appendMessageToSession,
     closeForwardDialog,
     currentSessionId,
     forwardingIds,

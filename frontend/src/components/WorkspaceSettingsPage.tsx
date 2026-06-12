@@ -1,27 +1,42 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Cloud, FileArchive, GitBranch, HardDrive, Plus, RotateCcw, Shield, Users, type LucideIcon } from "lucide-react";
+import { Cloud, FileArchive, GitBranch, HardDrive, Plus, RotateCcw, Shield, Trash2, Users, type LucideIcon } from "lucide-react";
 import {
   addTeamMember,
   createSecret,
   createWorkspaceSnapshot,
   fetchAuditLogs,
   fetchQuotaSummary,
+  fetchTeamMembers,
   fetchWorkspace,
   importWorkspaceGithub,
   importWorkspaceZip,
+  removeTeamMember,
   restoreWorkspaceSnapshot,
+  updateTeamMemberRole,
 } from "../api/client";
 import { useToastStore } from "../stores/toastStore";
+import { MenuSelect } from "./MenuSelect";
 import type {
   AuditLog,
   CloudWorkspace,
   CurrentUser,
   Project,
   QuotaSummary,
+  SecretCreateInput,
   Team,
+  TeamMember,
   TeamRole,
 } from "../types";
 import { formatChinaDateTime } from "../utils/time";
+
+type SecretScope = NonNullable<SecretCreateInput["scope"]>;
+
+const TEAM_ROLE_OPTIONS: Array<{ value: TeamRole; label: string }> = [
+  { value: "owner", label: "owner" },
+  { value: "admin", label: "admin" },
+  { value: "member", label: "member" },
+  { value: "viewer", label: "viewer" },
+];
 
 interface Props {
   project: Project | null;
@@ -39,6 +54,7 @@ export function WorkspaceSettingsPage({
   const [workspace, setWorkspace] = useState<CloudWorkspace | null>(null);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [quota, setQuota] = useState<QuotaSummary | null>(null);
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -50,6 +66,7 @@ export function WorkspaceSettingsPage({
   const [memberRole, setMemberRole] = useState<TeamRole>("member");
   const [secretName, setSecretName] = useState("");
   const [secretValue, setSecretValue] = useState("");
+  const [secretScope, setSecretScope] = useState<SecretScope>("user");
   const pushToast = useToastStore((state) => state.pushToast);
 
   const projectTeam = useMemo(
@@ -57,26 +74,38 @@ export function WorkspaceSettingsPage({
     [project?.teamId, teams],
   );
   const isCloud = project?.workspaceMode === "cloud";
+  const secretScopeOptions = useMemo(() => [
+    { value: "user" as SecretScope, label: "我的凭据" },
+    ...(project?.teamId ? [{ value: "team" as SecretScope, label: "团队共享" }] : []),
+    { value: "project" as SecretScope, label: "项目共享" },
+  ], [project?.teamId]);
+  const addMemberRoleOptions = useMemo(
+    () => TEAM_ROLE_OPTIONS.filter((option) => option.value !== "owner" || projectTeam?.role === "owner"),
+    [projectTeam?.role],
+  );
 
   const loadCloudData = useCallback(async () => {
     if (!project || !isCloud || !project.workspaceId) {
       setWorkspace(null);
       setAuditLogs([]);
       setQuota(null);
+      setTeamMembers([]);
       setLoading(false);
       return;
     }
     setLoading(true);
     setError(null);
     try {
-      const [workspaceData, logs, quotaData] = await Promise.all([
+      const [workspaceData, logs, quotaData, members] = await Promise.all([
         fetchWorkspace(project.workspaceId),
         fetchAuditLogs({ projectId: project.id }),
         fetchQuotaSummary(),
+        project.teamId ? fetchTeamMembers(project.teamId) : Promise.resolve([]),
       ]);
       setWorkspace(workspaceData);
       setAuditLogs(logs);
       setQuota(quotaData);
+      setTeamMembers(members);
     } catch (err) {
       setError(err instanceof Error ? err.message : "加载云端工作区失败");
     } finally {
@@ -87,6 +116,12 @@ export function WorkspaceSettingsPage({
   useEffect(() => {
     void loadCloudData();
   }, [loadCloudData]);
+
+  useEffect(() => {
+    if (secretScope === "team" && !project?.teamId) {
+      setSecretScope("user");
+    }
+  }, [project?.teamId, secretScope]);
 
   const runAction = useCallback(async (
     key: string,
@@ -174,18 +209,25 @@ export function WorkspaceSettingsPage({
               <InfoCell label="内存" value={quota ? `${quota.memoryMbLimit} MB` : "--"} />
               <InfoCell label="磁盘" value={quota ? `${quota.diskMbLimit} MB` : "--"} />
             </div>
-            <div className="mt-3 flex gap-2">
+            <div className="mt-3 grid gap-2 md:grid-cols-[150px_180px_minmax(0,1fr)_40px]">
+              <MenuSelect
+                value={secretScope}
+                ariaLabel="Secret 作用域"
+                options={secretScopeOptions}
+                onChange={setSecretScope}
+                className="h-10"
+              />
               <input
                 value={secretName}
                 onChange={(event) => setSecretName(event.target.value)}
-                className="agenthub-composer w-44 rounded-lg border px-3 text-sm outline-none"
+                className="agenthub-composer h-10 min-w-0 rounded-lg border px-3 text-sm outline-none"
                 placeholder="PHASE10_TOKEN"
                 aria-label="Secret 名称"
               />
               <input
                 value={secretValue}
                 onChange={(event) => setSecretValue(event.target.value)}
-                className="agenthub-composer min-w-0 flex-1 rounded-lg border px-3 text-sm outline-none"
+                className="agenthub-composer h-10 min-w-0 rounded-lg border px-3 text-sm outline-none"
                 type="password"
                 placeholder="Secret value"
                 aria-label="Secret 值"
@@ -197,7 +239,18 @@ export function WorkspaceSettingsPage({
                 onClick={() => void runAction(
                   "secret",
                   async () => {
-                    await createSecret({ name: secretName, value: secretValue, scope: "user" });
+                    const input: SecretCreateInput = {
+                      name: secretName,
+                      value: secretValue,
+                      scope: secretScope,
+                    };
+                    if (secretScope === "team" && project.teamId) {
+                      input.ownerId = project.teamId;
+                    }
+                    if (secretScope === "project") {
+                      input.ownerId = project.id;
+                    }
+                    await createSecret(input);
                     setSecretName("");
                     setSecretValue("");
                   },
@@ -322,37 +375,78 @@ export function WorkspaceSettingsPage({
           <section className="px-5 py-4">
             <SectionTitle icon={Users} title="成员" />
             {project.teamId ? (
-              <div className="mt-3 flex gap-2">
-                <input
-                  value={memberEmail}
-                  onChange={(event) => setMemberEmail(event.target.value)}
-                  className="agenthub-composer min-w-0 flex-1 rounded-lg border px-3 text-sm outline-none"
-                  placeholder="member@example.com"
-                  aria-label="成员邮箱"
-                />
-                <select
-                  value={memberRole}
-                  onChange={(event) => setMemberRole(event.target.value as TeamRole)}
-                  className="agenthub-composer w-28 rounded-lg border px-3 text-sm outline-none"
-                  aria-label="成员角色"
-                >
-                  <option value="admin">admin</option>
-                  <option value="member">member</option>
-                  <option value="viewer">viewer</option>
-                </select>
-                <IconAction
-                  title="添加成员"
-                  disabled={Boolean(busy) || !memberEmail.trim()}
-                  icon={Plus}
-                  onClick={() => void runAction(
-                    "member",
-                    async () => {
-                      await addTeamMember(project.teamId as string, memberEmail, memberRole);
-                      setMemberEmail("");
-                    },
-                    "成员已添加",
-                  )}
-                />
+              <div className="mt-3 space-y-3">
+                <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_128px_40px]">
+                  <input
+                    value={memberEmail}
+                    onChange={(event) => setMemberEmail(event.target.value)}
+                    className="agenthub-composer h-10 min-w-0 rounded-lg border px-3 text-sm outline-none"
+                    placeholder="member@example.com"
+                    aria-label="成员邮箱"
+                  />
+                  <MenuSelect
+                    value={memberRole}
+                    options={addMemberRoleOptions}
+                    onChange={setMemberRole}
+                    ariaLabel="成员角色"
+                    className="h-10"
+                  />
+                  <IconAction
+                    title="添加成员"
+                    disabled={Boolean(busy) || !memberEmail.trim()}
+                    icon={Plus}
+                    onClick={() => void runAction(
+                      "member",
+                      async () => {
+                        await addTeamMember(project.teamId as string, memberEmail, memberRole);
+                        setMemberEmail("");
+                      },
+                      "成员已添加",
+                    )}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  {teamMembers.length === 0 ? (
+                    <p className="agenthub-faint rounded-lg border px-3 py-3 text-sm" style={{ borderColor: "var(--ah-border)" }}>
+                      暂无团队成员
+                    </p>
+                  ) : teamMembers.map((member) => (
+                    <div key={member.id} className="agenthub-nav-idle grid items-center gap-2 rounded-lg border px-3 py-2 text-sm md:grid-cols-[minmax(0,1fr)_128px_40px]">
+                      <span className="min-w-0">
+                        <span className="agenthub-strong block truncate">{member.displayName || member.email}</span>
+                        <span className="agenthub-faint block truncate text-xs">{member.email}</span>
+                      </span>
+                      <MenuSelect
+                        value={member.role}
+                        onChange={(role) => void runAction(
+                          `member-role-${member.id}`,
+                          async () => {
+                            await updateTeamMemberRole(project.teamId as string, member.id, role);
+                          },
+                          "成员角色已更新",
+                        )}
+                        options={TEAM_ROLE_OPTIONS.filter((option) => (
+                          option.value !== "owner" || projectTeam?.role === "owner" || member.role === "owner"
+                        ))}
+                        disabled={Boolean(busy)}
+                        ariaLabel={`成员角色 ${member.email}`}
+                        className="h-9"
+                      />
+                      <IconAction
+                        title={`移除成员 ${member.email}`}
+                        disabled={Boolean(busy)}
+                        icon={Trash2}
+                        onClick={() => void runAction(
+                          `member-remove-${member.id}`,
+                          async () => {
+                            await removeTeamMember(project.teamId as string, member.id);
+                          },
+                          "成员已移除",
+                        )}
+                      />
+                    </div>
+                  ))}
+                </div>
               </div>
             ) : (
               <p className="agenthub-faint mt-3 rounded-lg border px-3 py-3 text-sm" style={{ borderColor: "var(--ah-border)" }}>

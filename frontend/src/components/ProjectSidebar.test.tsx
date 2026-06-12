@@ -27,9 +27,13 @@ const workspaceApiMocks = vi.hoisted(() => ({
   addTeamMember: vi.fn().mockResolvedValue(undefined),
   createSecret: vi.fn().mockResolvedValue(undefined),
   createWorkspaceSnapshot: vi.fn().mockResolvedValue(undefined),
+  fetchTeamJoinCode: vi.fn().mockResolvedValue({ teamId: "t1", code: "join-code" }),
+  fetchTeamMembers: vi.fn().mockResolvedValue([]),
   importWorkspaceGithub: vi.fn().mockResolvedValue(undefined),
   importWorkspaceZip: vi.fn().mockResolvedValue(undefined),
+  removeTeamMember: vi.fn().mockResolvedValue(undefined),
   restoreWorkspaceSnapshot: vi.fn().mockResolvedValue(undefined),
+  updateTeamMemberRole: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../api/client", () => workspaceApiMocks);
@@ -105,6 +109,7 @@ const renderSidebar = (overrides: Partial<ComponentProps<typeof ProjectSidebar>>
     onSelectProject={vi.fn()}
     onSelectTeam={vi.fn()}
     onCreateTeam={vi.fn().mockResolvedValue(undefined)}
+    onJoinTeam={vi.fn().mockResolvedValue(undefined)}
     onCreateBlankProject={vi.fn().mockResolvedValue(undefined)}
     onCreateCloudProject={vi.fn().mockResolvedValue(undefined)}
     onPickExistingFolder={vi.fn().mockResolvedValue(undefined)}
@@ -308,6 +313,79 @@ describe("ProjectSidebar", () => {
     expect(workspaceDialog).toHaveClass("fixed");
     expect(workspaceDialog).toHaveClass("items-center");
     expect(await screen.findByText("云端工作区设置")).toBeInTheDocument();
+  });
+
+  it("SaaS 项目列表按个人和团队空间区分显示", () => {
+    const personalProject = {
+      ...cloudProject,
+      id: "p-personal",
+      name: "个人云项目",
+      teamId: null,
+    };
+    const teamProject = {
+      ...cloudProject,
+      id: "p-team",
+      name: "团队云项目",
+      teamId: "t1",
+    };
+    const onSelectTeam = vi.fn();
+
+    renderSidebar({
+      productEdition: "saas",
+      projects: [personalProject, teamProject],
+      teams: [{ id: "t1", name: "研发团队", role: "owner", memberCount: 2, createdAt: "" }],
+      currentTeamId: null,
+      onSelectTeam,
+    });
+
+    expect(screen.getByText("个人云项目")).toBeInTheDocument();
+    expect(screen.queryByText("团队云项目")).not.toBeInTheDocument();
+    expect(screen.getByText(/个人空间 · 就绪/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText("团队空间"));
+    fireEvent.click(screen.getByText("研发团队"));
+
+    expect(onSelectTeam).toHaveBeenCalledWith("t1");
+  });
+
+  it("团队菜单提供管理团队和加入团队入口", () => {
+    const onJoinTeam = vi.fn().mockResolvedValue(undefined);
+
+    renderSidebar({
+      productEdition: "saas",
+      teams: [{ id: "t1", name: "研发团队", role: "owner", memberCount: 2, createdAt: "" }],
+      currentTeamId: "t1",
+      onJoinTeam,
+    });
+
+    fireEvent.click(screen.getByLabelText("团队空间"));
+    fireEvent.click(screen.getByText("加入团队"));
+    fireEvent.change(screen.getByLabelText("团队加入码"), { target: { value: "join-code" } });
+    fireEvent.click(screen.getByRole("button", { name: "加入团队" }));
+
+    expect(onJoinTeam).toHaveBeenCalledWith("join-code");
+  });
+
+  it("展开云端项目时列表保持在侧栏卡片内部滚动", () => {
+    const cloudProjects = Array.from({ length: 8 }, (_, index) => ({
+      ...cloudProject,
+      id: `p-cloud-${index}`,
+      name: `云端项目 ${index + 1}`,
+    }));
+
+    renderSidebar({
+      productEdition: "saas",
+      projects: [project, ...cloudProjects],
+      teams: [{ id: "t1", name: "研发团队", role: "owner", memberCount: 1, createdAt: "" }],
+      currentTeamId: "t1",
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /展开全部项目/ }));
+
+    const list = screen.getByLabelText("项目列表");
+    expect(list).toHaveClass("agenthub-expand-scroll-open");
+    expect(list.parentElement).toHaveClass("agenthub-project-list-shell");
+    expect(screen.getByText("云端项目 8")).toBeInTheDocument();
   });
 
   it("SaaS 团队创建使用全局弹窗", () => {

@@ -2,8 +2,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ChatWindow } from "./ChatWindow";
 import { useChatStore } from "../stores/chatStore";
+import { useToastStore } from "../stores/toastStore";
 import type { AgentConfig, Message, RunRead, Session, TaskRead } from "../types";
-import { cancelRun, interruptOrchestratorExecution, resumeOrchestratorExecution } from "../api/client";
+import {
+  cancelRun,
+  forwardMessages,
+  interruptOrchestratorExecution,
+  resumeOrchestratorExecution,
+} from "../api/client";
 
 vi.mock("../api/client", () => ({
   approveCheckpoint: vi.fn(),
@@ -92,6 +98,7 @@ function resetStore() {
     activeStreamsByKey: {},
     collabSnapshots: {},
   });
+  useToastStore.setState({ toasts: [] });
 }
 
 function runningMessage(): Message {
@@ -186,6 +193,10 @@ function Harness({ onSend = vi.fn() }: { onSend?: (content: string, mentions: st
 describe("ChatWindow runtime cancel", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    Object.defineProperty(navigator, "clipboard", {
+      value: undefined,
+      configurable: true,
+    });
     resetStore();
   });
 
@@ -390,5 +401,88 @@ describe("ChatWindow runtime cancel", () => {
     await waitFor(() => {
       expect(resumeOrchestratorExecution).toHaveBeenCalledWith("exec-interrupted");
     });
+  });
+
+  it("复制消息内容时写入剪贴板并提示成功", async () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+    const message: Message = {
+      id: "m-copy",
+      sessionId: "s-cancel",
+      role: "assistant",
+      content: "需要复制的内容",
+      agentName: agent.name,
+      createdAt: "2026-06-11T00:00:00.000Z",
+    };
+    resetStore();
+    useChatStore.setState({
+      messages: [message],
+      messagesBySession: { "s-cancel": [message] },
+    });
+
+    render(<Harness />);
+
+    fireEvent.contextMenu(screen.getByText("需要复制的内容"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "复制" }));
+
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith("需要复制的内容");
+    });
+    const copyToasts = useToastStore.getState().toasts;
+    expect(copyToasts[copyToasts.length - 1]?.title).toBe("已复制到剪贴板");
+  });
+
+  it("转发成功后把返回消息写入目标会话缓存", async () => {
+    vi.clearAllMocks();
+    const sourceMessage: Message = {
+      id: "m-source",
+      sessionId: "s-cancel",
+      role: "user",
+      content: "待转发消息",
+      agentName: null,
+      sourceType: "user",
+      sourceName: "用户",
+      createdAt: "2026-06-11T00:00:00.000Z",
+    };
+    const forwardedMessage: Message = {
+      id: "m-forwarded",
+      sessionId: "s-target",
+      role: "user",
+      content: "转发自 用户：\n\n待转发消息",
+      agentName: null,
+      sourceType: "user",
+      sourceName: "用户",
+      metadata: { forwarded: true },
+      createdAt: "2026-06-11T00:00:01.000Z",
+    };
+    vi.mocked(forwardMessages).mockResolvedValueOnce({ messages: [forwardedMessage] });
+    resetStore();
+    useChatStore.setState({
+      messages: [sourceMessage],
+      messagesBySession: {
+        "s-cancel": [sourceMessage],
+        "s-target": [],
+      },
+    });
+
+    render(<Harness />);
+
+    fireEvent.contextMenu(screen.getByText("待转发消息"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "转发" }));
+    fireEvent.click(screen.getByRole("button", { name: /目标对话/ }));
+    const sendButtons = screen.getAllByRole("button", { name: "发送" });
+    fireEvent.click(sendButtons[sendButtons.length - 1]);
+
+    await waitFor(() => {
+      expect(forwardMessages).toHaveBeenCalledWith(["m-source"], ["s-target"]);
+    });
+    await waitFor(() => {
+      expect(useChatStore.getState().messagesBySession["s-target"]).toEqual([forwardedMessage]);
+    });
+    const forwardToasts = useToastStore.getState().toasts;
+    expect(forwardToasts[forwardToasts.length - 1]?.title).toBe("消息已转发");
   });
 });

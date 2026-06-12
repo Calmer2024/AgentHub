@@ -6,6 +6,7 @@ import {
   ChevronDown,
   ChevronUp,
   Cloud,
+  Copy,
   Moon,
   Folder,
   FolderOpen,
@@ -17,14 +18,23 @@ import {
   Settings,
   Sun,
   Trash2,
+  UserPlus,
   Users,
   type LucideIcon,
 } from "lucide-react";
-import type { AgentConfig, CurrentUser, ProductEdition, Project, Team } from "../types";
+import {
+  addTeamMember,
+  fetchTeamJoinCode,
+  fetchTeamMembers,
+  removeTeamMember,
+  updateTeamMemberRole,
+} from "../api/client";
+import type { AgentConfig, CurrentUser, ProductEdition, Project, Team, TeamMember, TeamRole } from "../types";
 import { AgentAvatar } from "./AgentAvatar";
 import type { SidebarTab } from "../stores/sessionStore";
 import { useThemeStore, type ThemeMode } from "../stores/themeStore";
 import { GlobalModal } from "./GlobalModal";
+import { MenuSelect } from "./MenuSelect";
 import { UserAccountMenu } from "./UserAccountMenu";
 import { WorkspaceSettingsPage } from "./WorkspaceSettingsPage";
 
@@ -42,6 +52,7 @@ interface Props {
   onSelectProject: (id: string) => void;
   onSelectTeam: (id: string | null) => void;
   onCreateTeam: (name: string) => Promise<void>;
+  onJoinTeam: (code: string) => Promise<void>;
   onUserUpdated?: () => Promise<void> | void;
   onRefreshProjects?: () => Promise<void> | void;
   onCreateBlankProject: (name?: string) => Promise<void>;
@@ -71,6 +82,13 @@ const NATIVE_CLI_AGENT_ORDER: Partial<Record<AgentConfig["cliTool"], number>> = 
   opencode: 2,
 };
 
+const TEAM_ROLE_OPTIONS: Array<{ value: TeamRole; label: string }> = [
+  { value: "owner", label: "owner" },
+  { value: "admin", label: "admin" },
+  { value: "member", label: "member" },
+  { value: "viewer", label: "viewer" },
+];
+
 export function ProjectSidebar({
   projects,
   currentProjectId,
@@ -85,6 +103,7 @@ export function ProjectSidebar({
   onSelectProject,
   onSelectTeam,
   onCreateTeam,
+  onJoinTeam,
   onUserUpdated,
   onRefreshProjects,
   onCreateBlankProject,
@@ -110,6 +129,10 @@ export function ProjectSidebar({
   const [renameValue, setRenameValue] = useState("");
   const [teamMenuOpen, setTeamMenuOpen] = useState(false);
   const [teamCreateOpen, setTeamCreateOpen] = useState(false);
+  const [teamJoinOpen, setTeamJoinOpen] = useState(false);
+  const [teamJoinCode, setTeamJoinCode] = useState("");
+  const [teamJoining, setTeamJoining] = useState(false);
+  const [teamManagementTarget, setTeamManagementTarget] = useState<Team | null>(null);
   const [teamName, setTeamName] = useState("");
   const [teamCreating, setTeamCreating] = useState(false);
   const [projectsExpanded, setProjectsExpanded] = useState(false);
@@ -126,9 +149,14 @@ export function ProjectSidebar({
   const canUseTeamSpaces = !isLocalShell;
   const canCreateLocalProject = !isSaasShell;
   const canCreateCloudProject = !isLocalShell;
-  const visibleProjectItems = productEdition
+  const modeProjectItems = productEdition
     ? projects.filter((project) => project.workspaceMode === (productEdition === "local" ? "local" : "cloud"))
     : projects;
+  const visibleProjectItems = isSaasShell
+    ? modeProjectItems.filter((project) => (
+      currentTeamId ? project.teamId === currentTeamId : !project.teamId
+    ))
+    : modeProjectItems;
   const nativeCliAgents = activeAgents
     .filter(isNativeCliAgent)
     .sort((left, right) => nativeCliAgentRank(left) - nativeCliAgentRank(right));
@@ -211,6 +239,20 @@ export function ProjectSidebar({
     }
   };
 
+  const submitJoinTeam = async () => {
+    const code = teamJoinCode.trim();
+    if (!code) return;
+    setTeamJoining(true);
+    try {
+      await onJoinTeam(code);
+      setTeamJoinCode("");
+      setTeamJoinOpen(false);
+      setTeamMenuOpen(false);
+    } finally {
+      setTeamJoining(false);
+    }
+  };
+
   const submitProjectRename = async () => {
     if (!renameTarget) return;
     const name = renameValue.trim();
@@ -221,6 +263,19 @@ export function ProjectSidebar({
 
   const refreshWorkspaceProjects = async () => {
     await onRefreshProjects?.();
+  };
+
+  const selectTeamSpace = (teamId: string | null) => {
+    onSelectTeam(teamId);
+    setTeamMenuOpen(false);
+    setProjectsExpanded(false);
+    const nextProject = modeProjectItems.find((project) => (
+      teamId ? project.teamId === teamId : !project.teamId
+    ));
+    if (nextProject && nextProject.id !== currentProjectId) {
+      onSelectProject(nextProject.id);
+      onOpenPanel("sessions");
+    }
   };
 
   const isConfirmingDelete = (kind: DeleteConfirmTarget["kind"], id: string) => (
@@ -321,7 +376,7 @@ export function ProjectSidebar({
   );
 
   return (
-    <aside className="agenthub-rail w-full md:w-[260px] h-[34dvh] md:h-full flex flex-col shrink-0 border-r transition-colors duration-300">
+    <aside className="agenthub-rail w-full lg:w-[min(22vw,260px)] xl:w-[260px] h-[30dvh] sm:h-[28dvh] lg:h-full flex flex-col shrink-0 border-r transition-colors duration-200">
       <div className="px-3 py-3 space-y-3">
         <UserAccountMenu currentUser={currentUser} teams={teams} onUserUpdated={onUserUpdated} />
         <ThemeToggle theme={theme} onChange={setTheme} />
@@ -333,11 +388,20 @@ export function ProjectSidebar({
             menuOpen={teamMenuOpen}
             menuRef={teamMenuRef}
             onToggle={() => setTeamMenuOpen((value) => !value)}
-            onSelectTeam={onSelectTeam}
+            onSelectTeam={selectTeamSpace}
             onOpenCreateTeam={() => {
               setTeamMenuOpen(false);
               setTeamName("");
               setTeamCreateOpen(true);
+            }}
+            onOpenJoinTeam={() => {
+              setTeamMenuOpen(false);
+              setTeamJoinCode("");
+              setTeamJoinOpen(true);
+            }}
+            onOpenManageTeam={(team) => {
+              setTeamMenuOpen(false);
+              setTeamManagementTarget(team);
             }}
           />
         )}
@@ -434,7 +498,7 @@ export function ProjectSidebar({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 px-2 pb-3">
+      <div className="agenthub-project-list-shell min-h-0 flex-1 px-2 pb-3">
         <div
           className={`agenthub-expand-scroll agenthub-expand-scroll-projects space-y-1 transition-all duration-200 ${projectsExpanded ? "agenthub-expand-scroll-open" : ""}`}
           aria-label="项目列表"
@@ -465,7 +529,7 @@ export function ProjectSidebar({
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-medium">{project.name}</span>
                       <span className="agenthub-faint mt-0.5 block truncate text-xs">
-                        {project.workspaceMode === "cloud" ? "云端" : "本机"} · {projectStatusLabel(project.status)}
+                        {projectSpaceLabel(project, teams)} · {projectStatusLabel(project.status)}
                       </span>
                     </span>
                   </div>
@@ -574,6 +638,25 @@ export function ProjectSidebar({
           onSubmit={() => void submitCreateTeam()}
         />
       )}
+      {teamJoinOpen && (
+        <TeamJoinDialog
+          code={teamJoinCode}
+          busy={teamJoining}
+          onCodeChange={setTeamJoinCode}
+          onCancel={() => setTeamJoinOpen(false)}
+          onSubmit={() => void submitJoinTeam()}
+        />
+      )}
+      {teamManagementTarget && (
+        <TeamManagementDialog
+          team={teamManagementTarget}
+          onClose={() => setTeamManagementTarget(null)}
+          onChanged={async () => {
+            await onRefreshProjects?.();
+            await onUserUpdated?.();
+          }}
+        />
+      )}
       {workspaceSettingsProject && (
         <WorkspaceSettingsDialog
           project={workspaceSettingsProject}
@@ -607,6 +690,30 @@ function nativeCliAgentRank(agent: AgentConfig) {
 function agentStatusText(agent: AgentConfig, cloudShell: boolean) {
   if (agent.status === "ready") return "就绪";
   return cloudShell ? "待配置" : "未找到 executable";
+}
+
+function projectSpaceLabel(project: Project, teams: Team[]) {
+  if (project.workspaceMode !== "cloud") return "本机";
+  if (!project.teamId) return "个人空间";
+  const team = teams.find((item) => item.id === project.teamId);
+  return team ? `团队 · ${team.name}` : "团队项目";
+}
+
+async function copyTextToClipboard(text: string) {
+  if (!text) return;
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "true");
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand("copy");
+  textarea.remove();
 }
 
 function ProjectCreateDialog({
@@ -643,6 +750,10 @@ function ProjectCreateDialog({
   onSubmit: () => void;
 }) {
   const cloudDisabled = createMode === "cloud" && !currentUser;
+  const teamOptions = [
+    { value: "__personal__", label: "个人空间" },
+    ...teams.map((team) => ({ value: team.id, label: team.name })),
+  ];
   return (
     <GlobalModal
       title="新建项目"
@@ -709,20 +820,14 @@ function ProjectCreateDialog({
           </label>
           {createMode === "cloud" && (
             <div className="max-w-xl space-y-2">
-              <label className="agenthub-muted block text-xs font-medium" htmlFor="cloud-project-team">
-                团队空间
-              </label>
-              <select
-                id="cloud-project-team"
-                value={createTeamId ?? ""}
-                onChange={(event) => onTeamChange(event.target.value || null)}
-                className="agenthub-composer h-11 w-full rounded-2xl border px-3 text-sm outline-none"
-              >
-                <option value="">个人空间</option>
-                {teams.map((team) => (
-                  <option key={team.id} value={team.id}>{team.name}</option>
-                ))}
-              </select>
+              <span className="agenthub-muted block text-xs font-medium">团队空间</span>
+              <MenuSelect
+                value={createTeamId ?? "__personal__"}
+                options={teamOptions}
+                onChange={(value) => onTeamChange(value === "__personal__" ? null : value)}
+                ariaLabel="团队空间"
+                className="h-11"
+              />
               {!currentUser && (
                 <p className="text-xs text-[color:var(--ah-danger)]">云端登录态未就绪</p>
               )}
@@ -790,6 +895,225 @@ function TeamCreateDialog({
           autoFocus
         />
       </label>
+    </GlobalModal>
+  );
+}
+
+function TeamJoinDialog({
+  code,
+  busy,
+  onCodeChange,
+  onCancel,
+  onSubmit,
+}: {
+  code: string;
+  busy: boolean;
+  onCodeChange: (value: string) => void;
+  onCancel: () => void;
+  onSubmit: () => void;
+}) {
+  return (
+    <GlobalModal
+      title="加入团队"
+      subtitle="输入团队管理员提供的加入码"
+      icon={<UserPlus size={18} />}
+      zIndexClass="z-[1200]"
+      panelClassName="max-w-sm"
+      onClose={onCancel}
+      closeDisabled={busy}
+      footer={(
+        <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={busy}
+            className="agenthub-icon-button h-10 rounded-full px-4 text-sm disabled:opacity-50"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            onClick={onSubmit}
+            disabled={!code.trim() || busy}
+            className="agenthub-primary-button h-10 rounded-full px-5 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            加入团队
+          </button>
+        </div>
+      )}
+    >
+      <label className="block space-y-2" htmlFor="team-join-code-input">
+        <span className="agenthub-muted text-xs font-medium">团队加入码</span>
+        <input
+          id="team-join-code-input"
+          value={code}
+          onChange={(event) => onCodeChange(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") onSubmit();
+          }}
+          className="agenthub-composer agenthub-textarea h-11 w-full rounded-2xl border px-3 text-sm outline-none"
+          placeholder="粘贴团队加入码"
+          autoFocus
+        />
+      </label>
+    </GlobalModal>
+  );
+}
+
+function TeamManagementDialog({
+  team,
+  onClose,
+  onChanged,
+}: {
+  team: Team;
+  onClose: () => void;
+  onChanged: () => Promise<void> | void;
+}) {
+  const [members, setMembers] = useState<TeamMember[]>([]);
+  const [joinCode, setJoinCode] = useState("");
+  const [memberEmail, setMemberEmail] = useState("");
+  const [memberRole, setMemberRole] = useState<TeamRole>("member");
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const canManageOwners = team.role === "owner";
+  const canAdmin = team.role === "owner" || team.role === "admin";
+  const addRoleOptions = TEAM_ROLE_OPTIONS.filter((option) => option.value !== "owner" || canManageOwners);
+
+  const load = async () => {
+    setError(null);
+    try {
+      const [loadedMembers, code] = await Promise.all([
+        fetchTeamMembers(team.id),
+        canAdmin ? fetchTeamJoinCode(team.id) : Promise.resolve(null),
+      ]);
+      setMembers(loadedMembers);
+      if (code) setJoinCode(code.code);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "团队信息加载失败");
+    }
+  };
+
+  useEffect(() => {
+    void load();
+  }, [team.id]);
+
+  const run = async (key: string, action: () => Promise<void>) => {
+    setBusy(key);
+    setError(null);
+    try {
+      await action();
+      await load();
+      await onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "操作失败");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <GlobalModal
+      title="团队管理"
+      subtitle={`${team.name} · ${team.role}`}
+      icon={<Users size={18} />}
+      zIndexClass="z-[1250]"
+      panelClassName="max-w-2xl"
+      onClose={onClose}
+    >
+      <div className="space-y-5">
+        {error && (
+          <div className="rounded-lg border border-[color:var(--ah-danger)] bg-[color:var(--ah-danger-soft)] px-3 py-2 text-sm text-[color:var(--ah-danger)]">
+            {error}
+          </div>
+        )}
+        {canAdmin && (
+          <section className="space-y-2">
+            <h3 className="agenthub-strong text-sm font-semibold">加入码</h3>
+            <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_40px]">
+              <input
+                value={joinCode}
+                readOnly
+                className="agenthub-composer h-10 min-w-0 rounded-lg border px-3 text-sm outline-none"
+                aria-label="团队加入码"
+              />
+              <IconAction
+                title="复制加入码"
+                disabled={!joinCode}
+                icon={Copy}
+                onClick={() => void copyTextToClipboard(joinCode)}
+              />
+            </div>
+          </section>
+        )}
+        {canAdmin && (
+          <section className="space-y-2">
+            <h3 className="agenthub-strong text-sm font-semibold">添加成员</h3>
+            <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_128px_40px]">
+              <input
+                value={memberEmail}
+                onChange={(event) => setMemberEmail(event.target.value)}
+                className="agenthub-composer h-10 min-w-0 rounded-lg border px-3 text-sm outline-none"
+                placeholder="member@example.com"
+                aria-label="团队成员邮箱"
+              />
+              <MenuSelect
+                value={memberRole}
+                options={addRoleOptions}
+                onChange={setMemberRole}
+                ariaLabel="团队成员角色"
+                className="h-10"
+              />
+              <IconAction
+                title="添加团队成员"
+                disabled={Boolean(busy) || !memberEmail.trim()}
+                icon={Plus}
+                onClick={() => void run("add-member", async () => {
+                  await addTeamMember(team.id, memberEmail, memberRole);
+                  setMemberEmail("");
+                })}
+              />
+            </div>
+          </section>
+        )}
+        <section className="space-y-2">
+          <h3 className="agenthub-strong text-sm font-semibold">成员</h3>
+          <div className="max-h-72 space-y-1.5 overflow-y-auto pr-1">
+            {members.length === 0 ? (
+              <p className="agenthub-faint rounded-lg border px-3 py-3 text-sm" style={{ borderColor: "var(--ah-border)" }}>
+                暂无成员
+              </p>
+            ) : members.map((member) => (
+              <div key={member.id} className="agenthub-nav-idle grid items-center gap-2 rounded-lg border px-3 py-2 text-sm md:grid-cols-[minmax(0,1fr)_128px_40px]">
+                <span className="min-w-0">
+                  <span className="agenthub-strong block truncate">{member.displayName || member.email}</span>
+                  <span className="agenthub-faint block truncate text-xs">{member.email}</span>
+                </span>
+                <MenuSelect
+                  value={member.role}
+                  options={TEAM_ROLE_OPTIONS.filter((option) => (
+                    option.value !== "owner" || canManageOwners || member.role === "owner"
+                  ))}
+                  onChange={(role) => void run(`role-${member.id}`, async () => {
+                    await updateTeamMemberRole(team.id, member.id, role);
+                  })}
+                  disabled={!canAdmin || Boolean(busy)}
+                  ariaLabel={`团队成员角色 ${member.email}`}
+                  className="h-9"
+                />
+                <IconAction
+                  title={`移除团队成员 ${member.email}`}
+                  disabled={!canAdmin || Boolean(busy)}
+                  icon={Trash2}
+                  onClick={() => void run(`remove-${member.id}`, async () => {
+                    await removeTeamMember(team.id, member.id);
+                  })}
+                />
+              </div>
+            ))}
+          </div>
+        </section>
+      </div>
     </GlobalModal>
   );
 }
@@ -918,6 +1242,8 @@ function TeamSwitcher({
   onToggle,
   onSelectTeam,
   onOpenCreateTeam,
+  onOpenJoinTeam,
+  onOpenManageTeam,
 }: {
   currentUser: CurrentUser | null;
   teams: Team[];
@@ -927,6 +1253,8 @@ function TeamSwitcher({
   onToggle: () => void;
   onSelectTeam: (id: string | null) => void;
   onOpenCreateTeam: () => void;
+  onOpenJoinTeam: () => void;
+  onOpenManageTeam: (team: Team) => void;
 }) {
   const activeTeam = teams.find((team) => team.id === currentTeamId) ?? null;
   const label = activeTeam?.name ?? "个人空间";
@@ -961,21 +1289,43 @@ function TeamSwitcher({
             <HardDrive size={14} className="agenthub-muted" />
             个人空间
           </button>
-          {teams.length === 0 ? (
-            <div className="agenthub-faint px-2 py-2 text-xs">暂无团队</div>
-          ) : teams.map((team) => (
+          <div className="max-h-40 space-y-1 overflow-y-auto">
+            {teams.length === 0 ? (
+              <div className="agenthub-faint px-2 py-2 text-xs">暂无团队</div>
+            ) : teams.map((team) => (
+              <button
+                key={team.id}
+                type="button"
+                onClick={() => onSelectTeam(team.id)}
+                className={`flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-left text-sm transition ${
+                  currentTeamId === team.id ? "agenthub-nav-active" : "agenthub-nav-idle"
+                }`}
+              >
+                <span className="min-w-0 truncate">{team.name}</span>
+                <span className="agenthub-faint shrink-0 text-[11px]">{team.role}</span>
+              </button>
+            ))}
+          </div>
+          {activeTeam && (
             <button
-              key={team.id}
               type="button"
-              onClick={() => onSelectTeam(team.id)}
-              className={`flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-left text-sm transition ${
-                currentTeamId === team.id ? "agenthub-nav-active" : "agenthub-nav-idle"
-              }`}
+              onClick={() => onOpenManageTeam(activeTeam)}
+              className="agenthub-nav-idle mt-2 flex w-full items-center gap-2 rounded-xl border px-2.5 py-2 text-left text-sm transition"
+              style={{ borderColor: "var(--ah-border)" }}
             >
-              <span className="min-w-0 truncate">{team.name}</span>
-              <span className="agenthub-faint shrink-0 text-[11px]">{team.role}</span>
+              <Settings size={14} className="agenthub-muted" />
+              管理团队
             </button>
-          ))}
+          )}
+          <button
+            type="button"
+            onClick={onOpenJoinTeam}
+            className="agenthub-nav-idle mt-2 flex w-full items-center gap-2 rounded-xl border px-2.5 py-2 text-left text-sm transition"
+            style={{ borderColor: "var(--ah-border)" }}
+          >
+            <UserPlus size={14} className="agenthub-muted" />
+            加入团队
+          </button>
           <button
             type="button"
             onClick={onOpenCreateTeam}
@@ -1078,6 +1428,31 @@ function IconButton({
       aria-label={title}
     >
       <Icon size={15} />
+    </button>
+  );
+}
+
+function IconAction({
+  icon: Icon,
+  title,
+  disabled,
+  onClick,
+}: {
+  icon: LucideIcon;
+  title: string;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="agenthub-icon-button inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full disabled:cursor-not-allowed disabled:opacity-50"
+      title={title}
+      aria-label={title}
+    >
+      <Icon size={16} />
     </button>
   );
 }
