@@ -41,8 +41,23 @@ class TeamListRead(BaseModel):
     items: list[TeamRead]
 
 
+class TeamJoinCodeRead(BaseModel):
+    team_id: str = Field(alias="teamId")
+    code: str
+
+    model_config = {"populate_by_name": True}
+
+
+class TeamJoinRequest(BaseModel):
+    code: str
+
+
 class TeamMemberCreate(BaseModel):
     email: str
+    role: TeamRole
+
+
+class TeamMemberUpdate(BaseModel):
     role: TeamRole
 
 
@@ -56,6 +71,10 @@ class TeamMemberRead(BaseModel):
     created_at: datetime = Field(alias="createdAt")
 
     model_config = {"populate_by_name": True}
+
+
+class TeamMemberListRead(BaseModel):
+    items: list[TeamMemberRead]
 
 
 class WorkspaceSnapshotRead(BaseModel):

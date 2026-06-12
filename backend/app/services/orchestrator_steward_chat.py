@@ -18,6 +18,14 @@ from ..core.timezone import china_now
 from ..domain.orchestrator_plan import extract_json_object
 from ..models import AgentConfig, Message as DBMessage, Session as DBSession
 from .cli_agent_service import CliAgentService
+from .cli_session_runtime import (
+    current_turn_message,
+    mark_pinned_messages,
+    merge_runtime_process_metadata,
+    prepare_cli_session_runtime,
+    remember_assigned_engine_session_if_needed,
+    remember_engine_session_from_metadata,
+)
 from .run_service import RunNotFoundError, RunService, run_to_read, task_to_read
 from .session_service import SessionService
 
@@ -71,9 +79,10 @@ class StewardStreamItem:
 class OrchestratorStewardChat:
     """把无 @ 群聊输入交给可见 Orchestrator Agent 做轻量分流。"""
 
-    def __init__(self, db: AsyncSession, event_bus=None):
+    def __init__(self, db: AsyncSession, event_bus=None, cli_agents: CliAgentService | None = None):
         self.db = db
         self.event_bus = event_bus
+        self._cli_agents = cli_agents or CliAgentService(event_bus=event_bus)
 
     async def stream(
         self,
@@ -85,6 +94,7 @@ class OrchestratorStewardChat:
         orchestrator_agent: AgentConfig,
         member_agents: list[AgentConfig],
         run_id: str | None = None,
+        pinned_message_ids: list[str] | None = None,
     ):
         message_id = str(uuid.uuid4())
         call_key = f"{orchestrator_agent.id}:0:steward"
@@ -137,13 +147,34 @@ class OrchestratorStewardChat:
         prompt = self._build_prompt(content, member_agents, orchestrator_agent.id)
         exit_code: int | None = None
         error_text: str | None = None
+        prompt_messages = [
+            *mark_pinned_messages(history, pinned_message_ids),
+            current_turn_message(prompt),
+        ]
+        cli_runtime = await prepare_cli_session_runtime(
+            db=self.db,
+            cli_agents=self._cli_agents,
+            session_id=session.id,
+            agent=orchestrator_agent,
+            workspace_path=workspace_path,
+            messages=prompt_messages,
+            pinned_message_ids=pinned_message_ids,
+            process_scope="one_group_session_agent_one_process",
+            turn_isolation="session_agent_lock",
+        )
+        metadata_extra = dict(cli_runtime.metadata)
+        engine_session_remembered = False
 
-        async for event in CliAgentService(event_bus=self.event_bus).stream(
+        async for event in self._cli_agents.stream(
             agent=orchestrator_agent,
             session_id=session.id,
+            runtime_session_id=cli_runtime.runtime_session_id,
             workspace_path=workspace_path,
-            messages=[*history, {"role": "user", "content": prompt}],
+            messages=cli_runtime.messages,
             system_prompt=orchestrator_agent.system_prompt or "",
+            engine_session_id=cli_runtime.engine_invocation.engine_session_id,
+            engine_session_mode=cli_runtime.engine_invocation.mode,
+            persistent_process=cli_runtime.supports_persistent_process,
         ):
             if run_service and run_id and await _run_is_cancelled(run_service, run_id):
                 if task_id:
@@ -155,7 +186,21 @@ class OrchestratorStewardChat:
                     yield StewardStreamItem(self._task_status_changed(run_id, task), message_id)
                 return
 
+            if event.type == "agent.metadata":
+                engine_session_remembered = await remember_engine_session_from_metadata(
+                    db=self.db,
+                    runtime=cli_runtime,
+                    session_id=session.id,
+                    agent=orchestrator_agent,
+                    workspace_path=str(cli_runtime.metadata.get("workspacePath") or workspace_path),
+                    event_metadata=event.metadata,
+                ) or engine_session_remembered
+                metadata_extra.update(cli_runtime.metadata)
+                continue
+
             if event.type == "agent.process.started":
+                metadata_extra["processId"] = event.process_id
+                merge_runtime_process_metadata(metadata_extra, event.metadata)
                 if run_service and run_id and task_id and event.process_id:
                     await run_service.bind_process(
                         run_id=run_id,
@@ -200,8 +245,14 @@ class OrchestratorStewardChat:
                 raw_output = raw_output or error_text
                 break
 
-            if event.type == "agent.process.completed":
+            if event.type in {"agent.process.completed", "agent.process.turn_completed"}:
                 exit_code = event.exit_code
+                if event.type == "agent.process.turn_completed":
+                    merge_runtime_process_metadata(metadata_extra, {
+                        **(event.metadata or {}),
+                        "turnCompleted": True,
+                        "processKeptAlive": True,
+                    })
                 if run_service and event.process_id:
                     await run_service.complete_process(
                         event.process_id,
@@ -211,6 +262,18 @@ class OrchestratorStewardChat:
                     self._process_completed(orchestrator_agent, message_id, call_key, event),
                     message_id,
                 )
+
+        engine_session_remembered = await remember_assigned_engine_session_if_needed(
+            db=self.db,
+            runtime=cli_runtime,
+            session_id=session.id,
+            agent=orchestrator_agent,
+            workspace_path=str(cli_runtime.metadata.get("workspacePath") or workspace_path),
+            remembered=engine_session_remembered,
+            metadata={"lastGroupTask": "steward"},
+        )
+        if engine_session_remembered:
+            metadata_extra.update(cli_runtime.metadata)
 
         if run_service and run_id and await _run_is_cancelled(run_service, run_id):
             if task_id:
@@ -231,6 +294,7 @@ class OrchestratorStewardChat:
             content=visible,
             decision=decision,
             raw_output=raw_output,
+            metadata_extra=metadata_extra,
         )
         if run_service and run_id and task_id:
             task_status = "failed" if error_text else "completed"
@@ -269,8 +333,10 @@ class OrchestratorStewardChat:
         content: str,
         decision: StewardAgentDecision | None,
         raw_output: str,
+        metadata_extra: dict | None = None,
     ) -> None:
         metadata = {
+            **(metadata_extra or {}),
             "isCollaborating": True,
             "agentRole": "planner",
             "taskName": "steward",

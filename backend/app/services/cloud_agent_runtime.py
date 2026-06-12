@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import time
 import uuid
 from collections.abc import AsyncGenerator, Callable
@@ -23,6 +24,7 @@ from ..agents.cli_defaults import DEFAULT_CLI_AGENTS
 from ..agents.cli_runtime_registry import cli_runtime_registry
 from ..core.timezone import china_now
 from ..domain.context_manager import ContextManager, PromptAssemblyInput
+from ..domain.orchestrator_v2 import OrchestratorV2
 from ..domain.orchestrator_plan import (
     build_plan_followup_prompt,
     build_plan_prompt,
@@ -46,11 +48,17 @@ from ..models import (
 from .artifact_output_bridge import ArtifactOutputBridge, artifact_to_event_payload
 from .chat_service_impl import _approval_requested
 from .cli_agent_service import CliAgentService
+from .cli_agent_executor import CliAgentCallRunner
 from .cli_credential_service import CliCredentialRequiredError, CliCredentialService
 from .collaboration_service import CollaborationNotFoundError, attachment_context_metadata
 from .context_pack_service import ContextPackService
+from .agent_executor import AgentExecutor
 from .execution_trace import ExecutionTraceBuilder, merge_trace_metadata
 from .file_change_detector import FileChangeDetector
+from .group_chat_finalizer import GroupChatFinalizer
+from .group_chat_stream import GroupChatStream
+from .group_direct_dialog import GroupDirectDialog
+from .cloud_cli_agent_service import CloudCliAgentService
 from .message_service_sqlalchemy import SqlAlchemyMessageService, build_reply_reference_metadata
 from .phase10_schemas import RuntimeLogsRead, RuntimeLogChunkRead, SessionRunCreate, SessionRunQueuedRead
 from .quota_service import QuotaExceededError, QuotaService
@@ -66,6 +74,7 @@ from .secret_service import SecretRedactor, SecretService
 from .session_service import SessionService
 from .single_cli_chat_stream import _split_system_prompt
 from .orchestrator_plan_chat import OrchestratorPlanChat
+from .orchestrator_execution import CloudCliTaskRunner
 from .orchestrator_steward_chat import OrchestratorStewardChat, StewardAgentDecision
 from .streaming_text import iter_stream_pieces
 
@@ -176,10 +185,6 @@ class CloudAgentRuntimeService:
         if project.workspace_mode != "cloud" or not project.workspace_id:
             yield self._err("当前会话不是云端 Project")
             return
-        member_agents = await self._group_member_agents(session, actor=actor)
-        if not member_agents:
-            yield self._err("群聊没有可运行的 Agent")
-            return
         reply_metadata = await self._reply_metadata(session_id, parent_message_id)
         metadata = dict(reply_metadata or {})
         try:
@@ -199,108 +204,107 @@ class CloudAgentRuntimeService:
             parent_message_id=parent_message_id,
             metadata=metadata or None,
         )
+        run_service = RunService(self.db, event_bus=self.event_bus)
+        approval_required = _approval_requested(content)
+        run = await run_service.create_run(
+            session,
+            mode="orchestrated",
+            metadata={
+                "runtimeMode": "cloud",
+                "workspaceId": project.workspace_id,
+                "userMessageId": user_message.id,
+                "requiresHumanApproval": approval_required,
+            },
+        )
+        yield self._sse({
+            "type": "run.started",
+            "run": run_to_read(run).model_dump(by_alias=True, mode="json"),
+            "runId": run.id,
+            "sessionId": session.id,
+            "mode": "orchestrated",
+            "messageId": None,
+            "startedAt": run.started_at.isoformat() if run.started_at else "",
+            "token": "",
+            "done": False,
+        })
 
-        mentioned = {str(item) for item in mentions or [] if str(item).strip()}
-        if mentioned:
-            mentioned_agents = [agent for agent in member_agents if agent.id in mentioned]
-            if not mentioned_agents:
-                yield self._err("未找到被 @ 的 Agent")
-                return
-            mentioned_orchestrator = self._orchestrator(mentioned_agents)
-            if mentioned_orchestrator:
-                async for item in self._stream_cloud_orchestrator_plan(
-                    session=session,
-                    project=project,
-                    actor=actor,
-                    orchestrator_agent=mentioned_orchestrator,
-                    member_agents=member_agents,
-                    user_message=user_message,
-                    content=content,
-                ):
-                    yield item
-                yield self._cloud_group_done(session.id)
-                return
-            async for item in self._stream_group_agents(
-                session=session,
-                project=project,
-                actor=actor,
-                agents=mentioned_agents,
-                user_message=user_message,
-                content=content,
-                task_brief=content,
-            ):
-                yield item
-            yield self._cloud_group_done(session.id)
-            return
-
-        orchestrator_agent = self._orchestrator(member_agents)
-        if not orchestrator_agent:
-            yield self._err("群聊缺少 Orchestrator 调度器，无法处理无 @ 消息")
-            return
-
-        plan_chat = OrchestratorPlanChat(self.db)
-        if await plan_chat.has_latest_orchestrator_plan(session.id):
-            async for item in self._stream_cloud_orchestrator_plan(
-                session=session,
-                project=project,
-                actor=actor,
-                orchestrator_agent=orchestrator_agent,
-                member_agents=member_agents,
-                user_message=user_message,
-                content=content,
-            ):
-                yield item
-            yield self._cloud_group_done(session.id)
-            return
-
-        decision_ref: dict[str, StewardAgentDecision | None] = {"decision": None}
-        async for item in self._stream_cloud_steward(
-            session=session,
-            project=project,
-            actor=actor,
-            orchestrator_agent=orchestrator_agent,
-            member_agents=member_agents,
-            user_message=user_message,
-            content=content,
-            decision_ref=decision_ref,
+        history, pinned_ids = await ContextPackService(
+            self.db,
+            event_bus=self.event_bus,
+            context_manager=self.context_manager,
+        ).runtime_context(session.id, purpose="send")
+        group_stream = self._cloud_group_stream(actor=actor, project=project)
+        async for item in group_stream.send(
+            session.id,
+            content,
+            mentions,
+            history,
+            pinned_ids,
+            session,
+            None,
+            run_id=run.id,
+            approval_required=approval_required,
         ):
             yield item
 
-        decision = decision_ref["decision"]
-        if decision is None or decision.route_type == "context_only":
-            yield self._cloud_group_done(session.id)
-            return
-        if decision.route_type in {"draft_plan", "mini_collab"}:
-            async for item in self._stream_cloud_orchestrator_plan(
-                session=session,
-                project=project,
-                actor=actor,
-                orchestrator_agent=orchestrator_agent,
-                member_agents=(
-                    decision.selected_agents
-                    if decision.route_type == "mini_collab" and decision.selected_agents
-                    else member_agents
-                ),
-                user_message=user_message,
-                content=self._plan_content_for_steward_decision(content, decision),
-            ):
-                yield item
-            yield self._cloud_group_done(session.id)
-            return
-        if not decision.selected_agents:
-            yield self._err("Orchestrator 调度器没有找到合适的 Agent，请尝试 @ 指定 Agent")
-            return
-        async for item in self._stream_group_agents(
-            session=session,
-            project=project,
+    def _cloud_group_stream(self, *, actor: User, project: Project) -> GroupChatStream:
+        cloud_cli_agents = CloudCliAgentService(
+            self.db,
             actor=actor,
-            agents=decision.selected_agents,
-            user_message=user_message,
-            content=decision.task_brief or content,
-            task_brief=decision.task_brief or content,
-        ):
-            yield item
-        yield self._cloud_group_done(session.id)
+            project=project,
+            event_bus=self.event_bus,
+            base_cli_agents=self.cli_agents,
+        )
+        cli_runner = CliAgentCallRunner(
+            db=self.db,
+            event_bus=self.event_bus,
+            cli_agents=cloud_cli_agents,
+        )
+        executor = AgentExecutor(
+            self.db,
+            event_bus=self.event_bus,
+            cli_runner=cli_runner,
+        )
+        pipeline = OrchestratorV2(
+            context_manager=self.context_manager,
+            event_bus=self.event_bus,
+        )
+        direct_dialog = GroupDirectDialog(
+            self.db,
+            event_bus=self.event_bus,
+            cli_runner=cli_runner,
+        )
+        execution_task_runner = CloudCliTaskRunner(
+            actor_id=actor.id,
+            project_id=project.id,
+            event_bus=self.event_bus,
+        )
+        plan_chat = OrchestratorPlanChat(
+            self.db,
+            cli_agents=cloud_cli_agents,
+            direct_dialog=direct_dialog,
+            execution_task_runner=execution_task_runner,
+        )
+        steward_chat = OrchestratorStewardChat(
+            self.db,
+            event_bus=self.event_bus,
+            cli_agents=cloud_cli_agents,
+        )
+
+        async def workspace_resolver(_session_id: str) -> str:
+            return project.workspace_path or f"cloud://agenthub/workspaces/{project.workspace_id}"
+
+        return GroupChatStream(
+            self.db,
+            pipeline,
+            executor,
+            event_bus=self.event_bus,
+            finalizer=GroupChatFinalizer(self.db, pipeline, event_bus=self.event_bus),
+            plan_chat=plan_chat,
+            steward_chat=steward_chat,
+            direct_dialog=direct_dialog,
+            workspace_path_resolver=workspace_resolver,
+        )
 
     async def stream_existing_message(
         self,
@@ -540,6 +544,7 @@ class CloudAgentRuntimeService:
             id=run.id,
             session_id=session.id,
             agent_id=agent.id,
+            actor_user_id=actor.id,
             sandbox_id=sandbox.id,
             runtime_mode="cloud",
             status="queued",
@@ -649,6 +654,7 @@ class CloudAgentRuntimeService:
             metadata.update(metadata_patch)
         visible = ""
         raw_output = ""
+        cli_output_error = ""
         process_id = ""
         exit_code: int | None = None
         snapshot_id = None
@@ -734,35 +740,49 @@ class CloudAgentRuntimeService:
                         continue
                     if event.type == "agent.output":
                         chunk = redactor.redact(event.chunk)
+                        chunk_type = "error" if _is_fatal_cli_output(chunk) else event.chunk_type
+                        if chunk_type == "error" and not cli_output_error:
+                            cli_output_error = chunk
                         raw_output += chunk
-                        if event.chunk_type in {"text", "artifact_signal"}:
+                        if chunk_type in {"text", "artifact_signal"}:
                             visible += chunk
-                        await self._log(run.id, next_sequence(), "stdout", chunk, redactor)
-                        trace_item = trace.add(
-                            kind="output" if event.chunk_type == "text" else event.chunk_type,
-                            text=chunk,
-                            source="cli",
-                            chunk_type=event.chunk_type,
-                            process_id=process_id,
-                            trace=_redact_json(event.trace, redactor),
-                        )
-                        if trace_item and event.chunk_type != "text":
+                        elif chunk_type == "error":
+                            visible = visible or chunk
+                        if _should_log_cli_output(chunk_type):
+                            await self._log(
+                                run.id,
+                                next_sequence(),
+                                "stderr" if chunk_type == "error" else "stdout",
+                                chunk,
+                                redactor,
+                            )
+                        trace_item = None
+                        if _should_trace_cli_output(chunk_type, event.trace):
+                            trace_item = trace.add(
+                                kind=_trace_kind_for_cli_output(chunk_type),
+                                text=chunk,
+                                source="cli",
+                                chunk_type=chunk_type,
+                                process_id=process_id,
+                                trace=_redact_json(event.trace, redactor),
+                            )
+                        if trace_item:
                             yield self._trace_delta(
                                 session.id, agent, assistant_msg_id, process_id, trace_item,
                                 call_key=call_key, role=task_role, phase=task_phase, task=task_name,
                             )
-                        if event.chunk_type == "text":
+                        if chunk_type == "text":
                             if stream_text_output:
                                 for token in iter_stream_pieces(chunk):
                                     yield self._agent_output(
                                         session.id, agent, assistant_msg_id, process_id,
-                                        token, event.chunk_type, token,
+                                        token, chunk_type, token,
                                         call_key=call_key, role=task_role, phase=task_phase, task=task_name,
                                     )
                         else:
                             yield self._agent_output(
                                 session.id, agent, assistant_msg_id, process_id,
-                                chunk, event.chunk_type, "",
+                                chunk, chunk_type, "",
                                 call_key=call_key, role=task_role, phase=task_phase, task=task_name,
                             )
                         continue
@@ -964,6 +984,39 @@ class CloudAgentRuntimeService:
             yield self._err(error, message_id=assistant_msg_id)
             return
 
+        if cli_output_error:
+            error = _fatal_cli_output_message(cli_output_error)
+            metadata["error"] = error
+            trace.complete(status="error", exit_code=exit_code)
+            if not replace_existing:
+                await self._persist_assistant(
+                    session,
+                    agent,
+                    assistant_msg_id,
+                    visible or error,
+                    self._run_metadata(
+                        merge_trace_metadata(metadata, trace),
+                        run_id=run.id,
+                        task_id=task.id,
+                        run_status="failed",
+                    ),
+                )
+                persisted = True
+            await self._mark_failed(
+                run_service,
+                runtime_run,
+                run.id,
+                task.id,
+                assistant_msg_id,
+                error,
+                process_id,
+                exit_code,
+            )
+            await self._dispose_sandbox(sandbox, run.id, reason=error)
+            yield self._run_status_changed(await run_service.get_run(run.id))
+            yield self._err(error, message_id=assistant_msg_id)
+            return
+
         if completion_transform:
             transformed = completion_transform(visible, raw_output)
             visible = transformed.visible
@@ -1046,6 +1099,13 @@ class CloudAgentRuntimeService:
         run = await run_service.mark_run_status(run.id, "completed", current_message_id=assistant_msg_id)
         runtime_run.status = "completed"
         runtime_run.finished_at = china_now()
+        await self._patch_assistant_metadata(
+            assistant_msg_id,
+            {
+                "runStatus": "completed",
+                "workspaceSync": metadata["workspaceSync"],
+            },
+        )
         await self.db.commit()
         await self._dispose_sandbox(sandbox, run.id, reason="run completed")
         yield self._sandbox_event("sandbox.disposed", sandbox)
@@ -1578,6 +1638,14 @@ class CloudAgentRuntimeService:
         SessionService.increment_unread(session)
         await self.db.commit()
 
+    async def _patch_assistant_metadata(self, message_id: str, patch: dict[str, Any]) -> None:
+        message = await self.db.get(Message, message_id)
+        if not message or message.role != "assistant":
+            return
+        metadata = _metadata_dict(message)
+        metadata.update(patch)
+        message.metadata_json = json.dumps(metadata, ensure_ascii=False)
+
     async def _scan_artifacts(
         self,
         *,
@@ -1994,6 +2062,12 @@ def _cloud_persistent_process_supported(
     cli_agents: CliAgentService,
 ) -> bool:
     """云端持久进程策略必须同时满足 adapter 能力与 runner 包裹命令兼容性。"""
+    cli_tool = str(getattr(agent, "cli_tool", "") or "")
+    if cli_tool == "codex":
+        # Codex MCP tools/call 当前只在 RPC 完成后返回结果，无法暴露 exec --json 的
+        # item/command 中间事件。云端 Codex 固定使用原生 CLI JSONL 流，保持和本机 CLI
+        # 一样的透明执行过程；会话连续性由 engine session resume 负责。
+        return False
     if not cli_agents.supports_persistent_process(agent):
         return False
     provider = str(runner_metadata.get("provider") or "").strip()
@@ -2002,11 +2076,10 @@ def _cloud_persistent_process_supported(
     if not bool(getattr(agent, "prepared_invocation", False)):
         return True
     # Docker/SSH Docker 会把 CLI 包成外层命令。OpenCode ACP 沿用既有云端持久路径；
-    # Codex MCP 已适配当前线上使用的本机 Docker 参数包裹；Claude stdio helper 仍按裸 CLI 参数解析。
-    cli_tool = str(getattr(agent, "cli_tool", "") or "")
+    # Claude stdio helper 仍按裸 CLI 参数解析。
     if cli_tool == "opencode":
         return True
-    return provider == "docker" and cli_tool == "codex"
+    return False
 
 
 def _json_list(raw: str | None) -> list[str]:
@@ -2031,6 +2104,49 @@ def _parse_sse(item: str) -> dict[str, Any] | None:
 
 def _cloud_timeout_error(runtime_limit: int) -> str:
     return f"云端运行超时（{runtime_limit} 秒），已中止 CLI 进程。"
+
+
+def _should_log_cli_output(chunk_type: str) -> bool:
+    """普通 assistant 文本由 Message 持久化；RuntimeLog 只保留过程信号。"""
+    return chunk_type != "text"
+
+
+def _should_trace_cli_output(chunk_type: str, trace: dict[str, Any] | None) -> bool:
+    if chunk_type == "text":
+        return False
+    if chunk_type == "progress" and not trace:
+        return False
+    return True
+
+
+def _trace_kind_for_cli_output(chunk_type: str) -> str:
+    if chunk_type == "artifact_signal":
+        return "artifact"
+    if chunk_type == "error":
+        return "error"
+    return "progress"
+
+
+def _is_fatal_cli_output(text: str) -> bool:
+    clean = str(text or "").strip()
+    if not clean:
+        return False
+    patterns = (
+        r"stream disconnected before completion",
+        r"concurrency limit exceeded",
+        r"cloud runtime concurrent quota exceeded",
+        r"separator is not found",
+        r"chunk exceed(?:ed)? the limit",
+        r"cli rpc .*(通信失败|communication failed)",
+    )
+    return any(re.search(pattern, clean, re.I) for pattern in patterns)
+
+
+def _fatal_cli_output_message(text: str) -> str:
+    clean = str(text or "").strip()
+    if not clean:
+        return "CLI Agent 执行失败。"
+    return clean
 
 
 def _append_cloud_runtime_context(system_prompt: str) -> str:

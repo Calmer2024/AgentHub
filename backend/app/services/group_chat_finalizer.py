@@ -20,6 +20,7 @@ class GroupChatFinalizer:
         self.db = db
         self._pipeline = pipeline
         self.event_bus = event_bus
+        self._artifact_scan_context: dict[str, dict] = {}
 
     async def finish(
         self, session_id, session, result, agent_names: dict[str, str],
@@ -116,6 +117,12 @@ class GroupChatFinalizer:
                 if name != "trace" and value is not None
             }
             message_id = msg_ids.get(key, str(uuid.uuid4()))
+            scan_workspace_path = runtime_metadata.pop("artifactWorkspacePath", None)
+            if scan_workspace_path:
+                self._artifact_scan_context[message_id] = {
+                    "workspacePath": scan_workspace_path,
+                    "snapshotId": runtime_metadata.get("workspaceSnapshotId"),
+                }
             created_ids.append(message_id)
             message_metadata = {
                 **runtime_metadata,
@@ -170,13 +177,22 @@ class GroupChatFinalizer:
             })
             try:
                 metadata = _message_metadata(message)
+                scan_context = self._artifact_scan_context.pop(message_id, {})
                 result = await bridge.scan_completed_message(
                     session=session,
                     message=message,
-                    workspace_path=str(metadata.get("workspacePath") or "") or None,
+                    workspace_path=str(
+                        scan_context.get("workspacePath")
+                        or metadata.get("workspacePath")
+                        or ""
+                    ) or None,
                     visible_content=message.content,
                     execution_trace=_message_trace(message),
-                    snapshot_id=str(metadata.get("workspaceSnapshotId") or "") or None,
+                    snapshot_id=str(
+                        scan_context.get("snapshotId")
+                        or metadata.get("workspaceSnapshotId")
+                        or ""
+                    ) or None,
                 )
                 for artifact in result.created:
                     payload = artifact_to_event_payload(artifact)

@@ -17,15 +17,17 @@ from ..core.timezone import china_now
 from ..domain.execution_planner import AgentCall
 from ..models import AgentConfig, Message as DBMessage, Session as DBSession
 from .cli_agent_executor import CliAgentCallRunner
+from .cli_session_runtime import current_turn_message, mark_pinned_messages
 from .group_dialog_state import GroupDialogState
 from .run_service import RunService, run_to_read, task_to_read
 from .session_service import SessionService
 
 
 class GroupDirectDialog:
-    def __init__(self, db: AsyncSession, event_bus=None):
+    def __init__(self, db: AsyncSession, event_bus=None, cli_runner: CliAgentCallRunner | None = None):
         self.db = db
         self.event_bus = event_bus
+        self._cli_runner = cli_runner or CliAgentCallRunner(db=self.db, event_bus=self.event_bus)
 
     async def send(
         self,
@@ -36,6 +38,7 @@ class GroupDirectDialog:
         workspace_path: str,
         agent: AgentConfig,
         run_id: str | None = None,
+        pinned_message_ids: list[str] | None = None,
         goal: str = "",
         source: str = "direct_dialog",
         execution_id: str | None = None,
@@ -125,10 +128,13 @@ class GroupDirectDialog:
             agent=agent,
             task="direct dialog",
             role="interviewer",
-            input_messages=[*history, {"role": "user", "content": prompt}],
+            input_messages=[
+                *mark_pinned_messages(history, pinned_message_ids),
+                current_turn_message(prompt),
+            ],
             phase=0,
         )
-        async for event in CliAgentCallRunner(db=self.db, event_bus=self.event_bus).execute(
+        async for event in self._cli_runner.execute(
             call,
             session_id=session.id,
             workspace_path=workspace_path,
@@ -334,7 +340,7 @@ class GroupDirectDialog:
         return f"data: {json.dumps(obj, ensure_ascii=False)}\n\n"
 
     def _structured_event(self, event, message_id: str, call_key: str) -> str:
-        metadata = dict(event.metadata or {})
+        metadata = _public_event_metadata(event.metadata)
         base = {
             "type": event.event_type,
             "agentId": event.agent_id,
@@ -402,6 +408,16 @@ def _message_metadata_from_event(metadata: dict) -> dict:
         "token_count",
     }
     return {key: metadata[key] for key in keep if key in metadata}
+
+
+def _public_event_metadata(metadata: dict | None) -> dict:
+    if not isinstance(metadata, dict):
+        return {}
+    return {
+        key: value
+        for key, value in metadata.items()
+        if key != "artifactWorkspacePath"
+    }
 
 
 def _execution_trace_metadata(

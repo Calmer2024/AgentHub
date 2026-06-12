@@ -182,6 +182,8 @@ class DockerRunnerProvider:
             self.container_workspace_path,
             "--mount",
             f"type=bind,source={Path(workspace_path).resolve()},target={self.container_workspace_path}",
+            "--mount",
+            f"type=bind,source={Path(workspace_path).resolve()},target=/tmp/opencode",
         ]
         if env_file_path:
             docker_args.extend(["--env-file", env_file_path])
@@ -330,6 +332,8 @@ class SshDockerRunnerProvider(DockerRunnerProvider):
             self.container_workspace_path,
             "--mount",
             f"type=bind,source={remote_workspace},target={self.container_workspace_path}",
+            "--mount",
+            f"type=bind,source={remote_workspace},target=/tmp/opencode",
         ]
         if container_env:
             docker_args.extend(["--env-file", env_file_path])

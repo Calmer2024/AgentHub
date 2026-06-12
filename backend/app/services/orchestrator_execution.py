@@ -22,8 +22,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..agents.cli_runtime_registry import cli_runtime_registry
 from ..database import AsyncSessionLocal
 from ..domain.orchestrator_plan import normalize_plan, validate_plan
-from ..models import AgentConfig, Message as DBMessage, Session as DBSession
+from ..models import AgentConfig, Message as DBMessage, Project, Session as DBSession, User
 from ..agents.cli_trace import trace_text
+from .artifact_output_bridge import ArtifactOutputBridge, artifact_to_event_payload
+from .cloud_cli_agent_service import CloudCliAgentService
+from .cloud_storage import ensure_cloud_workspace
 from .cli_agent_service import CliAgentService
 from .execution_trace import ExecutionTraceBuilder, merge_trace_metadata
 from .run_service import RunService, run_to_read, task_to_read
@@ -644,6 +647,408 @@ class CliTaskRunner:
         )
 
 
+class CloudCliTaskRunner(CliTaskRunner):
+    """云端 Orchestrator 计划任务 runner，复用桌面任务可见消息契约。"""
+
+    def __init__(
+        self,
+        *,
+        actor_id: str,
+        project_id: str,
+        event_bus: Any = None,
+        session_factory: Callable[[], AsyncSession] = AsyncSessionLocal,
+    ):
+        super().__init__(session_factory)
+        self._actor_id = actor_id
+        self._project_id = project_id
+        self._event_bus = event_bus
+
+    async def run(
+        self,
+        task: dict[str, Any],
+        execution: dict[str, Any],
+        upstream_results: list[dict[str, Any]],
+    ) -> str:
+        agent_id = task.get("assignedAgentId")
+        if not agent_id:
+            raise RuntimeError(f"{task['taskId']} 缺少 assignedAgentId")
+
+        async with self._session_factory() as db:
+            agent = await db.get(AgentConfig, agent_id)
+            session = await db.get(DBSession, execution["sessionId"])
+            project = await db.get(Project, self._project_id)
+            actor = await db.get(User, self._actor_id)
+            if not agent or not agent.is_active:
+                raise RuntimeError(f"{task['taskId']} 分配的 Agent 不存在或未启用: {agent_id}")
+            if not session:
+                raise RuntimeError(f"Session 不存在: {execution['sessionId']}")
+            if not project or project.workspace_mode != "cloud" or not project.workspace_id:
+                raise RuntimeError("云端计划任务需要 cloud Project")
+            if not actor:
+                raise RuntimeError("云端计划任务缺少执行用户")
+
+            physical_workspace = str(ensure_cloud_workspace(project.workspace_id, {
+                "projectId": project.id,
+                "executionId": execution.get("executionId"),
+            }))
+            physical_task_workspace = self._ensure_task_workspace(
+                physical_workspace,
+                execution,
+                task,
+                upstream_results,
+            )
+            task_workspace_rel = _relative_workspace_path(physical_workspace, physical_task_workspace)
+            task["taskWorkspacePath"] = task_workspace_rel
+            message_id = f"msg_agent_{uuid.uuid4().hex[:12]}"
+            visible = ""
+            raw_output = ""
+            process_id = ""
+            exit_code = None
+            artifact_workspace_path = physical_workspace
+            metadata: dict[str, Any] = {
+                "agentType": agent.agent_type or "cli_wrapper",
+                "cliTool": agent.cli_tool or "custom",
+                "workspacePath": project.workspace_path,
+                "taskWorkspacePath": task_workspace_rel,
+                "runtimeMode": "cloud",
+                "workspaceId": project.workspace_id,
+            }
+            trace = ExecutionTraceBuilder(
+                agent_name=agent.name,
+                cli_tool=agent.cli_tool or "custom",
+                workspace_path=project.workspace_path or "",
+            )
+            await self._persist_visible_message(
+                execution,
+                task,
+                agent,
+                message_id,
+                "",
+                merge_trace_metadata(metadata, trace),
+            )
+            task["visibleMessageId"] = message_id
+            await _broadcast_ws(execution["sessionId"], {
+                "type": "agent.start",
+                "sessionId": execution["sessionId"],
+                "agentId": agent.id,
+                "agentName": agent.name,
+                "messageId": message_id,
+                "role": "executor",
+                "phase": task.get("phase"),
+                "task": task["title"],
+                "callKey": _call_key(agent.id, task),
+            })
+
+            cloud_cli_agents = CloudCliAgentService(
+                db,
+                actor=actor,
+                project=project,
+                event_bus=self._event_bus,
+            )
+            truncated_notice_sent = False
+            async for event in cloud_cli_agents.stream(
+                agent=agent,
+                session_id=execution["sessionId"],
+                workspace_path=project.workspace_path or "",
+                messages=[{
+                    "role": "user",
+                    "content": self._task_prompt(
+                        execution,
+                        task,
+                        upstream_results,
+                        project_workspace_path=".",
+                        task_workspace_path=task_workspace_rel,
+                    ),
+                }],
+                system_prompt=agent.system_prompt or "",
+            ):
+                process_id = event.process_id or process_id
+                if event.type == "agent.metadata":
+                    if isinstance(event.metadata, dict):
+                        artifact_workspace_path = str(
+                            event.metadata.get("artifactWorkspacePath")
+                            or artifact_workspace_path
+                        )
+                        metadata.update({
+                            key: value
+                            for key, value in event.metadata.items()
+                            if key != "artifactWorkspacePath"
+                        })
+                    continue
+                if event.type == "agent.process.started":
+                    metadata["processId"] = process_id
+                    await self._bind_runtime_process(
+                        execution,
+                        task,
+                        agent,
+                        message_id,
+                        process_id,
+                    )
+                    trace.set_process(process_id)
+                    item = trace.add(
+                        kind="process",
+                        text=trace_text(event.trace or {}, f"正在启动 {agent.name}"),
+                        process_id=process_id,
+                        trace=event.trace,
+                    )
+                    if item:
+                        await self._broadcast_trace(execution, task, agent, message_id, process_id, item)
+                    await _broadcast_ws(execution["sessionId"], {
+                        "type": "agent.process.started",
+                        "sessionId": execution["sessionId"],
+                        "agentId": agent.id,
+                        "agentName": agent.name,
+                        "messageId": message_id,
+                        "processId": process_id,
+                        "callKey": _call_key(agent.id, task),
+                        "role": "executor",
+                        "phase": task.get("phase"),
+                        "task": task["title"],
+                        "token": "",
+                        "done": False,
+                    })
+                    continue
+                if event.type == "agent.output":
+                    raw_output += event.chunk
+                    visible_chunk = ""
+                    if event.chunk_type in {"text", "artifact_signal"}:
+                        visible_chunk, truncated_notice_sent = _bounded_visible_chunk(
+                            event.chunk,
+                            visible,
+                            truncated_notice_sent,
+                        )
+                        visible += visible_chunk
+                    if event.chunk_type != "text":
+                        kind = (
+                            "artifact" if event.chunk_type == "artifact_signal"
+                            else "error" if event.chunk_type == "error"
+                            else "progress"
+                        )
+                        item = trace.add(
+                            kind=kind,
+                            text=event.chunk,
+                            source="cli",
+                            chunk_type=event.chunk_type,
+                            process_id=process_id,
+                            trace=event.trace,
+                        )
+                        if item:
+                            await self._broadcast_trace(execution, task, agent, message_id, process_id, item)
+                    if event.chunk_type == "text" and visible_chunk:
+                        await self._update_visible_message(
+                            message_id,
+                            content=visible,
+                            metadata=merge_trace_metadata(metadata, trace),
+                        )
+                        for token in iter_stream_pieces(visible_chunk):
+                            await _broadcast_ws(execution["sessionId"], {
+                                "type": "agent.output",
+                                "sessionId": execution["sessionId"],
+                                "agentId": agent.id,
+                                "agentName": agent.name,
+                                "messageId": message_id,
+                                "processId": process_id,
+                                "callKey": _call_key(agent.id, task),
+                                "role": "executor",
+                                "phase": task.get("phase"),
+                                "task": task["title"],
+                                "chunk": token,
+                                "chunkType": "text",
+                                "token": token,
+                                "done": False,
+                            })
+                    elif event.chunk_type != "text":
+                        await _broadcast_ws(execution["sessionId"], {
+                            "type": "agent.output",
+                            "sessionId": execution["sessionId"],
+                            "agentId": agent.id,
+                            "agentName": agent.name,
+                            "messageId": message_id,
+                            "processId": process_id,
+                            "callKey": _call_key(agent.id, task),
+                            "role": "executor",
+                            "phase": task.get("phase"),
+                            "task": task["title"],
+                            "chunk": event.chunk,
+                            "chunkType": event.chunk_type,
+                            "token": "",
+                            "done": False,
+                        })
+                    continue
+                if event.type in {"agent.process.completed", "agent.process.turn_completed"}:
+                    exit_code = event.exit_code
+                    metadata["exitCode"] = exit_code
+                    await self._complete_runtime_process(process_id, exit_code=exit_code)
+                    status = "completed" if exit_code in (0, None) else "error"
+                    item = trace.add(
+                        kind="process",
+                        text=trace_text(event.trace or {}, f"{agent.name} 已结束"),
+                        process_id=process_id,
+                        trace=event.trace,
+                    )
+                    trace.complete(status=status, exit_code=exit_code)
+                    if item:
+                        await self._broadcast_trace(execution, task, agent, message_id, process_id, item)
+                    await self._update_visible_message(
+                        message_id,
+                        content=visible,
+                        metadata=merge_trace_metadata(metadata, trace),
+                    )
+                    await _broadcast_ws(execution["sessionId"], {
+                        "type": "agent.process.completed",
+                        "sessionId": execution["sessionId"],
+                        "agentId": agent.id,
+                        "agentName": agent.name,
+                        "messageId": message_id,
+                        "processId": process_id,
+                        "callKey": _call_key(agent.id, task),
+                        "role": "executor",
+                        "phase": task.get("phase"),
+                        "task": task["title"],
+                        "exitCode": exit_code,
+                        "token": "",
+                        "done": False,
+                    })
+                    continue
+                if event.type in {"agent.process.timeout", "error"}:
+                    error = event.error or f"{agent.name} 执行失败"
+                    await self._complete_runtime_process(process_id, exit_code=exit_code, status="failed")
+                    item = trace.add(kind="error", text=error, process_id=process_id, trace=event.trace)
+                    trace.complete(status="error", exit_code=exit_code)
+                    metadata["error"] = error
+                    if item:
+                        await self._broadcast_trace(execution, task, agent, message_id, process_id, item)
+                    await self._update_visible_message(
+                        message_id,
+                        content=visible.strip() or f"CLI Agent 执行失败：{error}",
+                        metadata=merge_trace_metadata(metadata, trace),
+                    )
+                    await self._broadcast_message_changed(execution["sessionId"], message_id)
+                    raise RuntimeError(error)
+
+            if exit_code not in (0, None):
+                error = f"{agent.name} 执行失败，exitCode={exit_code}"
+                await self._complete_runtime_process(process_id, exit_code=exit_code, status="failed")
+                trace.complete(status="error", exit_code=exit_code)
+                metadata["error"] = error
+                await self._update_visible_message(
+                    message_id,
+                    content=visible.strip() or f"CLI Agent 执行失败：{error}",
+                    metadata=merge_trace_metadata(metadata, trace),
+                )
+                await self._broadcast_message_changed(execution["sessionId"], message_id)
+                raise RuntimeError(error)
+
+            content = visible.strip() or raw_output.strip() or f"{task['taskId']} 已完成，但没有可见输出。"
+            final_metadata = merge_trace_metadata(metadata, trace)
+            await self._update_visible_message(
+                message_id,
+                content=content,
+                metadata=final_metadata,
+            )
+            await self._scan_visible_message_artifacts(
+                db=db,
+                session=session,
+                project=project,
+                agent=agent,
+                message_id=message_id,
+                content=content,
+                metadata=final_metadata,
+                workspace_path=artifact_workspace_path,
+                snapshot_id=str(metadata.get("workspaceSnapshotId") or "") or None,
+            )
+            await self._broadcast_message_changed(execution["sessionId"], message_id)
+            await _broadcast_ws(execution["sessionId"], {
+                "type": "message.completed",
+                "sessionId": execution["sessionId"],
+                "messageId": message_id,
+            })
+            return _summary_text(content)
+
+    async def _scan_visible_message_artifacts(
+        self,
+        *,
+        db: AsyncSession,
+        session: DBSession,
+        project: Project,
+        agent: AgentConfig,
+        message_id: str,
+        content: str,
+        metadata: dict[str, Any],
+        workspace_path: str,
+        snapshot_id: str | None,
+    ) -> None:
+        if not session.project_id:
+            return
+        message = await db.get(DBMessage, message_id)
+        if not message:
+            return
+        await _broadcast_ws(session.id, {
+            "type": "artifact.scan.started",
+            "sessionId": session.id,
+            "messageId": message_id,
+            "projectId": session.project_id,
+            "agentId": agent.id,
+            "agentName": agent.name,
+            "token": "",
+            "done": False,
+        })
+        bridge = ArtifactOutputBridge(db, event_bus=self._event_bus)
+        try:
+            result = await bridge.scan_completed_message(
+                session=session,
+                message=message,
+                project=project,
+                workspace_path=workspace_path,
+                visible_content=content,
+                execution_trace=metadata.get("executionTrace")
+                if isinstance(metadata.get("executionTrace"), dict)
+                else None,
+                snapshot_id=snapshot_id,
+            )
+        except Exception as exc:
+            await _broadcast_ws(session.id, {
+                "type": "artifact.detection_failed",
+                "sessionId": session.id,
+                "messageId": message_id,
+                "projectId": session.project_id,
+                "reason": f"{type(exc).__name__}: {exc}",
+                "recoverable": True,
+                "token": "",
+                "done": False,
+            })
+            return
+
+        for artifact in result.created:
+            payload = artifact_to_event_payload(artifact)
+            await _broadcast_ws(session.id, {
+                "type": "artifact.created",
+                "artifact": payload,
+                "artifactId": payload["id"],
+                "sessionId": payload["sessionId"],
+                "messageId": payload["messageId"],
+                "projectId": payload["projectId"],
+                "artifactType": payload["type"],
+                "title": payload["title"],
+                "version": payload["version"],
+                "filePath": payload["filePath"],
+                "source": payload["source"],
+                "token": "",
+                "done": False,
+            })
+        await _broadcast_ws(session.id, {
+            "type": "artifact.scan.completed",
+            "sessionId": session.id,
+            "messageId": message_id,
+            "projectId": session.project_id,
+            "createdCount": len(result.created),
+            "candidateCount": len(result.candidates),
+            "skippedCount": len(result.skipped),
+            "token": "",
+            "done": False,
+        })
+
+
 class OrchestratorExecutionRegistry:
     def __init__(
         self,
@@ -651,6 +1056,7 @@ class OrchestratorExecutionRegistry:
         session_factory: Callable[[], AsyncSession] | None = None,
     ):
         self._executions: dict[str, dict[str, Any]] = {}
+        self._execution_task_runners: dict[str, TaskRunner] = {}
         self._task_runner = task_runner or MockTaskRunner()
         self._session_factory = session_factory or AsyncSessionLocal
         self._cli_runner = CliTaskRunner(self._session_factory)
@@ -662,6 +1068,7 @@ class OrchestratorExecutionRegistry:
         plan: dict[str, Any],
         active_agent_ids: set[str],
         auto_start: bool = True,
+        task_runner: TaskRunner | None = None,
     ) -> dict[str, Any]:
         normalized = normalize_plan(plan)
         validation = validate_plan(normalized, active_agent_ids)
@@ -706,6 +1113,8 @@ class OrchestratorExecutionRegistry:
             },
         }
         self._executions[execution_id] = execution
+        if task_runner is not None:
+            self._execution_task_runners[execution_id] = task_runner
         if auto_start:
             self._start_background_scheduler(execution_id)
         return copy.deepcopy(execution)
@@ -1648,7 +2057,11 @@ class OrchestratorExecutionRegistry:
         }
 
     async def _run_task(self, task: dict[str, Any], execution: dict[str, Any]) -> str:
-        runner = self._cli_runner if task.get("runnerType") == "cli" else self._task_runner
+        runner = None
+        if task.get("runnerType") == "cli":
+            runner = self._execution_task_runners.get(str(execution.get("executionId") or ""))
+        if runner is None:
+            runner = self._cli_runner if task.get("runnerType") == "cli" else self._task_runner
         return await runner.run(task, execution, task.get("upstreamResults") or [])
 
     async def _mark_runtime_run_status(
@@ -1796,6 +2209,13 @@ def _bounded_visible_chunk(
 def _safe_path_part(value: object) -> str:
     clean = re.sub(r"[^A-Za-z0-9._-]+", "-", str(value or "").strip()).strip(".-")
     return clean or "task"
+
+
+def _relative_workspace_path(workspace_path: str, target_path: str) -> str:
+    try:
+        return Path(target_path).resolve().relative_to(Path(workspace_path).resolve()).as_posix()
+    except ValueError:
+        return str(target_path)
 
 
 def _markdown_list(items: list[Any]) -> str:

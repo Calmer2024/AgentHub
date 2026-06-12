@@ -745,7 +745,7 @@ def _extract_workspace_path_hints(text: str, trace: dict[str, Any] | None) -> li
     )
     for haystack in haystacks:
         for match in pattern.finditer(haystack):
-            value = match.group(1).replace("\\", "/").strip("/ ")
+            value = _normalize_workspace_hint_path(match.group(1))
             if not value or value.startswith((".", "/")) or ".." in Path(value).parts:
                 continue
             lowered = value.lower()
@@ -754,6 +754,15 @@ def _extract_workspace_path_hints(text: str, trace: dict[str, Any] | None) -> li
             seen.add(lowered)
             paths.append(value)
     return paths
+
+
+def _normalize_workspace_hint_path(value: str) -> str:
+    clean = str(value or "").replace("\\", "/").strip()
+    for prefix in ("/tmp/opencode/", "/workspace/"):
+        if clean.startswith(prefix):
+            clean = clean[len(prefix):]
+            break
+    return clean.strip("/ ")
 
 
 def _project_workspace_path(project: Project) -> str:

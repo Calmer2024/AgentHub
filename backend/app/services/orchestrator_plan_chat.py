@@ -19,6 +19,14 @@ from ..domain.orchestrator_plan import (
 from ..domain.agent_selector import AgentSelector
 from ..models import AgentConfig, Message as DBMessage, Session as DBSession, SessionMember
 from .cli_agent_service import CliAgentService
+from .cli_session_runtime import (
+    current_turn_message,
+    mark_pinned_messages,
+    merge_runtime_process_metadata,
+    prepare_cli_session_runtime,
+    remember_assigned_engine_session_if_needed,
+    remember_engine_session_from_metadata,
+)
 from .execution_trace import ExecutionTraceBuilder, merge_trace_metadata
 from .file_change_detector import FileChangeDetector
 from .group_direct_dialog import GroupDirectDialog
@@ -27,10 +35,20 @@ from .run_service import RunService, run_to_read, task_to_read
 
 
 class OrchestratorPlanChat:
-    def __init__(self, db: AsyncSession, detector: FileChangeDetector | None = None):
+    def __init__(
+        self,
+        db: AsyncSession,
+        detector: FileChangeDetector | None = None,
+        cli_agents: CliAgentService | None = None,
+        direct_dialog: GroupDirectDialog | None = None,
+        execution_task_runner=None,
+    ):
         self.db = db
         self._agent_selector = AgentSelector()
         self._detector = detector or FileChangeDetector()
+        self._cli_agents = cli_agents or CliAgentService()
+        self._direct_dialog = direct_dialog
+        self._execution_task_runner = execution_task_runner
 
     async def send(
         self,
@@ -42,6 +60,7 @@ class OrchestratorPlanChat:
         orchestrator_agent: AgentConfig,
         member_agents: list[AgentConfig],
         run_id: str | None = None,
+        pinned_message_ids: list[str] | None = None,
     ) -> AsyncGenerator[str, None]:
         candidate_agents = [
             self._agent_snapshot(agent)
@@ -72,6 +91,23 @@ class OrchestratorPlanChat:
             "cliTool": orchestrator_agent.cli_tool or "custom",
             "workspacePath": workspace_path,
         }
+        prompt_messages = [
+            *mark_pinned_messages(history, pinned_message_ids),
+            current_turn_message(prompt),
+        ]
+        cli_runtime = await prepare_cli_session_runtime(
+            db=self.db,
+            cli_agents=self._cli_agents,
+            session_id=session_id,
+            agent=orchestrator_agent,
+            workspace_path=workspace_path,
+            messages=prompt_messages,
+            pinned_message_ids=pinned_message_ids,
+            process_scope="one_group_session_agent_one_process",
+            turn_isolation="session_agent_lock",
+        )
+        metadata.update(cli_runtime.metadata)
+        engine_session_remembered = False
         workspace_snapshot_id = self._create_workspace_snapshot(workspace_path, "orchestrator-plan")
 
         yield self._sse({
@@ -85,16 +121,32 @@ class OrchestratorPlanChat:
             "callKey": call_key,
         })
 
-        async for event in CliAgentService().stream(
+        async for event in self._cli_agents.stream(
             agent=orchestrator_agent,
             session_id=session_id,
+            runtime_session_id=cli_runtime.runtime_session_id,
             workspace_path=workspace_path,
-            messages=[*history, {"role": "user", "content": prompt}],
+            messages=cli_runtime.messages,
             system_prompt=orchestrator_agent.system_prompt or "",
+            engine_session_id=cli_runtime.engine_invocation.engine_session_id,
+            engine_session_mode=cli_runtime.engine_invocation.mode,
+            persistent_process=cli_runtime.supports_persistent_process,
         ):
             process_id = event.process_id or process_id
+            if event.type == "agent.metadata":
+                engine_session_remembered = await remember_engine_session_from_metadata(
+                    db=self.db,
+                    runtime=cli_runtime,
+                    session_id=session_id,
+                    agent=orchestrator_agent,
+                    workspace_path=str(cli_runtime.metadata.get("workspacePath") or workspace_path),
+                    event_metadata=event.metadata,
+                ) or engine_session_remembered
+                metadata.update(cli_runtime.metadata)
+                continue
             if event.type == "agent.process.started":
                 metadata["processId"] = process_id
+                merge_runtime_process_metadata(metadata, event.metadata)
                 if run_id:
                     async for item in self._bind_planner_runtime(
                         run_id=run_id,
@@ -173,9 +225,15 @@ class OrchestratorPlanChat:
                 })
                 continue
 
-            if event.type == "agent.process.completed":
+            if event.type in {"agent.process.completed", "agent.process.turn_completed"}:
                 exit_code = event.exit_code
                 metadata["exitCode"] = exit_code
+                if event.type == "agent.process.turn_completed":
+                    merge_runtime_process_metadata(metadata, {
+                        **(event.metadata or {}),
+                        "turnCompleted": True,
+                        "processKeptAlive": True,
+                    })
                 status = "completed" if exit_code in (0, None) else "error"
                 item = trace.add(
                     kind="process",
@@ -223,6 +281,18 @@ class OrchestratorPlanChat:
                         yield item
                 yield self._err(error)
                 return
+
+        engine_session_remembered = await remember_assigned_engine_session_if_needed(
+            db=self.db,
+            runtime=cli_runtime,
+            session_id=session_id,
+            agent=orchestrator_agent,
+            workspace_path=str(cli_runtime.metadata.get("workspacePath") or workspace_path),
+            remembered=engine_session_remembered,
+            metadata={"lastGroupTask": "orchestrator_plan"},
+        )
+        if engine_session_remembered:
+            metadata.update(cli_runtime.metadata)
 
         workspace_changes = self._workspace_changes_since(workspace_path, workspace_snapshot_id)
 
@@ -364,6 +434,7 @@ class OrchestratorPlanChat:
                 plan=plan,
                 active_agent_ids={member.id for member in member_agents},
                 auto_start=False,
+                task_runner=self._execution_task_runner,
             )
         except PlanExecutionError as exc:
             content = "计划暂时无法进入执行：\n" + "\n".join(f"- {error}" for error in exc.errors)
@@ -560,6 +631,7 @@ class OrchestratorPlanChat:
         metadata: dict,
         trace: ExecutionTraceBuilder,
         run_id: str | None = None,
+        pinned_message_ids: list[str] | None = None,
     ) -> AsyncGenerator[str, None]:
         selected_id = str(action.get("selected_agent_id") or action.get("selectedAgentId") or "")
         target = next(
@@ -659,13 +731,15 @@ class OrchestratorPlanChat:
         if not session:
             yield self._sse({"token": "", "done": True, "messageId": message_id, "error": "Session 不存在"})
             return
-        async for item in GroupDirectDialog(self.db).send(
+        direct_dialog = self._direct_dialog or GroupDirectDialog(self.db)
+        async for item in direct_dialog.send(
             session=session,
             content=content,
             history=history,
             workspace_path=workspace_path,
             agent=target,
             run_id=run_id,
+            pinned_message_ids=pinned_message_ids,
             goal=dialog_goal,
             source="plan_followup",
         ):

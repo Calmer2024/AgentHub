@@ -17,9 +17,9 @@ from .token_event import TokenEvent
 
 
 class CliAgentCallRunner:
-    def __init__(self, db: AsyncSession | None = None, event_bus=None):
+    def __init__(self, db: AsyncSession | None = None, event_bus=None, cli_agents: CliAgentService | None = None):
         self.db = db
-        self._cli_agents = CliAgentService(event_bus=event_bus)
+        self._cli_agents = cli_agents or CliAgentService(event_bus=event_bus)
         self._file_changes = FileChangeDetector()
 
     async def execute(
@@ -36,6 +36,20 @@ class CliAgentCallRunner:
         if call.role_prompt_override:
             system_prompt = f"{system_prompt}\n\n{call.role_prompt_override}"
 
+        execution_workspace_path = _service_path(
+            self._cli_agents,
+            "execution_workspace_path",
+            workspace_path,
+            session_id=session_id,
+            agent=agent,
+        )
+        metadata_workspace_path = _service_path(
+            self._cli_agents,
+            "metadata_workspace_path",
+            workspace_path,
+            session_id=session_id,
+            agent=agent,
+        )
         cli_tool = agent.cli_tool or "custom"
         resume_policy = self._cli_agents.engine_session_resume_policy(agent)
         supports_persistent_process = self._cli_agents.supports_persistent_process(agent)
@@ -46,7 +60,7 @@ class CliAgentCallRunner:
                 session_id=session_id,
                 agent_config_id=agent.id,
                 cli_tool=cli_tool,
-                workspace_path=workspace_path,
+                workspace_path=metadata_workspace_path,
                 supported=resume_policy.supported,
                 caller_assigned_id=resume_policy.caller_assigned_id,
             )
@@ -64,7 +78,7 @@ class CliAgentCallRunner:
             **meta,
             "agentType": agent.agent_type or "cli_wrapper",
             "cliTool": cli_tool,
-            "workspacePath": workspace_path,
+            "workspacePath": metadata_workspace_path,
             "engineRuntime": {
                 "mode": runtime_mode,
                 "processScope": "one_group_session_agent_one_process"
@@ -97,7 +111,7 @@ class CliAgentCallRunner:
         snapshot_id = None
         try:
             snapshot = self._file_changes.create_snapshot(
-                workspace_path,
+                execution_workspace_path,
                 f"group-chat:{session_id}:{agent.id}:{call.task}",
             )
             snapshot_id = snapshot.snapshot_id
@@ -112,7 +126,7 @@ class CliAgentCallRunner:
             agent=agent,
             session_id=session_id,
             runtime_session_id=runtime_session_id,
-            workspace_path=workspace_path,
+            workspace_path=execution_workspace_path,
             messages=adapter_messages,
             system_prompt=system_prompt,
             engine_session_id=(
@@ -122,13 +136,14 @@ class CliAgentCallRunner:
             persistent_process=supports_persistent_process,
         ):
             if event.type == "agent.metadata":
+                _merge_metadata(call_meta, event.metadata)
                 remembered = await self._remember_engine_session_from_event(
                     event,
                     call_meta,
                     session_id=session_id,
                     agent_id=agent.id,
                     cli_tool=cli_tool,
-                    workspace_path=workspace_path,
+                    workspace_path=metadata_workspace_path,
                     resume_policy=resume_policy,
                 )
                 engine_session_remembered = engine_session_remembered or remembered
@@ -254,7 +269,7 @@ class CliAgentCallRunner:
                 session_id=session_id,
                 agent_config_id=agent.id,
                 cli_tool=cli_tool,
-                workspace_path=workspace_path,
+                workspace_path=metadata_workspace_path,
                 engine_session_id=engine_invocation.engine_session_id,
                 metadata={
                     "source": "agenthub_assigned",
@@ -284,7 +299,7 @@ class CliAgentCallRunner:
             token="",
             done=True,
             message_id=msg_id,
-            metadata={**call_meta, "token_count": len(full), "workspaceSnapshotId": snapshot_id},
+            metadata={**call_meta, "token_count": len(full)},
         )
 
     @staticmethod
@@ -356,6 +371,27 @@ def _trace_item(event, fallback_kind: str) -> dict | None:
 
 def _runtime_session_id(session_id: str, agent_id: str) -> str:
     return f"{session_id}:agent:{agent_id}"
+
+
+def _service_path(service, method_name: str, fallback: str, **kwargs) -> str:
+    method = getattr(service, method_name, None)
+    if not callable(method):
+        return fallback
+    try:
+        value = method(fallback, **kwargs)
+    except TypeError:
+        value = method(fallback)
+    return str(value or fallback)
+
+
+def _merge_metadata(target: dict, metadata: dict | None) -> None:
+    if not isinstance(metadata, dict):
+        return
+    for key, value in metadata.items():
+        if value is None:
+            target.pop(str(key), None)
+            continue
+        target[str(key)] = value
 
 
 def _resume_delta_messages(messages: list[dict]) -> list[dict]:

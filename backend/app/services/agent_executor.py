@@ -33,10 +33,10 @@ class AgentExecutor:
       - chain:    链式调用，角色 Prompt 注入 + 中断处理
     """
 
-    def __init__(self, db: AsyncSession | None = None, event_bus=None):
+    def __init__(self, db: AsyncSession | None = None, event_bus=None, cli_runner: CliAgentCallRunner | None = None):
         self.event_bus = event_bus
         self.merger = StreamMerger()
-        self._cli_runner = CliAgentCallRunner(db=db, event_bus=event_bus)
+        self._cli_runner = cli_runner or CliAgentCallRunner(db=db, event_bus=event_bus)
 
     async def execute(
         self, calls: list[AgentCall], mode: str,

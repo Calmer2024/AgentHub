@@ -66,6 +66,7 @@ class SandboxService:
         sandbox = Sandbox(
             id=str(uuid.uuid4()),
             workspace_id=workspace.id,
+            actor_user_id=actor.id,
             status="provisioning",
             image=(data.image or settings.agenthub_runtime_image).strip(),
             runner_node_id=node.id,

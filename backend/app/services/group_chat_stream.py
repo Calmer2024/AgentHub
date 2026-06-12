@@ -1,8 +1,10 @@
 """GroupChatStream —— 群聊 Orchestrator SSE 编排。"""
 
+import inspect
 import json
 import uuid
 import logging
+from collections.abc import Awaitable, Callable
 from typing import AsyncGenerator
 
 from sqlalchemy import select
@@ -31,16 +33,26 @@ class GroupChatStream:
     """群聊流式处理器：Pipeline → Executor → SSE → 持久化。"""
 
     def __init__(
-        self, db: AsyncSession, pipeline: OrchestratorV2, executor: AgentExecutor, event_bus=None,
+        self,
+        db: AsyncSession,
+        pipeline: OrchestratorV2,
+        executor: AgentExecutor,
+        event_bus=None,
+        finalizer: GroupChatFinalizer | None = None,
+        plan_chat: OrchestratorPlanChat | None = None,
+        steward_chat: OrchestratorStewardChat | None = None,
+        direct_dialog: GroupDirectDialog | None = None,
+        workspace_path_resolver: Callable[[str], str | Awaitable[str]] | None = None,
     ):
         self.db = db
         self.event_bus = event_bus
         self._pipeline = pipeline
         self._executor = executor
-        self._finalizer = GroupChatFinalizer(db, pipeline, event_bus=event_bus)
-        self._plan_chat = OrchestratorPlanChat(db)
-        self._steward_chat = OrchestratorStewardChat(db, event_bus=event_bus)
-        self._direct_dialog = GroupDirectDialog(db, event_bus=event_bus)
+        self._finalizer = finalizer or GroupChatFinalizer(db, pipeline, event_bus=event_bus)
+        self._plan_chat = plan_chat or OrchestratorPlanChat(db)
+        self._steward_chat = steward_chat or OrchestratorStewardChat(db, event_bus=event_bus)
+        self._direct_dialog = direct_dialog or GroupDirectDialog(db, event_bus=event_bus)
+        self._workspace_path_resolver = workspace_path_resolver
         self._dialog_state = GroupDialogStateService(db)
 
     async def send(
@@ -61,7 +73,7 @@ class GroupChatStream:
             yield self._err("该群聊没有可用的 Agent")
             return
         try:
-            workspace_path = await ProjectService(self.db).get_workspace_path_for_session(session_id)
+            workspace_path = await self._workspace_path(session_id)
         except ProjectNotFoundError:
             if run_id:
                 run = await RunService(self.db, event_bus=self.event_bus).mark_run_status(
@@ -85,6 +97,7 @@ class GroupChatStream:
                         workspace_path=workspace_path,
                         agent=agent,
                         run_id=run_id,
+                        pinned_message_ids=pinned_message_ids,
                         goal=active_dialog.goal,
                         source=active_dialog.source,
                         execution_id=active_dialog.execution_id,
@@ -103,6 +116,7 @@ class GroupChatStream:
                 orchestrator_agent=orchestrator_agent,
                 member_agents=member_agents,
                 run_id=run_id,
+                pinned_message_ids=pinned_message_ids,
             ):
                 yield item
             return
@@ -135,6 +149,7 @@ class GroupChatStream:
                     orchestrator_agent=orchestrator_agent,
                     member_agents=member_agents,
                     run_id=run_id,
+                    pinned_message_ids=pinned_message_ids,
                 ):
                     yield item
                 return
@@ -148,6 +163,7 @@ class GroupChatStream:
                 orchestrator_agent=orchestrator_agent,
                 member_agents=member_agents,
                 run_id=run_id,
+                pinned_message_ids=pinned_message_ids,
             ):
                 steward_message_id = item.message_id
                 steward_error = item.error or steward_error
@@ -206,6 +222,7 @@ class GroupChatStream:
                     workspace_path=workspace_path,
                     agent=steward_decision.selected_agents[0],
                     run_id=run_id,
+                    pinned_message_ids=pinned_message_ids,
                     goal=steward_decision.task_brief or content,
                     source="steward",
                 ):
@@ -225,6 +242,7 @@ class GroupChatStream:
                     orchestrator_agent=orchestrator_agent,
                     member_agents=plan_member_agents,
                     run_id=run_id,
+                    pinned_message_ids=pinned_message_ids,
                 ):
                     yield item
                 return
@@ -425,7 +443,7 @@ class GroupChatStream:
             ).where(
                 SessionMember.session_id == session_id,
                 AgentConfig.is_active == True,
-            )
+            ).order_by(SessionMember.joined_at.asc(), SessionMember.agent_config_id.asc())
         )
         agents = list(rows.scalars().all())
         if any((agent.primary_skill or "") == "orchestrator_planner" for agent in agents):
@@ -569,6 +587,7 @@ class GroupChatStream:
         return self._sse(data)
 
     def _structured_event(self, ev, fallback_name: str, msg_id: str | None, call_key: str) -> str:
+        metadata = _public_event_metadata(ev.metadata)
         base = {
             "type": ev.event_type,
             "agentId": ev.agent_id,
@@ -578,7 +597,7 @@ class GroupChatStream:
             "phase": ev.metadata.get("phase"),
             "task": ev.metadata.get("task"),
             "callKey": call_key,
-            "metadata": ev.metadata,
+            "metadata": metadata,
         }
         if ev.event_type == "agent.output":
             base.update({
@@ -796,6 +815,7 @@ class GroupChatStream:
             "agentType",
             "cliTool",
             "workspacePath",
+            "artifactWorkspacePath",
             "workspaceSnapshotId",
             "snapshotError",
             "engineSessionPolicy",
@@ -810,6 +830,14 @@ class GroupChatStream:
         if isinstance(runtime, dict):
             current = target.get("engineRuntime") if isinstance(target.get("engineRuntime"), dict) else {}
             target["engineRuntime"] = {**current, **runtime}
+
+    async def _workspace_path(self, session_id: str) -> str:
+        if self._workspace_path_resolver:
+            value = self._workspace_path_resolver(session_id)
+            if inspect.isawaitable(value):
+                value = await value
+            return str(value)
+        return await ProjectService(self.db).get_workspace_path_for_session(session_id)
 
     @staticmethod
     def _sse(obj: dict) -> str:
@@ -826,3 +854,13 @@ class GroupChatStream:
     @staticmethod
     def _err(msg: str) -> str:
         return f"data: {json.dumps({'token': '', 'done': True, 'error': msg}, ensure_ascii=False)}\n\n"
+
+
+def _public_event_metadata(metadata: dict | None) -> dict:
+    if not isinstance(metadata, dict):
+        return {}
+    return {
+        key: value
+        for key, value in metadata.items()
+        if key != "artifactWorkspacePath"
+    }
