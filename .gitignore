@@ -94,3 +94,6 @@ e2e/screenshots/
 # OS
 .DS_Store
 Thumbs.db
+
+# Artifacts (browser profiles, cache, etc.)
+artifacts/
