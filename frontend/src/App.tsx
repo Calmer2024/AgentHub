@@ -63,7 +63,7 @@ export function AgentHubWorkbench() {
     setSidebarTab, loadData,
     handleSelectProject, handleArchiveProject,
     handleRenameProject, handleDeleteProject,
-    handleCreateBlankProject, handleCreateCloudProject, handleCreateTeam, handlePickExistingFolder,
+    handleCreateBlankProject, handleCreateCloudProject, handleCreateTeam, handleJoinTeam, handlePickExistingFolder,
     handleSelectSession, handleNewSession, handleCreateGroup,
     handleAddGroupMember, handleRemoveGroupMember,
     handleDeleteSession, handleRenameSession, handlePinSession, handleArchiveSession,
@@ -196,8 +196,8 @@ export function AgentHubWorkbench() {
   }
 
   return (
-    <div className="agenthub-shell flex h-[100dvh] min-w-0 w-full max-w-full flex-col overflow-hidden md:flex-row">
-      <div className="agenthub-left-cluster flex min-w-0 w-full shrink-0 flex-col md:h-full md:w-[584px] md:flex-row">
+    <div className="agenthub-shell flex h-[100dvh] min-w-0 w-full max-w-full flex-col overflow-hidden lg:flex-row">
+      <div className="agenthub-left-cluster flex min-h-0 min-w-0 w-full shrink-0 flex-col lg:h-full lg:w-[min(46vw,584px)] lg:flex-row xl:w-[584px]">
         {edition === "local" ? (
         <LocalProjectSidebar
           projects={projects}
@@ -215,6 +215,11 @@ export function AgentHubWorkbench() {
             () => handleCreateTeam(name),
             "团队已创建",
             "创建团队失败",
+          )}
+          onJoinTeam={(code) => runCrudAction(
+            () => handleJoinTeam(code),
+            "已加入团队",
+            "加入团队失败",
           )}
           onUserUpdated={loadData}
           onRefreshProjects={loadData}
@@ -277,6 +282,11 @@ export function AgentHubWorkbench() {
             "团队已创建",
             "创建团队失败",
           )}
+          onJoinTeam={(code) => runCrudAction(
+            () => handleJoinTeam(code),
+            "已加入团队",
+            "加入团队失败",
+          )}
           onUserUpdated={loadData}
           onRefreshProjects={loadData}
           onCreateBlankProject={(name) => runCrudAction(
@@ -322,7 +332,7 @@ export function AgentHubWorkbench() {
         />
         )}
 
-        <div className="agenthub-session-nest flex h-[32dvh] min-w-0 w-full shrink-0 flex-col transition-colors duration-300 md:h-full md:w-[300px]">
+        <div className="agenthub-session-nest flex h-[30dvh] min-w-0 w-full shrink-0 flex-col transition-colors duration-200 sm:h-[28dvh] lg:h-full lg:w-[min(24vw,300px)] xl:w-[300px]">
           <SessionList
             project={currentProject}
             sessions={sessions} currentSessionId={currentSessionId}

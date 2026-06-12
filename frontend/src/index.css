@@ -224,7 +224,7 @@ body {
 .agenthub-shell {
   background: var(--ah-app-wash);
   color: var(--ah-text);
-  transition: background 260ms ease, color 180ms ease;
+  transition: background 160ms ease, color 160ms ease;
   gap: 10px;
   padding: 10px;
   overflow-x: hidden;
@@ -264,9 +264,14 @@ body {
   border-radius: var(--ah-panel-radius);
   box-shadow: var(--ah-shadow);
   color: var(--ah-text);
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    color 160ms ease;
 }
 
-@media (min-width: 768px) {
+@media (min-width: 1024px) {
   .agenthub-left-cluster {
     gap: 6px;
     border-radius: calc(var(--ah-panel-radius) + 6px);
@@ -318,6 +323,22 @@ body {
 .agenthub-message-area {
   overflow-x: hidden;
   background: var(--ah-chat-bg);
+  transition: background 160ms ease, color 160ms ease;
+}
+
+@media (max-width: 1023px) {
+  .agenthub-shell {
+    overflow-y: auto;
+  }
+
+  .agenthub-left-cluster {
+    flex: 0 0 auto;
+  }
+
+  .agenthub-chat {
+    flex: 1 1 52dvh;
+    min-height: 48dvh;
+  }
 }
 
 .agenthub-inputbar {
@@ -349,6 +370,17 @@ body {
   border-color: var(--ah-border-strong);
   box-shadow: 0 16px 38px rgb(24 34 50 / 0.12);
   backdrop-filter: blur(18px) saturate(135%);
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    color 160ms ease;
+}
+
+.agenthub-theme-switching,
+.agenthub-theme-switching * {
+  transition-duration: 160ms !important;
+  transition-timing-function: ease !important;
 }
 
 .agenthub-card {
@@ -462,6 +494,12 @@ body {
   overflow-x: hidden;
 }
 
+.agenthub-project-list-shell {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .agenthub-friends-scroll {
   max-height: 232px;
   overflow-y: auto;
@@ -477,7 +515,9 @@ body {
 }
 
 .agenthub-expand-scroll-projects.agenthub-expand-scroll-open {
-  max-height: min(34dvh, 300px);
+  flex: 1 1 auto;
+  max-height: none;
+  min-height: 0;
 }
 
 .agenthub-expand-button {
