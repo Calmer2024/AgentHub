@@ -11,6 +11,7 @@ import asyncio
 import codecs
 import os
 import signal
+import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,6 +25,9 @@ from .cli_runtime import (
     CliProcessNotFound,
     CliSubprocessNotSupported,
     ProcessChunk,
+    _heartbeat_text,
+    _next_wait_timeout,
+    _positive_seconds,
     resolve_cli_command,
 )
 
@@ -103,6 +107,7 @@ class CliSessionProcessRuntime:
         prompt: str,
         event_bus=None,
         silence_timeout_seconds: float = 300,
+        heartbeat_interval_seconds: float | None = None,
         turn_completed: Callable[[str], bool] | None = None,
     ) -> AsyncIterator[ProcessChunk]:
         workspace = Path(config.cwd)
@@ -197,6 +202,7 @@ class CliSessionProcessRuntime:
                 async for chunk in self._read_turn(
                     handle,
                     silence_timeout_seconds,
+                    heartbeat_interval_seconds,
                     event_bus,
                     turn_completed,
                 ):
@@ -326,17 +332,37 @@ class CliSessionProcessRuntime:
         self,
         handle: SessionProcessHandle,
         silence_timeout_seconds: float,
+        heartbeat_interval_seconds: float | None,
         event_bus,
         turn_completed: Callable[[str], bool] | None,
     ) -> AsyncIterator[ProcessChunk]:
         closed: set[str] = set()
+        last_output_at = time.monotonic()
+        silence_timeout = _positive_seconds(silence_timeout_seconds)
+        heartbeat_interval = _positive_seconds(heartbeat_interval_seconds)
         while len(closed) < 2:
             try:
+                wait_timeout = _next_wait_timeout(
+                    last_output_at=last_output_at,
+                    silence_timeout_seconds=silence_timeout,
+                    heartbeat_interval_seconds=heartbeat_interval,
+                )
                 stream, text = await asyncio.wait_for(
                     handle.output_queue.get(),
-                    timeout=silence_timeout_seconds,
+                    timeout=wait_timeout,
                 )
             except TimeoutError:
+                now = time.monotonic()
+                silent_for = now - last_output_at
+                if silence_timeout is None or silent_for < silence_timeout:
+                    yield ProcessChunk(
+                        handle.process_id,
+                        text=_heartbeat_text(silent_for),
+                        stream="system",
+                        event_type="heartbeat",
+                        persistent=True,
+                    )
+                    continue
                 await self._publish(event_bus, EventType.AGENT_PROCESS_TIMEOUT, {
                     "sessionId": handle.session_id,
                     "agentId": handle.agent_id,
@@ -357,6 +383,7 @@ class CliSessionProcessRuntime:
                 closed.add(stream)
                 continue
 
+            last_output_at = time.monotonic()
             yield ProcessChunk(
                 handle.process_id,
                 text=text,

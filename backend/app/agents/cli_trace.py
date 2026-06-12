@@ -291,7 +291,7 @@ def codex_item_trace(event_type: str, item: dict[str, Any]) -> dict | None:
         detail = _codex_item_detail(item)
         return {
             "kind": "progress",
-            "title": _humanize_event(item_type),
+            "title": _string_value(item.get("title")) or _humanize_event(item_type),
             "detail": detail,
             "provider": "Codex",
             "action": item_type,
@@ -329,6 +329,9 @@ def codex_stderr_trace(text: str) -> dict:
 
 
 def opencode_part_trace(part: dict[str, Any]) -> dict | None:
+    session_update = str(part.get("sessionUpdate") or "")
+    if session_update in {"tool_call", "tool_call_update"}:
+        return _opencode_acp_tool_trace(part, session_update)
     part_type = str(part.get("type") or "")
     if part_type == "text":
         return None
@@ -364,6 +367,46 @@ def opencode_part_trace(part: dict[str, Any]) -> dict | None:
             "level": "info",
         }
     return None
+
+
+def _opencode_acp_tool_trace(data: dict[str, Any], session_update: str) -> dict:
+    state = data.get("state") if isinstance(data.get("state"), dict) else {}
+    payload = (
+        data.get("input")
+        if "input" in data
+        else data.get("arguments")
+        if "arguments" in data
+        else data.get("params")
+        if "params" in data
+        else state.get("input")
+        if isinstance(state, dict) and "input" in state
+        else data
+    )
+    name = _string_value(data.get("tool") or data.get("name") or data.get("kind"))
+    title = _string_value(data.get("title"))
+    if not name:
+        name = title or session_update
+    command = _command_from_payload(name, payload) or _command_from_payload(name, state)
+    target = _target_from_payload(payload) or _target_from_payload(state)
+    status = _string_value(data.get("status")) or _string_value(state.get("status"))
+    action = _normalize_action(name)
+    detail = _tool_state_detail(state) if state else _payload_detail(payload)
+    level = _command_level(status, state.get("exitCode") if isinstance(state, dict) else None)
+    return {
+        "kind": "command" if command else "tool",
+        "title": title or _tool_title("OpenCode", name, action, target),
+        "detail": detail,
+        "command": command,
+        "target": target,
+        "toolName": name,
+        "provider": "OpenCode",
+        "action": action,
+        "level": level,
+        "status": status or None,
+        "output": _summarize_text(_string_value(state.get("output")), 1200)
+        if isinstance(state, dict) else None,
+        "raw": _json_preview(data),
+    }
 
 
 def trace_text(trace: dict[str, Any], fallback: str = "") -> str:

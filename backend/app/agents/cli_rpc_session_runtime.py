@@ -13,6 +13,7 @@ import copy
 import json
 import os
 import signal
+import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -31,6 +32,8 @@ from .cli_runtime import (
 
 
 RpcProtocol = Literal["mcp", "acp"]
+RPC_MAX_FRAME_BYTES = 16 * 1024 * 1024
+RPC_PROGRESS_INTERVAL_SECONDS = 20.0
 
 
 @dataclass(frozen=True)
@@ -127,6 +130,7 @@ class CliRpcSessionRuntime:
         request: CliRpcTurnRequest,
         event_bus=None,
         silence_timeout_seconds: float = 600,
+        progress_interval_seconds: float | None = None,
     ) -> AsyncIterator[ProcessChunk]:
         workspace = Path(config.cwd)
         if not workspace.exists() or not workspace.is_dir():
@@ -177,17 +181,43 @@ class CliRpcSessionRuntime:
                     )
 
                 call_task = asyncio.create_task(self._call_turn(handle, request))
+                progress_enabled = _rpc_progress_events_enabled(handle)
+                progress_interval = (
+                    RPC_PROGRESS_INTERVAL_SECONDS
+                    if progress_interval_seconds is None
+                    else progress_interval_seconds
+                )
+                progress_started_at = time.monotonic()
+                silence_deadline = progress_started_at + silence_timeout_seconds
+                progress_sequence = 0
+                if progress_enabled and progress_interval > 0:
+                    yield self._rpc_progress_chunk(
+                        handle,
+                        elapsed_seconds=0,
+                        sequence=progress_sequence,
+                    )
                 while True:
                     notify_task = asyncio.create_task(handle.notifications.get())
                     stderr_task = asyncio.create_task(handle.stderr_queue.get())
+                    progress_task = (
+                        asyncio.create_task(asyncio.sleep(progress_interval))
+                        if progress_enabled and progress_interval > 0
+                        else None
+                    )
+                    wait_tasks = {call_task, notify_task, stderr_task}
+                    if progress_task:
+                        wait_tasks.add(progress_task)
+                    wait_timeout = max(0.0, silence_deadline - time.monotonic())
                     done, pending = await asyncio.wait(
-                        {call_task, notify_task, stderr_task},
+                        wait_tasks,
                         return_when=asyncio.FIRST_COMPLETED,
-                        timeout=silence_timeout_seconds,
+                        timeout=wait_timeout,
                     )
                     if not done:
                         notify_task.cancel()
                         stderr_task.cancel()
+                        if progress_task:
+                            progress_task.cancel()
                         call_task.cancel()
                         await self._publish(event_bus, EventType.AGENT_PROCESS_TIMEOUT, {
                             "sessionId": handle.session_id,
@@ -232,6 +262,8 @@ class CliRpcSessionRuntime:
                         continue
 
                     if call_task in done:
+                        if progress_task and progress_task in pending:
+                            progress_task.cancel()
                         result = call_task.result()
                         for event in self._events_from_result(handle, request, result):
                             yield ProcessChunk(
@@ -245,6 +277,15 @@ class CliRpcSessionRuntime:
                             persistent=True,
                         )
                         return
+
+                    if progress_task and progress_task in done:
+                        progress_sequence += 1
+                        yield self._rpc_progress_chunk(
+                            handle,
+                            elapsed_seconds=int(time.monotonic() - progress_started_at),
+                            sequence=progress_sequence,
+                        )
+                        continue
             except (BrokenPipeError, ConnectionResetError, RuntimeError) as exc:
                 await self._cleanup_handle(handle)
                 yield ProcessChunk(
@@ -328,7 +369,14 @@ class CliRpcSessionRuntime:
         new_handle.stderr_task = asyncio.create_task(self._stderr_loop(new_handle))
         self._handles_by_process[new_handle.process_id] = new_handle
         self._process_by_runtime_key[runtime_key] = new_handle.process_id
-        await self._initialize(new_handle)
+        try:
+            await self._initialize(new_handle)
+        except BaseException:
+            if new_handle.process.returncode is None:
+                await self._terminate_handle(new_handle)
+            else:
+                await self._cleanup_handle(new_handle)
+            raise
         await self._publish_process_started(new_handle, event_bus, recovered=recovered)
         return new_handle, False, recovered
 
@@ -435,14 +483,22 @@ class CliRpcSessionRuntime:
     async def _reader_loop(self, handle: RpcProcessHandle) -> None:
         try:
             while True:
-                message = await self._read_line_message(handle.process.stdout)
+                if handle.protocol == "mcp":
+                    message = await self._read_mcp_message(handle.process.stdout)
+                else:
+                    message = await self._read_line_message(handle.process.stdout)
                 if message is None:
+                    self._fail_pending(handle, RuntimeError("CLI RPC 进程已退出且未返回响应"))
                     break
                 await self._dispatch_message(handle, message)
         except Exception as exc:
-            for future in handle.pending.values():
-                if not future.done():
-                    future.set_exception(RuntimeError(str(exc)))
+            self._fail_pending(handle, RuntimeError(str(exc)))
+
+    @staticmethod
+    def _fail_pending(handle: RpcProcessHandle, exc: Exception) -> None:
+        for future in handle.pending.values():
+            if not future.done():
+                future.set_exception(exc)
 
     async def _dispatch_message(self, handle: RpcProcessHandle, message: dict) -> None:
         if "id" in message and ("result" in message or "error" in message):
@@ -492,10 +548,55 @@ class CliRpcSessionRuntime:
     async def _read_line_message(reader) -> dict | None:
         if reader is None:
             return None
-        line = await reader.readline()
+        line = await CliRpcSessionRuntime._read_rpc_line(reader)
         if not line:
             return None
         return json.loads(line.decode("utf-8", errors="replace"))
+
+    @staticmethod
+    async def _read_mcp_message(reader) -> dict | None:
+        if reader is None:
+            return None
+        first = await CliRpcSessionRuntime._read_rpc_line(reader)
+        if not first:
+            return None
+        # 当前 Codex mcp-server 使用 JSONL；这里同时兼容标准 MCP Content-Length 帧。
+        if first.lstrip().startswith(b"{"):
+            return json.loads(first.decode("utf-8", errors="replace"))
+        headers: dict[str, str] = {}
+        line = first
+        while line not in {b"\r\n", b"\n", b""}:
+            text = line.decode("ascii", errors="replace").strip()
+            if ":" in text:
+                key, value = text.split(":", 1)
+                headers[key.strip().lower()] = value.strip()
+            line = await CliRpcSessionRuntime._read_rpc_line(reader)
+        if not line:
+            return None
+        try:
+            content_length = int(headers.get("content-length") or "0")
+        except ValueError as exc:
+            raise RuntimeError("MCP 响应缺少合法 Content-Length") from exc
+        if content_length <= 0:
+            raise RuntimeError("MCP 响应缺少合法 Content-Length")
+        if content_length > RPC_MAX_FRAME_BYTES:
+            raise RuntimeError("MCP 响应超过最大帧大小")
+        body = await reader.readexactly(content_length)
+        return json.loads(body.decode("utf-8", errors="replace"))
+
+    @staticmethod
+    async def _read_rpc_line(reader, *, max_bytes: int = RPC_MAX_FRAME_BYTES) -> bytes | None:
+        """读取 JSON-RPC 一行，绕过 asyncio.readline 默认 64KiB 限制。"""
+        buffer = bytearray()
+        while True:
+            chunk = await reader.read(1)
+            if not chunk:
+                return bytes(buffer) if buffer else None
+            buffer.extend(chunk)
+            if chunk == b"\n":
+                return bytes(buffer)
+            if len(buffer) > max_bytes:
+                raise RuntimeError("CLI RPC 响应超过最大帧大小")
 
     @staticmethod
     async def _stderr_loop(handle: RpcProcessHandle) -> None:
@@ -523,6 +624,36 @@ class CliRpcSessionRuntime:
             update = params.get("update")
             return [update] if isinstance(update, dict) else []
         return []
+
+    @staticmethod
+    def _rpc_progress_chunk(
+        handle: RpcProcessHandle,
+        *,
+        elapsed_seconds: int,
+        sequence: int,
+    ) -> ProcessChunk:
+        title = "Codex 已接收任务" if sequence == 0 else "Codex 仍在执行"
+        detail = (
+            "Codex MCP 请求已发送，正在等待模型和 CLI 返回执行结果。"
+            if sequence == 0
+            else f"Codex MCP 请求仍在运行，已等待 {elapsed_seconds} 秒。"
+        )
+        return ProcessChunk(
+            handle.process_id,
+            text=json.dumps({
+                "type": "status",
+                "item": {
+                    "type": "status",
+                    "status": "running",
+                    "title": title,
+                    "message": detail,
+                    "elapsedSeconds": elapsed_seconds,
+                    "provider": "Codex",
+                    "sequence": sequence,
+                },
+            }, ensure_ascii=False) + "\n",
+            persistent=True,
+        )
 
     def _events_from_result(
         self,
@@ -661,6 +792,10 @@ def _select_permission_option(options: list) -> str:
 
 def _runtime_key(config: CliRpcSessionConfig) -> str:
     return config.runtime_key or config.session_id
+
+
+def _rpc_progress_events_enabled(handle: RpcProcessHandle) -> bool:
+    return handle.protocol == "mcp" and handle.cli_tool == "codex"
 
 
 def _text_from_mcp_content(content: object) -> str:

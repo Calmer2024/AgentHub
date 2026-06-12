@@ -83,6 +83,8 @@ class CliAgentAdapter:
     close_stdin_after_prompt = False
     expects_json_lines = False
     stdin_mode = "pipe"
+    silence_timeout_seconds: float | None = 300.0
+    heartbeat_interval_seconds: float | None = 30.0
     engine_session_resume_policy = EngineSessionResumePolicy()
     persistent_process_policy = PersistentProcessPolicy()
 
@@ -150,6 +152,8 @@ class CliAgentAdapter:
                 close_stdin_after_prompt=close_stdin,
                 stdin_mode=self.stdin_mode,
                 event_bus=event_bus,
+                silence_timeout_seconds=self.silence_timeout_seconds,
+                heartbeat_interval_seconds=self.heartbeat_interval_seconds,
             ):
                 if chunk.event_type == "started":
                     yield CliEvent(
@@ -191,6 +195,9 @@ class CliAgentAdapter:
                         chunk.process_id,
                         error=chunk.error,
                     )
+                    continue
+                if chunk.event_type == "heartbeat":
+                    yield self._heartbeat_event(chunk.process_id, chunk.text)
                     continue
                 if chunk.event_type == "error":
                     yield CliEvent("error", chunk.process_id, error=chunk.error)
@@ -305,6 +312,8 @@ class CliAgentAdapter:
                 ),
                 prompt=stdin_prompt,
                 event_bus=event_bus,
+                silence_timeout_seconds=self.silence_timeout_seconds,
+                heartbeat_interval_seconds=self.heartbeat_interval_seconds,
                 turn_completed=self.persistent_turn_completed,
             ):
                 if chunk.event_type == "started":
@@ -359,6 +368,13 @@ class CliAgentAdapter:
                         "agent.process.timeout",
                         chunk.process_id,
                         error=chunk.error,
+                        metadata={"persistentProcess": True},
+                    )
+                    continue
+                if chunk.event_type == "heartbeat":
+                    yield self._heartbeat_event(
+                        chunk.process_id,
+                        chunk.text,
                         metadata={"persistentProcess": True},
                     )
                     continue
@@ -672,6 +688,23 @@ class CliAgentAdapter:
             return error_trace(text)
         return generic_progress_trace(text, provider=self.display_name)
 
+    def _heartbeat_event(
+        self,
+        process_id: str,
+        text: str,
+        *,
+        metadata: dict | None = None,
+    ) -> CliEvent:
+        message = text or f"{self.display_name} 仍在运行，等待下一条 CLI 输出。"
+        return CliEvent(
+            "agent.output",
+            process_id,
+            chunk=message,
+            chunk_type="progress",
+            trace=generic_progress_trace(message, provider=self.display_name),
+            metadata={"heartbeat": True, **(metadata or {})},
+        )
+
 
 class ClaudeCodeAdapter(CliAgentAdapter):
     cli_tool = "claude_code"
@@ -859,9 +892,11 @@ class CodexAdapter(CliAgentAdapter):
     display_name = "Codex"
     close_stdin_after_prompt = True
     expects_json_lines = True
+    silence_timeout_seconds = 900.0
+    heartbeat_interval_seconds = 30.0
     persistent_process_policy = PersistentProcessPolicy(
-        supported=True,
-        strategy="codex mcp-server + tools/call codex/codex-reply",
+        supported=False,
+        strategy="codex exec --json streaming; MCP helper is kept as an explicit fallback only",
         input_format="mcp_tools_call",
         output_format="mcp_json_rpc",
         protocol="mcp",
@@ -972,6 +1007,35 @@ class CodexAdapter(CliAgentAdapter):
         if system_prompt.strip():
             return f"{system_prompt.strip()}\n\n{user_prompt.rstrip()}\n"
         return super().build_prompt(system_prompt, user_prompt)
+
+    def prepare_prepared_invocation(
+        self,
+        args: list[str],
+        prompt: str,
+        *,
+        system_prompt: str = "",
+        engine_session_id: str | None = None,
+        engine_session_mode: str = "resume",
+    ) -> tuple[list[str], str, bool]:
+        del system_prompt
+        del engine_session_mode
+        if not engine_session_id:
+            return args, prompt, self.close_stdin_after_prompt
+        executable_index = _codex_executable_index(args)
+        if executable_index is None:
+            return self.prepare_invocation(
+                args,
+                prompt,
+                engine_session_id=engine_session_id,
+            )
+        return (
+            [
+                *args[:executable_index + 1],
+                *_codex_exec_resume_args(args[executable_index + 1:], engine_session_id),
+            ],
+            prompt,
+            self.close_stdin_after_prompt,
+        )
 
     def prepare_invocation(
         self,
@@ -1145,6 +1209,8 @@ class CodexAdapter(CliAgentAdapter):
             return []
         if _looks_like_json_fragment_noise(line):
             return []
+        if _looks_like_fatal_cli_output(line):
+            return [ParsedOutput(line, "error", error_trace(line))]
         return super().parse_raw_line(line)
 
     @staticmethod
@@ -1344,16 +1410,16 @@ class OpenCodeAdapter(CliAgentAdapter):
             if not text:
                 return []
             if session_update == "agent_thought_chunk":
-                return [self.parsed(text, "progress")]
+                return []
             return [self.parsed(text)]
         if session_update == "tool_call":
             trace = opencode_part_trace(data)
             title = first_string(data, ("title", "kind", "status")) or "tool_call"
-            return [ParsedOutput(f"OpenCode 调用工具: {title}", "progress", trace)]
+            return [ParsedOutput(trace_text(trace or {}, f"OpenCode 调用工具: {title}"), "progress", trace)]
         if session_update == "tool_call_update":
             trace = opencode_part_trace(data)
             title = first_string(data, ("title", "status", "kind")) or "tool_call_update"
-            return [ParsedOutput(f"OpenCode 工具更新: {title}", "progress", trace)]
+            return [ParsedOutput(trace_text(trace or {}, f"OpenCode 工具更新: {title}"), "progress", trace)]
         if session_update in {
             "user_message_chunk",
             "available_commands",
@@ -1495,12 +1561,18 @@ def _agent_with_runtime_config(
     args: list[str],
     env_vars: dict[str, str],
 ):
+    payload = {
+        "id": agent.id,
+        "name": agent.name,
+        "executable": agent.executable,
+        "init_args": json.dumps(args, ensure_ascii=False),
+        "env_vars": json.dumps(env_vars, ensure_ascii=False),
+    }
+    for key in ("cli_tool", "prepared_invocation", "close_stdin_after_prompt"):
+        if hasattr(agent, key):
+            payload[key] = getattr(agent, key)
     return SimpleNamespace(
-        id=agent.id,
-        name=agent.name,
-        executable=agent.executable,
-        init_args=json.dumps(args, ensure_ascii=False),
-        env_vars=json.dumps(env_vars, ensure_ascii=False),
+        **payload,
     )
 
 
@@ -2007,7 +2079,10 @@ def _opencode_run_index(args: list[str]) -> int | None:
 
 
 def _looks_like_opencode_executable(value: str) -> bool:
-    normalized = value.replace("\\", "/").rsplit("/", 1)[-1].lower()
+    raw = str(value or "").strip()
+    if not raw or "," in raw or "=" in raw:
+        return False
+    normalized = raw.replace("\\", "/").rsplit("/", 1)[-1].lower()
     return normalized in {"opencode", "opencode.cmd", "opencode.exe"}
 
 
@@ -2134,6 +2209,19 @@ def _is_codex_stderr_noise(line: str) -> bool:
 
 def _looks_like_cli_error(text: str) -> bool:
     return bool(re.search(r"\b(ERROR|Error|error|failed|Failed|exception|traceback|unauthorized|forbidden)\b", text))
+
+
+def _looks_like_fatal_cli_output(text: str) -> bool:
+    clean = str(text or "").strip()
+    if not clean:
+        return False
+    patterns = (
+        r"stream disconnected before completion",
+        r"concurrency limit exceeded",
+        r"separator is not found",
+        r"chunk exceed(?:ed)? the limit",
+    )
+    return any(re.search(pattern, clean, re.I) for pattern in patterns)
 
 
 def _looks_like_json_fragment_noise(line: str) -> bool:

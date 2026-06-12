@@ -7,6 +7,7 @@ import codecs
 import os
 import shutil
 import signal
+import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -99,6 +100,7 @@ class CliProcessManager:
         stdin_mode: str = "pipe",
         event_bus=None,
         silence_timeout_seconds: float = 300,
+        heartbeat_interval_seconds: float | None = None,
     ) -> AsyncIterator[ProcessChunk]:
         workspace = Path(cwd)
         if not workspace.exists() or not workspace.is_dir():
@@ -164,7 +166,10 @@ class CliProcessManager:
                     process.stdin.close()
 
             async for chunk in self._read_until_exit(
-                handle, silence_timeout_seconds, event_bus,
+                handle,
+                silence_timeout_seconds,
+                event_bus,
+                heartbeat_interval_seconds,
             ):
                 yield chunk
         finally:
@@ -222,6 +227,7 @@ class CliProcessManager:
         handle: ManagedCliProcess,
         silence_timeout_seconds: float,
         event_bus,
+        heartbeat_interval_seconds: float | None,
     ) -> AsyncIterator[ProcessChunk]:
         queue: asyncio.Queue[tuple[str, str | None]] = asyncio.Queue()
         pumps = [
@@ -229,14 +235,32 @@ class CliProcessManager:
             asyncio.create_task(self._pump(handle.process.stderr, "stderr", queue)),
         ]
         closed: set[str] = set()
+        last_output_at = time.monotonic()
+        silence_timeout = _positive_seconds(silence_timeout_seconds)
+        heartbeat_interval = _positive_seconds(heartbeat_interval_seconds)
 
         try:
             while len(closed) < 2:
                 try:
+                    wait_timeout = _next_wait_timeout(
+                        last_output_at=last_output_at,
+                        silence_timeout_seconds=silence_timeout,
+                        heartbeat_interval_seconds=heartbeat_interval,
+                    )
                     stream, text = await asyncio.wait_for(
-                        queue.get(), timeout=silence_timeout_seconds,
+                        queue.get(), timeout=wait_timeout,
                     )
                 except TimeoutError:
+                    now = time.monotonic()
+                    silent_for = now - last_output_at
+                    if silence_timeout is None or silent_for < silence_timeout:
+                        yield ProcessChunk(
+                            handle.process_id,
+                            text=_heartbeat_text(silent_for),
+                            stream="system",
+                            event_type="heartbeat",
+                        )
+                        continue
                     await self._publish(event_bus, EventType.AGENT_PROCESS_TIMEOUT, {
                         "sessionId": handle.session_id,
                         "agentId": handle.agent_id,
@@ -253,6 +277,7 @@ class CliProcessManager:
                 if text is None:
                     closed.add(stream)
                     continue
+                last_output_at = time.monotonic()
                 yield ProcessChunk(handle.process_id, text=text, stream=stream)
         finally:
             for task in pumps:
@@ -296,6 +321,38 @@ class CliProcessManager:
 
 
 cli_process_manager = CliProcessManager()
+
+
+def _positive_seconds(value: float | None) -> float | None:
+    if value is None:
+        return None
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError):
+        return None
+    return seconds if seconds > 0 else None
+
+
+def _next_wait_timeout(
+    *,
+    last_output_at: float,
+    silence_timeout_seconds: float | None,
+    heartbeat_interval_seconds: float | None,
+) -> float | None:
+    candidates: list[float] = []
+    if heartbeat_interval_seconds is not None:
+        candidates.append(heartbeat_interval_seconds)
+    if silence_timeout_seconds is not None:
+        remaining = (last_output_at + silence_timeout_seconds) - time.monotonic()
+        candidates.append(max(0.0, remaining))
+    if not candidates:
+        return None
+    return max(0.0, min(candidates))
+
+
+def _heartbeat_text(silent_for: float) -> str:
+    seconds = max(1, int(silent_for))
+    return f"CLI 进程仍在运行，已 {seconds} 秒无新输出。"
 
 
 def _subprocess_not_supported_message() -> str:
