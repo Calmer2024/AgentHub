@@ -25,9 +25,13 @@ import {
   importWorkspaceGithub,
   fetchRuntimeImages,
   fetchRunnerNodes,
+  fetchTeamJoinCode,
+  fetchTeamMembers,
+  joinTeamByCode,
   projectBuildExportUrl,
   projectSourceExportUrl,
   readProjectFile,
+  removeTeamMember,
   restoreArtifactVersion,
   saveArtifactContent,
   startProjectBuild,
@@ -36,6 +40,7 @@ import {
   fetchCliCredentials,
   loginWithEmail,
   saveCliCredential,
+  updateTeamMemberRole,
   writeProjectFile,
 } from "./client";
 
@@ -453,6 +458,32 @@ describe("createChatStream", () => {
     expect(onToken).toHaveBeenCalledWith("OpenCode visible text");
   });
 
+  it("agent.output progress 不再兜底生成 execution trace", async () => {
+    const onTraceDelta = vi.fn();
+    const onProgress = vi.fn();
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(sseResponse([
+      JSON.stringify({
+        type: "agent.output",
+        messageId: "m1",
+        callKey: "agent:m1",
+        processId: "proc-1",
+        chunkType: "progress",
+        chunk: "update",
+      }),
+      JSON.stringify({ token: "", done: true, messageId: "m1" }),
+    ]));
+
+    createChatStream("s1", "hello", [], {
+      onToken: vi.fn(),
+      onDone: vi.fn(),
+      onTraceDelta,
+      onProgress,
+    });
+
+    await vi.waitFor(() => expect(onProgress).toHaveBeenCalledWith("update"));
+    expect(onTraceDelta).not.toHaveBeenCalled();
+  });
+
   it("把原生 engine session resume 显示为恢复会话而不是常驻进程", async () => {
     const onTraceDelta = vi.fn();
     const onProgress = vi.fn();
@@ -501,6 +532,50 @@ describe("artifact APIs", () => {
 
     expect(vi.mocked(globalThis.fetch).mock.calls[0][0]).toBe("/api/sessions/s1/artifacts");
     expect(artifacts[0].version).toBe(2);
+  });
+
+  it("长时间协作后产物列表 401 时刷新登录态并重试", async () => {
+    const currentUser = {
+      id: "u1",
+      email: "prod@example.com",
+      displayName: "Prod User",
+      createdAt: "2026-06-09T12:00:00",
+      status: "active" as const,
+      teams: [],
+      defaultSpace: { kind: "personal" as const, id: "u1", name: "个人空间" },
+    };
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        accessToken: "expired-access",
+        refreshToken: "refresh-1",
+        tokenType: "bearer",
+        expiresAt: "2026-06-09T12:00:00",
+        user: currentUser,
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ detail: "请先登录后继续" }), { status: 401 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        accessToken: "fresh-access",
+        refreshToken: "refresh-2",
+        tokenType: "bearer",
+        expiresAt: "2026-06-09T12:15:00",
+        user: currentUser,
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify([
+        { id: "a1", version: 1 },
+      ]), { status: 200 }));
+
+    await loginWithEmail({ identifier: "prod@example.com", password: "Prod-passw0rd" });
+    const artifacts = await fetchArtifacts("s1");
+
+    expect(artifacts[0].id).toBe("a1");
+    expect(vi.mocked(globalThis.fetch).mock.calls[0][0]).toBe("/api/auth/login");
+    expect(vi.mocked(globalThis.fetch).mock.calls[1][0]).toBe("/api/sessions/s1/artifacts");
+    expect(vi.mocked(globalThis.fetch).mock.calls[2][0]).toBe("/api/auth/refresh");
+    expect(vi.mocked(globalThis.fetch).mock.calls[3][0]).toBe("/api/sessions/s1/artifacts");
+    const firstInit = vi.mocked(globalThis.fetch).mock.calls[1][1] as RequestInit;
+    const retryInit = vi.mocked(globalThis.fetch).mock.calls[3][1] as RequestInit;
+    expect((firstInit.headers as Record<string, string>).Authorization).toBe("Bearer expired-access");
+    expect((retryInit.headers as Record<string, string>).Authorization).toBe("Bearer fresh-access");
   });
 
   it("为项目文件创建本机预览", async () => {
@@ -948,6 +1023,72 @@ describe("phase9 cloud workspace APIs", () => {
       workspaceMode: "cloud",
       teamId: "t1",
     });
+  });
+
+  it("团队成员管理 API 使用真实成员端点和云端登录 header", async () => {
+    configureApiClient({ cloudAuthProvider: createDevCloudAuthProvider() });
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        items: [{
+          id: "tm1",
+          teamId: "t1",
+          userId: "u1",
+          email: "owner@example.com",
+          displayName: "Owner",
+          role: "owner",
+          createdAt: "",
+        }],
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        id: "tm1",
+        teamId: "t1",
+        userId: "u1",
+        email: "owner@example.com",
+        displayName: "Owner",
+        role: "admin",
+        createdAt: "",
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+
+    await fetchTeamMembers("t1");
+    await updateTeamMemberRole("t1", "tm1", "admin");
+    await removeTeamMember("t1", "tm1");
+
+    expect(vi.mocked(globalThis.fetch).mock.calls[0][0]).toBe("/api/teams/t1/members");
+    expect(vi.mocked(globalThis.fetch).mock.calls[1][0]).toBe("/api/teams/t1/members/tm1");
+    expect(vi.mocked(globalThis.fetch).mock.calls[2][0]).toBe("/api/teams/t1/members/tm1");
+    const updateInit = vi.mocked(globalThis.fetch).mock.calls[1][1] as RequestInit;
+    const deleteInit = vi.mocked(globalThis.fetch).mock.calls[2][1] as RequestInit;
+    expect(updateInit.method).toBe("PATCH");
+    expect(deleteInit.method).toBe("DELETE");
+    expect((updateInit.headers as Record<string, string>)["X-AgentHub-User-Email"]).toBe("demo@agenthub.local");
+    expect(JSON.parse(String(updateInit.body))).toMatchObject({ role: "admin" });
+  });
+
+  it("团队加入码 API 使用真实团队端点", async () => {
+    configureApiClient({ cloudAuthProvider: createDevCloudAuthProvider() });
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        teamId: "t1",
+        code: "signed-code",
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        id: "t1",
+        name: "研发团队",
+        role: "member",
+        memberCount: 2,
+        createdAt: "",
+      }), { status: 200 }));
+
+    await fetchTeamJoinCode("t1");
+    await joinTeamByCode("signed-code");
+
+    expect(vi.mocked(globalThis.fetch).mock.calls[0][0]).toBe("/api/teams/t1/join-code");
+    expect(vi.mocked(globalThis.fetch).mock.calls[1][0]).toBe("/api/teams/join-by-code");
+    const joinInit = vi.mocked(globalThis.fetch).mock.calls[1][1] as RequestInit;
+    expect(joinInit.method).toBe("POST");
+    expect((joinInit.headers as Record<string, string>)["X-AgentHub-User-Email"]).toBe("demo@agenthub.local");
+    expect(JSON.parse(String(joinInit.body))).toMatchObject({ code: "signed-code" });
   });
 
   it("读取 workspace、创建快照并排队 GitHub 导入", async () => {

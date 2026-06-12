@@ -9,6 +9,8 @@ interface ThemeState {
 }
 
 const STORAGE_KEY = "agenthub.theme";
+const TRANSITION_CLASS = "agenthub-theme-switching";
+let transitionTimer: number | null = null;
 
 function initialTheme(): ThemeMode {
   if (typeof window === "undefined") return "dark";
@@ -18,7 +20,14 @@ function initialTheme(): ThemeMode {
 
 function applyTheme(theme: ThemeMode) {
   if (typeof document === "undefined") return;
-  document.documentElement.dataset.theme = theme;
+  const root = document.documentElement;
+  root.classList.add(TRANSITION_CLASS);
+  root.dataset.theme = theme;
+  if (transitionTimer !== null) window.clearTimeout(transitionTimer);
+  transitionTimer = window.setTimeout(() => {
+    root.classList.remove(TRANSITION_CLASS);
+    transitionTimer = null;
+  }, 180);
 }
 
 export const useThemeStore = create<ThemeState>((set, get) => {

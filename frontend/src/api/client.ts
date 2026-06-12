@@ -142,6 +142,17 @@ function cloudJsonHeaders(): Record<string, string> {
   return cloudHeaders({ "Content-Type": "application/json" });
 }
 
+async function fetchWithAuthRetry(url: string, initFactory: () => RequestInit): Promise<Response> {
+  const first = await fetch(url, initFactory());
+  if (first.status !== 401 || !activeAuthSession?.refreshToken) return first;
+  try {
+    await refreshAuthSession();
+  } catch {
+    return first;
+  }
+  return fetch(url, initFactory());
+}
+
 async function readApiError(res: Response, fallback: string) {
   try {
     const data = await res.json();
@@ -440,6 +451,22 @@ export async function createTeam(name: string): Promise<Team> {
   return res.json();
 }
 
+export async function fetchTeamJoinCode(teamId: string): Promise<{ teamId: string; code: string }> {
+  const res = await fetch(`${API_BASE}/teams/${teamId}/join-code`, { headers: cloudHeaders() });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to fetch team join code"));
+  return res.json();
+}
+
+export async function joinTeamByCode(code: string): Promise<Team> {
+  const res = await fetch(`${API_BASE}/teams/join-by-code`, {
+    method: "POST",
+    headers: cloudJsonHeaders(),
+    body: JSON.stringify({ code }),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to join team"));
+  return res.json();
+}
+
 export async function addTeamMember(
   teamId: string,
   email: string,
@@ -452,6 +479,35 @@ export async function addTeamMember(
   });
   if (!res.ok) throw new Error(await readApiError(res, "Failed to add team member"));
   return res.json();
+}
+
+export async function fetchTeamMembers(teamId: string): Promise<TeamMember[]> {
+  const res = await fetch(`${API_BASE}/teams/${teamId}/members`, { headers: cloudHeaders() });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to fetch team members"));
+  const data = await res.json() as { items?: TeamMember[] };
+  return Array.isArray(data.items) ? data.items : [];
+}
+
+export async function updateTeamMemberRole(
+  teamId: string,
+  memberId: string,
+  role: TeamRole,
+): Promise<TeamMember> {
+  const res = await fetch(`${API_BASE}/teams/${teamId}/members/${memberId}`, {
+    method: "PATCH",
+    headers: cloudJsonHeaders(),
+    body: JSON.stringify({ role }),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to update team member"));
+  return res.json();
+}
+
+export async function removeTeamMember(teamId: string, memberId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/teams/${teamId}/members/${memberId}`, {
+    method: "DELETE",
+    headers: cloudHeaders(),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to remove team member"));
 }
 
 export async function fetchProjects(): Promise<Project[]> {
@@ -1025,6 +1081,12 @@ export async function fetchSessions(projectId?: string, includeArchived = false)
   return res.json();
 }
 
+export async function fetchSession(sessionId: string): Promise<Session> {
+  const res = await fetch(`${API_BASE}/sessions/${sessionId}`, { headers: cloudHeaders() });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to fetch session"));
+  return res.json();
+}
+
 export async function createGroupSession(
   title: string,
   agentConfigIds: string[],
@@ -1568,34 +1630,6 @@ export function createChatStream(
             }
 
             if (data.type === "agent.output" && data.chunkType === "progress") {
-              const hasStructuredTrace = data.metadata?.trace && typeof data.metadata.trace === "object";
-              if (onTraceDelta && data.messageId && data.callKey && data.chunk && !hasStructuredTrace) {
-                const trace = data.metadata?.trace && typeof data.metadata.trace === "object"
-                  ? data.metadata.trace
-                  : {};
-                onTraceDelta(data.messageId, {
-                  id: `trace-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-                  kind: trace.kind ?? "progress",
-                  text: trace.text ?? data.chunk,
-                  title: trace.title,
-                  detail: trace.detail,
-                  summary: trace.summary,
-                  action: trace.action,
-                  target: trace.target,
-                  command: trace.command,
-                  toolName: trace.toolName,
-                  provider: trace.provider,
-                  level: trace.level,
-                  raw: trace.raw,
-                  source: "cli",
-                  chunkType: data.chunkType,
-                  processId: data.processId ?? null,
-                  timestamp: trace.timestamp ?? chinaNowIso(),
-                }, {
-                  agentName: data.agentName,
-                  processId: data.processId,
-                });
-              }
               if (onProgress && data.chunk) onProgress(data.chunk);
               continue;
             }
@@ -2128,14 +2162,16 @@ function processStartText(agentName: string, data: Record<string, unknown>) {
 }
 
 export async function fetchArtifacts(sessionId: string): Promise<Artifact[]> {
-  const res = await fetch(`${API_BASE}/sessions/${sessionId}/artifacts`, { headers: cloudHeaders() });
-  if (!res.ok) throw new Error("Failed to fetch artifacts");
+  const url = `${API_BASE}/sessions/${sessionId}/artifacts`;
+  const res = await fetchWithAuthRetry(url, () => ({ headers: cloudHeaders() }));
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to fetch artifacts"));
   return res.json();
 }
 
 export async function fetchArtifactVersions(artifactId: string): Promise<ArtifactVersion[]> {
-  const res = await fetch(`${API_BASE}/artifacts/${artifactId}/versions`, { headers: cloudHeaders() });
-  if (!res.ok) throw new Error("Failed to fetch artifact versions");
+  const url = `${API_BASE}/artifacts/${artifactId}/versions`;
+  const res = await fetchWithAuthRetry(url, () => ({ headers: cloudHeaders() }));
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to fetch artifact versions"));
   return res.json();
 }
 
@@ -2148,8 +2184,9 @@ export async function fetchArtifactDiff(
     v1: String(fromVersion),
     v2: String(toVersion),
   });
-  const res = await fetch(`${API_BASE}/artifacts/${artifactId}/diff?${params.toString()}`, { headers: cloudHeaders() });
-  if (!res.ok) throw new Error("Failed to fetch artifact diff");
+  const url = `${API_BASE}/artifacts/${artifactId}/diff?${params.toString()}`;
+  const res = await fetchWithAuthRetry(url, () => ({ headers: cloudHeaders() }));
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to fetch artifact diff"));
   return res.json();
 }
 
@@ -2285,12 +2322,13 @@ export async function saveArtifactContent(
 ): Promise<Artifact> {
   const body: Record<string, unknown> = { content, writeWorkspace: true };
   if (title) body.title = title;
-  const res = await fetch(`${API_BASE}/artifacts/${artifactId}/save`, {
+  const url = `${API_BASE}/artifacts/${artifactId}/save`;
+  const res = await fetchWithAuthRetry(url, () => ({
     method: "POST",
     headers: cloudJsonHeaders(),
     body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error("Failed to save artifact");
+  }));
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to save artifact"));
   return res.json();
 }
 
@@ -2298,12 +2336,13 @@ export async function restoreArtifactVersion(
   artifactId: string,
   version: number,
 ): Promise<Artifact> {
-  const res = await fetch(`${API_BASE}/artifacts/${artifactId}/restore`, {
+  const url = `${API_BASE}/artifacts/${artifactId}/restore`;
+  const res = await fetchWithAuthRetry(url, () => ({
     method: "POST",
     headers: cloudJsonHeaders(),
     body: JSON.stringify({ version, writeWorkspace: true }),
-  });
-  if (!res.ok) throw new Error("Failed to restore artifact version");
+  }));
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to restore artifact version"));
   return res.json();
 }
 
@@ -2311,11 +2350,12 @@ export async function scanMessageArtifacts(
   messageId: string,
   force = true,
 ): Promise<ArtifactScanResult> {
-  const res = await fetch(`${API_BASE}/messages/${messageId}/artifacts/scan`, {
+  const url = `${API_BASE}/messages/${messageId}/artifacts/scan`;
+  const res = await fetchWithAuthRetry(url, () => ({
     method: "POST",
     headers: cloudJsonHeaders(),
     body: JSON.stringify({ force }),
-  });
-  if (!res.ok) throw new Error("Failed to scan message artifacts");
+  }));
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to scan message artifacts"));
   return res.json();
 }
