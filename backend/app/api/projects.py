@@ -1,3 +1,6 @@
+import mimetypes
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
@@ -33,6 +36,7 @@ from ..services.preview_service import PreviewError
 from ..services.schemas import ProjectCreate, ProjectRead, ProjectUpdate
 from ..services.team_service import PermissionDeniedError
 from ..services.auth_service import AuthService
+from ..services.html_preview_assets import inline_local_html_assets
 from ..services.tenant_guard import TenantGuard, tenant_scope_required_for_cloud
 from ..services.workspace_provider import (
     WorkspaceFileTooLargeError,
@@ -150,7 +154,6 @@ async def pick_folder():
     if not path:
         raise HTTPException(status_code=400, detail="folder selection cancelled")
     token = register_folder_grant(path)
-    from pathlib import Path
     folder = Path(path)
     return {
         "workspacePath": str(folder),
@@ -546,7 +549,8 @@ async def serve_preview_asset(
     try:
         await _authorize_project(request, db, project_id, mode="read")
         project = await svc._get_project(project_id)
-        target = svc.provider.safe_resolve(svc._file_workspace_path(project), asset_path or "index.html")
+        workspace_path = svc._file_workspace_path(project)
+        target = svc.provider.safe_resolve(workspace_path, asset_path or "index.html")
     except ProjectNotFoundError:
         raise HTTPException(status_code=404, detail="project not found")
     except WorkspaceSecurityError:
@@ -555,7 +559,42 @@ async def serve_preview_asset(
         raise HTTPException(status_code=403, detail=str(exc))
     if not target.exists() or not target.is_file():
         raise HTTPException(status_code=404, detail="asset not found")
-    return FileResponse(target)
+    media_type = _media_type_for_path(target)
+    if _is_html_preview_media_type(media_type):
+        base_dir = target.parent
+
+        def resolve_local_asset(path: str) -> Path:
+            return svc.provider.safe_resolve(str(base_dir), path)
+
+        html = inline_local_html_assets(
+            target.read_text(encoding="utf-8", errors="replace"),
+            resolve_local_asset,
+        )
+        return Response(
+            content=html,
+            media_type=media_type,
+            headers={"X-Content-Type-Options": "nosniff"},
+        )
+    return FileResponse(
+        target,
+        media_type=media_type,
+        filename=target.name,
+        content_disposition_type="inline",
+        headers={"X-Content-Type-Options": "nosniff"},
+    )
+
+
+def _media_type_for_path(path: Path) -> str:
+    media_type, _ = mimetypes.guess_type(path.name)
+    if path.suffix.lower() == ".js":
+        return "text/javascript"
+    if path.suffix.lower() == ".css":
+        return "text/css"
+    return media_type or "application/octet-stream"
+
+
+def _is_html_preview_media_type(media_type: str | None) -> bool:
+    return bool(media_type and media_type.split(";", 1)[0].strip().lower() == "text/html")
 
 
 def _pick_folder_dialog() -> str | None:

@@ -1,5 +1,8 @@
+import mimetypes
+import re
+from html import escape
 from pathlib import Path
-from typing import List
+from typing import Callable, List
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import FileResponse
@@ -19,6 +22,7 @@ from ..services.artifact_service import (
 )
 from ..services.auth_service import AuthService
 from ..services.cloud_storage import ensure_cloud_workspace
+from ..services.html_preview_assets import inline_local_html_assets
 from ..services.team_service import PermissionDeniedError
 from ..services.tenant_guard import TenantGuard, tenant_scope_required_for_cloud
 from ..services.workspace_provider import LocalWorkspaceProvider, WorkspaceNotFoundError, WorkspaceSecurityError
@@ -71,21 +75,107 @@ def _artifact_svc(db: AsyncSession) -> ArtifactService:
 
 
 def _artifact_file_target(project: Project, file_path: str) -> Path:
-    if project.workspace_mode == "cloud":
-        if not project.workspace_id:
-            raise HTTPException(status_code=409, detail="cloud workspace is not initialized")
-        workspace_path = str(ensure_cloud_workspace(project.workspace_id, {
-            "projectId": project.id,
-            "projectName": project.name,
-        }))
-    else:
-        workspace_path = project.workspace_path
+    workspace_path = _project_workspace_path(project)
     try:
         return LocalWorkspaceProvider().safe_resolve(workspace_path, file_path)
     except WorkspaceSecurityError as exc:
         raise HTTPException(status_code=403, detail="无权访问此路径") from exc
     except WorkspaceNotFoundError as exc:
         raise HTTPException(status_code=404, detail="workspace not found") from exc
+
+
+def _project_workspace_path(project: Project) -> str:
+    if project.workspace_mode == "cloud":
+        if not project.workspace_id:
+            raise HTTPException(status_code=409, detail="cloud workspace is not initialized")
+        return str(ensure_cloud_workspace(project.workspace_id, {
+            "projectId": project.id,
+            "projectName": project.name,
+        }))
+    return project.workspace_path
+
+
+def _artifact_asset_target(project: Project, artifact_file_path: str, asset_path: str) -> Path:
+    clean_asset = asset_path.replace("\\", "/").strip()
+    if not clean_asset or clean_asset.startswith("/") or clean_asset.startswith("~"):
+        raise HTTPException(status_code=403, detail="无权访问此路径")
+    if any(part == ".." for part in clean_asset.split("/")):
+        raise HTTPException(status_code=403, detail="无权访问此路径")
+
+    artifact_rel = Path(artifact_file_path.replace("\\", "/"))
+    artifact_dir = artifact_rel.parent.as_posix()
+    combined = clean_asset if artifact_dir in {"", "."} else f"{artifact_dir}/{clean_asset}"
+    target = _artifact_file_target(project, combined)
+    base_dir = _artifact_file_target(project, artifact_dir if artifact_dir not in {"", "."} else "")
+    if target != base_dir and base_dir not in target.parents:
+        raise HTTPException(status_code=403, detail="无权访问此路径")
+    return target
+
+
+def _html_with_preview_base(content: str, base_href: str) -> str:
+    base_tag = f'<base href="{escape(base_href, quote=True)}">'
+    match = re.search(r"<head\b[^>]*>", content, flags=re.IGNORECASE)
+    if match:
+        insert_at = match.end()
+        return f"{content[:insert_at]}{base_tag}{content[insert_at:]}"
+    return f"{base_tag}{content}"
+
+
+def _media_type_for_path(path: Path) -> str:
+    media_type, _ = mimetypes.guess_type(path.name)
+    if path.suffix.lower() == ".js":
+        return "text/javascript"
+    if path.suffix.lower() == ".css":
+        return "text/css"
+    return media_type or "application/octet-stream"
+
+
+def _content_disposition(disposition: str, filename: str) -> str:
+    safe_filename = filename.replace('"', "")
+    return f'{disposition}; filename="{safe_filename}"'
+
+
+def _is_html_preview_media_type(media_type: str | None) -> bool:
+    return bool(media_type and media_type.split(";", 1)[0].strip().lower() == "text/html")
+
+
+def _artifact_asset_base_url(artifact_id: str) -> str:
+    return f"/api/artifacts/{artifact_id}/assets/"
+
+
+def _file_response_headers(disposition: str, filename: str) -> dict[str, str]:
+    return {
+        "Content-Disposition": _content_disposition(disposition, filename),
+        "X-Content-Type-Options": "nosniff",
+    }
+
+
+def _inline_file_response(
+    target: Path,
+    *,
+    media_type: str,
+    filename: str,
+    disposition: str,
+    artifact_id: str,
+    asset_resolver: Callable[[str], Path] | None = None,
+):
+    headers = _file_response_headers(disposition, filename)
+    if disposition != "attachment" and _is_html_preview_media_type(media_type):
+        html = target.read_text(encoding="utf-8", errors="replace")
+        if asset_resolver:
+            html = inline_local_html_assets(html, asset_resolver)
+        return Response(
+            content=_html_with_preview_base(html, _artifact_asset_base_url(artifact_id)),
+            media_type=media_type,
+            headers=headers,
+        )
+    return FileResponse(
+        target,
+        media_type=media_type,
+        filename=filename,
+        content_disposition_type=disposition,
+        headers={"X-Content-Type-Options": "nosniff"},
+    )
 
 
 class ArtifactRead(BaseModel):
@@ -247,20 +337,58 @@ async def get_artifact_raw(
         if project:
             target = _artifact_file_target(project, artifact.file_path)
             if target.exists() and target.is_file():
-                return FileResponse(
+                return _inline_file_response(
                     target,
                     media_type=preview.media_type or "application/octet-stream",
                     filename=filename,
-                    content_disposition_type=disposition,
+                    disposition=disposition,
+                    artifact_id=artifact.id,
+                    asset_resolver=lambda asset_path: _artifact_asset_target(
+                        project,
+                        artifact.file_path or "",
+                        asset_path,
+                    ),
                 )
 
     headers = {}
     if download:
-        headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+        headers["Content-Disposition"] = _content_disposition("attachment", filename)
+    elif _is_html_preview_media_type(preview.media_type):
+        headers["X-Content-Type-Options"] = "nosniff"
+        return Response(
+            content=_html_with_preview_base(artifact.content, _artifact_asset_base_url(artifact.id)),
+            media_type=preview.media_type or "text/html",
+            headers=headers,
+        )
     return Response(
         content=artifact.content,
         media_type=preview.media_type or "text/plain",
         headers=headers,
+    )
+
+
+@router.get("/artifacts/{artifact_id}/assets/{asset_path:path}")
+async def get_artifact_asset(
+    artifact_id: str,
+    asset_path: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    artifact = await _authorize_artifact(request, db, artifact_id, "read")
+    if not artifact.file_path or not artifact.project_id:
+        raise HTTPException(status_code=404, detail="artifact asset not found")
+    project = await db.get(Project, artifact.project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="project not found")
+    target = _artifact_asset_target(project, artifact.file_path, asset_path)
+    if not target.exists() or not target.is_file():
+        raise HTTPException(status_code=404, detail="artifact asset not found")
+    return FileResponse(
+        target,
+        media_type=_media_type_for_path(target),
+        filename=target.name,
+        content_disposition_type="inline",
+        headers={"X-Content-Type-Options": "nosniff"},
     )
 
 
