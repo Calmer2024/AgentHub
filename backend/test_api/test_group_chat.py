@@ -449,6 +449,91 @@ class TestGroupSession:
         assert metadata["engineSession"]["mode"] == "resume"
         assert metadata["engineSession"]["id"] == calls[0]["engine_session_id"]
 
+    async def test_orchestrator_steward_reuses_engine_session_and_delta_context(
+        self, test_client, test_agent, db_session, monkeypatch,
+    ):
+        """无 @ 管家也要复用底层 CLI 会话，续聊时只发送本轮调度 prompt。"""
+        agent2 = make_test_cli_agent("A2")
+        orchestrator = make_test_cli_agent("Orchestrator 调度器")
+        orchestrator.primary_skill = "orchestrator_planner"
+        orchestrator.context_policy = "planning_only"
+        orchestrator.cli_tool = "claude_code"
+        db_session.add_all([agent2, orchestrator])
+        await db_session.commit()
+
+        calls = []
+
+        async def fake_stream(self, **kwargs):
+            calls.append(kwargs)
+            yield CliEvent(
+                "agent.process.started",
+                "proc-steward",
+                metadata={
+                    "persistentProcess": True,
+                    "reused": len(calls) > 1,
+                    "engineSessionMode": kwargs.get("engine_session_mode"),
+                    "engineSessionId": kwargs.get("engine_session_id"),
+                },
+            )
+            yield CliEvent(
+                "agent.output",
+                "proc-steward",
+                chunk=json.dumps({
+                    "route_type": "context_only",
+                    "reply": "已记录到群聊上下文，我不会启动执行。",
+                    "reason": "用户补充上下文。",
+                    "selected_agent_ids": [],
+                    "task_brief": "记录上下文",
+                    "confidence": 0.9,
+                    "requires_approval": False,
+                    "risk_level": "low",
+                }, ensure_ascii=False),
+                chunk_type="text",
+            )
+            yield CliEvent(
+                "agent.process.turn_completed",
+                "proc-steward",
+                exit_code=0,
+                metadata={"persistentProcess": True},
+            )
+
+        from app.services.cli_agent_service import CliAgentService
+        monkeypatch.setattr(CliAgentService, "stream", fake_stream)
+
+        res = await test_client.post("/api/sessions", json={
+            "mode": "group", "agentConfigIds": [test_agent.id, agent2.id, orchestrator.id],
+        })
+        sid = res.json()["id"]
+
+        await test_client.post(
+            f"/api/sessions/{sid}/chat",
+            json={"content": "FIRST_STEWARD_ONLY：所有文档都用中文。"},
+        )
+        await test_client.post(
+            f"/api/sessions/{sid}/chat",
+            json={"content": "SECOND_STEWARD_ONLY：继续记住移动端优先。"},
+        )
+
+        assert len(calls) == 2
+        assert calls[0]["persistent_process"] is True
+        assert calls[1]["persistent_process"] is True
+        assert calls[0]["engine_session_mode"] == "start"
+        assert calls[0]["engine_session_id"]
+        assert calls[1]["engine_session_mode"] == "resume"
+        assert calls[1]["engine_session_id"] == calls[0]["engine_session_id"]
+        second_payload = "\n".join(message["content"] for message in calls[1]["messages"])
+        assert "SECOND_STEWARD_ONLY" in second_payload
+        assert "FIRST_STEWARD_ONLY" not in second_payload
+
+        engine_rows = (await db_session.execute(
+            select(EngineSession).where(
+                EngineSession.session_id == sid,
+                EngineSession.agent_config_id == orchestrator.id,
+            )
+        )).scalars().all()
+        assert len(engine_rows) == 1
+        assert engine_rows[0].engine_session_id == calls[0]["engine_session_id"]
+
     async def test_group_chat_no_agent_crash(self, test_client, test_agent, db_session):
         """所有 SSE 事件必须是合法 JSON，无 @ 普通消息至少有调度器可见回复。"""
         agent2 = make_test_cli_agent("A2")
@@ -1573,6 +1658,115 @@ class TestGroupSession:
         assert len(task_results) == 1
         metadata = json.loads(task_results[0].metadata_json)
         assert metadata["orchestratorTaskResult"]["taskId"] == "T1"
+
+    async def test_orchestrator_plan_followup_reuses_engine_session_and_delta_context(
+        self, test_client, test_agent, db_session, monkeypatch,
+    ):
+        """@Orchestrator 的 draft/approve 续聊也要使用 CLI 原生会话和增量上下文。"""
+        agent2 = make_test_cli_agent("A2")
+        orchestrator = make_test_cli_agent("Orchestrator 调度器")
+        orchestrator.primary_skill = "orchestrator_planner"
+        orchestrator.context_policy = "planning_only"
+        orchestrator.cli_tool = "claude_code"
+        db_session.add_all([agent2, orchestrator])
+        await db_session.commit()
+
+        planner_calls = []
+        outputs = [
+            {
+                "plan_id": "plan_resume_delta_001",
+                "tasks": [
+                    {
+                        "task_id": "T1",
+                        "title": "实现后端",
+                        "goal": "完成 API",
+                        "required_skills": ["backend"],
+                        "assigned_agent_id": test_agent.id,
+                        "assigned_agent_name": test_agent.name,
+                        "depends_on": [],
+                    }
+                ],
+            },
+            {
+                "action": "approve_plan",
+                "target_plan_id": "plan_resume_delta_001",
+                "reason": "用户明确确认执行",
+            },
+        ]
+
+        async def fake_stream(self, **kwargs):
+            if (kwargs["agent"].primary_skill or "") == "orchestrator_planner":
+                planner_calls.append(kwargs)
+                payload = outputs[len(planner_calls) - 1]
+                yield CliEvent(
+                    "agent.process.started",
+                    "proc-plan",
+                    metadata={
+                        "persistentProcess": True,
+                        "reused": len(planner_calls) > 1,
+                        "engineSessionMode": kwargs.get("engine_session_mode"),
+                        "engineSessionId": kwargs.get("engine_session_id"),
+                    },
+                )
+                yield CliEvent(
+                    "agent.output",
+                    "proc-plan",
+                    chunk=json.dumps(payload, ensure_ascii=False),
+                    chunk_type="text",
+                )
+                yield CliEvent(
+                    "agent.process.turn_completed",
+                    "proc-plan",
+                    exit_code=0,
+                    metadata={"persistentProcess": True},
+                )
+                return
+            yield CliEvent("agent.output", "proc-task", chunk="任务完成。", chunk_type="text")
+            yield CliEvent("agent.process.completed", "proc-task", exit_code=0)
+
+        from app.services.cli_agent_service import CliAgentService
+        monkeypatch.setattr(CliAgentService, "stream", fake_stream)
+
+        res = await test_client.post("/api/sessions", json={
+            "mode": "group", "agentConfigIds": [test_agent.id, agent2.id, orchestrator.id],
+        })
+        sid = res.json()["id"]
+
+        await test_client.post(
+            f"/api/sessions/{sid}/chat",
+            json={
+                "content": "@Orchestrator 调度器 FIRST_PLAN_ONLY 做员工报销系统",
+                "mentions": [orchestrator.id],
+            },
+        )
+        await test_client.post(
+            f"/api/sessions/{sid}/chat",
+            json={
+                "content": "@Orchestrator 调度器 SECOND_PLAN_ONLY 确认，开始执行",
+                "mentions": [orchestrator.id],
+            },
+        )
+
+        assert len(planner_calls) == 2
+        assert planner_calls[0]["persistent_process"] is True
+        assert planner_calls[1]["persistent_process"] is True
+        assert planner_calls[0]["engine_session_mode"] == "start"
+        assert planner_calls[0]["engine_session_id"]
+        assert planner_calls[1]["engine_session_mode"] == "resume"
+        assert planner_calls[1]["engine_session_id"] == planner_calls[0]["engine_session_id"]
+        second_payload = "\n".join(message["content"] for message in planner_calls[1]["messages"])
+        assert "SECOND_PLAN_ONLY" in second_payload
+        assert "上一版 draft plan" in second_payload
+        assert "FIRST_PLAN_ONLY" not in second_payload
+
+        engine_rows = (await db_session.execute(
+            select(EngineSession).where(
+                EngineSession.session_id == sid,
+                EngineSession.agent_config_id == orchestrator.id,
+            )
+        )).scalars().all()
+        assert len(engine_rows) == 1
+        assert engine_rows[0].engine_session_id == planner_calls[0]["engine_session_id"]
 
     async def test_unmentioned_plan_approval_bypasses_steward_and_creates_execution(
         self, test_client, db_session, monkeypatch,

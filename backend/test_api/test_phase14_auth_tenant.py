@@ -277,3 +277,169 @@ async def test_team_viewer_can_read_but_cannot_write_cloud_resources(test_client
         headers=owner_headers,
     )
     assert owner_decision.status_code == 202, owner_decision.text
+
+
+@pytest.mark.asyncio
+async def test_team_member_management_keeps_owner_boundary(test_client, monkeypatch):
+    _enable_saas_production(monkeypatch)
+    owner_headers, _ = await _login(test_client, "team-owner-boundary14@example.com", "Team Owner")
+    admin_headers, _ = await _login(test_client, "team-admin-boundary14@example.com", "Team Admin")
+    member_headers, _ = await _login(test_client, "team-member-boundary14@example.com", "Team Member")
+
+    team = await test_client.post("/api/teams", json={"name": "Phase14 Member Ops"}, headers=owner_headers)
+    assert team.status_code == 201, team.text
+    team_id = team.json()["id"]
+    admin = await test_client.post(
+        f"/api/teams/{team_id}/members",
+        json={"email": "team-admin-boundary14@example.com", "role": "admin"},
+        headers=owner_headers,
+    )
+    assert admin.status_code == 201, admin.text
+    member = await test_client.post(
+        f"/api/teams/{team_id}/members",
+        json={"email": "team-member-boundary14@example.com", "role": "member"},
+        headers=owner_headers,
+    )
+    assert member.status_code == 201, member.text
+
+    listed = await test_client.get(f"/api/teams/{team_id}/members", headers=member_headers)
+    assert listed.status_code == 200, listed.text
+    assert {item["email"] for item in listed.json()["items"]} == {
+        "team-owner-boundary14@example.com",
+        "team-admin-boundary14@example.com",
+        "team-member-boundary14@example.com",
+    }
+
+    admin_grant_owner = await test_client.post(
+        f"/api/teams/{team_id}/members",
+        json={"email": "new-owner-denied14@example.com", "role": "owner"},
+        headers=admin_headers,
+    )
+    assert admin_grant_owner.status_code == 403
+
+    admin_promotes_member = await test_client.patch(
+        f"/api/teams/{team_id}/members/{member.json()['id']}",
+        json={"role": "viewer"},
+        headers=admin_headers,
+    )
+    assert admin_promotes_member.status_code == 200, admin_promotes_member.text
+    assert admin_promotes_member.json()["role"] == "viewer"
+
+    admin_remove_owner = await test_client.delete(
+        f"/api/teams/{team_id}/members/{listed.json()['items'][0]['id']}",
+        headers=admin_headers,
+    )
+    assert admin_remove_owner.status_code == 403
+
+    owner_demote_self = await test_client.patch(
+        f"/api/teams/{team_id}/members/{listed.json()['items'][0]['id']}",
+        json={"role": "admin"},
+        headers=owner_headers,
+    )
+    assert owner_demote_self.status_code == 400
+
+    owner_remove_member = await test_client.delete(
+        f"/api/teams/{team_id}/members/{member.json()['id']}",
+        headers=owner_headers,
+    )
+    assert owner_remove_member.status_code == 200, owner_remove_member.text
+
+
+@pytest.mark.asyncio
+async def test_team_and_project_secret_permissions_return_403(test_client, monkeypatch):
+    _enable_saas_production(monkeypatch)
+    owner_headers, _ = await _login(test_client, "secret-owner14@example.com", "Secret Owner")
+    viewer_headers, _ = await _login(test_client, "secret-viewer14@example.com", "Secret Viewer")
+    outsider_headers, _ = await _login(test_client, "secret-outsider14@example.com", "Secret Outsider")
+
+    team = await test_client.post("/api/teams", json={"name": "Phase14 Secret Team"}, headers=owner_headers)
+    assert team.status_code == 201, team.text
+    team_id = team.json()["id"]
+    viewer = await test_client.post(
+        f"/api/teams/{team_id}/members",
+        json={"email": "secret-viewer14@example.com", "role": "viewer"},
+        headers=owner_headers,
+    )
+    assert viewer.status_code == 201, viewer.text
+    project = await test_client.post(
+        "/api/projects",
+        json={"name": "Secret Team Project", "workspaceMode": "cloud", "teamId": team_id},
+        headers=owner_headers,
+    )
+    assert project.status_code == 201, project.text
+
+    viewer_team_secret = await test_client.post(
+        "/api/secrets",
+        json={"name": "TEAM_TOKEN", "value": "viewer-secret", "scope": "team", "ownerId": team_id},
+        headers=viewer_headers,
+    )
+    assert viewer_team_secret.status_code == 403, viewer_team_secret.text
+
+    viewer_project_secret = await test_client.post(
+        "/api/secrets",
+        json={"name": "PROJECT_TOKEN", "value": "viewer-secret", "scope": "project", "ownerId": project.json()["id"]},
+        headers=viewer_headers,
+    )
+    assert viewer_project_secret.status_code == 403, viewer_project_secret.text
+
+    outsider_project_secret = await test_client.post(
+        "/api/secrets",
+        json={"name": "PROJECT_TOKEN", "value": "outsider-secret", "scope": "project", "ownerId": project.json()["id"]},
+        headers=outsider_headers,
+    )
+    assert outsider_project_secret.status_code == 403, outsider_project_secret.text
+
+    owner_team_secret = await test_client.post(
+        "/api/secrets",
+        json={"name": "TEAM_TOKEN", "value": "owner-secret", "scope": "team", "ownerId": team_id},
+        headers=owner_headers,
+    )
+    assert owner_team_secret.status_code == 201, owner_team_secret.text
+
+
+@pytest.mark.asyncio
+async def test_team_join_code_adds_member_and_exposes_team_projects(test_client, monkeypatch):
+    _enable_saas_production(monkeypatch)
+    owner_headers, _ = await _login(test_client, "join-owner14@example.com", "Join Owner")
+    viewer_headers, _ = await _login(test_client, "join-viewer14@example.com", "Join Viewer")
+    joiner_headers, _ = await _login(test_client, "join-member14@example.com", "Join Member")
+
+    team = await test_client.post("/api/teams", json={"name": "Phase14 Join Team"}, headers=owner_headers)
+    assert team.status_code == 201, team.text
+    team_id = team.json()["id"]
+    viewer = await test_client.post(
+        f"/api/teams/{team_id}/members",
+        json={"email": "join-viewer14@example.com", "role": "viewer"},
+        headers=owner_headers,
+    )
+    assert viewer.status_code == 201, viewer.text
+
+    project = await test_client.post(
+        "/api/projects",
+        json={"name": "Join Team Project", "workspaceMode": "cloud", "teamId": team_id},
+        headers=owner_headers,
+    )
+    assert project.status_code == 201, project.text
+
+    viewer_code = await test_client.get(f"/api/teams/{team_id}/join-code", headers=viewer_headers)
+    assert viewer_code.status_code == 403
+
+    owner_code = await test_client.get(f"/api/teams/{team_id}/join-code", headers=owner_headers)
+    assert owner_code.status_code == 200, owner_code.text
+    code = owner_code.json()["code"]
+
+    joined = await test_client.post("/api/teams/join-by-code", json={"code": code}, headers=joiner_headers)
+    assert joined.status_code == 200, joined.text
+    assert joined.json()["id"] == team_id
+    assert joined.json()["role"] == "member"
+
+    repeated = await test_client.post("/api/teams/join-by-code", json={"code": code}, headers=joiner_headers)
+    assert repeated.status_code == 200, repeated.text
+    assert repeated.json()["id"] == team_id
+
+    projects = await test_client.get("/api/projects", headers=joiner_headers)
+    assert projects.status_code == 200, projects.text
+    assert any(item["id"] == project.json()["id"] for item in projects.json())
+
+    invalid = await test_client.post("/api/teams/join-by-code", json={"code": code[:-3] + "bad"}, headers=joiner_headers)
+    assert invalid.status_code == 400

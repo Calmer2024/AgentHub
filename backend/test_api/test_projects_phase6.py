@@ -195,6 +195,64 @@ class TestProjectRuntimeApi:
         assert resp.status_code == 200
         assert resp.json()["previewUrl"].endswith("/pages/demo.html")
 
+    async def test_static_preview_inlines_local_css_and_js_for_iframe(self, test_client):
+        project = (await test_client.post("/api/projects", json={"name": "preview-inline"})).json()
+        workspace = Path(project["workspacePath"])
+        (workspace / "pages").mkdir()
+        (workspace / "pages" / "demo.html").write_text(
+            (
+                "<!doctype html><html><head>"
+                '<link rel="stylesheet" href="styles.css">'
+                '<script defer src="script.js"></script>'
+                "</head><body><h1>Demo</h1></body></html>"
+            ),
+            encoding="utf-8",
+        )
+        (workspace / "pages" / "styles.css").write_text("body { color: #123456; }", encoding="utf-8")
+        (workspace / "pages" / "script.js").write_text("window.__previewOk = true;", encoding="utf-8")
+
+        created = await test_client.post(
+            f"/api/projects/{project['id']}/preview",
+            json={"type": "static", "filePath": "pages/demo.html"},
+        )
+        preview = await test_client.get(created.json()["previewUrl"])
+
+        assert preview.status_code == 200
+        assert "text/html" in preview.headers["content-type"]
+        assert '<style data-agenthub-inline-asset="styles.css">' in preview.text
+        assert "body { color: #123456; }" in preview.text
+        assert 'data-agenthub-inline-asset="script.js"' in preview.text
+        assert "defer" in preview.text
+        assert "window.__previewOk = true;" in preview.text
+        assert 'href="styles.css"' not in preview.text
+        assert 'src="script.js"' not in preview.text
+
+    async def test_static_preview_supports_cloud_workspace(self, db_session):
+        from app.models import Project
+        from app.services.cloud_storage import ensure_cloud_workspace
+        from app.services.project_service import ProjectService
+
+        workspace_id = "cloud-preview-phase6"
+        workspace = ensure_cloud_workspace(workspace_id, {
+            "projectId": "cloud-preview-project",
+            "projectName": "cloud preview",
+        })
+        (workspace / "index.html").write_text("<html>Cloud</html>", encoding="utf-8")
+        project = Project(
+            id="cloud-preview-project",
+            name="cloud preview",
+            workspace_path="cloud://agenthub/workspaces/cloud-preview-phase6",
+            workspace_mode="cloud",
+            workspace_id=workspace_id,
+            status="ready",
+        )
+        db_session.add(project)
+        await db_session.commit()
+
+        preview = await ProjectService(db_session).create_preview(project.id, "static")
+
+        assert preview["previewUrl"].endswith("/index.html")
+
     async def test_session_cwd_uses_project_workspace(self, test_client, test_agent):
         project = (await test_client.post("/api/projects", json={"name": "cwd"})).json()
         session = await test_client.post("/api/sessions", json={

@@ -13,7 +13,21 @@ class FakeCliAgents:
         return bool(getattr(agent, "supports_persistent", False))
 
 
-def test_local_dev_cloud_runtime_uses_adapter_persistent_policy():
+def test_local_dev_cloud_runtime_uses_adapter_persistent_policy_for_non_codex():
+    agent = SimpleNamespace(
+        cli_tool="claude_code",
+        prepared_invocation=False,
+        supports_persistent=True,
+    )
+
+    assert _cloud_persistent_process_supported(
+        agent,
+        {"provider": "local_dev"},
+        FakeCliAgents(),
+    ) is True
+
+
+def test_cloud_runtime_disables_codex_persistent_rpc_to_preserve_json_streaming():
     agent = SimpleNamespace(
         cli_tool="codex",
         prepared_invocation=False,
@@ -24,7 +38,7 @@ def test_local_dev_cloud_runtime_uses_adapter_persistent_policy():
         agent,
         {"provider": "local_dev"},
         FakeCliAgents(),
-    ) is True
+    ) is False
 
 
 def test_docker_cloud_runtime_keeps_opencode_persistent_wrapper_enabled():
@@ -41,7 +55,7 @@ def test_docker_cloud_runtime_keeps_opencode_persistent_wrapper_enabled():
     ) is True
 
 
-def test_docker_cloud_runtime_enables_codex_mcp_wrapper():
+def test_docker_cloud_runtime_disables_codex_mcp_wrapper():
     agent = SimpleNamespace(
         cli_tool="codex",
         prepared_invocation=True,
@@ -52,7 +66,7 @@ def test_docker_cloud_runtime_enables_codex_mcp_wrapper():
         agent,
         {"provider": "docker"},
         FakeCliAgents(),
-    ) is True
+    ) is False
 
 
 def test_ssh_docker_cloud_runtime_does_not_enable_codex_wrapper():

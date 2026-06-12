@@ -2,10 +2,17 @@ import asyncio
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
-from app.agents.cli_adapters import ClaudeCodeAdapter, CliAgentAdapter, CodexAdapter, OpenCodeAdapter
+from app.agents.cli_adapters import (
+    ClaudeCodeAdapter,
+    CliAgentAdapter,
+    CodexAdapter,
+    OpenCodeAdapter,
+    _agent_with_runtime_config,
+)
 from app.agents.cli_output_parser import CliOutputParser
 from app.agents.cli_rpc_session_runtime import (
     CliRpcSessionConfig,
@@ -286,6 +293,77 @@ def test_codex_invocation_resumes_existing_engine_session():
     assert close_stdin is True
 
 
+def test_codex_prepared_docker_invocation_resumes_inside_container():
+    adapter = CodexAdapter()
+
+    args, stdin_prompt, close_stdin = adapter.prepare_prepared_invocation(
+        [
+            "run",
+            "--rm",
+            "-i",
+            "--name",
+            "agenthub-sbx-run",
+            "--workdir",
+            "/workspace",
+            "agenthub-runtime",
+            "codex",
+            "exec",
+            "--skip-git-repo-check",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "--color",
+            "never",
+            "--json",
+            "-",
+            "-C",
+            "/workspace",
+        ],
+        "hello codex",
+        engine_session_id="codex-session-1",
+    )
+
+    codex_index = args.index("codex")
+    assert args[:codex_index] == [
+        "run",
+        "--rm",
+        "-i",
+        "--name",
+        "agenthub-sbx-run",
+        "--workdir",
+        "/workspace",
+        "agenthub-runtime",
+    ]
+    assert args[codex_index + 1:codex_index + 3] == ["exec", "resume"]
+    assert args[-2:] == ["codex-session-1", "-"]
+    assert "--skip-git-repo-check" in args[codex_index + 1:]
+    assert "--dangerously-bypass-approvals-and-sandbox" in args[codex_index + 1:]
+    assert "--color" not in args[codex_index + 1:]
+    assert "never" not in args[codex_index + 1:]
+    assert "-C" not in args[codex_index + 1:]
+    assert stdin_prompt == "hello codex"
+    assert close_stdin is True
+
+
+def test_codex_runtime_config_preserves_prepared_invocation_flags():
+    agent = SimpleNamespace(
+        id="agent-1",
+        name="Codex",
+        cli_tool="codex",
+        executable="/usr/bin/docker",
+        prepared_invocation=True,
+        close_stdin_after_prompt=True,
+    )
+
+    runtime_agent = _agent_with_runtime_config(
+        agent,
+        ["run", "agenthub-runtime", "codex", "exec", "--json", "-"],
+        {"OPENAI_API_KEY": "test-key"},
+    )
+
+    assert runtime_agent.prepared_invocation is True
+    assert runtime_agent.close_stdin_after_prompt is True
+    assert runtime_agent.cli_tool == "codex"
+
+
 def test_codex_thread_event_captures_engine_session_metadata():
     adapter = CodexAdapter()
 
@@ -471,6 +549,31 @@ def test_opencode_tool_part_has_structured_trace():
     assert parsed[0].trace["target"] == "D:/Files/AI/AgentHub/frontend"
 
 
+def test_opencode_acp_thought_chunk_is_hidden_from_trace():
+    adapter = OpenCodeAdapter()
+    parsed = adapter.parse_json_event({
+        "sessionUpdate": "agent_thought_chunk",
+        "content": {"type": "text", "text": "update the todo and inform the user."},
+    }, seen_text=False)
+
+    assert parsed == []
+
+
+def test_opencode_acp_tool_call_has_structured_trace():
+    adapter = OpenCodeAdapter()
+    parsed = adapter.parse_json_event({
+        "sessionUpdate": "tool_call",
+        "kind": "bash",
+        "title": "bash",
+        "input": {"command": "cat > genshin.html"},
+    }, seen_text=False)
+
+    assert parsed[0].chunk_type == "progress"
+    assert parsed[0].trace["kind"] == "command"
+    assert parsed[0].trace["toolName"] == "bash"
+    assert parsed[0].trace["command"] == "cat > genshin.html"
+
+
 def test_opencode_tool_state_extracts_file_path_and_output():
     adapter = OpenCodeAdapter()
     parsed = adapter.parse_json_event({
@@ -622,6 +725,44 @@ def test_opencode_acp_command_list_update_is_hidden():
     }, seen_text=False)
 
     assert parsed == []
+
+
+def test_codex_fatal_stdout_line_is_error_chunk():
+    adapter = CodexAdapter()
+    parsed = adapter.parse_raw_line(
+        "stream disconnected before completion: Concurrency limit exceeded for account, please retry later"
+    )
+
+    assert parsed[0].chunk_type == "error"
+    assert parsed[0].trace["kind"] == "error"
+
+
+def test_codex_status_event_has_progress_trace():
+    adapter = CodexAdapter()
+    parsed = adapter.parse_json_event({
+        "type": "status",
+        "item": {
+            "type": "status",
+            "status": "running",
+            "title": "Codex 仍在执行",
+            "message": "Codex MCP 请求仍在运行，已等待 20 秒。",
+            "elapsedSeconds": 20,
+        },
+    }, seen_text=False)
+
+    assert parsed[0].chunk_type == "progress"
+    assert parsed[0].trace["kind"] == "progress"
+    assert parsed[0].trace["title"] == "Codex 仍在执行"
+    assert "已等待 20 秒" in parsed[0].trace["detail"]
+
+
+def test_codex_prefers_exec_json_streaming_over_persistent_rpc_by_default():
+    adapter = CodexAdapter()
+
+    assert adapter.supports_persistent_process is False
+    assert adapter.persistent_process_policy.protocol == "mcp"
+    assert adapter.supports_engine_session_resume is True
+    assert "exec --json" in adapter.persistent_process_policy.strategy
 
 
 def test_opencode_renders_latest_user_request_as_direct_message():
@@ -792,6 +933,54 @@ def test_opencode_persistent_rpc_invocation_preserves_docker_wrapper():
     assert "D:/host/workspace" not in args
     assert request.method == "session/prompt"
     assert request.params["prompt"] == [{"type": "text", "text": "hello opencode"}]
+
+
+def test_opencode_persistent_rpc_invocation_ignores_tmp_opencode_mount():
+    adapter = OpenCodeAdapter()
+
+    args, _request = adapter.prepare_persistent_rpc_invocation(
+        [
+            "run",
+            "--rm",
+            "-i",
+            "--workdir",
+            "/workspace",
+            "--mount",
+            "type=bind,source=/srv/workspace,target=/workspace",
+            "--mount",
+            "type=bind,source=/srv/workspace,target=/tmp/opencode",
+            "--env-file",
+            "/tmp/agenthub-runtime-env/run.env",
+            "agenthub-runtime",
+            "opencode",
+            "run",
+            "--pure",
+            "--format",
+            "json",
+        ],
+        "hello opencode\n",
+        cwd="/srv/workspace",
+    )
+
+    assert args == [
+        "run",
+        "--rm",
+        "-i",
+        "--workdir",
+        "/workspace",
+        "--mount",
+        "type=bind,source=/srv/workspace,target=/workspace",
+        "--mount",
+        "type=bind,source=/srv/workspace,target=/tmp/opencode",
+        "--env-file",
+        "/tmp/agenthub-runtime-env/run.env",
+        "agenthub-runtime",
+        "opencode",
+        "acp",
+        "--pure",
+        "--cwd",
+        "/workspace",
+    ]
 
 
 def test_codex_proxy_settings_become_isolated_one_off_config_overrides():
@@ -1077,6 +1266,73 @@ async def test_cli_process_manager_streams_real_subprocess_and_interactive_reply
 
 
 @pytest.mark.asyncio
+async def test_cli_process_manager_emits_heartbeat_without_killing_live_process(tmp_path):
+    script = _write_silent_then_done_script(tmp_path)
+    manager = CliProcessManager()
+    events = []
+
+    async for chunk in manager.stream(
+        session_id="session-heartbeat",
+        agent_id="agent-heartbeat",
+        executable=sys.executable,
+        args=[str(script)],
+        env_vars={},
+        cwd=str(tmp_path),
+        prompt="ignored\n",
+        close_stdin_after_prompt=True,
+        silence_timeout_seconds=0.5,
+        heartbeat_interval_seconds=0.03,
+    ):
+        events.append(chunk)
+
+    assert any(event.event_type == "heartbeat" for event in events)
+    assert not any(event.event_type == "timeout" for event in events)
+    assert "done" in "".join(event.text for event in events if event.text)
+    assert events[-1].event_type == "completed"
+    assert events[-1].exit_code == 0
+
+
+@pytest.mark.asyncio
+async def test_cli_adapter_maps_heartbeat_to_progress_event(tmp_path):
+    script = _write_silent_then_done_script(tmp_path)
+    agent = AgentConfig(
+        id="agent-heartbeat-adapter",
+        name="Heartbeat CLI",
+        description="",
+        system_prompt="",
+        agent_type="cli_wrapper",
+        cli_tool="custom",
+        executable=sys.executable,
+        init_args=f'["{str(script).replace("\\", "\\\\")}"]',
+        env_vars="{}",
+    )
+
+    class FastHeartbeatAdapter(CliAgentAdapter):
+        silence_timeout_seconds = 0.5
+        heartbeat_interval_seconds = 0.03
+
+    events = []
+    async for event in FastHeartbeatAdapter().stream(
+        agent=agent,
+        session_id="session-heartbeat-adapter",
+        cwd=str(tmp_path),
+        user_prompt="ignored\n",
+    ):
+        events.append(event)
+
+    heartbeat_events = [
+        event
+        for event in events
+        if event.type == "agent.output"
+        and event.chunk_type == "progress"
+        and event.metadata
+        and event.metadata.get("heartbeat")
+    ]
+    assert heartbeat_events
+    assert any(event.type == "agent.process.completed" for event in events)
+
+
+@pytest.mark.asyncio
 async def test_custom_cli_adapter_keeps_stdin_for_interactive_reply(tmp_path):
     script = _write_interactive_script(tmp_path)
     agent = AgentConfig(
@@ -1288,6 +1544,61 @@ async def test_rpc_session_runtime_reuses_codex_mcp_server_for_replies(tmp_path)
 
 
 @pytest.mark.asyncio
+async def test_rpc_session_runtime_emits_codex_progress_while_tool_call_is_pending(tmp_path):
+    script = _write_fake_codex_mcp_server(tmp_path)
+    runtime = CliRpcSessionRuntime()
+    chunks = await _collect_rpc_turn(
+        runtime,
+        script,
+        tmp_path,
+        protocol="mcp",
+        session_id="session-rpc-codex-progress",
+        cli_tool="codex",
+        request=_codex_rpc_turn_request("slow progress"),
+        progress_interval_seconds=0.05,
+    )
+
+    try:
+        progress_events = [
+            json.loads(chunk.text)
+            for chunk in chunks
+            if chunk.text and '"type": "status"' in chunk.text
+        ]
+        text = "".join(chunk.text for chunk in chunks if chunk.text)
+
+        assert len(progress_events) >= 2
+        assert progress_events[0]["item"]["title"] == "Codex 已接收任务"
+        assert any(event["item"]["title"] == "Codex 仍在执行" for event in progress_events)
+        assert "mcp:codex:slow progress:thread=thread-1" in text
+        assert chunks[-1].event_type == "turn_completed"
+    finally:
+        await runtime.terminate_session("session-rpc-codex-progress")
+
+
+@pytest.mark.asyncio
+async def test_rpc_session_runtime_codex_progress_does_not_mask_timeout(tmp_path):
+    script = _write_fake_codex_mcp_server(tmp_path)
+    runtime = CliRpcSessionRuntime()
+    chunks = await _collect_rpc_turn(
+        runtime,
+        script,
+        tmp_path,
+        protocol="mcp",
+        session_id="session-rpc-codex-progress-timeout",
+        cli_tool="codex",
+        request=_codex_rpc_turn_request("slow timeout"),
+        progress_interval_seconds=0.02,
+        silence_timeout_seconds=0.08,
+    )
+
+    try:
+        assert any(chunk.text and '"type": "status"' in chunk.text for chunk in chunks)
+        assert chunks[-1].event_type == "timeout"
+    finally:
+        await runtime.terminate_session("session-rpc-codex-progress-timeout")
+
+
+@pytest.mark.asyncio
 async def test_rpc_session_runtime_streams_opencode_acp_updates(tmp_path):
     script = _write_fake_opencode_acp_server(tmp_path)
     runtime = CliRpcSessionRuntime()
@@ -1336,6 +1647,21 @@ def _write_interactive_script(tmp_path: Path) -> Path:
         "sys.stdout.flush()\n"
         "reply = sys.stdin.readline().strip()\n"
         "sys.stdout.write('confirmed\\n' if reply == 'y' else 'denied\\n')\n"
+        "sys.stdout.flush()\n",
+        encoding="utf-8",
+    )
+    return script
+
+
+def _write_silent_then_done_script(tmp_path: Path) -> Path:
+    script = tmp_path / "silent_then_done.py"
+    script.write_text(
+        "import sys, time\n"
+        "sys.stdin.readline()\n"
+        "sys.stdout.write('start\\n')\n"
+        "sys.stdout.flush()\n"
+        "time.sleep(0.12)\n"
+        "sys.stdout.write('done\\n')\n"
         "sys.stdout.flush()\n",
         encoding="utf-8",
     )
@@ -1408,6 +1734,8 @@ async def _collect_rpc_turn(
     session_id: str,
     cli_tool: str,
     request: CliRpcTurnRequest,
+    progress_interval_seconds: float | None = None,
+    silence_timeout_seconds: float = 5,
 ):
     events = []
     async for chunk in runtime.stream_turn(
@@ -1422,10 +1750,77 @@ async def _collect_rpc_turn(
             cli_tool=cli_tool,
         ),
         request=request,
-        silence_timeout_seconds=5,
+        silence_timeout_seconds=silence_timeout_seconds,
+        progress_interval_seconds=progress_interval_seconds,
     ):
         events.append(chunk)
     return events
+
+
+@pytest.mark.asyncio
+async def test_rpc_session_runtime_reads_codex_mcp_jsonl_message():
+    reader = asyncio.StreamReader()
+    reader.feed_data(b'{"jsonrpc":"2.0","id":"1","result":{"ok":true}}\n')
+    reader.feed_eof()
+
+    message = await CliRpcSessionRuntime._read_mcp_message(reader)
+
+    assert message == {"jsonrpc": "2.0", "id": "1", "result": {"ok": True}}
+
+
+@pytest.mark.asyncio
+async def test_rpc_session_runtime_reads_large_codex_mcp_jsonl_message():
+    reader = asyncio.StreamReader()
+    large_text = "鸣潮" * 40_000
+    payload = json.dumps(
+        {"jsonrpc": "2.0", "id": "large", "result": {"content": large_text}},
+        ensure_ascii=False,
+    ).encode("utf-8") + b"\n"
+    reader.feed_data(payload)
+    reader.feed_eof()
+
+    message = await CliRpcSessionRuntime._read_mcp_message(reader)
+
+    assert message["id"] == "large"
+    assert message["result"]["content"] == large_text
+
+
+@pytest.mark.asyncio
+async def test_rpc_session_runtime_reads_mcp_content_length_message():
+    reader = asyncio.StreamReader()
+    raw = b'{"jsonrpc":"2.0","id":"2","result":{"ok":true}}'
+    reader.feed_data(f"Content-Length: {len(raw)}\r\n\r\n".encode("ascii") + raw)
+    reader.feed_eof()
+
+    message = await CliRpcSessionRuntime._read_mcp_message(reader)
+
+    assert message == {"jsonrpc": "2.0", "id": "2", "result": {"ok": True}}
+
+
+@pytest.mark.asyncio
+async def test_rpc_session_runtime_fails_pending_call_when_process_exits(tmp_path):
+    script = tmp_path / "exit_rpc.py"
+    script.write_text("import sys\nsys.exit(0)\n", encoding="utf-8")
+    runtime = CliRpcSessionRuntime()
+
+    with pytest.raises(RuntimeError, match="未返回响应"):
+        async for _chunk in runtime.stream_turn(
+            config=CliRpcSessionConfig(
+                session_id="session-rpc-exit",
+                agent_id="agent-rpc-exit",
+                executable=sys.executable,
+                args=[str(script)],
+                env_vars={},
+                cwd=str(tmp_path),
+                protocol="mcp",
+                cli_tool="codex",
+            ),
+            request=_codex_rpc_turn_request("hello"),
+            silence_timeout_seconds=5,
+        ):
+            pass
+
+    assert runtime.active_snapshots("session-rpc-exit") == []
 
 
 def _codex_rpc_turn_request(prompt: str) -> CliRpcTurnRequest:
@@ -1457,15 +1852,34 @@ def _opencode_rpc_turn_request(prompt: str) -> CliRpcTurnRequest:
 def _write_fake_codex_mcp_server(tmp_path: Path) -> Path:
     script = tmp_path / "fake_codex_mcp.py"
     script.write_text(
-        "import json, sys\n"
+        "import json, sys, time\n"
         "thread_id = 'thread-1'\n"
+        "def read_message():\n"
+        "    first = sys.stdin.buffer.readline()\n"
+        "    if not first:\n"
+        "        return None\n"
+        "    if first.lstrip().startswith(b'{'):\n"
+        "        return json.loads(first.decode('utf-8'))\n"
+        "    headers = {}\n"
+        "    line = first\n"
+        "    while line not in (b'\\r\\n', b'\\n', b''):\n"
+        "        text = line.decode('ascii', errors='replace').strip()\n"
+        "        if ':' in text:\n"
+        "            key, value = text.split(':', 1)\n"
+        "            headers[key.strip().lower()] = value.strip()\n"
+        "        line = sys.stdin.buffer.readline()\n"
+        "    length = int(headers.get('content-length') or '0')\n"
+        "    if length <= 0:\n"
+        "        raise RuntimeError('missing content length')\n"
+        "    return json.loads(sys.stdin.buffer.read(length).decode('utf-8'))\n"
         "def write_message(message):\n"
-        "    sys.stdout.write(json.dumps(message, ensure_ascii=False) + '\\n')\n"
-        "    sys.stdout.flush()\n"
-        "for line in sys.stdin:\n"
-        "    if not line.strip():\n"
-        "        continue\n"
-        "    message = json.loads(line)\n"
+        "    raw = json.dumps(message, ensure_ascii=False).encode('utf-8')\n"
+        "    sys.stdout.buffer.write(f'Content-Length: {len(raw)}\\r\\n\\r\\n'.encode('ascii') + raw)\n"
+        "    sys.stdout.buffer.flush()\n"
+        "while True:\n"
+        "    message = read_message()\n"
+        "    if message is None:\n"
+        "        break\n"
         "    if 'id' not in message:\n"
         "        continue\n"
         "    method = message.get('method')\n"
@@ -1477,6 +1891,8 @@ def _write_fake_codex_mcp_server(tmp_path: Path) -> Path:
         "        name = params.get('name') or 'codex'\n"
         "        args = params.get('arguments') or {}\n"
         "        prompt = args.get('prompt') or ''\n"
+        "        if str(prompt).startswith('slow'):\n"
+        "            time.sleep(0.16)\n"
         "        current_thread = args.get('threadId') or thread_id\n"
         "        content = f'mcp:{name}:{prompt}:thread={current_thread}'\n"
         "        write_message({'jsonrpc': '2.0', 'id': message['id'], 'result': {'structuredContent': {'threadId': current_thread, 'content': content}, 'content': [{'type': 'text', 'text': content}]}})\n"

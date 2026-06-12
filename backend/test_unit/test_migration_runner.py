@@ -124,6 +124,14 @@ class TestMigrationRunner:
         ))
         assert result.fetchone() is not None
 
+        result = await conn.execute(text("PRAGMA table_info('runtime_runs')"))
+        columns = {row[1] for row in result.fetchall()}
+        assert "actor_user_id" in columns
+
+        result = await conn.execute(text("PRAGMA table_info('sandboxes')"))
+        columns = {row[1] for row in result.fetchall()}
+        assert "actor_user_id" in columns
+
     async def test_fts_virtual_table_created(self, conn):
         from migrations.migration_runner import run
         await run(conn)

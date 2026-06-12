@@ -6,8 +6,10 @@ import uuid
 from pathlib import Path
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import select
 
+from app.api.artifacts import _artifact_asset_target
 from app.models import AgentConfig, Artifact, Message, Project, Session, SessionMember
 from app.services.artifact_output_bridge import ArtifactOutputBridge
 from app.services.file_change_detector import FileChangeDetector
@@ -50,21 +52,31 @@ class TestArtifactOutputBridgePhase6:
         assert second.skipped[0]["reason"] == "duplicate"
 
     async def test_workspace_html_snapshot_creates_web_preview(
-        self, db_session, test_session,
+        self, test_client, db_session, test_session,
     ):
         session = await db_session.get(Session, test_session)
         project = await db_session.get(Project, session.project_id)
         detector = FileChangeDetector()
         snapshot = detector.create_snapshot(project.workspace_path, "before")
-        Path(project.workspace_path, "index.html").write_text(
-            "<!doctype html><html><body><h1>Hello</h1></body></html>",
+        site_dir = Path(project.workspace_path, "site")
+        site_dir.mkdir(parents=True, exist_ok=True)
+        Path(site_dir, "index.html").write_text(
+            (
+                "<!doctype html><html><head>"
+                '<link rel="stylesheet" href="styles.css">'
+                '<script defer src="script.js"></script>'
+                "</head><body><h1>Hello</h1></body></html>"
+            ),
             encoding="utf-8",
         )
+        Path(site_dir, "styles.css").write_text("body { color: #123456; }", encoding="utf-8")
+        Path(site_dir, "script.js").write_text("window.__artifactPreviewOk = true;", encoding="utf-8")
+        Path(project.workspace_path, "secret.css").write_text("body { color: red; }", encoding="utf-8")
         message = Message(
             id=str(uuid.uuid4()),
             session_id=test_session,
             role="assistant",
-            content="已写入 index.html",
+            content="已写入 site/index.html",
             source_type="agent",
         )
         db_session.add(message)
@@ -81,8 +93,51 @@ class TestArtifactOutputBridgePhase6:
         assert len(result.created) >= 1
         html = next(item for item in result.created if item.type == "web_preview")
         assert html.project_id == project.id
-        assert html.file_path == "index.html"
+        assert html.file_path == "site/index.html"
         assert "Hello" in html.content
+
+        raw = await test_client.get(f"/api/artifacts/{html.id}/raw")
+        assert raw.status_code == 200
+        assert f'<base href="/api/artifacts/{html.id}/assets/">' in raw.text
+        assert '<style data-agenthub-inline-asset="styles.css">' in raw.text
+        assert "body { color: #123456; }" in raw.text
+        assert 'data-agenthub-inline-asset="script.js"' in raw.text
+        assert "defer" in raw.text
+        assert "window.__artifactPreviewOk = true;" in raw.text
+        css = await test_client.get(f"/api/artifacts/{html.id}/assets/styles.css")
+        js = await test_client.get(f"/api/artifacts/{html.id}/assets/script.js")
+        assert css.status_code == 200
+        assert css.text == "body { color: #123456; }"
+        assert js.status_code == 200
+        assert "artifactPreviewOk" in js.text
+        with pytest.raises(HTTPException) as exc_info:
+            _artifact_asset_target(project, html.file_path, "../secret.css")
+        assert exc_info.value.status_code == 403
+
+    async def test_tmp_opencode_hint_maps_to_workspace_file(
+        self, db_session, test_session,
+    ):
+        session = await db_session.get(Session, test_session)
+        project = await db_session.get(Project, session.project_id)
+        Path(project.workspace_path, "genshin.html").write_text(
+            "<!doctype html><html><body><h1>Genshin</h1></body></html>",
+            encoding="utf-8",
+        )
+        message = Message(
+            id=str(uuid.uuid4()),
+            session_id=test_session,
+            role="assistant",
+            content="原神主题网页已生成：/tmp/opencode/genshin.html",
+            source_type="agent",
+        )
+        db_session.add(message)
+        await db_session.commit()
+
+        result = await ArtifactOutputBridge(db_session).scan_message(message.id, force=True)
+
+        html = next(item for item in result.created if item.type == "web_preview")
+        assert html.file_path == "genshin.html"
+        assert "Genshin" in html.content
 
     async def test_workspace_markdown_and_image_snapshot_create_previewable_documents(
         self, test_client, db_session, test_session,

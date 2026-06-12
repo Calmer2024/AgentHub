@@ -178,7 +178,7 @@ async def test_cloud_regenerate_reuses_runtime_and_replaces_assistant_message(te
     assert refreshed.status_code == 200, refreshed.text
     body = refreshed.json()
     assert body["content"] == "phase15 cloud ok"
-    assert body["metadata"]["runStatus"] == "running"
+    assert body["metadata"]["runStatus"] == "completed"
     assert body["metadata"]["versions"][-1]["reason"] == "regenerate"
     assert body["metadata"]["cloudRuntime"]["provider"] == "local_dev"
 
@@ -499,6 +499,7 @@ async def test_docker_runner_wraps_cli_with_limits_and_secret_env(monkeypatch, t
     assert args[args.index("--memory") + 1] == "256m"
     assert args[args.index("--cpus") + 1] == "0.5"
     assert args[args.index("--workdir") + 1] == "/workspace"
+    assert any(str(item).endswith(",target=/tmp/opencode") for item in args)
     assert args[-3:] == ["python:3.12-slim", "claude", "-p"]
     assert "--env-file" in args
     env_file = Path(args[args.index("--env-file") + 1])
@@ -587,5 +588,6 @@ async def test_ssh_docker_runner_keeps_password_and_secrets_out_of_argv(monkeypa
     assert config["password"] == "remote-password"
     assert config["envVars"]["PHASE15_TOKEN"] == "super-secret"
     assert "--env-file" in config["dockerArgs"]
+    assert any(str(item).endswith(",target=/tmp/opencode") for item in config["dockerArgs"])
     assert "super-secret" not in json.dumps(config["dockerArgs"], ensure_ascii=False)
     assert spec.metadata["remoteWorkspacePath"].startswith("cloud-volume://agenthub/ssh_docker/")
