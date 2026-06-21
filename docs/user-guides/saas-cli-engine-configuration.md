@@ -291,4 +291,4 @@ OpenCode 适合使用 OpenCode CLI 以及各种 OpenAI 兼容或自定义 Provid
 
 ## 本地桌面版说明
 
-本手册只覆盖 SaaS Web 的云端 Engine 凭据。桌面版使用用户本机 CLI 和本机环境变量，配置方式不同，见 [Phase 6 CLI Adapter 使用指南](../deliverables/phase6-cli-adapter/usage-guide.md)。
+本手册只覆盖 SaaS Web 的云端 Engine 凭据。桌面版使用用户本机 CLI 和本机环境变量，配置方式不同，见 [Phase 6 CLI Adapter 使用指南](../archive/phases/deliverables/phase6-cli-adapter/usage-guide.md)。

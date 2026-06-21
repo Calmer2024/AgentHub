@@ -15,7 +15,7 @@ IM 式聊天平台，用户可与 AI Agent（Claude Code、Codex、OpenCode 等�
 | **CLAUDE.md** | 中文 | AI Agent 行为规则 |
 | **CONTEXT.md** | 中文 | 领域知识 + 文档索引 |
 | **ADR** (架构决策记录) | 中文 | 架构决策及原因 |
-| **Spec** (功能规格) | 中文 | 各 Phase 的功能规格与验收标准 |
+| **Spec** (功能规格) | 中文 | 已归档 Phase 的功能规格与验收标准 |
 | **PRD** (产品需求文档) | 中文 | 产品需求 |
 | **Dev Log** (开发日志) | 中文 | 开发时间线与教训 |
 | **Skill** (技能文件) | 中文 | 可复用的 AI 工作流 |
@@ -100,7 +100,7 @@ IM 式聊天平台，用户可与 AI Agent（Claude Code、Codex、OpenCode 等�
 
 项目文档遵循**渐进式披露**策略：
 
-1. **按细节深度分层，不是按主题**。入口文档（CLAUDE.md、CONTEXT.md）提供概览并往下链接。ADR 解释决策。Spec 定义精确需求。Dev Log 记录历史。
+1. **按细节深度分层，不是按主题**。入口文档（CLAUDE.md、CONTEXT.md）提供概览并往下链接。ADR 解释决策。归档 Spec 定义历史阶段需求。Dev Log 记录历史。
 2. **概括，不复制**。下游文档可概括上游概念并链接，但绝不复制全文。一个事实一个权威源。
 3. **交叉引用，不重复声明**。若规则/决策已在其他文档中存在，链接过去而非重述。
 4. **先索引，后细节**。每个文档目录都有索引，读者无需通读全文就能找到所需内容。
@@ -111,11 +111,11 @@ IM 式聊天平台，用户可与 AI Agent（Claude Code、Codex、OpenCode 等�
 
 ## 禁止事项
 
-- 构建"以后可能用到"的抽象 — 只构建当前 Phase 需要的。
+- 构建"以后可能用到"的抽象 — 只构建当前真实需求需要的。
 - 在定义接口契约前写实现代码。
 - 结束增量时没有可演示的前端。
 - 跳过验收标准就标记 Phase 完成。
-- 添加当前 Spec 范围之外的功能。
+- 添加当前需求、PRD/ADR 或用户明确授权范围之外的功能。
 - 需要真实服务验收的改动，却只跑单元测试或临时 ASGI 客户端就声称完成。
 - **执行任何 Git 操作（add/commit/push）前，必须先获得用户明确的"人工验收"确认。** 任何自动化开发、审查或发布流程都不能替代人工验收；必须等待用户说"人工验收认可"/"验收通过"/"批准提交"等确认口令。未获确认前，Git 操作等同于 Spec 之外的功能——禁止执行。
 
@@ -131,24 +131,24 @@ Debug 不是"让 bug 消失"，而是"让系统更正确"：
 4. **影响面判断** — 一个 bug 修复后，先判断相关联模块是否受影响；小问题跑直接相关测试，高风险或跨模块改动再扩大测试范围。
 5. **安全性** — 不为了"快速修复"而降级 API Key 校验、跳过输入验证、暴露错误详情给前端。
 6. **字段命名一致性** — 前后端字段名必须严格一致。后端 Pydantic 模型必须用 `Field(alias="camelCase")` + `populate_by_name=True` 统一输出 camelCase。
-7. **风险分级回归** — 小修只要求相关单元/API/组件测试与必要的类型检查；大型 Phase、跨模块架构改动、Auth/租户/Secret/运行时/部署等高风险改动，才要求 `pytest test_api/` + `npx vitest run` + `npx tsc --noEmit` 等完整回归组合。
+7. **风险分级回归** — 小修只要求相关单元/API/组件测试与必要的类型检查；大型 Phase、跨模块架构改动、Auth/租户/Secret/运行时/部署等高风险改动，才要求 `cd backend && python -m pytest -q` + `cd frontend && npm test` + `cd frontend && npx tsc --noEmit` 等完整回归组合。
 8. **主动发现问题** — 用户的验收反馈是片面的，不应只修复用户提出的问题。必须从用户反馈延申出去，主动审查相关功能是否存在同类设计缺陷、UI/UX 问题、边界条件遗漏。从"这段代码还能怎么出问题"的角度思考，而不是"用户说了什么我就修什么"。
 
 ---
 
 ## AI 协作体系
 
-当前协作体系：Rules（始终生效）→ Spec/PRD/ADR（按问题域加载）→ 直接真实验证与修复闭环。项目已进入产品优化结尾状态，不再使用早期开发阶段的标准化 Skill 流程作为工作入口。
+当前协作体系：Rules（始终生效）→ PRD/ADR（按问题域加载，必要时查阅归档 Spec）→ 直接真实验证与修复闭环。项目已进入产品优化结尾状态，不再使用早期开发阶段的标准化 Skill 流程作为工作入口。
 
 | 层 | 文件位置 | 生效时机 | 用途 |
 |----|---------|---------|------|
-| **Rules** | `CLAUDE.md`、`.trae/rules/project_rules.md` | 每次 AI 对话 | 技术栈锁定、架构约束、代码规则、禁止事项 |
-| **Spec** | `docs/specs/phaseN/` | 按功能开发 | 定义要构建什么、输入输出、行为、验收标准、非目标 |
-| **Skill** | `.agents/skills/*.md`（`.claude/skills/` 保留镜像） | 仅按用户明确要求或非退役场景使用 | 辅助专项工作；不得覆盖本文件规则 |
+| **Rules** | `CLAUDE.md`、`CONTEXT.md` | 每次 AI 对话 | 技术栈锁定、架构约束、代码规则、禁止事项 |
+| **归档 Spec** | `docs/archive/phases/specs/phaseN/` | 历史追溯或问题域参考 | 定义已完成阶段曾经要构建什么、输入输出、行为、验收标准、非目标 |
+| **Skill** | 早期开发阶段 Skill 已清理；历史可从 Git 追溯 | 仅按用户明确要求或非退役场景使用 | 辅助专项工作；不得覆盖本文件规则 |
 
 ### 退役的开发阶段 Skill
 
-以下 AgentHub 早期开发阶段 Skill 已停用，只保留历史文件供追溯，不得在后续产品优化、真实服务验证、修复或收尾工作中调用：
+以下 AgentHub 早期开发阶段 Skill 已停用并从当前工作流清理，只在 Git 历史中追溯，不得在后续产品优化、真实服务验证、修复或收尾工作中调用：
 
 - `agenthub-module-dev`
 - `agenthub-code-review`
@@ -159,7 +159,7 @@ Debug 不是"让 bug 消失"，而是"让系统更正确"：
 
 ## 阶段感知
 
-当前处于 **产品优化结尾状态（Phase 15-16 SaaS 生产化收口后半段）**。Phase 9-12 已在 P1 本地版基线上递增出 P2 SaaS cloud workspace、sandbox runtime、cloud preview/deployment、协作通知、移动端审批预览、附件和高级 Artifact 的最小可运行切片；Phase 13 已把本地版、SaaS 版和移动端拆成独立 shell、独立构建命令、独立能力矩阵和独立验收闭环；Phase 14 已完成生产 Auth、跨端登录态、TenantScope、RBAC 与 cloud 资源租户隔离收口。Phase 15-16 的工作重点是围绕真实云 sandbox/runtime、真实一键部署 provider 和用户可感知缺陷做实测、修复、打磨与稳定化。后续不得再按早期开发阶段 Skill 流程推进，不得让本地版依赖云端登录/团队，也不得让移动端承载本机 CLI 或完整桌面工作区设置。
+当前处于 **产品优化结尾状态**。Phase 1-16 已完成并归档；Phase 9-16 已完成 P2 SaaS cloud workspace、sandbox runtime、cloud preview/deployment、协作通知、移动端审批预览、附件和高级 Artifact、三端产品壳、生产 Auth、租户隔离、真实云 sandbox/runtime 与真实一键部署 provider 的收口。后续不得再按早期开发阶段 Skill 流程推进，不得让本地版依赖云端登录/团队，也不得让移动端承载本机 CLI 或完整桌面工作区设置。
 
 完整 Phase 状态表见 [CONTEXT.md §开发阶段](CONTEXT.md)。
 
@@ -170,6 +170,6 @@ Debug 不是"让 bug 消失"，而是"让系统更正确"：
 | **P1（当前）** | **桌面版**：桌面端（Tauri/Node.js）= 本地无头服务器 + 本地特权执行引擎；Web 端（浏览器）= 主力 UI | 浏览器 → localhost 后端 → 本机文件系统 + 本机 CLI Agent | ❌ |
 | **P2（云端协作切片已启动，产品壳已拆分）** | **SaaS 云版**：Web 浏览器 + 云端后端 + 云端容器沙箱 | 浏览器 → 云端后端 → 云端沙箱 + 云端 CLI Agent → 云端 URL | ✅ |
 
-**Project-first 工作流**：用户必须先创建 Project，然后在 Project 下创建私聊或群聊。P1 本地 Project 使用新建空白 workspace 目录或系统原生目录选择器绑定已有目录，Project 内所有本地 Agent 共享 `Project.workspace_path` 作为 `cwd`；P2 云端 Project 使用 `workspaceId` 和 `cloud://agenthub/workspaces/{id}` 逻辑 URI，前端不应看到服务器或用户本机物理路径，云端 runner 将其映射到隔离 cloud workspace 目录。Project 不再暴露“静态网页 / Vite React / 已有项目”等用户可选属性。详见 [ADR-0009](docs/adr/0009-project-workspace-model.md)、[Phase 9 Spec](docs/specs/phase9/README.md)、[Phase 10 Spec](docs/specs/phase10/README.md) 与 [Phase 13 Spec](docs/specs/phase13/README.md)。
+**Project-first 工作流**：用户必须先创建 Project，然后在 Project 下创建私聊或群聊。P1 本地 Project 使用新建空白 workspace 目录或系统原生目录选择器绑定已有目录，Project 内所有本地 Agent 共享 `Project.workspace_path` 作为 `cwd`；P2 云端 Project 使用 `workspaceId` 和 `cloud://agenthub/workspaces/{id}` 逻辑 URI，前端不应看到服务器或用户本机物理路径，云端 runner 将其映射到隔离 cloud workspace 目录。Project 不再暴露“静态网页 / Vite React / 已有项目”等用户可选属性。详见 [ADR-0009](docs/adr/0009-project-workspace-model.md)；Phase 9/10/13 的实现规格已归档到 [docs/archive/phases/specs/](docs/archive/phases/specs/)。
 
 > 完整的 P1/P2 定义、Workspace 位置、运行环境、安全边界见 [CONTEXT.md §产品交付阶段](CONTEXT.md)。

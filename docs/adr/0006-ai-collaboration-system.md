@@ -3,7 +3,7 @@
 **Date**: 2026-05-26
 **Status**: Accepted（历史决策；开发阶段 Skill 层已部分退役）
 
-> **2026-06-11 当前状态说明**：项目已进入产品优化结尾状态。Rules 与 Spec/PRD/ADR 仍是当前协作基座；`agenthub-module-dev`、`agenthub-code-review`、`agenthub-phase-wrapup`、`agenthub-qa-audit` 四个早期开发阶段 Skill 不再作为活动流程入口，只保留历史文件供追溯。
+> **2026-06-20 当前状态说明**：项目已进入产品优化结尾状态。Rules 与 Spec/PRD/ADR 仍是当前协作基座；`agenthub-module-dev`、`agenthub-code-review`、`agenthub-phase-wrapup`、`agenthub-qa-audit` 四个早期开发阶段 Skill 不再作为活动流程入口，并已从当前工作区清理，只在 Git 历史中追溯。
 
 ## Context
 
@@ -17,17 +17,17 @@
 ┌──────────────────────────────────────────────┐
 │              Skill 层（能力复用）              │
 │  可重复调用的 AI 工作流，一键执行常见任务       │
-│  文件位置: .claude/skills/*.md                │
-│  触发方式: /skill-name 或自然语言匹配           │
+│  文件位置: Git 历史中的 .agents/skills/         │
+│  触发方式: 历史流程，不再作为当前入口             │
 ├──────────────────────────────────────────────┤
 │              Spec 层（规格定义）               │
 │  每个功能模块的"完工标准"，AI 和人共同遵守      │
-│  文件位置: docs/specs/{module}-spec.md         │
+│  文件位置: docs/archive/phases/specs/{module}-spec.md         │
 │  触发方式: 开发前要求 AI 阅读对应 Spec          │
 ├──────────────────────────────────────────────┤
 │              Rules 层（全局约束）              │
 │  AI 在整个项目中必须遵守的底线规则             │
-│  文件位置: CLAUDE.md + .trae/rules/            │
+│  文件位置: CLAUDE.md + CONTEXT.md              │
 │  触发方式: 自动加载，每次对话生效              │
 └──────────────────────────────────────────────┘
 ```
@@ -39,7 +39,7 @@
 | 文件 | 作用 | 加载时机 |
 |------|------|---------|
 | `CLAUDE.md` | 项目级 AI 行为指南：架构约束、技术栈、禁止事项、代码风格 | Claude Code 每次对话自动加载 |
-| `.trae/rules/project_rules.md` | 开发铁律：避免臃肿文件、提交规范、注释语言 | Trae IDE 每次对话自动加载 |
+| `CONTEXT.md` | 项目全局上下文：领域术语、架构总览、Phase 状态、文档索引 | 新成员和 AI 进入项目时先读取 |
 
 Rules 的内容类型：
 - **技术栈锁定**：只能用 React+Vite / FastAPI+SQLAlchemy / SQLite
@@ -51,8 +51,8 @@ Rules 的内容类型：
 
 | 文件 | 作用 | 何时创建 |
 |------|------|---------|
-| `docs/specs/SPEC_TEMPLATE.md` | 功能规格模板：统一格式，所有模块 Spec 照此填写 | Phase 0 创建 |
-| `docs/specs/{module}-spec.md` | 每个功能模块的详细规格 | 每个增量开始前 |
+| `docs/archive/phases/specs/SPEC_TEMPLATE.md` | 功能规格模板：统一格式，所有模块 Spec 照此填写 | Phase 0 创建 |
+| `docs/archive/phases/specs/{module}-spec.md` | 每个功能模块的详细规格 | 每个增量开始前 |
 
 Spec 必须包含的章节：
 1. **目标**：这个模块要解决什么问题（1-2 句话）
@@ -77,7 +77,7 @@ Skill 的本质是**把重复的 AI 协作模式封装成可复用的 Prompt 模
 ### 沉淀的演示逻辑（答辩时）
 
 ```
-1. Rules 层 → 展示 CLAUDE.md + project_rules.md，说明"这是 AI 在项目里的宪法"
+1. Rules 层 → 展示 CLAUDE.md + CONTEXT.md，说明"这是 AI 在项目里的宪法"
 2. Spec 层 → 展示 SPEC_TEMPLATE + 至少 2 个已完成的模块 Spec，
    说明"每个功能开发前，人和 AI 先就这份 Spec 达成一致"
 3. Skill 层 → 展示自定义 Skill 文件 + 使用记录，

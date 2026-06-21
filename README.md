@@ -16,7 +16,6 @@ AgentHub 是一个以 IM 聊天为核心交互范式的多 Agent 协作平台。
 | 产品设计文档 | [docs/submission/01-产品设计文档.md](docs/submission/01-产品设计文档.md) |
 | 技术设计文档 | [docs/submission/02-技术设计文档.md](docs/submission/02-技术设计文档.md) |
 | AI 协作开发记录 | [docs/submission/03-AI协作开发记录.md](docs/submission/03-AI协作开发记录.md) |
-| 项目全景 | [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) |
 | 全局上下文与文档索引 | [CONTEXT.md](CONTEXT.md) |
 | 文档中心 | [docs/README.md](docs/README.md) |
 | 课题原始要求 | [docs/archive/AgentHub-多Agent协作平台设计.md](docs/archive/AgentHub-多Agent协作平台设计.md) |
@@ -33,7 +32,7 @@ AgentHub 是一个以 IM 聊天为核心交互范式的多 Agent 协作平台。
 | 桌面端 | Tauri 桌面壳，一键启动本地后端和前端，管理本机 CLI 进程生命周期。 |
 | SaaS 云端 | 云端 workspace、团队、仓库导入、快照恢复、云端 runtime、预览和部署链接。 |
 | 移动端 | 轻量查看、审批、产物预览的产品壳和能力矩阵。 |
-| AI 协作沉淀 | Rules、PRD、ADR、Spec、Skill、Dev Log、阶段交付快照和测试协议。 |
+| AI 协作沉淀 | Rules、PRD、ADR、阶段归档、历史 Skill、Dev Log 和测试协议。 |
 
 ## 4. Demo 路线
 
@@ -54,10 +53,10 @@ AgentHub 是一个以 IM 聊天为核心交互范式的多 Agent 协作平台。
 
 ### 4.3 AI 协作开发记录
 
-1. 展示 `AGENTS.md` / `CLAUDE.md` 项目规则。
-2. 展示 `docs/specs/` 阶段规格与验收标准。
-3. 展示 `.agents/skills/` 可复用 AI 工作流。
-4. 展示 `docs/dev-logs/` 阶段开发记录。
+1. 展示 `CLAUDE.md` / `CONTEXT.md` 项目规则。
+2. 展示 `docs/archive/phases/` 中的阶段规格与验收记录归档。
+3. 展示早期 Skill 在 Git 历史中的演进和退役记录。
+4. 展示 `docs/archive/phases/dev-logs/` 阶段开发记录。
 
 ## 5. 运行方式
 
@@ -118,12 +117,9 @@ AgentHub/
 ├── frontend/             # React + TypeScript + Vite 前端
 ├── desktop/              # Tauri 本地桌面端
 ├── mobile/               # Capacitor 移动端产品壳
-├── docs/                 # PRD、ADR、Spec、交付快照、开发日志、测试协议
-├── .agents/skills/       # AI 协作 Skill
-├── AGENTS.md             # AI Agent 行为规则
-├── CLAUDE.md             # Claude Code 规则镜像
-├── CONTEXT.md            # 全局上下文和文档索引
-└── PROJECT_OVERVIEW.md   # 项目全景说明
+├── docs/                 # PRD、ADR、用户手册、测试协议、归档文档
+├── CLAUDE.md             # AI Agent 行为规则
+└── CONTEXT.md            # 全局上下文和文档索引
 ```
 
 ## 7. 技术架构
@@ -162,8 +158,8 @@ SQLite / Cloud Workspace Metadata
 | 主 Agent 协调器 | Orchestrator、DAG、调度状态、人机确认。 | `docs/adr/0007-orchestrator-architecture.md` |
 | 多 Agent 接入 | Claude Code、Codex、OpenCode CLI Adapter。 | `docs/PRD/01-Architecture_Adapter.md` |
 | 产物预览与编辑 | Artifact 卡片、预览、编辑、Diff、版本。 | `docs/adr/0010-message-level-artifact-experience.md` |
-| 部署发布 | SaaS 云端 deployment、访问链接。 | `docs/specs/phase11/README.md` |
-| 多端支持 | Local Desktop、SaaS Web、Mobile。 | `docs/specs/phase13/README.md` |
+| 部署发布 | SaaS 云端 deployment、访问链接。 | `docs/archive/phases/specs/phase11/README.md` |
+| 多端支持 | Local Desktop、SaaS Web、Mobile。 | `docs/archive/phases/specs/phase13/README.md` |
 | AI 协作能力 | Rules、Spec、Skill、Dev Log。 | `docs/submission/03-AI协作开发记录.md` |
 
 ## 9. 测试
@@ -172,7 +168,7 @@ SQLite / Cloud Workspace Metadata
 
 ```powershell
 cd backend
-.\.venv\Scripts\python.exe -m pytest test_unit test_api -q
+.\.venv\Scripts\python.exe -m pytest -q
 ```
 
 前端：
@@ -180,7 +176,7 @@ cd backend
 ```powershell
 cd frontend
 npx tsc --noEmit
-npx vitest run
+npm test
 ```
 
 桌面端：
@@ -202,6 +198,7 @@ npm run build
 | 完整文档索引 | [CONTEXT.md](CONTEXT.md) |
 | PRD | [docs/PRD/](docs/PRD/) |
 | ADR | [docs/adr/](docs/adr/) |
-| Spec | [docs/specs/](docs/specs/) |
-| 阶段交付快照 | [docs/deliverables/](docs/deliverables/) |
-| 开发日志 | [docs/dev-logs/](docs/dev-logs/) |
+| Phase 归档 | [docs/archive/phases/](docs/archive/phases/) |
+| 规格归档 | [docs/archive/phases/specs/](docs/archive/phases/specs/) |
+| 阶段交付快照归档 | [docs/archive/phases/deliverables/](docs/archive/phases/deliverables/) |
+| 开发日志归档 | [docs/archive/phases/dev-logs/](docs/archive/phases/dev-logs/) |

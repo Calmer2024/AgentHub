@@ -2,7 +2,7 @@
 
 **版本**: v2.6
 **创建日期**: 2026-05-26
-**最后更新**: 2026-06-10
+**最后更新**: 2026-06-20
 **适用范围**: AgentHub 所有开发阶段
 
 ---
@@ -55,13 +55,13 @@
 目标：确认模块能加载，基本导入链未断。
 
 ```python
-# backend/test_smoke.py — 每个 Phase 必须存在
+# test/backend/test_smoke.py — 后端冒烟入口
 # 验证所有新模块能成功 import，无 TypeError/NameError
 ```
 
 ```typescript
-// frontend/src/__tests__/smoke.test.ts — 每个 Phase 必须存在
-// 验证所有新组件能成功渲染，无运行时错误
+// test/frontend/**/*.test.ts(x) — 前端关键组件、store、hook、API 客户端测试
+// 验证新增用户路径的核心渲染和状态转换，无运行时错误
 ```
 
 ### 2.2 API 测试 —— 每个端点 + 每个模式变体必须覆盖
@@ -148,7 +148,7 @@ test("user can create session and send a message", async ({ page }) => {
 ### 3.1 后端
 
 ```python
-# backend/conftest.py — 在所有 app 模块导入前设置环境变量
+# test/backend/conftest.py — 在所有 app 模块导入前设置环境变量
 os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{temp_db_path}"
 os.environ.setdefault("DEEPSEEK_API_KEY", "sk-test-dummy-key-...")  # 虚拟 key
 ```
@@ -166,7 +166,8 @@ os.environ.setdefault("DEEPSEEK_API_KEY", "sk-test-dummy-key-...")  # 虚拟 key
 test: {
   environment: "jsdom",
   globals: true,
-  setupFiles: ["./src/test-setup.ts"],
+  setupFiles: ["../test/frontend/setup.ts"],
+  include: ["../test/frontend/**/*.{test,spec}.{ts,tsx}"],
 }
 ```
 
@@ -207,8 +208,9 @@ Phase 完成前:
 完整回归组合只用于大型 Phase、发布候选和高风险跨模块改动，默认包括：
 
 ```bash
-pytest test_api/ -q
-npx vitest run
+cd backend && python -m pytest -q
+cd frontend && npm test
+cd frontend && npx tsc --noEmit
 npx tsc --noEmit
 ```
 
@@ -249,17 +251,18 @@ P2 阶段的测试报告必须明确写出：本轮验证的 P1 local 基线路�
 每个 Phase 新建 Spec 时，应同步创建对应的测试计划：
 
 ```
-docs/testing/phase{N}-test-plan.md    ← 本 Phase 的具体测试用例清单（Phase 1 起创建，Phase 2 测试覆盖记录见 phase2-dev-log.md）
-backend/test_smoke.py                  ← 更新，添加新模块的导入检查
-backend/test_api/                      ← API 测试，按模块分文件
+docs/testing/phase{N}-test-plan.md    ← 历史 Phase 测试计划归档入口；新优化任务优先更新当前测试目录
+test/backend/test_smoke.py             ← 更新，添加新模块的导入检查
+test/backend/api/                      ← API 测试，按模块分文件
   test_sessions.py
   test_chat.py
-frontend/src/__tests__/               ← 前端测试，按组件分文件
-  smoke.test.ts
-  ChatInput.test.tsx
-  ChatWindow.test.tsx
-e2e/                                   ← E2E 测试（从 Phase 2 开始强制）
-  phase{N}-happy-path.spec.ts
+test/backend/unit/                     ← 后端单元测试
+test/backend/real/                     ← 真实 CLI/真实服务按需验收脚本
+test/frontend/                         ← 前端测试，按领域和组件分文件
+  components/
+  stores/
+  api/
+  hooks/
 ```
 
 ---
@@ -314,7 +317,7 @@ vi.mock("../api/client", () => ({
 本次修复的 SSE JSON 非法格式问题：
 
 ```python
-# backend/test_api/test_chat.py — 回归测试
+# test/backend/api/test_chat.py — 回归测试
 import json
 
 @pytest.mark.asyncio
@@ -337,8 +340,8 @@ async def test_sse_events_are_valid_json(client, db_session):
 
 ### 通用
 
-- [ ] `backend/test_smoke.py` 通过（含本 Phase 新增的所有模块）
-- [ ] `frontend/src/__tests__/smoke.test.ts` 通过
+- [ ] `test/backend/test_smoke.py` 通过（含本轮新增的所有模块）
+- [ ] `test/frontend/` 中相关前端测试通过
 - [ ] 本 Phase 所有 API 端点有至少 1 个 happy path 测试
 - [ ] **本 Phase 所有 API 端点的每个模式变体（single/group、不同 role 等）都有独立测试覆盖**
 - [ ] 本 Phase 所有 API 端点的异常分支（400/404/500）有覆盖

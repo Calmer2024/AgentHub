@@ -224,7 +224,7 @@ body {
 .agenthub-shell {
   background: var(--ah-app-wash);
   color: var(--ah-text);
-  transition: background 160ms ease, color 160ms ease;
+  transition: background 120ms ease, color 120ms ease;
   gap: 10px;
   padding: 10px;
   overflow-x: hidden;
@@ -265,10 +265,9 @@ body {
   box-shadow: var(--ah-shadow);
   color: var(--ah-text);
   transition:
-    background 160ms ease,
-    border-color 160ms ease,
-    box-shadow 160ms ease,
-    color 160ms ease;
+    background 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease;
 }
 
 @media (min-width: 1024px) {
@@ -323,7 +322,7 @@ body {
 .agenthub-message-area {
   overflow-x: hidden;
   background: var(--ah-chat-bg);
-  transition: background 160ms ease, color 160ms ease;
+  transition: background 120ms ease, color 120ms ease;
 }
 
 @media (max-width: 1023px) {
@@ -371,16 +370,23 @@ body {
   box-shadow: 0 16px 38px rgb(24 34 50 / 0.12);
   backdrop-filter: blur(18px) saturate(135%);
   transition:
-    background 160ms ease,
-    border-color 160ms ease,
-    box-shadow 160ms ease,
-    color 160ms ease;
+    background 110ms ease,
+    border-color 110ms ease,
+    color 110ms ease;
 }
 
-.agenthub-theme-switching,
-.agenthub-theme-switching * {
-  transition-duration: 160ms !important;
-  transition-timing-function: ease !important;
+.agenthub-theme-switching .agenthub-shell,
+.agenthub-theme-switching .agenthub-left-cluster,
+.agenthub-theme-switching .agenthub-rail,
+.agenthub-theme-switching .agenthub-sidebar,
+.agenthub-theme-switching .agenthub-chat,
+.agenthub-theme-switching .agenthub-header,
+.agenthub-theme-switching .agenthub-message-area,
+.agenthub-theme-switching .agenthub-composer,
+.agenthub-theme-switching .agenthub-chat-composer,
+.agenthub-theme-switching .agenthub-session-nest {
+  transition-duration: 120ms;
+  transition-timing-function: ease;
 }
 
 .agenthub-card {

@@ -10,13 +10,13 @@
 
 | 顺序 | 文档 | 用途 |
 |------|------|------|
-| 1 | [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) | **新成员首选** — 项目是什么、技术栈、目录结构 |
+| 1 | [README.md](README.md) | **新成员首选** — 项目是什么、运行方式、交付入口 |
 | 2 | [CONTEXT.md](CONTEXT.md)（本文件） | 领域术语、架构总览、Phase 状态、完整文档索引 |
 | 3 | [CLAUDE.md](CLAUDE.md) | AI Agent 行为规则：架构约束、代码规则、禁止事项、Debug 守则 |
 | 4 | [AgentHub-多Agent协作平台设计](docs/archive/AgentHub-多Agent协作平台设计.md) | 核心启动需求源 — IM、多 Agent 协作、Artifact、预览/编辑/部署、多端协作 |
 | 5 | [docs/PRD/](docs/PRD/) | 产品需求拆解文档（8 篇）— 北极星指标、CLI 适配器、Orchestrator、UX 设计、数据契约、端到端闭环、MVP/SaaS Workspace |
 | 6 | [docs/adr/](docs/adr/) | 架构决策记录 — 关键决策及原因 |
-| 7 | [docs/specs/](docs/specs/) | 功能规格 — 各 Phase 的具体功能定义与验收标准（Phase 1-16） |
+| 7 | [docs/archive/phases/](docs/archive/phases/) | Phase 归档 — 已完成 Phase 的规格、交付快照、开发日志与审计记录 |
 | 8 | [docs/user-guides/](docs/user-guides/) | 用户手册 — 面向最终用户的配置与使用说明 |
 
 ---
@@ -79,7 +79,7 @@
 
 ## 开发阶段
 
-当前项目已进入**产品优化结尾状态**：Phase 1-14 的主要功能板块已完成，Phase 15-16 聚焦 SaaS 生产化最后收口、真实运行环境验证、用户可感知缺陷修复和稳定性打磨。早期用于模块开发、代码审查、阶段收尾和 QA 审计的 AgentHub 开发阶段 Skill 已退役，后续工作以 Rules、Spec/PRD/ADR、真实服务验证和人工验收为准。
+当前项目处于**产品优化结尾状态**：Phase 1-16 已完成并归档，后续聚焦真实运行环境验证、用户可感知缺陷修复和稳定性打磨。早期用于模块开发、代码审查、阶段收尾和 QA 审计的 AgentHub 开发阶段 Skill 已退役，后续工作以 Rules、PRD/ADR、必要时查阅归档 Spec、真实服务验证和人工验收为准。
 
 ### Phase 总览
 
@@ -100,8 +100,8 @@
 | **Phase 12** | 协作、多端与高级 Artifact | ✅ | 团队评论/通知、移动端审批预览、附件/图片输入、Artifact 引用、Git sync、对话式 Agent 创建已完成 |
 | **Phase 13** | 多端产品壳拆分 | ✅ | Local Desktop、SaaS Web、Mobile 三端 shell、构建命令、能力矩阵、Tauri/Capacitor skeleton 和真实服务验收闭环已完成 |
 | **Phase 14** | 生产 Auth 与租户隔离收口 | ✅ | 已将开发态请求头 auth 收口为生产登录、跨端用户、TenantScope、RBAC 和所有 cloud 资源租户过滤 |
-| **Phase 15** | 真实云 Sandbox Runtime | 优化收口 | 将 Phase 10 的本机模拟 cloud runtime 替换为真实容器/K8s/microVM runner、隔离卷、资源限制和运行清理 |
-| **Phase 16** | 真实一键部署 Provider | 优化收口 | 将 Phase 11 的 preview/deployment 占位链路替换为真实 HTTPS 发布、provider、release、回滚和移动端审批 |
+| **Phase 15** | 真实云 Sandbox Runtime | ✅ | 真实容器/K8s/microVM runner、隔离卷、资源限制、运行清理和云端 runtime 验证已完成 |
+| **Phase 16** | 真实一键部署 Provider | ✅ | 真实 HTTPS 发布、provider、release、回滚和移动端审批链路已完成 |
 
 Phase 4-16 采用**功能板块制**：每板块独立完整交付。板块间按用户可感知价值排序。详见 [ADR-0008](docs/adr/0008-revised-development-strategy.md)。
 
@@ -110,11 +110,11 @@ Phase 4-16 采用**功能板块制**：每板块独立完整交付。板块间�
 | 优先级 | 产品形态 | 工作区位置 | Agent CLI 运行位置 | 部署 |
 |--------|---------|-----------|-------------------|------|
 | **P1（当前）** | **桌面版** — Web UI + 本地无头服务器（Tauri/Node.js 进程作为本地特权执行引擎） | 本机文件系统 | 用户主机 | ❌ 不支持一键部署 |
-| **P2（云端协作切片已启动，生产化规划中）** | **SaaS 云版** — Web UI + 云端后端 + 云端沙箱 | 云端隔离沙箱 | 云端容器 | 目标支持；生产级由 Phase 16 收口 |
+| **P2（云端协作切片已完成，生产化收口已归档）** | **SaaS 云版** — Web UI + 云端后端 + 云端沙箱 | 云端隔离沙箱 | 云端容器 | ✅ 已支持；Phase 16 资料已归档 |
 
 **P1 数据流**：`用户浏览器 → localhost 后端 → 本机文件系统 + 本机 CLI Agent 进程`
 
-**P2 数据流**：`用户浏览器 → 云端后端 → 云端沙箱 + 云端 CLI Agent 进程 → 真实一键部署（Phase 16 生产化）`
+**P2 数据流**：`用户浏览器 → 云端后端 → 云端沙箱 + 云端 CLI Agent 进程 → 真实一键部署`
 
 桌面版（P1）的核心特征：Web 端是主力 UI，所有 API 调用指向本地桌面端后端；桌面端是"特权层"——拥有文件系统访问权、能 spawn CLI 进程。数据和 Agent 执行都在本机闭环。
 
@@ -176,50 +176,38 @@ PRD 系列与早期核心设计文档共同构成需求权威。早期设计定�
 | ADR-0010 | [0010-message-level-artifact-experience.md](docs/adr/0010-message-level-artifact-experience.md) | 消息级 Artifact 体验取代 P1 右侧 Drawer |
 | ADR-0011 | [0011-agent-engine-skill-model.md](docs/adr/0011-agent-engine-skill-model.md) | **🆕** Agent Profile = System Prompt + Rules + Toolset + Context Policy + Runtime Config + Engine；调度器作为特殊 Agent |
 
-### Specs — 功能规格（按 Phase）
+### Phase 归档 — 已完成阶段资料
 
-| Phase | 目录 | 核心文档 |
-|-------|------|---------|
-| Phase 1 | [specs/phase1/](docs/specs/phase1/) | [01-skeleton-spec.md](docs/specs/phase1/01-skeleton-spec.md) |
-| Phase 2 | [specs/phase2/](docs/specs/phase2/) | [01-core-features-spec.md](docs/specs/phase2/01-core-features-spec.md) |
-| Phase 3 | [specs/phase3/](docs/specs/phase3/) | [README](docs/specs/phase3/README.md) + [Orchestrator 文档集](docs/specs/phase3/02-orchestrator/README.md)，含 [真实 Agent 执行复盘](docs/specs/phase3/02-orchestrator/10-real-agent-execution/README.md) 与 [群聊调度器管家路由](docs/specs/phase3/02-orchestrator/11-group-chat-steward-routing.md) |
-| Phase 4 | [specs/phase4/](docs/specs/phase4/) | [README](docs/specs/phase4/README.md) + 消息操作 + 搜索 |
-| Phase 5 | [specs/phase5/](docs/specs/phase5/) | [README](docs/specs/phase5/README.md) + [版本/Diff](docs/specs/phase5/01-artifact-versioning.md) + [在线编辑](docs/specs/phase5/02-artifact-editing.md) |
-| Phase 6 | [specs/phase6/](docs/specs/phase6/) | [README](docs/specs/phase6/README.md) + [Workspace Runtime](docs/specs/phase6/00-workspace-runtime.md) + [CLI 适配器](docs/specs/phase6/01-cli-adapter.md) + [产物桥接](docs/specs/phase6/02-artifact-output-bridge.md) + [Agent Profile](docs/specs/phase6/03-agent-engine-skill-profile.md) |
-| Phase 7 | [specs/phase7/](docs/specs/phase7/) | [README](docs/specs/phase7/README.md) + [运行控制交付快照](docs/deliverables/phase7-runtime-control/README.md) + [IM 加固交付快照](docs/deliverables/phase7-im-hardening/README.md) + [上下文包与缓存策略](docs/specs/phase7/05-context-pack-and-cache-strategy.md) + [CLI Session Process Runtime](docs/specs/phase7/06-cli-session-process-runtime.md) + [群聊人机协作控制权诊断](docs/specs/phase7/07-group-chat-human-control-diagnosis.md) + 运行可控性 + 审批 + 环境体检 + IM 体验 + 演示加固 |
-| Phase 8 | [specs/phase8/](docs/specs/phase8/) | [README](docs/specs/phase8/README.md) + P1 发布候选收口 |
-| Phase 9 | [specs/phase9/](docs/specs/phase9/) | [README](docs/specs/phase9/README.md) + [Cloud Workspace 交付快照](docs/deliverables/phase9-cloud-workspace/README.md) |
-| Phase 10 | [specs/phase10/](docs/specs/phase10/) | [README](docs/specs/phase10/README.md) + [Cloud Runtime 交付快照](docs/deliverables/phase10-cloud-runtime/README.md) |
-| Phase 11 | [specs/phase11/](docs/specs/phase11/) | [README](docs/specs/phase11/README.md) + Cloud Preview 与 Deployment |
-| Phase 12 | [specs/phase12/](docs/specs/phase12/) | [README](docs/specs/phase12/README.md) + 协作、多端与高级 Artifact |
-| Phase 13 | [specs/phase13/](docs/specs/phase13/) | [README](docs/specs/phase13/README.md) + [多端产品壳交付快照](docs/deliverables/phase13-product-shells/README.md) |
-| Phase 14 | [specs/phase14/](docs/specs/phase14/) | [README](docs/specs/phase14/README.md) + 生产 Auth 与租户隔离收口 |
-| Phase 15 | [specs/phase15/](docs/specs/phase15/) | [README](docs/specs/phase15/README.md) + 真实云 Sandbox Runtime |
-| Phase 16 | [specs/phase16/](docs/specs/phase16/) | [README](docs/specs/phase16/README.md) + 真实一键部署 Provider |
-| 模板 | [SPEC_TEMPLATE.md](docs/specs/SPEC_TEMPLATE.md) | 新建模块 Spec 的标准模板 |
-| 历史 | [specs/planning/](docs/specs/planning/) | 旧规划文档（参考） |
+所有 Phase 文档已归档到 `docs/archive/phases/`。这些资料用于追溯历史设计、验收标准、交付快照和开发过程，不再作为活跃开发入口。
 
-### 审计与日志
+| 类别 | 目录 | 内容 |
+|------|------|------|
+| 规格归档 | [docs/archive/phases/specs/](docs/archive/phases/specs/) | Phase 1-16 规格、验收标准和历史 planning 文档 |
+| 交付快照归档 | [docs/archive/phases/deliverables/](docs/archive/phases/deliverables/) | 阶段实现快照、验收记录、交接文档 |
+| 开发日志归档 | [docs/archive/phases/dev-logs/](docs/archive/phases/dev-logs/) | Phase 开发时间线、问题、修复和经验沉淀 |
+| 审计归档 | [docs/archive/phases/audit/](docs/archive/phases/audit/) | 阶段审计和 PRD/Spec 覆盖审计 |
+
+### 测试、审计与历史日志
 
 | 文档 | 内容 |
 |------|------|
-| [Phase 3 审计报告](docs/audit/phase3-audit-report.md) | PRD 符合性矩阵、架构偏离分析、模块完成度、文档债 |
-| [PRD/Spec 覆盖审计](docs/audit/prd-spec-coverage-audit.md) | 启动/核心设计文档 → PRD → Spec 覆盖审计 |
+| [Phase 3 审计报告](docs/archive/phases/audit/phase3-audit-report.md) | PRD 符合性矩阵、架构偏离分析、模块完成度、文档债 |
+| [PRD/Spec 覆盖审计](docs/archive/phases/audit/prd-spec-coverage-audit.md) | 启动/核心设计文档 → PRD → Spec 覆盖审计 |
 | [Git 协议](docs/GIT_PROTOCOL.md) | 分支策略（phase/main 唯一集成分支）、Commit 格式、AI 提交规则 |
 | [测试协议](docs/TEST_PROTOCOL.md) | 测试金字塔、工具链、环境、Bug 修复流程 |
 | [UX 测试规范](docs/testing/UX_TEST_SPEC.md) | UX 交互体验：6 状态模型、检查清单、P0-P3 分级 |
-| [Phase 1 Dev Log](docs/dev-logs/phase1-dev-log.md) | Phase 1 时间线、Bug 与教训 |
-| [Phase 2 Dev Log](docs/dev-logs/phase2-dev-log.md) | Phase 2 时间线、Bug 与教训 |
-| [Phase 3 Dev Log](docs/dev-logs/phase3-dev-log.md) | Phase 3 时间线、Bug 与教训、架构决策时间线 |
-| [Phase 4 Dev Log](docs/dev-logs/phase4-dev-log.md) | Phase 4 实现摘要、FTS5 修复、真实 UI 验收记录 |
-| [Phase 5 Dev Log](docs/dev-logs/phase5-dev-log.md) | Phase 5 产物版本链、Diff、在线编辑、架构收拢与真实 HTTP 验收 |
-| [Phase 6 Dev Log](docs/dev-logs/phase6-dev-log.md) | Phase 6A Project-first workspace runtime、系统目录选择器、人工验收记录 |
-| [Orchestrator 真实 Agent 执行复盘](docs/specs/phase3/02-orchestrator/10-real-agent-execution/README.md) | 2026-06-06 真实 CLI Agent DAG 执行样本、问题清单、合并后续计划 |
-| [Phase 7 Dev Log](docs/dev-logs/phase7-dev-log.md) | Phase 7A-7F 运行控制、审批、环境体检、IM 基线、Engine Session、常驻进程、群聊 runtime/Artifact 同步与 v1.0 UI 加固记录 |
-| [Phase 9 Dev Log](docs/dev-logs/phase9-dev-log.md) | Phase 9 Cloud Workspace Foundation：P2 用户/团队/RBAC、云端 workspace 元数据、导入/快照/恢复、审计与 P1/P2 真实服务验收 |
-| [Phase 10 Dev Log](docs/dev-logs/phase10-dev-log.md) | Phase 10 Sandbox Runner 与云端 Agent Runtime：cloud sandbox、真实 CLI、Artifact/logs、Secret 脱敏、配额与 P1/P2 验收 |
-| [Phase 13 Dev Log](docs/dev-logs/phase13-dev-log.md) | Phase 13 多端产品壳拆分：RuntimeCapabilities、Local/SaaS/Mobile shell、三端构建、native skeleton 与真实服务验收 |
-| [Phase 14 Dev Log](docs/dev-logs/phase14-dev-log.md) | Phase 14 生产 Auth 与租户隔离收口：AuthProvider、session token、TenantScope、RBAC、SaaS/Mobile 登录门与 cloud 资源权限回归 |
+| [Phase 1 Dev Log](docs/archive/phases/dev-logs/phase1-dev-log.md) | Phase 1 时间线、Bug 与教训 |
+| [Phase 2 Dev Log](docs/archive/phases/dev-logs/phase2-dev-log.md) | Phase 2 时间线、Bug 与教训 |
+| [Phase 3 Dev Log](docs/archive/phases/dev-logs/phase3-dev-log.md) | Phase 3 时间线、Bug 与教训、架构决策时间线 |
+| [Phase 4 Dev Log](docs/archive/phases/dev-logs/phase4-dev-log.md) | Phase 4 实现摘要、FTS5 修复、真实 UI 验收记录 |
+| [Phase 5 Dev Log](docs/archive/phases/dev-logs/phase5-dev-log.md) | Phase 5 产物版本链、Diff、在线编辑、架构收拢与真实 HTTP 验收 |
+| [Phase 6 Dev Log](docs/archive/phases/dev-logs/phase6-dev-log.md) | Phase 6A Project-first workspace runtime、系统目录选择器、人工验收记录 |
+| [Orchestrator 真实 Agent 执行复盘](docs/archive/phases/specs/phase3/02-orchestrator/10-real-agent-execution/README.md) | 2026-06-06 真实 CLI Agent DAG 执行样本、问题清单、合并后续计划 |
+| [Phase 7 Dev Log](docs/archive/phases/dev-logs/phase7-dev-log.md) | Phase 7A-7F 运行控制、审批、环境体检、IM 基线、Engine Session、常驻进程、群聊 runtime/Artifact 同步与 v1.0 UI 加固记录 |
+| [Phase 9 Dev Log](docs/archive/phases/dev-logs/phase9-dev-log.md) | Phase 9 Cloud Workspace Foundation：P2 用户/团队/RBAC、云端 workspace 元数据、导入/快照/恢复、审计与 P1/P2 真实服务验收 |
+| [Phase 10 Dev Log](docs/archive/phases/dev-logs/phase10-dev-log.md) | Phase 10 Sandbox Runner 与云端 Agent Runtime：cloud sandbox、真实 CLI、Artifact/logs、Secret 脱敏、配额与 P1/P2 验收 |
+| [Phase 13 Dev Log](docs/archive/phases/dev-logs/phase13-dev-log.md) | Phase 13 多端产品壳拆分：RuntimeCapabilities、Local/SaaS/Mobile shell、三端构建、native skeleton 与真实服务验收 |
+| [Phase 14 Dev Log](docs/archive/phases/dev-logs/phase14-dev-log.md) | Phase 14 生产 Auth 与租户隔离收口：AuthProvider、session token、TenantScope、RBAC、SaaS/Mobile 登录门与 cloud 资源权限回归 |
 
 ### 用户手册
 
@@ -229,14 +217,14 @@ PRD 系列与早期核心设计文档共同构成需求权威。早期设计定�
 
 ### Skills — AI 能力复用
 
-AgentHub 早期开发阶段 Skill 已退役。以下文件只作为历史流程资产保留，不再作为当前产品优化、真实服务验证、修复或收尾工作的触发入口：
+AgentHub 早期开发阶段 Skill 已退役。以下名称只作为历史流程资产在 Git 历史中追溯，不再作为当前产品优化、真实服务验证、修复或收尾工作的触发入口：
 
 | Skill | 文件 | 当前状态 |
-|-------|------|---------|
-| agenthub-module-dev | `.agents/skills/agenthub-module-dev/SKILL.md`（`.claude/skills/` 保留镜像） | 停用；不再用于模块开发 |
-| agenthub-code-review | `.agents/skills/agenthub-code-review/SKILL.md`（`.claude/skills/` 保留镜像） | 停用；不再用于代码审查 |
-| agenthub-phase-wrapup | `.agents/skills/agenthub-phase-wrapup/SKILL.md`（`.claude/skills/` 保留镜像） | 停用；不再用于阶段收尾 |
-| agenthub-qa-audit | `.agents/skills/agenthub-qa-audit/SKILL.md`（`.claude/skills/` 保留镜像） | 停用；不再用于质量审计 |
+|------|------|------|
+| agenthub-module-dev | Git 历史 | 停用；不再用于模块开发 |
+| agenthub-code-review | Git 历史 | 停用；不再用于代码审查 |
+| agenthub-phase-wrapup | Git 历史 | 停用；不再用于阶段收尾 |
+| agenthub-qa-audit | Git 历史 | 停用；不再用于质量审计 |
 
 ---
 

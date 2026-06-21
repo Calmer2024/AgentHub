@@ -1,7 +1,10 @@
 /// <reference types="vitest/config" />
 import { defineConfig } from 'vitest/config'
-import { loadEnv } from 'vite'
+import { loadEnv, normalizePath } from 'vite'
 import react from '@vitejs/plugin-react'
+import { createRequire } from 'node:module'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 declare const process: {
   argv: string[]
@@ -10,6 +13,10 @@ declare const process: {
 }
 
 export default defineConfig(({ mode }) => {
+  const frontendRoot = dirname(fileURLToPath(import.meta.url))
+  const repoRoot = resolve(frontendRoot, '..')
+  const require = createRequire(import.meta.url)
+  const modulePath = (id: string) => normalizePath(require.resolve(id))
   const env = loadEnv(mode, process.cwd(), '')
   const devPort = readCliPort()
   const proxyTarget = process.env.VITE_AGENTHUB_PROXY_TARGET
@@ -21,8 +28,21 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react()],
+    resolve: {
+      alias: {
+        '@testing-library/jest-dom/vitest': normalizePath(resolve(
+          frontendRoot,
+          'node_modules/@testing-library/jest-dom/dist/vitest.mjs',
+        )),
+        '@testing-library/react': modulePath('@testing-library/react'),
+        '@testing-library/user-event': modulePath('@testing-library/user-event'),
+      },
+    },
     server: {
       port: 5173,
+      fs: {
+        allow: [repoRoot],
+      },
       proxy: {
         '/api': {
           target: proxyTarget,
@@ -38,7 +58,8 @@ export default defineConfig(({ mode }) => {
     test: {
       globals: true,
       environment: 'jsdom',
-      setupFiles: './src/test-setup.ts',
+      setupFiles: normalizePath(resolve(repoRoot, 'test/frontend/setup.ts')),
+      include: ['../test/frontend/**/*.{test,spec}.{ts,tsx}'],
     },
   }
 })

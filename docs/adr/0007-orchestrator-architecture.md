@@ -655,7 +655,7 @@ Validator 第一版强校验 DAG 结构：`task_id` 唯一、`depends_on` 引用
 
 ## 14. 最终用户交互设计 (2026-06-01 Grill Part 2)
 
-> 详细规格见 **[docs/specs/phase3/02-orchestrator/](../specs/phase3/02-orchestrator/README.md)**。本节省略实现细节，仅记录架构决策。
+> 详细规格见 **[docs/archive/phases/specs/phase3/02-orchestrator/](../archive/phases/specs/phase3/02-orchestrator/README.md)**。本节省略实现细节，仅记录架构决策。
 
 ### 14.1 核心理念纠正
 

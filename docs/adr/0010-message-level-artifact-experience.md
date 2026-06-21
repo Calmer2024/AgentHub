@@ -55,7 +55,7 @@ assistant message
 
 - Phase 7 specs 必须删除或重构所有以 Drawer 为中心的内容。
 - PRD 中关于 Drawer 的历史描述保留为早期产品意图，不再作为 P1 当前实现约束；后续如果重新评估 Drawer，应先新增 ADR 取代本决策。
-- `CONTEXT.md`、`PROJECT_OVERVIEW.md`、`README.md`、`docs/specs/README.md` 的 Phase 7 描述必须同步为消息级 Artifact 基线。
+- `CONTEXT.md`、`README.md`、`docs/README.md`、`docs/archive/phases/specs/README.md` 的 Phase 7 描述必须同步为消息级 Artifact 基线。
 - 后续开发应优先维护 `MessageArtifactStrip`、`ArtifactCard`、`FileEditorModal`、`ArtifactVersionManager` 和 `SessionArtifactManager` 的一致性。
 
 ---

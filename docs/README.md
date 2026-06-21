@@ -14,14 +14,10 @@ docs/
 │
 ├── PRD/                         ← 产品需求拆解文档（与核心设计共同构成权威需求源）
 ├── adr/                         ← 架构决策记录
-├── specs/                       ← 功能规格文档 (按 Phase 组织)
 ├── submission/                  ← 课程/挑战赛提交用飞书可复制文档
 ├── user-guides/                 ← 面向最终用户的使用与配置手册
-├── deliverables/                 ← 阶段性交付快照、交接文档、使用指南
-├── dev-logs/                    ← 开发日志
-├── audit/                       ← 阶段性审计报告
 ├── testing/                     ← 测试规范
-└── archive/                     ← 归档文档（含仍具权威性的早期核心设计）
+└── archive/                     ← 归档文档（含核心设计与已完成 Phase 资料）
 ```
 
 ---
@@ -37,10 +33,10 @@ docs/
 → 先读 [submission/00-交付总入口.md](submission/00-交付总入口.md)。该目录下的文档按飞书可复制格式组织，包含交付总入口、产品设计文档、技术设计文档和 AI 协作开发记录。
 
 ### 我想了解项目现在的状态
-→ 看 [CONTEXT.md](../CONTEXT.md) 的 Phase 表格；Phase 6 进度看 [specs/phase6/README.md](specs/phase6/README.md) 与 [dev-logs/phase6-dev-log.md](dev-logs/phase6-dev-log.md)，Phase 7A-7C 看 [deliverables/phase7-runtime-control/](deliverables/phase7-runtime-control/)，Phase 7D IM 加固看 [deliverables/phase7-im-hardening/](deliverables/phase7-im-hardening/)，Phase 7E/7F 看 [specs/phase7/05-context-pack-and-cache-strategy.md](specs/phase7/05-context-pack-and-cache-strategy.md) 与 [specs/phase7/06-cli-session-process-runtime.md](specs/phase7/06-cli-session-process-runtime.md)。P1 发布候选收口看 [specs/phase8/README.md](specs/phase8/README.md)，P2 云端 workspace 基座看 [specs/phase9/README.md](specs/phase9/README.md) 与 [deliverables/phase9-cloud-workspace/](deliverables/phase9-cloud-workspace/)，云端 runtime 看 [specs/phase10/README.md](specs/phase10/README.md) 与 [deliverables/phase10-cloud-runtime/](deliverables/phase10-cloud-runtime/)，多端产品壳看 [specs/phase13/README.md](specs/phase13/README.md) 与 [deliverables/phase13-product-shells/](deliverables/phase13-product-shells/)。历史 Phase 3 审计见 [audit/phase3-audit-report.md](audit/phase3-audit-report.md)。
+→ 看 [CONTEXT.md](../CONTEXT.md) 的产品状态与 Phase 表格。所有 Phase 资料已归档到 [archive/phases/](archive/phases/)：规格在 `archive/phases/specs/`，交付快照在 `archive/phases/deliverables/`，开发日志在 `archive/phases/dev-logs/`，审计记录在 `archive/phases/audit/`。
 
 ### 我要了解当前 v1.0 发布边界
-→ 先读 [deliverables/v1.0-release/](deliverables/v1.0-release/)，再读 [specs/phase7/README.md](specs/phase7/README.md)。7A-7C 运行控制/审批/体检交付快照见 [deliverables/phase7-runtime-control/](deliverables/phase7-runtime-control/)；7D 会话 IM 基线、右键菜单、明亮主题和执行过程全屏见 [deliverables/phase7-im-hardening/](deliverables/phase7-im-hardening/)；7E/7F 记录 Engine Session、上下文治理、Claude Code stdin JSONL 常驻进程、Codex/OpenCode 常驻 RPC 基线，以及群聊按 Agent 隔离 runtime 与 Artifact 归属。
+→ 读 [archive/phases/deliverables/v1.0-release/](archive/phases/deliverables/v1.0-release/) 和 [archive/phases/specs/phase7/README.md](archive/phases/specs/phase7/README.md)。这些内容已归档，仅用于追溯 v1.0 发布边界。
 
 ### 我想理解为什么要这样设计
 → 进入 [adr/](adr/) 目录，按编号顺序阅读架构决策记录。
@@ -90,46 +86,16 @@ docs/
 
 **阅读建议**: 新成员按编号顺序读。开发者遇到设计疑问时，先查对应 ADR 是否有记录。
 
-### specs/ — 功能规格文档
+### archive/phases/ — Phase 历史资料归档
 
-**权威级别**: 高。每个 Phase 的"完工标准"，人和 AI 共同的验收依据。
-
-| 目录 | Phase | 状态 | 一句话描述 |
-|------|-------|------|-----------|
-| [phase1/](specs/phase1/) | Walking Skeleton | ✅ | 单聊全链路可运行 |
-| [phase2/](specs/phase2/) | Core Features | ✅ | 多 Agent + 群聊 + 产物基础 |
-| [phase3/](specs/phase3/) | Orchestrator + Infrastructure | ✅ | EventBus + Pipeline + DAG + CollaborationPanel |
-| [phase4/](specs/phase4/) | 消息交互闭环 | ✅ | Reply/Regenerate/Pin + FTS5 搜索 |
-| [phase5/](specs/phase5/) | 产物工作台能力 | ✅ | 对已有 Artifact 做版本链 + Diff + 在线编辑；上游入口由 Phase 6/7 补齐 |
-| [phase6/](specs/phase6/) | Workspace Runtime + CLI Engine + Agent Profile + 产物入口桥接 | ✅ | 6A Workspace Runtime、6B-6E CLI Adapter、6F Artifact Bridge 与 Agent = Engine + Toolset 建模均已落地 |
-| [phase7/](specs/phase7/) | 任务可控性 + 审批 + 环境体检 + IM 体验 + 演示闭环 | ✅ | v1.0 本机 MVP 基线已覆盖运行控制、审批、体检、IM 会话基线和 UI 加固；7E Engine Session / 上下文包策略与 7F Claude Code stdin JSONL、Codex/OpenCode 常驻 RPC 已记录并实现基线；群聊已同步单聊 runtime 与 workspace Artifact 链路 |
-| [phase8/](specs/phase8/) | P1 发布候选收口 | ✅ | 真实 CLI E2E、本地 Build/Export/Preview、Context Pack、Orchestrator 审批续跑、Store 拆分、截图审计 |
-| [phase9/](specs/phase9/) | Cloud Workspace Foundation | ✅ | 用户/团队/RBAC、CloudWorkspaceProvider、workspace 导入/快照/恢复、审计日志 |
-| [phase10/](specs/phase10/) | Sandbox Runner 与云端 Agent Runtime | ✅ | cloud sandbox、真实 CLI Agent 运行、P1 事件契约兼容、配额、Secret、日志脱敏 |
-| [phase11/](specs/phase11/) | Cloud Preview 与 Deployment | ✅ | 云端 Artifact preview URL、Deployment pipeline、部署日志、发布 URL、重试和回滚 |
-| [phase12/](specs/phase12/) | 协作、多端与高级 Artifact | ✅ | 团队评论/通知、移动端审批预览、附件/图片输入、Artifact 引用、Git sync、对话式 Agent 创建 |
-| [phase13/](specs/phase13/) | 多端产品壳拆分 | ✅ | Local Desktop、SaaS Web、Mobile 三端 shell、构建命令、能力矩阵和验收闭环 |
-
-历史规划见 [specs/planning/](specs/planning/)，仅用于追溯旧 Phase 3 模块化计划。
-
-### deliverables/ — 阶段性交付快照
-
-面向交接、验收和阶段复盘，记录“当前实现到底长什么样”。它不是 PRD/ADR 的替代品，而是实现快照。
+所有 Phase 已完成，相关规格、交付快照、开发日志和审计记录统一归档到本目录，不再作为活跃开发入口。
 
 | 目录 | 内容 |
 |------|------|
-| [phase6-cli-adapter/](deliverables/phase6-cli-adapter/) | CLI Adapter 架构与实现原理、用户/开发者使用指南、阶段开发日志 |
-| [phase6-artifact-bridge/](deliverables/phase6-artifact-bridge/) | Artifact Bridge 验收快照：消息级产物卡片、文件编辑器、代码引用、版本管理与真实服务验收 |
-| [phase7-runtime-control/](deliverables/phase7-runtime-control/) | Phase 7A-7C 验收快照：运行控制、审批卡片、环境体检与取消回退修复 |
-| [phase7-im-hardening/](deliverables/phase7-im-hardening/) | Phase 7D 验收快照：会话置顶/归档/未读/免打扰/转发/多选、消息右键菜单、明亮主题与执行过程全屏 |
-| [v1.0-release/](deliverables/v1.0-release/) | v1.0.0 发布摘要：本机 MVP 基线、Phase 7D 本轮总结、验证记录与后续风险 |
-| [phase9-cloud-workspace/](deliverables/phase9-cloud-workspace/) | Phase 9 验收快照：P2 用户/团队/RBAC、CloudWorkspaceProvider、导入/快照/恢复、审计与 P1/P2 真实服务验收 |
-| [phase10-cloud-runtime/](deliverables/phase10-cloud-runtime/) | Phase 10 验收快照：sandbox runner、cloud Agent runtime、Artifact/logs、Secret 脱敏、配额与 P1/P2 双运行时兼容 |
-| [phase13-product-shells/](deliverables/phase13-product-shells/) | Phase 13 验收快照：Local/SaaS/Mobile shell、RuntimeCapabilities、三端构建、native skeleton 与真实服务验收 |
-
-每个 Phase 目录下都有独立的 `README.md`，包含验收标准清单和子模块索引。
-
-**Spec 模板**: [SPEC_TEMPLATE.md](specs/SPEC_TEMPLATE.md) — 新建模块 Spec 时照此填写。
+| [archive/phases/specs/](archive/phases/specs/) | Phase 1-16 规格、验收标准和历史 planning 文档 |
+| [archive/phases/deliverables/](archive/phases/deliverables/) | 阶段交付快照、实现说明和验收记录 |
+| [archive/phases/dev-logs/](archive/phases/dev-logs/) | Phase 开发日志 |
+| [archive/phases/audit/](archive/phases/audit/) | 阶段审计和覆盖审计 |
 
 ### user-guides/ — 用户手册
 
@@ -141,41 +107,14 @@ docs/
 
 ### submission/ — 课程/挑战赛提交材料
 
-面向飞书收集表和课程/挑战赛提交，整理为可直接复制到飞书文档的交付材料。该目录只做摘要和导航，深入细节仍以 PRD、ADR、Spec、deliverables 和 Dev Log 为权威来源。
+面向飞书收集表和课程/挑战赛提交，整理为可直接复制到飞书文档的交付材料。该目录只做摘要和导航，深入细节仍以 PRD、ADR、归档 Spec、归档 deliverables 和归档 Dev Log 为权威来源。
 
 | 文件 | 内容 |
 |------|------|
 | [00-交付总入口.md](submission/00-交付总入口.md) | 表单提交总入口：作品链接、材料导航、课题要求映射和仓库材料索引 |
 | [01-产品设计文档.md](submission/01-产品设计文档.md) | 产品定位、用户场景、核心链路、完成度和亮点 |
 | [02-技术设计文档.md](submission/02-技术设计文档.md) | 总体架构、CLI Wrapper、Orchestrator、Workspace、Artifact、桌面端和 SaaS |
-| [03-AI协作开发记录.md](submission/03-AI协作开发记录.md) | Rules、Spec、Skill、Dev Log、ADR、测试与人工验收闭环 |
-
-### dev-logs/ — 开发日志
-
-记录每个 Phase 的时间线、关键决策、Bug 与教训。用于复盘和知识传承。
-
-| 文件 | 内容 |
-|------|------|
-| [phase1-dev-log.md](dev-logs/phase1-dev-log.md) | Phase 1: 时间线、Bug (camelCase/snake_case 不一致、测试污染 .env) |
-| [phase2-dev-log.md](dev-logs/phase2-dev-log.md) | Phase 2: WebSocket 心跳、群聊 token 路由、Orchestrator V1 架构违规 |
-| [phase3-dev-log.md](dev-logs/phase3-dev-log.md) | Phase 3: 6 天时间线、6 个关键 Bug、4 次 Grill Session、测试覆盖演变 |
-| [phase4-dev-log.md](dev-logs/phase4-dev-log.md) | Phase 4: 消息交互闭环、FTS5 修复、真实 UI 验收 |
-| [phase5-dev-log.md](dev-logs/phase5-dev-log.md) | Phase 5: 产物版本链、Diff、在线编辑、架构优化、真实 HTTP 验收 |
-| [phase6-dev-log.md](dev-logs/phase6-dev-log.md) | Phase 6A: Project-first workspace runtime；Phase 6B-6E: 真实本机 CLI Agent；6F: Artifact Bridge、消息级产物卡片、文件编辑器与版本管理 |
-| [phase6-cli-adapter-dev-log.md](dev-logs/phase6-cli-adapter-dev-log.md) | Phase 6 CLI Adapter 专项交接日志：真实 CLI 验证、Codex 中转修复、执行轨迹 UI 与剩余工作 |
-| [phase7-dev-log.md](dev-logs/phase7-dev-log.md) | Phase 7A-7F: run/task/process 运行控制、审批 checkpoint、环境体检、IM 基线、Engine Session、Claude Code stdin JSONL 常驻进程、Codex/OpenCode 常驻 RPC、群聊 runtime/Artifact 同步和 v1.0 UI 加固 |
-| [phase9-dev-log.md](dev-logs/phase9-dev-log.md) | Phase 9: Cloud Workspace Foundation、P2 用户/团队/RBAC、云端 workspace 元数据、导入/快照/恢复、审计与 P1/P2 验收 |
-| [phase10-dev-log.md](dev-logs/phase10-dev-log.md) | Phase 10: Sandbox Runner 与云端 Agent Runtime、真实 CLI、Artifact/logs、Secret 脱敏、配额与 P1/P2 验收 |
-| [phase13-dev-log.md](dev-logs/phase13-dev-log.md) | Phase 13: 多端产品壳拆分、能力矩阵、三端构建、Tauri/Capacitor skeleton 与真实服务验收 |
-
-### audit/ — 审计报告
-
-阶段性质量审计，对照 PRD 检查完成度、架构符合性和文档健康度。
-
-| 文件 | 内容 |
-|------|------|
-| [phase3-audit-report.md](audit/phase3-audit-report.md) | Phase 3 全面审计：PRD 符合性矩阵、架构偏离分析、模块完成度、文档债 |
-| [prd-spec-coverage-audit.md](audit/prd-spec-coverage-audit.md) | 启动文档 → PRD → Spec 覆盖审计：指出端到端 Artifact 链路缺口与修订原则 |
+| [03-AI协作开发记录.md](submission/03-AI协作开发记录.md) | Rules、归档 Spec、历史 Skill、Dev Log、ADR、测试与人工验收闭环 |
 
 ### testing/ — 测试规范
 
@@ -190,6 +129,7 @@ docs/
 | 文件 | 当前用途 | 说明 |
 |------|----------|------|
 | [AgentHub-多Agent协作平台设计.md](archive/AgentHub-多Agent协作平台设计.md) | 核心启动需求源 | 仍作为 IM、多 Agent 协作、Artifact、预览/编辑/部署、多端协作等产品骨架的权威来源；PRD 系列负责拆解和阶段化，不替代其需求事实 |
+| [phases/](archive/phases/) | Phase 历史资料 | Phase 1-16 的规格、交付快照、开发日志和阶段审计均已归档到此目录 |
 | Trae.md | 历史参考 | Trae IDE 使用说明，不再维护 |
 
 ---
@@ -208,4 +148,4 @@ Git 协作规范：分支策略 (phase/main 唯一集成分支)、Commit 格式 
 
 - 项目入口：[CONTEXT.md](../CONTEXT.md) — 领域术语、架构总览、完整文档索引
 - AI 规则：[CLAUDE.md](../CLAUDE.md) — AI Agent 行为约束
-- 人看的总览：[PROJECT_OVERVIEW.md](../PROJECT_OVERVIEW.md) — 项目是什么、怎么做
+- 项目入口：[README.md](../README.md) — 项目是什么、运行方式、交付入口

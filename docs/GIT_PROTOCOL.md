@@ -276,8 +276,8 @@ git checkout phase/phase4-new-feature
 git status  # 必须干净
 
 # 2. 运行全量测试
-cd backend && pytest test_api/ test_unit/ test_smoke.py -q
-cd frontend && npx tsc --noEmit && npx vitest run
+cd backend && python -m pytest -q
+cd frontend && npx tsc --noEmit && npm test
 
 # 3. 合并到 phase/main
 git checkout phase/main
@@ -298,8 +298,8 @@ git checkout phase/main
 git pull origin phase/main
 
 # 2. 运行全量测试（再次验证）
-cd backend && pytest test_api/ test_unit/ test_smoke.py -q
-cd frontend && npx tsc --noEmit && npx vitest run
+cd backend && python -m pytest -q
+cd frontend && npx tsc --noEmit && npm test
 
 # 3. 合并到 main（merge commit，保留完整历史）
 git checkout main
@@ -419,7 +419,7 @@ git check-ignore -v backend/.env
 
 □ 关联测试
   → 改动的代码有对应的测试吗？测试通过了吗？
-  $ cd backend && pytest test_api/ test_smoke.py -q
+  $ cd backend && python -m pytest -q
   $ cd frontend && npx tsc --noEmit
 ```
 

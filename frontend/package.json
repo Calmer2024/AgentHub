@@ -12,7 +12,8 @@
     "build:local": "tsc -b && vite build --mode local-desktop --outDir dist-local",
     "build:saas": "tsc -b && vite build --mode saas --outDir dist-saas",
     "build:mobile": "tsc -b && vite build --mode mobile --outDir dist-mobile",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run"
   },
   "dependencies": {
     "@codemirror/lang-css": "^6.3.1",

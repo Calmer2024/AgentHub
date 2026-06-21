@@ -31,6 +31,9 @@ frontend/dist-local/
 frontend/dist-saas/
 frontend/dist-mobile/
 frontend/test-results/
+frontend/.tsbuild/
+frontend/vite.config.js
+frontend/vite.config.d.ts
 *.local
 .acceptance-*.log
 
@@ -68,6 +71,7 @@ frontend/.vite-dev.*.log
 
 # Local temporary files
 .tmp-test/
+test/.runtime/
 HANDOFF-*.md
 frontend/vite.config.js.timestamp-*.mjs
 
@@ -78,9 +82,6 @@ frontend/vite.config.js.timestamp-*.mjs
 
 # Legacy venv
 backend/venv_old/
-
-# E2E artifacts
-e2e/screenshots/
 
 # IDE
 .vscode/

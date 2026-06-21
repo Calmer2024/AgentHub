@@ -205,7 +205,7 @@ CREATE TABLE artifacts (
 
 ### 3.4 Workspace 资源组 (Workspace Group)
 
-MVP 本机 workspace 的权威执行规格见 [PRD-06](./06-MVP_Local_Workspace_Delivery.md) 与 [Phase 6A Workspace Runtime](../specs/phase6/00-workspace-runtime.md)。
+MVP 本机 workspace 的权威执行规格见 [PRD-06](./06-MVP_Local_Workspace_Delivery.md) 与 [Phase 6A Workspace Runtime](../archive/phases/specs/phase6/00-workspace-runtime.md)。
 
 *   **`POST /api/workspaces`**
     *   **状态**：已废弃。使用 `POST /api/projects`。

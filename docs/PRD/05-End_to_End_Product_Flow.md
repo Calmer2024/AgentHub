@@ -40,7 +40,7 @@
 | SaaS 云端 workspace、多租户 sandbox、云端 preview URL | P2 | PRD-07 | MVP 后商业化路线 |
 | Web 端完整体验 | P0 | PRD-03 | Phase 1-7 |
 | 桌面端、移动端 | P2 | 本文 §8 | 暂不进入 MVP |
-| AI 协作交付物：Spec、Skill、Rules、开发记录 | P0 | PRD-00, 本文 | docs/specs, CLAUDE.md, dev-logs |
+| AI 协作交付物：Spec、Skill、Rules、开发记录 | P0 | PRD-00, 本文 | docs/archive/phases/specs, CLAUDE.md, docs/archive/phases/dev-logs |
 
 ---
 
@@ -170,7 +170,7 @@ MVP 完成不是“所有模块都写完”，而是必须通过以下验收：
 - 用户能在本机预览 workspace 产物，并导出源码或构建产物。
 - 需要人工审批的任务能暂停、展示 Approval Card、确认后继续。
 - 环境体检能提示关键运行条件，如 API Key、CLI 工具、Node/Python。
-- docs/specs/dev-logs 能解释每个 Phase 的设计、实现、验收与剩余边界。
+- docs/archive/phases/specs 与 docs/archive/phases/dev-logs 能解释每个 Phase 的设计、实现、验收与剩余边界。
 
 ---
 
