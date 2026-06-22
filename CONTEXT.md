@@ -16,8 +16,9 @@
 | 4 | [AgentHub-多Agent协作平台设计](docs/archive/AgentHub-多Agent协作平台设计.md) | 核心启动需求源 — IM、多 Agent 协作、Artifact、预览/编辑/部署、多端协作 |
 | 5 | [docs/PRD/](docs/PRD/) | 产品需求拆解文档（8 篇）— 北极星指标、CLI 适配器、Orchestrator、UX 设计、数据契约、端到端闭环、MVP/SaaS Workspace |
 | 6 | [docs/adr/](docs/adr/) | 架构决策记录 — 关键决策及原因 |
-| 7 | [docs/archive/phases/](docs/archive/phases/) | Phase 归档 — 已完成 Phase 的规格、交付快照、开发日志与审计记录 |
-| 8 | [docs/user-guides/](docs/user-guides/) | 用户手册 — 面向最终用户的配置与使用说明 |
+| 7 | [docs/architecture/](docs/architecture/) | 当前架构事实 — 架构总览、数据模型、运行模型、事件契约、文档治理 |
+| 8 | [docs/archive/phases/](docs/archive/phases/) | Phase 归档 — 已完成 Phase 的规格、交付快照、开发日志与审计记录 |
+| 9 | [docs/user-guides/](docs/user-guides/) | 用户手册 — 面向最终用户的配置与使用说明 |
 
 ---
 
@@ -62,18 +63,18 @@
 
 ---
 
-## 目标架构（7 层）
+## 目标架构（六层）
 
 ```
-前端 (React + shadcn/ui + Zustand)
-  → API 网关 (FastAPI REST + WebSocket Manager)
-    → 业务逻辑 (Session / Message / Artifact Services)
-      → 领域核心 (Orchestrator / ContextManager)
-        → 基础设施 (CLI Agent Adapters / EventBus / File Storage)
-          → 数据持久化 (SQLAlchemy Models / Configuration Store)
+前端层
+  → API 接入层
+    → 应用服务层
+      → 领域层
+      → 基础设施层
+      → 数据持久化层
 ```
 
-**核心规则**：架构按需增长。Day 1（Phase 1）仅实现 3 层。复杂度达到触发条件时才引入新层——见 ADR-0004。
+**核心规则**：AgentHub 采用六层架构。配置、凭据、Secret、Provider Registry 和启动装配机制归入基础设施层，不作为单独架构层。整体架构约束见 ADR-0005；架构按需增长的方法论见 ADR-0004。
 
 ---
 
@@ -126,7 +127,7 @@ Phase 4-16 采用**功能板块制**：每板块独立完整交付。板块间�
 
 ## 核心原则
 
-1. **架构按需增长** — 不在 Day 1 构建全部 7 层（ADR-0004）。
+1. **架构按需增长** — 不为远期需求过早铺满所有模块（ADR-0004）。
 2. **接口先于实现** — 先定义契约，实现可自由迭代（ADR-0005）。
 3. **每个增量可演示** — 不允许"后端完成但前端未接通"的中间态。
 4. **自动化优先** — 复杂决策（链式触发、角色分配、Agent 选择）由后端自动完成，不暴露为前端配置项。
@@ -162,19 +163,34 @@ PRD 系列与早期核心设计文档共同构成需求权威。早期设计定�
 
 ### ADR — 架构决策记录
 
+ADR 目录回答“为什么做这个架构决策”。当前系统事实、数据模型和事件契约见 [docs/architecture/](docs/architecture/)；ADR 状态索引见 [docs/adr/README.md](docs/adr/README.md)。
+
 | 编号 | 文件 | 决策 |
 |------|------|------|
+| ADR 索引 | [README.md](docs/adr/README.md) | ADR 状态、治理规则和新增 ADR 触发条件 |
 | ADR-0001 | [0001-tech-stack-selection.md](docs/adr/0001-tech-stack-selection.md) | 技术栈选型：React / FastAPI / SQLite |
 | ADR-0002 | [0002-directory-structure.md](docs/adr/0002-directory-structure.md) | 项目目录结构规范 |
 | ADR-0003 | [0003-vibe-coding-philosophy.md](docs/adr/0003-vibe-coding-philosophy.md) | 结构化 Vibe Coding 模式 |
 | ADR-0004 | [0004-development-methodology.md](docs/adr/0004-development-methodology.md) | 架构跑道 + 行走骨架 + 增量交付 |
-| ADR-0005 | [0005-target-architecture.md](docs/adr/0005-target-architecture.md) | 7 层目标架构 + CLI Wrapper 接口契约 |
+| ADR-0005 | [0005-target-architecture.md](docs/adr/0005-target-architecture.md) | 整体目标架构：前端、API、应用服务、领域、基础设施、数据持久化六层架构 |
 | ADR-0006 | [0006-ai-collaboration-system.md](docs/adr/0006-ai-collaboration-system.md) | AI 协作体系：Rules / Spec / Skill 三层沉淀 |
 | ADR-0007 | [0007-orchestrator-architecture.md](docs/adr/0007-orchestrator-architecture.md) | Orchestrator 架构：Pipeline 四阶段 + DAG |
 | ADR-0008 | [0008-revised-development-strategy.md](docs/adr/0008-revised-development-strategy.md) | 功能板块制 + Phase 4-7 路线图 + 文档治理 |
 | ADR-0009 | [0009-project-workspace-model.md](docs/adr/0009-project-workspace-model.md) | **🆕** Project-Workspace 模型 + CLI 适配策略 + 分层渲染 |
 | ADR-0010 | [0010-message-level-artifact-experience.md](docs/adr/0010-message-level-artifact-experience.md) | 消息级 Artifact 体验取代 P1 右侧 Drawer |
 | ADR-0011 | [0011-agent-engine-skill-model.md](docs/adr/0011-agent-engine-skill-model.md) | **🆕** Agent Profile = System Prompt + Rules + Toolset + Context Policy + Runtime Config + Engine；调度器作为特殊 Agent |
+| ADR-0012 | [0012-data-persistence-model.md](docs/adr/0012-data-persistence-model.md) | **🆕** 数据持久化模型：SQLite + SQLAlchemy + Project-first 数据结构 |
+
+### Architecture — 当前架构事实
+
+| 文档 | 内容 |
+|------|------|
+| [README.md](docs/architecture/README.md) | Architecture 文档索引和使用建议 |
+| [overview.md](docs/architecture/overview.md) | 当前架构总览、分层结构、主请求链路和本机/云端分流 |
+| [data-model.md](docs/architecture/data-model.md) | 当前数据库表组、核心关系、FTS 表和数据设计约束 |
+| [runtime-model.md](docs/architecture/runtime-model.md) | 本机 CLI runtime、云端 runtime、Run/Task/Process 状态和审批 |
+| [event-contracts.md](docs/architecture/event-contracts.md) | SSE、WebSocket、EventBus 事件类型和新增事件规则 |
+| [documentation-governance.md](docs/architecture/documentation-governance.md) | ADR、PRD、Architecture、Archive 等文档边界和更新规则 |
 
 ### Phase 归档 — 已完成阶段资料
 
@@ -232,6 +248,7 @@ AgentHub 早期开发阶段 Skill 已退役。以下名称只作为历史流程�
 
 1. **Phase 结束时审计** — 检查所有 `docs/` 下的交叉引用是否有效。
 2. **ADR 编号与文件名一致** — `NNNN-title.md` 内部标题必须是 `ADR-NNNN`。
-3. **Spec 文件必须被索引** — 不被本文件索引的 Spec = 无效文档。
-4. **旧文档状态必须显式标注** — 不再适用的文档移入 `docs/archive/`；归档位置不等于需求失效，仍具权威性的归档文档必须在索引中说明当前用途。
-5. **一个事实一个权威源** — 同一信息不出现在两个地方。引用用链接，不复制。
+3. **Architecture 文档保存当前事实** — 数据模型、运行模型、事件契约等当前实现事实放入 `docs/architecture/`。
+4. **Spec 文件必须被索引** — 不被本文件索引的 Spec = 无效文档。
+5. **旧文档状态必须显式标注** — 不再适用的文档移入 `docs/archive/`；归档位置不等于需求失效，仍具权威性的归档文档必须在索引中说明当前用途。
+6. **一个事实一个权威源** — 同一信息不出现在两个地方。引用用链接，不复制。详细规则见 [docs/architecture/documentation-governance.md](docs/architecture/documentation-governance.md)。

@@ -13,14 +13,14 @@ Domain 层纯逻辑，零框架依赖。
 
 from dataclasses import dataclass, field
 
-from ..models import AgentConfig
+from .agent_profile import AgentProfileSnapshot
 from .task_decomposer import TaskDecomposer, SubTask
 
 
 @dataclass
 class AgentCall:
     """单个 Agent 调用单元。"""
-    agent: AgentConfig
+    agent: AgentProfileSnapshot
     task: str = "primary"           # 任务名称
     role: str = "executor"          # 协作角色
     input_messages: list[dict] = field(default_factory=list)
@@ -67,7 +67,7 @@ class ExecutionPlanner:
 
     def plan(
         self,
-        agents: list[AgentConfig],
+        agents: list[AgentProfileSnapshot],
         content: str,
         messages: list[dict],
         chain_config: ChainConfig | None = None,
@@ -109,7 +109,7 @@ class ExecutionPlanner:
 
     @staticmethod
     def _build_primary_plan(
-        agents: list[AgentConfig], messages: list[dict],
+        agents: list[AgentProfileSnapshot], messages: list[dict],
     ) -> ExecutionPlan:
         return ExecutionPlan(
             mode="single" if len(agents) == 1 else "serial",
@@ -121,7 +121,7 @@ class ExecutionPlanner:
         )
 
     def _build_chain_plan(
-        self, agents: list[AgentConfig], messages: list[dict],
+        self, agents: list[AgentProfileSnapshot], messages: list[dict],
         chain_config: ChainConfig, auto_triggered: bool,
     ) -> ExecutionPlan:
         """构建链式执行计划。"""
@@ -152,7 +152,7 @@ class ExecutionPlanner:
         )
 
     def _build_dag_plan(
-        self, agents: list[AgentConfig], content: str, messages: list[dict],
+        self, agents: list[AgentProfileSnapshot], content: str, messages: list[dict],
         auto_triggered: bool,
     ) -> ExecutionPlan:
         """按模板拆解为 DAG 执行计划。"""

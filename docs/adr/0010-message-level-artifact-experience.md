@@ -1,12 +1,12 @@
 # ADR-0010: 消息级 Artifact 体验取代 P1 右侧 Drawer
 
-**Date**: 2026-06-06
-**Status**: Accepted
+**日期**: 2026-06-06
+**状态**: Accepted
 **Context**: Phase 6F Artifact Bridge 验收后，用户明确要求移除独立产物工作台，并让文件代码变更、产物、Diff 和编辑能力都以具体卡片在对应对话消息下方呈现。
 
 ---
 
-## Context
+## 背景
 
 早期 PRD 与 Phase 7 文档将右侧 Artifact Drawer 作为 P1 体验闭环核心：Artifact Card 点击后滑出右区 Drawer，Drawer 内承载预览、Diff、版本切换和局部编辑。
 
@@ -27,7 +27,7 @@ Phase 6F 实现与人工验收后，产品路线发生调整：
 
 ---
 
-## Decision
+## 决策
 
 P1 桌面版采用 **消息级 Artifact 体验** 作为产品基线：
 
@@ -51,7 +51,7 @@ assistant message
 
 ---
 
-## Consequences
+## 影响
 
 - Phase 7 specs 必须删除或重构所有以 Drawer 为中心的内容。
 - PRD 中关于 Drawer 的历史描述保留为早期产品意图，不再作为 P1 当前实现约束；后续如果重新评估 Drawer，应先新增 ADR 取代本决策。
@@ -60,6 +60,6 @@ assistant message
 
 ---
 
-## Status Notes
+## 状态说明
 
 - 2026-06-06：Phase 6F 人工验收通过，确认消息级 Artifact 卡片、页面级弹窗、IDE 风格编辑器、代码引用、版本管理、会话文件入口和 CLI Agent logo 头像均符合当前产品路线。

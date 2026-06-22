@@ -10,8 +10,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from ..models import AgentConfig
-from ..services.cli_agent_registry import decode_json_list
+from .agent_profile import AgentProfileSnapshot
 from .orchestrator_plan import (
     PLAN_SCHEMA,
     build_plan_prompt,
@@ -23,7 +22,7 @@ from .orchestrator_plan import (
 
 
 class OrchestratorPlanBridge:
-    def build_input(self, content: str, agents: list[AgentConfig]) -> dict[str, Any]:
+    def build_input(self, content: str, agents: list[AgentProfileSnapshot]) -> dict[str, Any]:
         candidates = [agent_payload(agent) for agent in agents]
         return {
             "input": {
@@ -68,9 +67,9 @@ class OrchestratorPlanBridge:
         }
 
 
-def agent_payload(agent: AgentConfig) -> dict[str, Any]:
-    auxiliary = decode_json_list(agent.auxiliary_skills)
-    toolset = decode_json_list(getattr(agent, "toolset", "[]"))
+def agent_payload(agent: AgentProfileSnapshot) -> dict[str, Any]:
+    auxiliary = _decode_json_list(agent.auxiliary_skills)
+    toolset = _decode_json_list(getattr(agent, "toolset", "[]"))
     engine = agent.cli_tool or "custom"
     return {
         "id": agent.id,
@@ -94,8 +93,8 @@ def mock_agent(
     description: str,
     primary_skill: str,
     auxiliary_skills: list[str],
-) -> AgentConfig:
-    return AgentConfig(
+) -> AgentProfileSnapshot:
+    return AgentProfileSnapshot(
         id=agent_id,
         name=name,
         description=description,
@@ -111,3 +110,13 @@ def mock_agent(
         context_policy="planning_only",
         avatar="",
     )
+
+
+def _decode_json_list(value: str | None) -> list[str]:
+    if not value:
+        return []
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return []
+    return [str(item) for item in parsed] if isinstance(parsed, list) else []

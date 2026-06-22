@@ -1,24 +1,32 @@
 # ADR-0009: Project-Workspace 绑定模型
 
-**Date**: 2026-06-04
-**Status**: Accepted
+**日期**: 2026-06-04
+**状态**: Accepted
 
-## Context
+## 背景
 
 ADR-0005 和 PRD-06 原始设计将 Workspace 直接绑定到 Session：一个"项目型会话"有一个 workspace_id。但 Phase 6 设计细化中发现这个模型存在根本性缺陷：
 
 - 如果一个 Project 下有多个 Session（如私聊前端 Agent + 私聊后端 Agent + 一个群聊），它们应该共享同一个 workspace 目录。Session 级绑定意味着要么不支持多 Session 共享 workspace（限制了协作能力），要么让多个 Session 指向同一个 workspace（数据模型不一致）。
 - 用户的心智模型是"先有项目，再有聊天"，而不是"聊天即项目"。这要求顶层存在一个 Project 实体。
 
-## Decision
+## 决策
 
 ### 引入 Project 作为顶层组织实体
 
-```
-Project
-  ├── name, workspace_path (一对一绑定)
-  ├── Sessions[] (一对多：一个 Project 下可有多个私聊/群聊)
-  └── 所有 Session 共享同一个 workspace_path
+```mermaid
+erDiagram
+    PROJECT ||--o{ SESSION : contains
+    PROJECT {
+        string id
+        string name
+        string workspace_path
+    }
+    SESSION {
+        string id
+        string project_id
+        string mode
+    }
 ```
 
 ### 核心规则
@@ -33,29 +41,38 @@ Project
 
 ### 数据模型调整
 
-```
-projects
-  ├── id: UUID PK
-  ├── name: VARCHAR
-  ├── workspace_path: VARCHAR (绝对路径)
-  ├── created_at: DATETIME
-  └── updated_at: DATETIME
-
-sessions
-  ├── ...
-  ├── project_id: UUID FK → projects.id (新增，NOT NULL)
-  └── workspace_id: 移除（workspace 信息从 Project 获取）
+```mermaid
+erDiagram
+    projects ||--o{ sessions : owns
+    projects {
+        UUID id PK
+        VARCHAR name
+        VARCHAR workspace_path
+        DATETIME created_at
+        DATETIME updated_at
+    }
+    sessions {
+        UUID id PK
+        UUID project_id FK
+    }
 ```
 
 ### 用户流程
 
-```
-首页 Project 列表
-  → 新建 Project（新建空白文件夹 / 选择现有文件夹）
-    → 进入 Project 工作区
-      → 创建私聊（选一个 Agent → 创建 Session）
-      → 创建群聊（选多个 Agent → 创建 Session）
-      → 所有 Agent 的 cwd = Project.workspace_path
+```mermaid
+flowchart TB
+    HOME["首页 Project 列表"]
+    CREATE["新建 Project<br/>新建空白文件夹 / 选择现有文件夹"]
+    WORKSPACE["进入 Project 工作区"]
+    SINGLE["创建私聊<br/>选择一个 Agent -> 创建 Session"]
+    GROUP["创建群聊<br/>选择多个 Agent -> 创建 Session"]
+    CWD["所有 Agent 的 cwd = Project.workspace_path"]
+
+    HOME --> CREATE --> WORKSPACE
+    WORKSPACE --> SINGLE
+    WORKSPACE --> GROUP
+    SINGLE --> CWD
+    GROUP --> CWD
 ```
 
 ### 配套决策：CLI 适配器策略
@@ -94,7 +111,7 @@ sessions
       → 产物自动出现在 Artifact Card 和 Drawer
 ```
 
-## Consequences
+## 影响
 
 - 需要新增 `projects` 表和 `sessions.project_id` 外键
 - 移除 `sessions.workspace_id`（workspace 从 Project 间接获取）
@@ -105,6 +122,6 @@ sessions
 - Adapter 需要实现语义分层解析（区分文本/进度/产物/交互）
 - Spec 文档（PRD-01、PRD-06、Phase 6 Specs）需相应更新
 
-## Implementation Notes
+## 实施说明
 
 - 2026-06-04：Phase 6A Workspace Runtime 通过人工验收。前端创建项目按钮已改为两项菜单：`新建空白文件夹` 与 `选择现有文件夹`；后者调用 `/api/projects/pick-folder` 由后端打开系统目录选择器。`project_type` 仅作为数据库兼容字段保留，不进入前端类型、请求体或用户流程。

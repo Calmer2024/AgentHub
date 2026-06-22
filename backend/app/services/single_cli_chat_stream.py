@@ -30,6 +30,7 @@ from .engine_session_service import EngineSessionService
 from .run_service import RunService, run_to_read, task_to_read
 from .session_service import SessionService
 from .streaming_text import iter_stream_pieces
+from ..infrastructure.realtime import RealtimePublisher, manager as realtime_manager
 
 
 class SingleCliChatStream:
@@ -40,9 +41,11 @@ class SingleCliChatStream:
         db: AsyncSession,
         context_manager: ContextManager,
         event_bus=None,
+        realtime: RealtimePublisher | None = None,
     ):
         self.db = db
         self.event_bus = event_bus
+        self.realtime = realtime or realtime_manager
         self._context_manager = context_manager
         self._cli_agents = CliAgentService(event_bus=event_bus)
         self._file_changes = FileChangeDetector()
@@ -271,7 +274,7 @@ class SingleCliChatStream:
                                 session_id, agent_config, assistant_msg_id,
                                 process_id, token, event.chunk_type, token,
                             )
-                            await _broadcast_ws(session_id, {
+                            await _broadcast_ws(self.realtime, session_id, {
                                 "type": "token",
                                 "token": token,
                                 "messageId": assistant_msg_id,
@@ -588,7 +591,7 @@ class SingleCliChatStream:
                 )
                 yield self._run_status_changed(run)
 
-        await _broadcast_ws(session_id, {
+        await _broadcast_ws(self.realtime, session_id, {
             "type": "message.completed",
             "sessionId": session_id,
             "messageId": assistant_msg_id,
@@ -1039,9 +1042,12 @@ def _process_started_trace(agent_name: str, runtime_metadata: dict) -> dict:
     }
 
 
-async def _broadcast_ws(session_id: str, payload: dict) -> None:
+async def _broadcast_ws(
+    realtime: RealtimePublisher,
+    session_id: str,
+    payload: dict,
+) -> None:
     try:
-        from ..api.ws_manager import manager as ws_manager
-        await ws_manager.broadcast(session_id, payload)
+        await realtime.broadcast(session_id, payload)
     except Exception:
         pass

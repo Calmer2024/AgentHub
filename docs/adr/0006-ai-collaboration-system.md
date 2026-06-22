@@ -1,35 +1,25 @@
 # ADR-0006: AI 协作规范体系 —— Rules / Spec / Skill 三层沉淀
 
-**Date**: 2026-05-26
-**Status**: Accepted（历史决策；开发阶段 Skill 层已部分退役）
+**日期**: 2026-05-26
+**状态**: Accepted（历史决策；开发阶段 Skill 层已部分退役）
 
 > **2026-06-20 当前状态说明**：项目已进入产品优化结尾状态。Rules 与 Spec/PRD/ADR 仍是当前协作基座；`agenthub-module-dev`、`agenthub-code-review`、`agenthub-phase-wrapup`、`agenthub-qa-audit` 四个早期开发阶段 Skill 不再作为活动流程入口，并已从当前工作区清理，只在 Git 历史中追溯。
 
-## Context
+## 背景
 
 考察要点中"沉淀出和 AI 协作的 Spec、Skill、Rules 等协作规范"权重 30%，是最高权重项。这要求我们不是"用了 AI 写代码"，而是**建立了一套成体系的、可演示的、持续沉淀的人机协作方法**。答辩时需要展示这些协作产物的完整性和演进过程。
 
-## Decision
+## 决策
 
 建立三层 AI 协作体系：
 
-```
-┌──────────────────────────────────────────────┐
-│              Skill 层（能力复用）              │
-│  可重复调用的 AI 工作流，一键执行常见任务       │
-│  文件位置: Git 历史中的 .agents/skills/         │
-│  触发方式: 历史流程，不再作为当前入口             │
-├──────────────────────────────────────────────┤
-│              Spec 层（规格定义）               │
-│  每个功能模块的"完工标准"，AI 和人共同遵守      │
-│  文件位置: docs/archive/phases/specs/{module}-spec.md         │
-│  触发方式: 开发前要求 AI 阅读对应 Spec          │
-├──────────────────────────────────────────────┤
-│              Rules 层（全局约束）              │
-│  AI 在整个项目中必须遵守的底线规则             │
-│  文件位置: CLAUDE.md + CONTEXT.md              │
-│  触发方式: 自动加载，每次对话生效              │
-└──────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    SKILL["Skill 层（能力复用）<br/>可重复调用的 AI 工作流<br/>文件位置：Git 历史中的 .agents/skills/<br/>触发方式：历史流程，不再作为当前入口"]
+    SPEC["Spec 层（规格定义）<br/>每个功能模块的完工标准<br/>文件位置：docs/archive/phases/specs/{module}-spec.md<br/>触发方式：开发前要求 AI 阅读对应 Spec"]
+    RULES["Rules 层（全局约束）<br/>AI 在整个项目中必须遵守的底线规则<br/>文件位置：CLAUDE.md + CONTEXT.md<br/>触发方式：自动加载，每次对话生效"]
+
+    SKILL --> SPEC --> RULES
 ```
 
 ### 三层详细定义
@@ -97,7 +87,7 @@ Skill 的本质是**把重复的 AI 协作模式封装成可复用的 Prompt 模
 | Phase 2.4 | 补充 Artifact/Context 规则 | Artifact Service Spec | agenthub-spec-write |
 | Phase 3-4 | 规则趋于稳定 | 补齐剩余 Spec | 根据实际痛点新增 Skill |
 
-## Consequences
+## 影响
 
 - 每个增量开始前，必须完成对应模块的 Spec 文档
 - CLAUDE.md 在开发过程中持续更新（发现新规则立即写入）

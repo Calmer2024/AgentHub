@@ -25,6 +25,7 @@ from .group_dialog_state import GroupDialogStateService
 from .group_direct_dialog import GroupDirectDialog
 from .orchestrator_plan_chat import OrchestratorPlanChat
 from .orchestrator_steward_chat import OrchestratorStewardChat, StewardAgentDecision
+from ..application.agent_profile_mapper import agent_profiles_from_models
 
 logger = logging.getLogger(__name__)
 
@@ -271,7 +272,7 @@ class GroupChatStream:
             mentions=mentions,
             messages=history,
             pinned_message_ids=pinned_message_ids,
-            member_agents=member_agents,
+            member_agents=agent_profiles_from_models(member_agents),
             system_prompt="",
             context_budget=100_000,
             chain_config=cc,

@@ -1,405 +1,224 @@
-# ADR-0005: 目标架构与接口契约
+# ADR-0005: 目标架构与整体架构约束
 
-**Date**: 2026-05-25  
-**Updated**: 2026-06-03 (重写为 CLI Wrapper 架构)  
-**Status**: Accepted
+**日期**: 2026-05-25
+**更新**: 2026-06-22
+**状态**: Accepted
 
-## Context
+## 背景
 
-根据 ADR-0004 的架构跑道原则，需要在动手写代码之前确定目标架构图和各层职责，作为所有增量开发的"北星"。实际实现按触发条件逐步引入各层，Day 1 不必全部构建。
+ADR-0005 最初用于在 Phase 0 定义目标架构和 Agent Adapter 接口。后续 Phase 6-16 已经把 AgentHub 从“聊天 + Agent 调用”演进为 Project-first 的 Agent Runtime 编排平台：
 
-> **架构路线修正 (2026-06-03)**: 本 ADR 原版定义了基于 HTTP LLM API 的 `BaseAgentAdapter` 接口（`chat()` / `chat_stream()` 接受 `messages: list[dict]`）。PRD-00 和 PRD-01 已正式推翻该路线，确立 CLI Wrapper 模式为 AgentHub 的唯一 Agent 架构。本次修订将接口契约从 HTTP API 调用全面重写为 CLI 进程管理（PTY/subprocess、stdin/stdout 桥接、ANSI 清洗、交互式拦截）。AgentHub 不做一个"调用大模型 API 的聊天室"，而是封装市面上真正具备独立执行能力的 CLI Agent 工具（Claude Code、OpenCode 等）的调度壳。
+- Project 是顶层组织实体，所有 Session 共享 Project workspace。见 [ADR-0009](0009-project-workspace-model.md)。
+- Agent Profile 是 System Prompt + Rules + Toolset + Context Policy + Runtime Config + Engine。见 [ADR-0011](0011-agent-engine-skill-model.md)。
+- 真实执行通过 Claude Code、Codex、OpenCode、自定义 CLI 等 Engine 完成。
+- 本机桌面端、Web/SaaS、移动端共享 Project / Session / Message / Artifact / Run 模型，但运行环境和部署方式不同。
+- 系统已经包含 cloud workspace、sandbox runner、deployment provider、auth/tenant、CLI credential、secret、quota 等基础设施能力。
 
-## Decision
+早期“自上而下单线依赖”图不再适合作为当前目标架构图。它容易造成两个误解：
 
-### 目标架构图（七层）
+1. 误以为配置与运行环境是独立于业务模块之外的一层。
+2. 误以为请求必须沿着“前端 -> API -> Service -> Domain -> Infrastructure -> Data”单线向下流动。
 
-```
-┌──────────────────────────────────────────────────────┐
-│                  Frontend Layer                       │
-│  ┌────────────┐  ┌────────────┐  ┌────────────────┐  │
-│  │ UI Components│  │ State Store │  │ WS Client     │  │
-│  │ (shadcn/ui) │  │ (Zustand)  │  │ (heartbeat,    │  │
-│  │             │  │            │  │  reconnect)    │  │
-│  └────────────┘  └────────────┘  └────────────────┘  │
-├──────────────────────────────────────────────────────┤
-│                API Gateway Layer                      │
-│  ┌──────────────────┐  ┌───────────────────────────┐ │
-│  │ REST Endpoints   │  │ WebSocket Manager         │ │
-│  │ (thin: validate, │  │ (auth, connect,           │ │
-│  │  delegate,       │  │  broadcast per session)   │ │
-│  │  serialize)      │  │                           │ │
-│  └────────┬─────────┘  └─────────────┬─────────────┘ │
-├───────────┼─────────────────────────┼───────────────┤
-│           ▼                         ▼                │
-│              Service / Business Logic Layer           │
-│  ┌──────────┐ ┌──────────┐ ┌──────────────────────┐ │
-│  │ Session  │ │ Message  │ │ Artifact             │ │
-│  │ Service  │ │ Service  │ │ Service              │ │
-│  │          │ │          │ │ (store, preview,     │ │
-│  │          │ │          │ │  versioning, deploy) │ │
-│  └────┬─────┘ └────┬─────┘ └──────────┬───────────┘ │
-├───────┼─────────────┼─────────────────┼─────────────┤
-│       ▼             ▼                 ▼              │
-│                Domain / Core Layer                     │
-│  ┌────────────────────┐  ┌──────────────────────────┐│
-│  │ Orchestrator       │  │ Context / Prompt Manager ││
-│  │ - intent analysis  │  │ - prompt assembly        ││
-│  │ - task decomposition│  │ - token estimation       ││
-│  │ - parallel dispatch│  │ - history compression    ││
-│  │ - result aggregation│  │ - pin priority system   ││
-│  │ - failure fallback │  │ - system prompt injection││
-│  └────────┬───────────┘  └─────────────┬────────────┘│
-├───────────┼────────────────────────────┼─────────────┤
-│           ▼                            ▼             │
-│              Infrastructure Layer                      │
-│  ┌──────────┐ ┌────────────┐ ┌────────────────────┐  │
-│  │ CLI      │ │ Event Bus  │ │ File / Storage     │  │
-│  │ Agent    │ │ (pub/sub,  │ │ Manager            │  │
-│  │ Adapters │ │  async)    │ │ (local→S3, cleanup)│  │
-│  │ (Process │ │            │ │                    │  │
-│  │  Manager)│ │            │ │                    │  │
-│  └──────────┘ └────────────┘ └────────────────────┘  │
-├──────────────────────────────────────────────────────┤
-│              Data / Persistence Layer                  │
-│  ┌──────────────┐  ┌───────────────────────────────┐ │
-│  │ Models (ORM) │  │ Configuration Store            │ │
-│  │ SQLAlchemy   │  │ (Agent prompts, API keys,      │ │
-│  │              │  │  tool definitions, user prefs) │ │
-│  └──────────────┘  └───────────────────────────────┘ │
-└──────────────────────────────────────────────────────┘
+当前目标架构应当表达一个更简单、更稳定的事实：后端以应用服务层为编排中心，领域层、基础设施层、数据持久化层是它调用的三个主要能力边界。
+
+## 决策
+
+AgentHub 的目标架构采用六层架构：
+
+1. 前端层
+2. API 接入层
+3. 应用服务层
+4. 领域层
+5. 基础设施层
+6. 数据持久化层
+
+不再把 Runtime / Configuration 单独列为一层或一张横切平面图。配置、凭据、Secret、Provider Registry、环境策略和依赖装配属于**基础设施层**，由系统启动入口和基础设施模块负责提供给 API、应用服务、外部适配器和数据连接。
+
+也就是说：
+
+- Service / Use Case 负责业务流程编排。
+- Domain 负责核心业务规则。
+- Infrastructure / Adapter 负责外部系统、运行环境、配置、凭据和 Provider 适配。
+- Data / Persistence 负责数据库、ORM、迁移和查询形状。
+
+## 目标架构图
+
+```mermaid
+flowchart TB
+    FE["前端层"]
+    API["API 接入层"]
+    APP["应用服务层<br/>Service / Use Case"]
+    DOMAIN["领域层<br/>Domain"]
+    INFRA["基础设施层<br/>Infrastructure / Adapter"]
+    DATA["数据持久化层<br/>Data / Persistence"]
+    EXT["外部系统<br/>CLI / Sandbox / 文件系统 / 部署平台"]
+    DB[("数据库")]
+
+    FE --> API
+    API --> APP
+
+    APP --> DOMAIN
+    APP --> INFRA
+    APP --> DATA
+
+    INFRA --> EXT
+    DATA --> DB
 ```
 
-### 各层职责与 Phase 引入时机
+## 读图规则
 
-| 层 | 职责 | Day 1 实现？ | 引入时机 |
-|----|------|------------|---------|
-| **Frontend** | UI 渲染 + 状态管理 + WS 通信 | 部分（无 WS） | Phase 1 做基础组件，Phase 2.2 加 WS Client |
-| **API Gateway** | 路由参数校验 → 委托 Service → 序列化响应 | 是（路由直接调 Agent） | Phase 1；Phase 2.2 重构为 thin handler |
-| **Service** | 业务逻辑编排、事务管理、权限校验 | **否** | Phase 2.2（消息引用/重生成/多 Agent 时引入） |
-| **Domain** | Orchestrator 调度 + Prompt 管理 | **否** | Phase 2.3（群聊）+ Phase 2.4（长上下文） |
-| **Infrastructure** | CLI Agent 进程管理 + 事件总线 + 文件存储 | 部分（仅 CLI 适配器核心） | Phase 1 只建 CLI 进程管理骨架；Event Bus 在 Phase 2.3 引入；File Manager 在 Phase 2.4 引入 |
-| **Data** | ORM 模型 + 配置存取 | 部分（仅核心 models） | Phase 1 建 Session/Message/Agent 三张表；Config Store 随功能扩展逐步加入 |
+- 前端层只通过 HTTP、SSE、WebSocket 等接口访问 API 接入层。
+- API 接入层负责接入、认证、租户校验、参数校验和响应序列化，保持薄层。
+- 应用服务层负责一次用户意图的完整业务流程，例如发送消息、群聊编排、Run/Task/Process 状态推进、Artifact 工作流和部署工作流。
+- 领域层只沉淀稳定业务规则，例如 Orchestrator、ContextManager、AgentSelector、ExecutionPlanner、Plan 和 prompt policy。
+- 基础设施层封装外部能力，包括 CLI、sandbox、workspace、文件系统、事件/实时推送、runner provider、deployment provider、配置、凭据和 Secret。
+- 数据持久化层封装数据库相关能力，包括 SQLAlchemy models、migration、repository/query shape、SQLite 和未来 PostgreSQL。
+- 领域层不依赖基础设施层，也不依赖数据持久化层；需要数据时由应用服务层读取并映射为领域需要的纯数据结构。
 
-### 依赖规则
+## 架构模块职责
 
-1. **只能向下依赖**：上层可以依赖下层，下层绝不依赖上层
-2. **同层不互依赖**：同一层的模块之间通过 Event Bus 或接口解耦通信
-3. **Domain 层是纯逻辑**：不依赖任何框架（FastAPI、SQLAlchemy），只依赖接口/类型定义
-4. **Infrastructure 层实现 Domain 定义的接口**：如 `BaseAgentAdapter` 定义在 Domain，实现在 Infrastructure
+| 架构模块 | 职责 | 当前示例 |
+| --- | --- | --- |
+| 前端层 | 多端 UI、聊天交互、状态管理、REST/SSE/WS client | `frontend/src/`, `desktop/`, `mobile/` |
+| API 接入层 | HTTP/SSE/WS 接入、认证、租户校验、参数校验、响应序列化 | `backend/app/api/`, `backend/app/main.py` |
+| 应用服务层 | 用户请求编排：single/group、local/cloud runtime、Run/Task/Process、Artifact、Approval、Delivery | `backend/app/application/`, `backend/app/services/chat_service_impl.py`, `single_cli_chat_stream.py`, `group_chat_stream.py`, `run_service.py` |
+| 领域层 | 稳定业务规则：Orchestrator、ContextManager、ExecutionPlanner、AgentSelector、Plan 和 prompt policy | `backend/app/domain/` |
+| 基础设施层 | 外部能力与运行环境适配：CLI、workspace、runtime、EventBus/realtime、runner、deployment、config、credentials、secrets、provider registry | `backend/app/agents/`, `backend/app/event_bus/`, `backend/app/infrastructure/`, `backend/app/config.py`, provider/credential/secret modules |
+| 数据持久化层 | 长期状态和运行状态：ORM models、migrations、SQLite、未来 PostgreSQL | `backend/app/models/`, `backend/app/database.py`, `backend/migrations/` |
 
----
+## 依赖规则
 
-## Core Interface Contracts
+1. **API 接入层保持薄层**
+   API 接入层只处理协议接入和请求边界，不承载 local/cloud、single/group、Run/Task/Process 等业务分流。
 
-以下接口契约在项目初期定义，所有实现必须遵守。
+2. **应用服务层负责流程编排**
+   应用服务层协调领域层、基础设施层和数据持久化层。它是后端业务流程入口，不是所有业务规则的堆放处。
 
-### 1. Agent Adapter Contract (CLI Wrapper)
+3. **领域层保持纯净**
+   领域层不依赖 FastAPI、WebSocket、SQLAlchemy session、真实 CLI 进程、文件系统、应用服务、基础设施模块或数据库模型。领域层需要的 Agent 信息应由应用服务层映射为 `AgentProfileSnapshot` 等纯数据结构。
 
-AgentHub 的 Agent 适配器不是 HTTP API 调用，而是对真实 CLI 工具的进程封装。所有 Agent 适配器必须实现此接口。
+4. **基础设施层隔离外部世界**
+   CLI stdout/stderr、文件系统、cloud sandbox、deployment provider、system model、配置、凭据和 Secret 等不稳定外部能力必须经基础设施层标准化后进入系统。
 
-```python
-from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
-from enum import Enum
-from typing import AsyncIterator, Callable
+5. **数据持久化层只处理状态存取**
+   数据持久化层保存业务状态和运行状态，不承载业务编排，也不决定运行策略。
 
-class AgentType(str, Enum):
-    """Agent 执行类型"""
-    CLI_WRAPPER = "cli_wrapper"       # 通过 PTY/subprocess 管理真实 CLI 工具
-    ORCHESTRATOR = "orchestrator"     # 内置调度器（通过 LLM API 做意图分析/拆解）
+6. **实时推送是基础设施能力，不是 API 反向依赖**
+   Service/Application 不应直接 import API WebSocket manager。实时事件应通过 `RealtimePublisher` 等 seam 发布，再由 WebSocket/SSE adapter 推送。
 
-@dataclass
-class AgentCapability:
-    """Agent 能力声明"""
-    name: str
-    executable: str                   # CLI 可执行文件名，如 "claude"、"opencode"
-    supports_streaming: bool = True
-    supports_file_io: bool = True     # CLI Agent 默认支持读写 workspace 文件
-    supports_interactive_prompt: bool = True  # 是否支持 (y/n) 交互式拦截
-    max_context_tokens: int = 100_000
-    tags: list[str] = field(default_factory=list)
+7. **Run / Task / Process 是运行状态主干**
+   用户可见运行状态以 Run 和 RunTask 为准，底层执行以 RunProcess 或 RuntimeRun 为准。
 
-@dataclass
-class AgentResponse:
-    """Agent 单次执行回复"""
-    content: str                      # 清洗后的纯文本/Markdown 内容
-    raw_output: str | None = None     # 原始 stdout（调试用，可选保留）
-    exit_code: int = 0
-    events: list[dict] = field(default_factory=list)
-    # events 中的标准事件类型：
-    #   "agent.output"      — 流式文本块
-    #   "artifact.detected" — 检测到产物（HTML/code block/patch/file change）
-    #   "interactive_prompt"— CLI 发出的交互式确认请求
-    #   "task_status_change"— 任务状态变更
-    usage: dict | None = None
+## 关于配置与装配
 
-class BaseAgentAdapter(ABC):
-    """所有 Agent 平台适配器必须实现的接口。
-    
-    定义于 Domain 层，实现在 Infrastructure 层。
-    
-    核心职责：管理一个真实 CLI 进程的完整生命周期——
-    启动、stdin 写入、stdout/stderr 读取、ANSI 清洗、
-    交互式提示拦截、超时/僵尸进程清理。
-    """
+配置与装配不是单独的一层。它属于基础设施层中的一组能力：
 
-    @property
-    @abstractmethod
-    def capability(self) -> AgentCapability:
-        """返回该 Agent 的能力元信息"""
-        ...
+- `settings`：环境变量、数据库连接、CORS、运行模式等。
+- `credentials / secrets`：CLI 凭据、API key、用户/团队级 Secret。
+- `provider registry`：runner provider、deployment provider、storage provider 等实现选择。
+- `composition root`：系统启动时把配置、数据库连接、事件总线、实时发布器、外部适配器装配到应用中。
 
-    @abstractmethod
-    async def execute(
-        self,
-        prompt: str,                   # 注入给 CLI Agent 的系统/任务 prompt
-        session_id: str,
-        workspace_path: str,           # CLI 进程的 cwd（必须指向会话绑定的 workspace）
-        on_token: Callable[[str], None] | None = None,
-        env: dict | None = None,       # 环境变量注入（API Keys 等）
-    ) -> AgentResponse:
-        """启动 CLI 进程、发送 prompt、收集输出、返回完整回复。
+约束：
 
-        - 若提供 on_token，则逐 token 回调（经过 ANSI 清洗后）
-        - 内部处理交互式拦截：匹配到 (y/n) 模式时暂停流推送，
-          通过 EventBus 发出 interactive_prompt 信令，
-          等待用户决策后以 stdin 注入回复
-        """
-        ...
+- 领域层不能直接读取配置。
+- 应用服务层不应把业务规则写成到处散落的环境判断。
+- 基础设施层可以读取配置并创建具体 adapter。
+- 数据持久化层可以读取数据库连接配置。
+- API 接入层可以读取认证、CORS、租户策略等接入配置。
 
-    @abstractmethod
-    async def execute_stream(
-        self,
-        prompt: str,
-        session_id: str,
-        workspace_path: str,
-        env: dict | None = None,
-    ) -> AsyncIterator[str]:
-        """流式执行 CLI Agent，返回清洗后的 token 迭代器。"""
-        ...
+## 核心架构接口
 
-    @abstractmethod
-    async def abort(self, session_id: str) -> None:
-        """强制终止当前正在运行的 CLI 进程。
-        
-        发送 SIGTERM，超时 5s 后升级为 SIGKILL。
-        """
-        ...
+当前目标架构不要求先定义大量 ABC。只有当存在两个以上真实适配器，或 seam 对测试/扩展有实际价值时，才引入显式接口。当前最重要的 seam 是：
+
+### AgentRuntimePort
+
+用途：让应用服务层以统一方式启动本机 CLI 或云端 sandbox runtime。
+
+```mermaid
+flowchart LR
+    APP["应用服务层"] --> PORT["AgentRuntimePort"]
+    PORT --> LOCAL["LocalCliRuntimeAdapter"]
+    PORT --> CLOUD["CloudSandboxRuntimeAdapter"]
+    LOCAL --> CLI["本机 CLI 进程"]
+    CLOUD --> SANDBOX["云端 Sandbox / Runner"]
 ```
 
-### 2. CLI Process Manager Contract
+### RealtimePublisher
 
-```python
-from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from typing import AsyncIterator
+用途：让应用服务层发布 session 级实时事件，而不是直接依赖 API WebSocket manager。
 
-@dataclass
-class CLIProcessConfig:
-    """CLI 进程启动配置"""
-    executable: str                   # 可执行文件路径，如 "claude" 或完整路径
-    args: list[str]                   # 启动参数，如 ["--compact", "--theme=light"]
-    cwd: str                          # 工作目录（会话 workspace_path）
-    env: dict[str, str]               # 环境变量
-    timeout_seconds: int = 300        # 静默超时（无 stdout 输出的最大秒数）
-    heartbeat_timeout_seconds: int = 180  # 心跳超时（WS 断开后等待重连的最大秒数）
-
-@dataclass
-class StreamChunk:
-    """从 CLI stdout 读取的一个数据块"""
-    raw_bytes: bytes                  # 原始字节
-    clean_text: str                   # ANSI 清洗后的纯净文本
-    is_interactive: bool = False      # 是否检测到交互式提示 (y/n)
-    interactive_content: str | None = None  # 交互式提示内容
-
-class CLIProcessManager(ABC):
-    """CLI 进程生命周期管理器接口。
-    
-    负责：PTY/subprocess 孵化、stdout/stderr 读取、
-    ANSI 转义码清洗、交互式提示模式匹配、心跳/超时清理。
-    """
-
-    @abstractmethod
-    async def spawn(self, config: CLIProcessConfig) -> str:
-        """启动 CLI 进程，返回 process_id"""
-        ...
-
-    @abstractmethod
-    async def write_stdin(self, process_id: str, data: str) -> None:
-        """向进程 stdin 写入数据（用于注入用户回复、确认指令等）"""
-        ...
-
-    @abstractmethod
-    async def read_stream(self, process_id: str) -> AsyncIterator[StreamChunk]:
-        """流式读取 stdout，逐块 yield StreamChunk"""
-        ...
-
-    @abstractmethod
-    async def terminate(self, process_id: str, force: bool = False) -> int:
-        """终止进程。force=False 发 SIGTERM，force=True 发 SIGKILL。返回 exit_code"""
-        ...
-
-    @abstractmethod
-    async def is_alive(self, process_id: str) -> bool:
-        """检查进程是否仍在运行"""
-        ...
+```mermaid
+flowchart LR
+    APP["应用服务层"] --> PUB["RealtimePublisher"]
+    PUB --> WS["WebSocketRealtimeAdapter"]
+    WS --> CLIENT["前端 WebSocket / SSE 消费端"]
 ```
 
-### 3. Workspace Provider Contract
+### AgentProfileSnapshot
 
-```python
-from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from typing import AsyncIterator
+用途：阻断领域层对 SQLAlchemy `AgentConfig` 的直接依赖。
 
-@dataclass
-class WorkspaceInfo:
-    """Workspace 元信息"""
-    workspace_id: str
-    workspace_path: str              # 物理路径（本机）或 volume_key（云端）
-    session_id: str
-    session_title: str | None = None
-    file_count: int = 0
-    total_size_bytes: int = 0
-
-@dataclass
-class FileChange:
-    """Workspace 文件变更事件"""
-    workspace_id: str
-    path: str                        # 相对于 workspace 根目录的路径
-    change_type: str                 # "created" | "modified" | "deleted"
-    diff_preview: str | None = None  # 变更的 diff 预览（文本文件）
-
-class WorkspaceProvider(ABC):
-    """Workspace 管理接口。
-    
-    P1（桌面版）由 LocalWorkspaceProvider 实现，直接操作本机文件系统。
-    P2（SaaS 版）由 CloudWorkspaceProvider 实现，操作云端沙箱存储。
-    """
-
-    @abstractmethod
-    async def create(self, session_id: str, path: str | None = None) -> WorkspaceInfo:
-        """创建/绑定 workspace。path=None 则自动生成目录。"""
-        ...
-
-    @abstractmethod
-    async def get(self, workspace_id: str) -> WorkspaceInfo:
-        """获取 workspace 信息"""
-        ...
-
-    @abstractmethod
-    async def list_files(self, workspace_id: str, subpath: str = "") -> list[dict]:
-        """列出 workspace 中的文件"""
-        ...
-
-    @abstractmethod
-    async def watch_changes(
-        self, workspace_id: str
-    ) -> AsyncIterator[FileChange]:
-        """监听 workspace 文件变更（用于 Adapter 检测产物）"""
-        ...
-
-    @abstractmethod
-    async def validate_path(self, workspace_id: str, relative_path: str) -> bool:
-        """校验路径是否在 workspace 边界内（防越界）"""
-        ...
+```mermaid
+flowchart LR
+    ORM["数据持久化层: AgentConfig ORM"] --> MAPPER["应用服务层 Mapper"]
+    MAPPER --> SNAPSHOT["AgentProfileSnapshot"]
+    SNAPSHOT --> DOMAIN["领域层: Orchestrator / AgentSelector"]
 ```
 
-### 4. Event Bus Contract
+当前实现：
 
-```python
-from abc import ABC, abstractmethod
-from enum import Enum
-from typing import Any, Callable, Awaitable
+- `backend/app/domain/agent_profile.py` 定义领域层纯数据结构。
+- `backend/app/application/agent_profile_mapper.py` 在应用服务边界完成 ORM 到领域快照的映射。
 
-class EventType(Enum):
-    """系统事件类型"""
-    MESSAGE_CREATED = "message.created"
-    MESSAGE_STREAMING = "message.streaming"
-    MESSAGE_COMPLETED = "message.completed"
-    ORCHESTRATOR_TASK_STARTED = "orchestrator.task.started"
-    ORCHESTRATOR_TASK_COMPLETED = "orchestrator.task.completed"
-    AGENT_PROCESS_STARTED = "agent.process.started"
-    AGENT_PROCESS_COMPLETED = "agent.process.completed"
-    AGENT_OUTPUT = "agent.output"               # 流式文本块
-    ARTIFACT_DETECTED = "artifact.detected"     # CLI 输出中检测到产物
-    ARTIFACT_CREATED = "artifact.created"
-    ARTIFACT_UPDATED = "artifact.updated"
-    INTERACTIVE_PROMPT = "interactive.prompt"   # CLI 发出交互式确认请求
-    WORKSPACE_FILE_CHANGED = "workspace.file.changed"
+### DomainEventPublisher
 
-EventHandler = Callable[[dict[str, Any]], Awaitable[None]]
+用途：阻断领域层对基础设施 `EventBus` / `EventType` 的直接依赖。
 
-class EventBus(ABC):
-    """事件总线接口。Phase 2.3 引入。"""
-
-    @abstractmethod
-    async def publish(self, event_type: EventType, payload: dict[str, Any]) -> None:
-        """发布事件"""
-        ...
-
-    @abstractmethod
-    def subscribe(self, event_type: EventType, handler: EventHandler) -> None:
-        """订阅事件"""
-        ...
-
-    @abstractmethod
-    def unsubscribe(self, event_type: EventType, handler: EventHandler) -> None:
-        """取消订阅"""
-        ...
+```mermaid
+flowchart LR
+    DOMAIN["领域层: OrchestratorV2"] --> EVENT["领域事件名"]
+    EVENT --> PUB["DomainEventPublisher"]
+    PUB --> BUS["基础设施层: EventBus / EventType"]
 ```
 
-### 5. Context Manager Contract
+当前实现：
 
-```python
-from dataclasses import dataclass, field
+- `backend/app/domain/events.py` 定义领域事件名和发布协议。
+- `backend/app/infrastructure/domain_event_publisher.py` 把领域事件名映射为基础设施 `EventType`。
 
-@dataclass
-class PromptAssemblyInput:
-    """Context Manager 的输入"""
-    session_id: str
-    system_prompt: str
-    messages: list[dict]
-    pinned_message_ids: list[str] = field(default_factory=list)
-    max_tokens: int = 100_000
-    reserve_tokens: int = 4096
+## 实施指引
 
-@dataclass
-class PromptAssemblyOutput:
-    """Context Manager 的输出"""
-    assembled_messages: list[dict]
-    total_tokens: int
-    truncated: bool
-    pinned_included: list[str]
+新增或重构代码时优先遵循以下放置规则：
 
-class ContextManager(ABC):
-    """Prompt 上下文管理器接口。Phase 2.4 引入。"""
+| 变更类型 | 建议位置 |
+| --- | --- |
+| 新 REST/SSE/WS endpoint | `backend/app/api/` |
+| 一次用户命令或业务工作流 | `backend/app/application/` 或现有 `backend/app/services/`，后续可按 use case 拆分 |
+| Orchestrator、Context、Plan、Agent 选择规则 | `backend/app/domain/` |
+| CLI、runner、deployment、workspace、system model、config、credential、secret 适配 | `backend/app/agents/`, `backend/app/infrastructure/`, provider/credential/secret modules |
+| ORM model、migration、DB 查询形状 | `backend/app/models/`, `backend/migrations/` |
 
-    @abstractmethod
-    def assemble(self, input: PromptAssemblyInput) -> PromptAssemblyOutput:
-        """组装发送给 Agent 的最终 messages 列表。
+## 影响
 
-        策略：
-        1. System Prompt 固定在最前
-        2. Pinned 消息按时间排序插入
-        3. 剩余空间按 FIFO 填充最近历史
-        4. 超出 max_tokens - reserve_tokens 的消息被截断或压缩
-        """
-        ...
+正面影响：
 
-    @abstractmethod
-    def estimate_tokens(self, messages: list[dict]) -> int:
-        """估算消息列表占用的 token 数"""
-        ...
-```
+- 架构图回到团队更熟悉的 Service / Domain / Infrastructure / Data 表达。
+- 配置与装配不再被误解为单独架构层。
+- API 接入层、应用服务层、领域层、基础设施层、数据持久化层的职责更清晰。
+- 新增 CLI、新 runner、新 deployment provider、新数据库时，可以通过基础设施层或数据持久化层演进，不推翻领域层。
+- 测试边界更清楚：领域层测规则，应用服务层测流程，基础设施层测外部协议转换。
 
-## Consequences
+## 取代与保留
 
-- AgentHub 的 Agent 层是**进程管家**而非 HTTP 客户端：核心职责是 CLI 进程的启停、I/O 桥接和生命周期管理
-- CLI 工具的智能来自工具本身（Claude Code、OpenCode 等），AgentHub 不重复造轮子去实现代码生成循环
-- 接口契约是**约束**，不是负担——它保证模块之间不会因实现细节变化而断裂
-- 目标架构图是**北星**，不是蓝图——每次增量向它靠近，但允许中间态简化
-- Layer 可以暂时合并（Phase 1 的 API 和 Service 合在一起），但不能反向依赖（Service 绝不能依赖 API）
-- Workspace 是 CLI Agent 的物理执行边界：所有 Agent 进程的 `cwd` 必须指向会话绑定的 `workspace_path`，路径访问必须校验在允许范围内
-- P1（桌面版）使用 LocalWorkspaceProvider 操作本机文件系统，P2（SaaS 版）使用 CloudWorkspaceProvider 操作云端沙箱
+本 ADR 取代 ADR-0005 旧版“自上而下目标架构图”和后续横切平面图作为整体系统架构约束。
+
+以下专项决策继续生效：
+
+- CLI Wrapper / per-CLI Adapter 方向，见 [ADR-0009](0009-project-workspace-model.md) 和 [PRD-01](../PRD/01-Architecture_Adapter.md)。
+- Orchestrator Pipeline / DAG / Plan-first 演进，见 [ADR-0007](0007-orchestrator-architecture.md)。
+- Project-first workspace 模型，见 [ADR-0009](0009-project-workspace-model.md)。
+- 消息级 Artifact 体验，见 [ADR-0010](0010-message-level-artifact-experience.md)。
+- Agent Profile 模型，见 [ADR-0011](0011-agent-engine-skill-model.md)。
+- SQLite + SQLAlchemy 持久化策略，见 [ADR-0012](0012-data-persistence-model.md)。
+
+当前实现事实源见 [docs/architecture/overview.md](../architecture/overview.md)。

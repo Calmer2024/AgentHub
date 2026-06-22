@@ -16,8 +16,11 @@ AgentHub 是一个以 IM 聊天为核心交互范式的多 Agent 协作平台。
 | 产品设计文档 | [docs/submission/01-产品设计文档.md](docs/submission/01-产品设计文档.md) |
 | 技术设计文档 | [docs/submission/02-技术设计文档.md](docs/submission/02-技术设计文档.md) |
 | AI 协作开发记录 | [docs/submission/03-AI协作开发记录.md](docs/submission/03-AI协作开发记录.md) |
+| 项目答辩核心掌握指南 | [docs/submission/04-项目答辩核心掌握指南.md](docs/submission/04-项目答辩核心掌握指南.md) |
 | 全局上下文与文档索引 | [CONTEXT.md](CONTEXT.md) |
 | 文档中心 | [docs/README.md](docs/README.md) |
+| 当前架构事实 | [docs/architecture/overview.md](docs/architecture/overview.md) |
+| 数据模型 | [docs/architecture/data-model.md](docs/architecture/data-model.md) |
 | 课题原始要求 | [docs/archive/AgentHub-多Agent协作平台设计.md](docs/archive/AgentHub-多Agent协作平台设计.md) |
 
 ## 3. 核心功能
@@ -117,7 +120,7 @@ AgentHub/
 ├── frontend/             # React + TypeScript + Vite 前端
 ├── desktop/              # Tauri 本地桌面端
 ├── mobile/               # Capacitor 移动端产品壳
-├── docs/                 # PRD、ADR、用户手册、测试协议、归档文档
+├── docs/                 # PRD、ADR、Architecture、用户手册、测试协议、归档文档
 ├── CLAUDE.md             # AI Agent 行为规则
 └── CONTEXT.md            # 全局上下文和文档索引
 ```
@@ -195,9 +198,12 @@ npm run build
 | 产品是什么 | [docs/submission/01-产品设计文档.md](docs/submission/01-产品设计文档.md) |
 | 技术怎么实现 | [docs/submission/02-技术设计文档.md](docs/submission/02-技术设计文档.md) |
 | AI 协作怎么沉淀 | [docs/submission/03-AI协作开发记录.md](docs/submission/03-AI协作开发记录.md) |
+| 答辩怎么准备 | [docs/submission/04-项目答辩核心掌握指南.md](docs/submission/04-项目答辩核心掌握指南.md) |
 | 完整文档索引 | [CONTEXT.md](CONTEXT.md) |
 | PRD | [docs/PRD/](docs/PRD/) |
-| ADR | [docs/adr/](docs/adr/) |
+| ADR 状态与决策 | [docs/adr/README.md](docs/adr/README.md) |
+| 当前架构事实 | [docs/architecture/overview.md](docs/architecture/overview.md) |
+| 数据模型 | [docs/architecture/data-model.md](docs/architecture/data-model.md) |
 | Phase 归档 | [docs/archive/phases/](docs/archive/phases/) |
 | 规格归档 | [docs/archive/phases/specs/](docs/archive/phases/specs/) |
 | 阶段交付快照归档 | [docs/archive/phases/deliverables/](docs/archive/phases/deliverables/) |

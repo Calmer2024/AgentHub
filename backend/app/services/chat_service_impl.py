@@ -21,21 +21,34 @@ from .run_service import RunService, run_to_read, task_to_read
 from .session_service import SessionService
 from .session_title_service import SessionTitleService
 from .single_cli_chat_stream import SingleCliChatStream
+from ..infrastructure.domain_event_publisher import domain_event_publisher_from_event_bus
+from ..infrastructure.realtime import RealtimePublisher, manager as realtime_manager
 
 class ChatServiceImpl:
     """聊天服务：持久化用户输入，然后委托单聊或群聊流。"""
 
-    def __init__(self, db: AsyncSession, event_bus=None):
+    def __init__(
+        self,
+        db: AsyncSession,
+        event_bus=None,
+        realtime: RealtimePublisher | None = None,
+    ):
         self.db = db
         self.event_bus = event_bus
+        self.realtime = realtime or realtime_manager
         self._context_manager = ContextManager()
         self._pipeline = OrchestratorV2(
             context_manager=self._context_manager,
-            event_bus=event_bus,
+            event_bus=domain_event_publisher_from_event_bus(event_bus),
         )
         self._executor = AgentExecutor(db, event_bus=event_bus)
         self._group_stream = GroupChatStream(db, self._pipeline, self._executor, event_bus=event_bus)
-        self._single_stream = SingleCliChatStream(db, self._context_manager, event_bus)
+        self._single_stream = SingleCliChatStream(
+            db,
+            self._context_manager,
+            event_bus,
+            realtime=self.realtime,
+        )
         self._messages = SqlAlchemyMessageService(db, self._context_manager)
 
     async def send_message_stream(
@@ -218,7 +231,7 @@ class ChatServiceImpl:
             "token": "",
             "done": False,
         }
-        await _broadcast_ws(session_id, payload)
+        await _broadcast_ws(self.realtime, session_id, payload)
         yield self._sse(payload)
 
     # ---- SSE 格式化 ----
@@ -274,9 +287,12 @@ def _is_successful_agent_completion(payload: dict) -> bool:
     return payload.get("exitCode") in (0, None)
 
 
-async def _broadcast_ws(session_id: str, payload: dict) -> None:
+async def _broadcast_ws(
+    realtime: RealtimePublisher,
+    session_id: str,
+    payload: dict,
+) -> None:
     try:
-        from ..api.ws_manager import manager as ws_manager
-        await ws_manager.broadcast(session_id, payload)
+        await realtime.broadcast(session_id, payload)
     except Exception:
         pass

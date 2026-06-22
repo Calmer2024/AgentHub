@@ -14,6 +14,7 @@ docs/
 │
 ├── PRD/                         ← 产品需求拆解文档（与核心设计共同构成权威需求源）
 ├── adr/                         ← 架构决策记录
+├── architecture/                ← 当前架构事实：总览、数据模型、运行模型、事件契约
 ├── submission/                  ← 课程/挑战赛提交用飞书可复制文档
 ├── user-guides/                 ← 面向最终用户的使用与配置手册
 ├── testing/                     ← 测试规范
@@ -39,7 +40,10 @@ docs/
 → 读 [archive/phases/deliverables/v1.0-release/](archive/phases/deliverables/v1.0-release/) 和 [archive/phases/specs/phase7/README.md](archive/phases/specs/phase7/README.md)。这些内容已归档，仅用于追溯 v1.0 发布边界。
 
 ### 我想理解为什么要这样设计
-→ 进入 [adr/](adr/) 目录，按编号顺序阅读架构决策记录。
+→ 进入 [adr/](adr/) 目录，先读 [adr/README.md](adr/README.md)，再按编号阅读架构决策记录。
+
+### 我想了解当前系统实际长什么样
+→ 进入 [architecture/](architecture/) 目录。读 [architecture/overview.md](architecture/overview.md) 看总体架构，读 [architecture/data-model.md](architecture/data-model.md) 看当前数据库表和关系。
 
 ### 我想跑测试
 → 看 [TEST_PROTOCOL.md](TEST_PROTOCOL.md)（通用协议）+ [testing/UX_TEST_SPEC.md](testing/UX_TEST_SPEC.md)（UX 测试规范）。
@@ -76,15 +80,29 @@ docs/
 | ADR-0002 | [0002-directory-structure.md](adr/0002-directory-structure.md) | 项目目录结构规范 |
 | ADR-0003 | [0003-vibe-coding-philosophy.md](adr/0003-vibe-coding-philosophy.md) | 结构化 Vibe Coding 模式 |
 | ADR-0004 | [0004-development-methodology.md](adr/0004-development-methodology.md) | 架构跑道 + 行走骨架 + 增量交付 |
-| ADR-0005 | [0005-target-architecture.md](adr/0005-target-architecture.md) | 7 层目标架构 + CLI Wrapper 接口契约（进程管理、Workspace Provider、EventBus） |
+| ADR-0005 | [0005-target-architecture.md](adr/0005-target-architecture.md) | 整体目标架构：前端、API、应用服务、领域、基础设施、数据持久化六层架构 |
 | ADR-0006 | [0006-ai-collaboration-system.md](adr/0006-ai-collaboration-system.md) | AI 协作体系: Rules/Spec/Skill |
 | ADR-0007 | [0007-orchestrator-architecture.md](adr/0007-orchestrator-architecture.md) | Orchestrator 架构: Pipeline + DAG |
 | ADR-0008 | [0008-revised-development-strategy.md](adr/0008-revised-development-strategy.md) | **🆕** 功能板块制 + Phase 4-7 路线图 |
 | ADR-0009 | [0009-project-workspace-model.md](adr/0009-project-workspace-model.md) | **🆕** Project-Workspace 绑定模型 + CLI 适配策略 + 分层渲染 |
 | ADR-0010 | [0010-message-level-artifact-experience.md](adr/0010-message-level-artifact-experience.md) | 消息级 Artifact 体验取代 P1 右侧 Drawer |
 | ADR-0011 | [0011-agent-engine-skill-model.md](adr/0011-agent-engine-skill-model.md) | **🆕** Agent = Engine + Toolset 建模；调度器作为特殊 Agent 模板 |
+| ADR-0012 | [0012-data-persistence-model.md](adr/0012-data-persistence-model.md) | **🆕** 数据持久化模型：SQLite + SQLAlchemy + Project-first 数据结构 |
 
-**阅读建议**: 新成员按编号顺序读。开发者遇到设计疑问时，先查对应 ADR 是否有记录。
+**阅读建议**: 新成员先读 [adr/README.md](adr/README.md) 了解 ADR 状态。开发者遇到设计疑问时，先查对应 ADR 是否有记录；如果要了解当前实现事实，再看 `architecture/`。
+
+### architecture/ — 当前架构事实
+
+面向开发、答辩和代码导航，解释当前系统实际结构。它回答“现在是什么样”，ADR 回答“为什么这样决定”。
+
+| 文件 | 内容 |
+|------|------|
+| [README.md](architecture/README.md) | Architecture 文档索引和使用建议 |
+| [overview.md](architecture/overview.md) | 当前架构总览、分层结构、主请求链路和本机/云端分流 |
+| [data-model.md](architecture/data-model.md) | 当前数据库表组、核心关系、FTS 表和数据设计约束 |
+| [runtime-model.md](architecture/runtime-model.md) | 本机 CLI runtime、云端 runtime、Run/Task/Process 状态和审批 |
+| [event-contracts.md](architecture/event-contracts.md) | SSE、WebSocket、EventBus 事件类型和新增事件规则 |
+| [documentation-governance.md](architecture/documentation-governance.md) | ADR、PRD、Architecture、Archive 等文档边界和更新规则 |
 
 ### archive/phases/ — Phase 历史资料归档
 
@@ -115,6 +133,7 @@ docs/
 | [01-产品设计文档.md](submission/01-产品设计文档.md) | 产品定位、用户场景、核心链路、完成度和亮点 |
 | [02-技术设计文档.md](submission/02-技术设计文档.md) | 总体架构、CLI Wrapper、Orchestrator、Workspace、Artifact、桌面端和 SaaS |
 | [03-AI协作开发记录.md](submission/03-AI协作开发记录.md) | Rules、归档 Spec、历史 Skill、Dev Log、ADR、测试与人工验收闭环 |
+| [04-项目答辩核心掌握指南.md](submission/04-项目答辩核心掌握指南.md) | 答辩准备速查：架构选型、核心链路、代码入口、常见追问和演示路线 |
 
 ### testing/ — 测试规范
 

@@ -7,10 +7,9 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..application.send_message import SendMessageCommand, SendMessageUseCase
 from ..database import get_db
 from ..models import Project, Session as DBSession
-from ..services.chat_service_impl import ChatServiceImpl
-from ..services.cloud_agent_runtime import CloudAgentRuntimeService
 from ..services.schemas import ChatRequest, MessageRead
 from ..services.message_service_sqlalchemy import SqlAlchemyMessageService
 from ..agents.cli_runtime import CliProcessNotFound
@@ -26,11 +25,6 @@ logger = logging.getLogger(__name__)
 class InteractiveReplyRequest(BaseModel):
     processId: str
     reply: str
-
-
-def _chat_svc(db: AsyncSession):
-    from ..main import _event_bus
-    return ChatServiceImpl(db, event_bus=_event_bus)
 
 
 async def _authorize_session(
@@ -75,40 +69,15 @@ async def chat(
         raise HTTPException(status_code=404, detail="session not found")
 
     project, actor = await _authorize_session(request, db, session, mode="write")
-    if project and project.workspace_mode == "cloud":
-        from ..main import _event_bus
-        runtime = CloudAgentRuntimeService(db, event_bus=_event_bus)
-        if session.mode == "group":
-            return StreamingResponse(
-                _safe_sse_stream(runtime.stream_group_chat(
-                    session_id,
-                    data.content,
-                    actor=actor,
-                    mentions=data.mentions,
-                    parent_message_id=data.parent_message_id,
-                    attachment_ids=data.attachment_ids,
-                )),
-                media_type="text/event-stream",
-            )
-        return StreamingResponse(
-            _safe_sse_stream(runtime.stream_chat(
-                session_id,
-                data.content,
-                actor=actor,
-                parent_message_id=data.parent_message_id,
-                attachment_ids=data.attachment_ids,
-            )),
-            media_type="text/event-stream",
-        )
-
-    svc = _chat_svc(db)
+    from ..main import _event_bus
+    use_case = SendMessageUseCase(db, event_bus=_event_bus)
     return StreamingResponse(
-        _safe_sse_stream(svc.send_message_stream(
-            session_id, data.content, data.mentions,
-            parent_message_id=data.parent_message_id,
-            chain_config=data.chain_config,
-            attachment_ids=data.attachment_ids,
-        )),
+        _safe_sse_stream(use_case.execute(SendMessageCommand(
+            session=session,
+            project=project,
+            request=data,
+            actor=actor,
+        ))),
         media_type="text/event-stream",
     )
 

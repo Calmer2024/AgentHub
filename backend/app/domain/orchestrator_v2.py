@@ -18,8 +18,12 @@ Pipeline 四阶段:
 import logging
 from dataclasses import dataclass, field
 
-from ..models import AgentConfig
-from ..event_bus import EventType
+from .agent_profile import AgentProfileSnapshot
+from .events import (
+    ORCHESTRATOR_TASK_COMPLETED,
+    ORCHESTRATOR_TASK_STARTED,
+    DomainEventPublisher,
+)
 from .intent_analyzer import IntentAnalyzer
 from .agent_selector import AgentSelector
 from .task_decomposer import TaskDecomposer
@@ -38,7 +42,7 @@ class PipelineRequest:
     content: str
     mentions: list[str] | None
     messages: list[dict]
-    member_agents: list[AgentConfig]
+    member_agents: list[AgentProfileSnapshot]
     system_prompt: str = ""
     pinned_message_ids: list[str] = field(default_factory=list)
     context_budget: int = 100_000
@@ -75,9 +79,9 @@ class OrchestratorV2:
         result = await pipeline.run(PipelineRequest(...))
     """
 
-    def __init__(self, context_manager=None, event_bus=None):
+    def __init__(self, context_manager=None, event_bus: DomainEventPublisher | None = None):
         self._ctx = context_manager
-        self._event_bus = event_bus
+        self._events = event_bus
 
         # 组装 4 个组件
         self.intent_analyzer = IntentAnalyzer()
@@ -146,7 +150,11 @@ class OrchestratorV2:
 
     # ---- Stage: Agent Selection ----
 
-    def _select_agents(self, req: PipelineRequest, required_tags: list[str]) -> list[AgentConfig]:
+    def _select_agents(
+        self,
+        req: PipelineRequest,
+        required_tags: list[str],
+    ) -> list[AgentProfileSnapshot]:
         """Stage: @mention 精确匹配 → 标签匹配 → fallback。"""
         candidates = req.member_agents if req.mentions else [
             agent for agent in req.member_agents
@@ -167,10 +175,10 @@ class OrchestratorV2:
     async def _emit_task_started(self, session_id: str, intent: str,
                                   calls: list[AgentCall]) -> None:
         """通过 EventBus 发布任务开始事件。"""
-        if not self._event_bus:
+        if not self._events:
             return
         try:
-            await self._event_bus.publish(EventType.ORCHESTRATOR_TASK_STARTED, {
+            await self._events.publish(ORCHESTRATOR_TASK_STARTED, {
                 "session_id": session_id,
                 "intent": intent,
                 "tasks": [
@@ -185,10 +193,10 @@ class OrchestratorV2:
 
     async def emit_completed(self, session_id: str, summary: str = "") -> None:
         """发布任务完成事件。"""
-        if not self._event_bus:
+        if not self._events:
             return
         try:
-            await self._event_bus.publish(EventType.ORCHESTRATOR_TASK_COMPLETED, {
+            await self._events.publish(ORCHESTRATOR_TASK_COMPLETED, {
                 "session_id": session_id,
                 "summary": summary,
             })

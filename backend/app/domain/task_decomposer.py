@@ -8,7 +8,7 @@ Phase 4: 升级为 LLM 动态角色识别。
 
 from dataclasses import dataclass, field
 
-from ..models import AgentConfig
+from .agent_profile import AgentProfileSnapshot
 
 
 # ===== 6 种协作角色 =====
@@ -119,18 +119,18 @@ class TaskDecomposer:
     def decompose(
         self,
         intent: str,
-        agents: list[AgentConfig],
-    ) -> list[tuple[SubTask, AgentConfig | None]]:
+        agents: list[AgentProfileSnapshot],
+    ) -> list[tuple[SubTask, AgentProfileSnapshot | None]]:
         """按模板拆解任务，匹配最合适的 Agent。
 
         Returns:
-            list[tuple[SubTask, AgentConfig | None]]: 子任务与 Agent 的配对列表
+            list[tuple[SubTask, AgentProfileSnapshot | None]]: 子任务与 Agent 的配对列表
         """
         templates = TASK_TEMPLATES.get(intent, [])
         if not templates or len(agents) < 2:
             return self._single_agent_fallback(agents)
 
-        result: list[tuple[SubTask, AgentConfig | None]] = []
+        result: list[tuple[SubTask, AgentProfileSnapshot | None]] = []
         available = list(agents)
         all_agents = list(agents)
 
@@ -149,10 +149,10 @@ class TaskDecomposer:
         return result
 
     def _match_agent_for_subtask(
-        self, subtask: SubTask, agents: list[AgentConfig],
-    ) -> AgentConfig | None:
+        self, subtask: SubTask, agents: list[AgentProfileSnapshot],
+    ) -> AgentProfileSnapshot | None:
         """为子任务匹配最合适的 Agent —— 基于标签命中。"""
-        best: AgentConfig | None = None
+        best: AgentProfileSnapshot | None = None
         best_score = 0
 
         for agent in agents:
@@ -165,8 +165,8 @@ class TaskDecomposer:
         return best if best_score > 0 else None
 
     def _single_agent_fallback(
-        self, agents: list[AgentConfig],
-    ) -> list[tuple[SubTask, AgentConfig | None]]:
+        self, agents: list[AgentProfileSnapshot],
+    ) -> list[tuple[SubTask, AgentProfileSnapshot | None]]:
         """只有一个 Agent 或无模板时的降级。"""
         primary = SubTask("primary", "executor", "完成用户的任务", [])
         return [(primary, agents[0] if agents else None)]

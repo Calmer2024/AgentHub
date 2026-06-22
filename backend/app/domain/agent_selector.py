@@ -11,14 +11,14 @@ Domain 层纯逻辑，零框架依赖。
 import json
 from dataclasses import dataclass, field
 
-from ..models import AgentConfig
+from .agent_profile import AgentProfileSnapshot
 from .skill_registry import SkillRegistry
 
 
 @dataclass
 class ScoredAgent:
     """评分后的 Agent 条目。"""
-    agent: AgentConfig
+    agent: AgentProfileSnapshot
     score: int
     match_tags: list[str] = field(default_factory=list)
     reason: str = "fallback"  # "exact_mention" | "tag_match" | "fallback"
@@ -47,7 +47,7 @@ class AgentSelector:
     def select(
         self,
         required_tags: list[str],
-        candidates: list[AgentConfig],
+        candidates: list[AgentProfileSnapshot],
         mentions: list[str] | None = None,
     ) -> list[ScoredAgent]:
         """根据能力标签和 @mention 从候选中选择 Agent。"""
@@ -96,7 +96,7 @@ class AgentSelector:
         scored.sort(key=lambda x: (-x.score, mention_order.get(x.agent.id, 9999)))
         return scored
 
-    def _match_tags(self, tags: list[str], agent: AgentConfig) -> tuple[int, list[str]]:
+    def _match_tags(self, tags: list[str], agent: AgentProfileSnapshot) -> tuple[int, list[str]]:
         """匹配 required tags 与 Agent Profile，返回 (得分, 命中标签列表)。"""
         if not tags:
             return (self.FALLBACK_SCORE, [])
@@ -121,7 +121,7 @@ class AgentSelector:
 
         return (score, matched)
 
-    def _match_tool_tags(self, tags: list[str], agent: AgentConfig) -> tuple[int, list[str]]:
+    def _match_tool_tags(self, tags: list[str], agent: AgentProfileSnapshot) -> tuple[int, list[str]]:
         matched: list[str] = []
         score = 0
         normalized_tags = [(tag, tag.lower()) for tag in tags]
@@ -153,7 +153,7 @@ class AgentSelector:
 
         return score, matched
 
-    def _build_search_text(self, agent: AgentConfig) -> str:
+    def _build_search_text(self, agent: AgentProfileSnapshot) -> str:
         """构建用于标签匹配的搜索文本。"""
         parts = [
             agent.name or "",

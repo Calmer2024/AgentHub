@@ -1,14 +1,14 @@
 # ADR-0007: Orchestrator 架构设计
 
-**Date**: 2026-05-28
-**Status**: Accepted (finalized 2026-06-01)
-**Replaces**: ADR-0005 §2 (Message Service Contract, partial), Phase 3 Spec §5.1
+**日期**: 2026-05-28
+**状态**: Accepted（2026-06-01 finalized）
+**取代**: ADR-0005 §2（Message Service Contract, partial）, Phase 3 Spec §5.1
 
 > **2026-06-04 修订说明**：本 ADR 记录 Phase 3 Orchestrator 设计时的历史语境，其中“Agent 底层调用多家 HTTP 模型厂商”“orchestratorProvider/orchestratorModel”等表述已被 [ADR-0009](0009-project-workspace-model.md) 和 [PRD-01](../PRD/01-Architecture_Adapter.md) 覆盖。当前产品口径是：用户可见 Agent 只代表本机 CLI 工具实例；DeepSeek 只作为后端内部系统模型能力，用于标题生成、中枢总结和产物编辑辅助。
 
 ---
 
-## 1. Context
+## 1. 背景
 
 ### 1.1 问题
 
@@ -46,50 +46,38 @@ Phase 3 Spec §5.1 对 Orchestrator 的描述只有 3 段行为规格（L1/L2/L3
 
 ## 3. 架构总览
 
-```
-                             ┌─────────────────────┐
-                             │   ChatServiceImpl    │  (Service Layer)
-                             │   thin coordinator   │
-                             └──────────┬──────────┘
-                                        │ PipelineRequest
-                                        ▼
-┌───────────────────────────────────────────────────────────────────┐
-│                       Orchestrator (Domain Layer)                  │
-│                                                                    │
-│  ┌──────────────┐   ┌──────────────┐   ┌───────────────────────┐  │
-│  │ Stage 1      │   │ Stage 2      │   │ Stage 3               │  │
-│  │ Context      │──▶│ Agent        │──▶│ Execution             │  │
-│  │ Assembly     │   │ Selection    │   │ Planning              │  │
-│  └──────┬───────┘   └──────┬───────┘   └───────────┬───────────┘  │
-│         │                  │                       │              │
-│         ▼                  ▼                       ▼              │
-│  ┌──────────────┐   ┌──────────────┐   ┌───────────────────────┐  │
-│  │ContextManager│   │IntentAnalyzer│   │  Mode Decision        │  │
-│  │- token budget│   │- keyword L1  │   │  single? parallel?    │  │
-│  │- pin priority│   │- LLM L2(fut) │   │  chain?               │  │
-│  │- FIFO trunc  │   │AgentSelector │   │  TaskDecomposer       │  │
-│  └──────────────┘   │- score matrix│   └───────────┬───────────┘  │
-│                     └──────────────┘               │              │
-│                                                    ▼              │
-│  ┌──────────────────────────────────────────────────────────────┐ │
-│  │ Stage 4: Lifecycle Events (EventBus)                        │ │
-│  │ ORCHESTRATOR_TASK_STARTED → AGENT_CALL_STARTED →            │ │
-│  │ AGENT_CALL_COMPLETED → ORCHESTRATOR_TASK_COMPLETED          │ │
-│  └──────────────────────────────────────────────────────────────┘ │
-│                                                                    │
-│  Output: PipelineResult { agent_calls, execution_mode, ... }       │
-└───────────────────────────────────────────────────────────────────┘
-                                        │
-                                        ▼
-┌───────────────────────────────────────────────────────────────────┐
-│                    AgentExecutor (Service Layer)                   │
-│                                                                    │
-│  ┌────────────┐  ┌──────────────┐  ┌───────────────┐             │
-│  │ Single     │  │ Parallel     │  │ Chain         │             │
-│  │ 1 agent    │  │ N agents     │  │ A output → B  │             │
-│  │ direct     │  │ StreamMerger │  │ sequential    │             │
-│  └────────────┘  └──────────────┘  └───────────────┘             │
-└───────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    CHAT["ChatServiceImpl<br/>Service Layer / thin coordinator"]
+
+    subgraph ORCH["Orchestrator（Domain Layer）"]
+        S1["Stage 1<br/>Context Assembly"]
+        S2["Stage 2<br/>Agent Selection"]
+        S3["Stage 3<br/>Execution Planning"]
+        CM["ContextManager<br/>token budget / pin priority / FIFO trunc"]
+        IA["IntentAnalyzer<br/>keyword L1 / LLM L2 future"]
+        AS["AgentSelector<br/>score matrix"]
+        MD["Mode Decision<br/>single / parallel / chain"]
+        TD["TaskDecomposer"]
+        EVT["Stage 4<br/>Lifecycle Events via EventBus"]
+        OUT["PipelineResult<br/>agent_calls / execution_mode / ..."]
+
+        S1 --> S2 --> S3 --> EVT --> OUT
+        S1 --> CM
+        S2 --> IA
+        S2 --> AS
+        S3 --> MD
+        S3 --> TD
+    end
+
+    subgraph EXEC["AgentExecutor（Service Layer）"]
+        SINGLE["Single<br/>1 agent / direct"]
+        PARALLEL["Parallel<br/>N agents / StreamMerger"]
+        CHAIN["Chain<br/>A output -> B / sequential"]
+    end
+
+    CHAT -->|"PipelineRequest"| ORCH
+    ORCH --> EXEC
 ```
 
 ---
@@ -275,37 +263,25 @@ class Orchestrator:
 
 ## 5. 执行模式状态机
 
-```
-                    ┌──────────┐
-                    │  Start   │
-                    └────┬─────┘
-                         │
-              ┌──────────┼──────────┐
-              ▼          ▼          ▼
-         ┌────────┐ ┌────────┐ ┌────────┐
-         │ single │ │parallel│ │ chain  │
-         │1 agent │ │N agents│ │A→B→C   │
-         │direct  │ │concurr.│ │staged  │
-         └───┬────┘ └───┬────┘ └───┬────┘
-             │          │          │
-             │     ┌────▼────┐     │
-             │     │decompose│     │
-             │     │ N tasks │     │
-             │     └────┬────┘     │
-             │          │          │
-             ▼          ▼          ▼
-         ┌─────────────────────────────┐
-         │     AgentExecutor.execute() │
-         └─────────────┬───────────────┘
-                       ▼
-         ┌─────────────────────────────┐
-         │   TokenEvent Stream (SSE)   │
-         └─────────────┬───────────────┘
-                       ▼
-         ┌─────────────────────────────┐
-         │  CollaborationView (前端)    │
-         │  独立协作面板，非多气泡       │
-         └─────────────────────────────┘
+```mermaid
+flowchart TB
+    START["Start"]
+    SINGLE["Single<br/>1 agent / direct"]
+    PARALLEL["Parallel<br/>N agents / concurrent"]
+    CHAIN["Chain<br/>A -> B -> C / staged"]
+    DECOMPOSE["Decompose<br/>N tasks"]
+    EXECUTE["AgentExecutor.execute()"]
+    STREAM["TokenEvent Stream<br/>SSE"]
+    VIEW["CollaborationView（前端）<br/>独立协作面板，非多气泡"]
+
+    START --> SINGLE
+    START --> PARALLEL
+    START --> CHAIN
+    PARALLEL --> DECOMPOSE
+    SINGLE --> EXECUTE
+    DECOMPOSE --> EXECUTE
+    CHAIN --> EXECUTE
+    EXECUTE --> STREAM --> VIEW
 ```
 
 ### 各模式行为:

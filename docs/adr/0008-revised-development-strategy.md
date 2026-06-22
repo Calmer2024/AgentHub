@@ -1,9 +1,9 @@
 # ADR-0008: 修订开发策略 —— 功能板块制 + Phase 4-7 路线图
 
-**Date**: 2026-06-02
-**Status**: Accepted
-**Replaces**: Phase 3 并行开发指南 (`docs/archive/phases/specs/planning/phase3-parallel-guide.md`), Phase 3 模块化计划 (`docs/archive/phases/specs/planning/phase3-modules.md`) 中的开发顺序部分
-**Revision**: 2026-06-03 文档覆盖审计后补充 PRD-05 端到端闭环要求。详见 [PRD/Spec 覆盖审计](../archive/phases/audit/prd-spec-coverage-audit.md) 与 [PRD-05](../PRD/05-End_to_End_Product_Flow.md)。
+**日期**: 2026-06-02
+**状态**: Accepted
+**取代**: Phase 3 并行开发指南 (`docs/archive/phases/specs/planning/phase3-parallel-guide.md`), Phase 3 模块化计划 (`docs/archive/phases/specs/planning/phase3-modules.md`) 中的开发顺序部分
+**修订**: 2026-06-03 文档覆盖审计后补充 PRD-05 端到端闭环要求。详见 [PRD/Spec 覆盖审计](../archive/phases/audit/prd-spec-coverage-audit.md) 与 [PRD-05](../PRD/05-End_to_End_Product_Flow.md)。
 
 > **2026-06-04 修订说明**：Phase 6 重构后，HTTP API 伪 Agent 已被淘汰。用户可见 Agent 只保留 CLI Wrapper；DeepSeek 保留为后端内部系统模型，不进入 Agent 配置面。
 >
@@ -13,7 +13,7 @@
 
 ---
 
-## 1. Context
+## 1. 背景
 
 ### 1.1 问题诊断
 
@@ -41,7 +41,7 @@ Phase 5 完成后再次对照启动文档、PRD 与 Specs，发现一个新的�
 
 ---
 
-## 2. Decision
+## 2. 决策
 
 ### 2.1 新策略：功能板块制 (Functional Block System)
 
@@ -55,19 +55,25 @@ Phase 5 完成后再次对照启动文档、PRD 与 Specs，发现一个新的�
 
 ### 2.2 Phase 4-7 板块划分
 
-```
-Phase 4: 消息交互闭环 ──── 用户可直接使用 reply/regenerate/pin/search
-Phase 5: 产物工作台能力 ── 对已有 Artifact 做版本历史、Diff 对比、局部编辑
-Phase 6: Workspace Runtime + CLI 适配器 + 产物入口桥接 ── 本机 workspace、Agent cwd、PTY/ANSI/交互拦截，并把 Agent 输出和文件变更转为标准 Artifact 事件
-Phase 7: UX 体验闭环 + MVP 演示闭环 ── 三栏布局、产物抽屉、审批卡片、环境体检、端到端演示
+```mermaid
+flowchart LR
+    P4["Phase 4<br/>消息交互闭环<br/>reply / regenerate / pin / search"]
+    P5["Phase 5<br/>产物工作台能力<br/>版本历史 / Diff / 局部编辑"]
+    P6["Phase 6<br/>Workspace Runtime + CLI 适配器 + 产物入口桥接<br/>workspace / cwd / PTY / ANSI / artifact.detected"]
+    P7["Phase 7<br/>UX 体验闭环 + MVP 演示闭环<br/>三栏布局 / 产物抽屉 / 审批卡片 / 环境体检"]
+
+    P4 --> P5 --> P6 --> P7
 ```
 
 Phase 5-7 的连续链路为：
 
-```text
-Artifact 工作台能力
-  -> Workspace Runtime / 真实 Agent 执行入口
-  -> Artifact Card / Drawer / 审批 / 编辑回流的用户体验闭环
+```mermaid
+flowchart LR
+    A["Artifact 工作台能力"]
+    B["Workspace Runtime<br/>真实 Agent 执行入口"]
+    C["Artifact Card / Drawer / 审批 / 编辑回流<br/>用户体验闭环"]
+
+    A --> B --> C
 ```
 
 ### 2.3 每个板块的内部结构
@@ -91,22 +97,20 @@ Phase N/
 
 ### 2.4 板块间依赖关系
 
-```
-Phase 3 (已完成) ──── 基础设施 + Orchestrator
-    │
-    ├── Phase 4: 消息交互闭环
-    │    依赖: Phase 3 (MessageService ABC, DB 列)
-    │
-    ├── Phase 5: 产物工作台能力
-    │    依赖: Phase 3 (Artifact 模型), Phase 4 完成后用户体验完整
-    │    注意: 完成已有 Artifact 的版本/Diff/编辑，不宣称 Agent 输出入口已完整打通
-    │
-    ├── Phase 6: Workspace Runtime + CLI 适配器 + 产物入口桥接
-    │    依赖: Phase 3 (EventBus / Orchestrator), Phase 5 (ArtifactService)
-    │    注意: 先建立本机 workspace 和 session 绑定，再让 CLI Agent 以 workspace_path 为 cwd 执行；同时输出 artifact.detected 事件
-    │
-    └── Phase 7: UX 体验闭环 + MVP 演示闭环
-         依赖: Phase 4 + Phase 5 + Phase 6 全部完成
+```mermaid
+flowchart TB
+    P3["Phase 3（已完成）<br/>基础设施 + Orchestrator"]
+    P4["Phase 4<br/>消息交互闭环<br/>依赖：MessageService ABC / DB 列"]
+    P5["Phase 5<br/>产物工作台能力<br/>依赖：Artifact 模型 + Phase 4 体验完整"]
+    P6["Phase 6<br/>Workspace Runtime + CLI 适配器 + 产物入口桥接<br/>依赖：EventBus / Orchestrator / ArtifactService"]
+    P7["Phase 7<br/>UX 体验闭环 + MVP 演示闭环<br/>依赖：Phase 4 + Phase 5 + Phase 6"]
+
+    P3 --> P4
+    P3 --> P5
+    P3 --> P6
+    P4 --> P7
+    P5 --> P7
+    P6 --> P7
 ```
 
 Phase 4 和 Phase 5 之间没有强依赖，但建议串行完成以保证每板块的专注度。Phase 6 必须在 Phase 5 之后推进，因为它依赖 Phase 5 的 ArtifactService，并且要把 workspace 文件变更接入版本/Diff/编辑链路。

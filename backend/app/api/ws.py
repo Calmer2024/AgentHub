@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import AsyncSessionLocal
 from ..models import Session as DBSession
-from .ws_manager import manager
+from ..infrastructure.realtime import manager
 
 router = APIRouter()
 

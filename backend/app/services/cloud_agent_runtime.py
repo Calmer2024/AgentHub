@@ -34,6 +34,7 @@ from ..domain.orchestrator_plan import (
     visualize_mermaid,
 )
 from ..event_bus.event_types import EventType
+from ..infrastructure.domain_event_publisher import domain_event_publisher_from_event_bus
 from ..models import (
     AgentConfig,
     Message,
@@ -267,7 +268,7 @@ class CloudAgentRuntimeService:
         )
         pipeline = OrchestratorV2(
             context_manager=self.context_manager,
-            event_bus=self.event_bus,
+            event_bus=domain_event_publisher_from_event_bus(self.event_bus),
         )
         direct_dialog = GroupDirectDialog(
             self.db,

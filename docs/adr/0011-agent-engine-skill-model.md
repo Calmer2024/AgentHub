@@ -1,11 +1,11 @@
 # ADR-0011: Agent Profile = System Prompt + Rules + Toolset + Engine 建模
 
-**Date**: 2026-06-05  
-**Updated**: 2026-06-08  
-**Status**: Accepted  
-**Related**: [PRD-01](../PRD/01-Architecture_Adapter.md), [PRD-02](../PRD/02-Orchestrator_Engine.md), [ADR-0007](0007-orchestrator-architecture.md), [ADR-0009](0009-project-workspace-model.md)
+**日期**: 2026-06-05
+**更新**: 2026-06-08
+**状态**: Accepted
+**相关**: [PRD-01](../PRD/01-Architecture_Adapter.md), [PRD-02](../PRD/02-Orchestrator_Engine.md), [ADR-0007](0007-orchestrator-architecture.md), [ADR-0009](0009-project-workspace-model.md)
 
-## Context
+## 背景
 
 Phase 6 已经把 AgentHub 的底层执行模式从 HTTP LLM API 转向本机 CLI Wrapper：Claude Code、Codex、OpenCode 由后端作为真实子进程启动，并以 Project workspace 作为 cwd 执行。
 
@@ -17,7 +17,7 @@ Phase 6 已经把 AgentHub 的底层执行模式从 HTTP LLM API 转向本机 CL
 
 因此需要把“身份模板”和“本机工具集”拆开：内置专家是添加 Agent 时可套用的完整模板；用户自定义能力只来自本机 `SKILL.md` 工具集。
 
-## Decision
+## 决策
 
 AgentHub 当前采用以下领域模型：
 
@@ -105,7 +105,7 @@ AGENTHUB_SKILL_ROOTS 覆盖或追加的目录
 
 Toolset 不定义 Agent 身份。Agent 的身份和边界必须来自 System Prompt 与 Rules。
 
-## Consequences
+## 影响
 
 ### Positive
 
@@ -130,6 +130,6 @@ Toolset 不定义 Agent 身份。Agent 的身份和边界必须来自 System Pro
 - 完全删除数据库旧字段。
 - Orchestrator 自动执行完整 DAG 状态机的重新设计。
 
-## Status Notes
+## 状态说明
 
 本 ADR 是对 ADR-0009 的补充，而不是否定。ADR-0009 解决“Agent 如何作为 CLI 进程运行”；ADR-0011 解决“用户可见 Agent 如何由 System Prompt、Rules、Toolset、Context Policy、Runtime Config、Avatar 和 Engine 构成”。

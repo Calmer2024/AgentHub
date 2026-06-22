@@ -2243,7 +2243,7 @@ def _loads_metadata(raw: str | None) -> dict[str, Any]:
 
 async def _broadcast_ws(session_id: str, payload: dict[str, Any]) -> None:
     try:
-        from ..api.ws_manager import manager as ws_manager
+        from ..infrastructure.realtime import manager as ws_manager
         await ws_manager.broadcast(session_id, payload)
     except Exception:
         pass
