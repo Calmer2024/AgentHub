@@ -3,7 +3,7 @@
 **版本**: v1.2
 **创建日期**: 2026-06-06
 **状态**: v1.0 Baseline — IM 能力与 v1.0 UI 加固已实现，真实 cc 完整自动化演示脚本待沉淀
-**关联 ADR/PRD**: [ADR-0008](../../../../adr/0008-revised-development-strategy.md)、[ADR-0010](../../../../adr/0010-message-level-artifact-experience.md)、[PRD-03](../../../../PRD/03-User_Experience.md)、[PRD-05](../../../../PRD/05-End_to_End_Product_Flow.md)、[PRD-06](../../../../PRD/06-MVP_Local_Workspace_Delivery.md)
+**关联 ADR/PRD**: [ADR-0008](../../../../archive/adr/0008-revised-development-strategy.md)、[ADR-0010](../../../../archive/adr/0010-message-level-artifact-experience.md)、[PRD-03](../../../../PRD/03-User_Experience.md)、[PRD-05](../../../../PRD/05-End_to_End_Product_Flow.md)、[PRD-06](../../../../PRD/06-MVP_Local_Workspace_Delivery.md)
 **依赖模块**: Phase 7A/7B/7C、Phase 6F Artifact Bridge deliverables、真实 Claude Code 服务验收
 
 ---

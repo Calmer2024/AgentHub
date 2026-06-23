@@ -1,6 +1,6 @@
 # Phase 5: 产物工作台能力 ✅ COMPLETED
 
-**关联 ADR**: [ADR-0008](../../../../adr/0008-revised-development-strategy.md) §5
+**关联 ADR**: [ADR-0008](../../../../archive/adr/0008-revised-development-strategy.md) §5
 **依赖**: Phase 3 (Artifact 模型: version, parent_artifact_id; BaseAgentAdapter tools)
 **状态**: 已完成 (2026-06-02)
 

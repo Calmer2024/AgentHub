@@ -3,11 +3,11 @@
 **日期**: 2026-06-02
 **状态**: Accepted
 **取代**: Phase 3 并行开发指南 (`docs/archive/phases/specs/planning/phase3-parallel-guide.md`), Phase 3 模块化计划 (`docs/archive/phases/specs/planning/phase3-modules.md`) 中的开发顺序部分
-**修订**: 2026-06-03 文档覆盖审计后补充 PRD-05 端到端闭环要求。详见 [PRD/Spec 覆盖审计](../archive/phases/audit/prd-spec-coverage-audit.md) 与 [PRD-05](../PRD/05-End_to_End_Product_Flow.md)。
+**修订**: 2026-06-03 文档覆盖审计后补充 PRD-05 端到端闭环要求。旧覆盖审计文件已在 2026-06-22 文档整理中删除；当前需求追踪以 [PRD-05](../../PRD/05-End_to_End_Product_Flow.md) 为准。
 
 > **2026-06-04 修订说明**：Phase 6 重构后，HTTP API 伪 Agent 已被淘汰。用户可见 Agent 只保留 CLI Wrapper；DeepSeek 保留为后端内部系统模型，不进入 Agent 配置面。
 >
-> **2026-06-06 修订说明**：Phase 6F 验收后，P1 Artifact 体验从右侧 Drawer 调整为消息级 Artifact 卡片 + 页面级预览/编辑/版本管理，详见 [ADR-0010](0010-message-level-artifact-experience.md)。因此本文 §7 的旧 Phase 7 模块划分仅保留历史路线背景，当前 Phase 7 执行规格以 [docs/archive/phases/specs/phase7/README.md](../archive/phases/specs/phase7/README.md) 为准。
+> **2026-06-06 修订说明**：Phase 6F 验收后，P1 Artifact 体验从右侧 Drawer 调整为消息级 Artifact 卡片 + 页面级预览/编辑/版本管理，详见 [ADR-0010](0010-message-level-artifact-experience.md)。因此本文 §7 的旧 Phase 7 模块划分仅保留历史路线背景，当前 Phase 7 执行规格以 [docs/archive/phases/specs/phase7/README.md](../phases/specs/phase7/README.md) 为准。
 >
 > **2026-06-11 修订说明**：项目进入产品优化结尾状态后，早期开发阶段 Skill 已退役。本文中与 `agenthub-phase-wrapup` 相关的表述仅保留为历史策略背景，不再作为当前文档审计或阶段收尾流程入口。
 
@@ -143,7 +143,7 @@ Phase 3 更名为"Orchestrator + 基础设施"，其实际交付内容：
 
 ## 4. Phase 4: 消息交互闭环
 
-**状态更新 (2026-06-02)**: Completed。实现与验收记录见 [Phase 4 Spec](../archive/phases/specs/phase4/README.md) 和 [Phase 4 Dev Log](../archive/phases/dev-logs/phase4-dev-log.md)。
+**状态更新 (2026-06-02)**: Completed。实现与验收记录见 [Phase 4 Spec](../phases/specs/phase4/README.md) 和 [Phase 4 Dev Log](../phases/dev-logs/phase4-dev-log.md)。
 
 ### 4.1 目标
 
@@ -181,7 +181,7 @@ Phase 3 更名为"Orchestrator + 基础设施"，其实际交付内容：
 
 ## 5. Phase 5: 产物工作台能力
 
-**状态更新 (2026-06-02)**: Completed。实现与验收记录见 [Phase 5 Spec](../archive/phases/specs/phase5/README.md) 和 [Phase 5 Dev Log](../archive/phases/dev-logs/phase5-dev-log.md)。
+**状态更新 (2026-06-02)**: Completed。实现与验收记录见 [Phase 5 Spec](../phases/specs/phase5/README.md) 和 [Phase 5 Dev Log](../phases/dev-logs/phase5-dev-log.md)。
 
 ### 5.1 目标
 

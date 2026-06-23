@@ -3,7 +3,7 @@
 **版本**: v2.1
 **更新日期**: 2026-06-04
 **状态**: ✅ 已验收（Phase 6A）
-**关联 ADR/PRD**: [ADR-0009](../../../../adr/0009-project-workspace-model.md)、[PRD-06](../../../../PRD/06-MVP_Local_Workspace_Delivery.md)、[PRD-05](../../../../PRD/05-End_to_End_Product_Flow.md)
+**关联 ADR/PRD**: [ADR-0009](../../../../archive/adr/0009-project-workspace-model.md)、[PRD-06](../../../../PRD/06-MVP_Local_Workspace_Delivery.md)、[PRD-05](../../../../PRD/05-End_to_End_Product_Flow.md)
 **依赖模块**: Phase 5 ArtifactService、Phase 3 EventBus / SessionService
 
 ---

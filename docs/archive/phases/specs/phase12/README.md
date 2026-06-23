@@ -3,7 +3,7 @@
 **版本**: v1.1
 **创建日期**: 2026-06-08
 **状态**: Completed
-**关联 ADR/PRD**: [AgentHub-多Agent协作平台设计](../../../AgentHub-多Agent协作平台设计.md)、[ADR-0009](../../../../adr/0009-project-workspace-model.md)、[ADR-0010](../../../../adr/0010-message-level-artifact-experience.md)、[ADR-0011](../../../../adr/0011-agent-engine-skill-model.md)、[PRD-03](../../../../PRD/03-User_Experience.md)、[PRD-05](../../../../PRD/05-End_to_End_Product_Flow.md)、[PRD-07](../../../../PRD/07-SaaS_Cloud_Workspace_Delivery.md)
+**关联 ADR/PRD**: [AgentHub-多Agent协作平台设计](../../../AgentHub-多Agent协作平台设计.md)、[ADR-0009](../../../../archive/adr/0009-project-workspace-model.md)、[ADR-0010](../../../../archive/adr/0010-message-level-artifact-experience.md)、[ADR-0011](../../../../archive/adr/0011-agent-engine-skill-model.md)、[PRD-03](../../../../PRD/03-User_Experience.md)、[PRD-05](../../../../PRD/05-End_to_End_Product_Flow.md)、[PRD-07](../../../../PRD/07-SaaS_Cloud_Workspace_Delivery.md)
 **依赖模块**: Phase 9 Cloud Workspace + Team/RBAC、Phase 10 Cloud Agent Runtime、Phase 11 Cloud Preview/Deployment
 
 > Phase 12 补齐早期核心设计中的团队协作、多端触达和多类型 Artifact 能力。它建立在 P2 云端 workspace、sandbox runtime 和 preview/deploy 已经可用的基础上。
@@ -406,9 +406,9 @@ App
 | 本模块的决策 | 依据 |
 |------------|------|
 | 多端协作和移动端轻量审批来自早期核心设计 | [AgentHub-多Agent协作平台设计](../../../AgentHub-多Agent协作平台设计.md) |
-| 所有聊天必须属于 Project | [ADR-0009](../../../../adr/0009-project-workspace-model.md) |
-| Artifact 仍是消息级体验，可引用和转发 | [ADR-0010](../../../../adr/0010-message-level-artifact-experience.md) |
-| Agent 模板最终落到 Agent = System Prompt + Rules + Toolset + Runtime Config + Engine | [ADR-0011](../../../../adr/0011-agent-engine-skill-model.md) |
+| 所有聊天必须属于 Project | [ADR-0009](../../../../archive/adr/0009-project-workspace-model.md) |
+| Artifact 仍是消息级体验，可引用和转发 | [ADR-0010](../../../../archive/adr/0010-message-level-artifact-experience.md) |
+| Agent 模板最终落到 Agent = System Prompt + Rules + Toolset + Runtime Config + Engine | [ADR-0011](../../../../archive/adr/0011-agent-engine-skill-model.md) |
 | SaaS 团队/权限/云端 workspace 基线 | [PRD-07](../../../../PRD/07-SaaS_Cloud_Workspace_Delivery.md) |
 
 ---

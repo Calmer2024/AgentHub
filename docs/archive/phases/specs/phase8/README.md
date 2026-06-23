@@ -3,7 +3,7 @@
 **版本**: v1.0
 **创建日期**: 2026-06-08
 **状态**: Verified
-**关联 ADR/PRD**: [AgentHub-多Agent协作平台设计](../../../AgentHub-多Agent协作平台设计.md)、[ADR-0005](../../../../adr/0005-target-architecture.md)、[ADR-0008](../../../../adr/0008-revised-development-strategy.md)、[ADR-0009](../../../../adr/0009-project-workspace-model.md)、[ADR-0010](../../../../adr/0010-message-level-artifact-experience.md)、[PRD-05](../../../../PRD/05-End_to_End_Product_Flow.md)、[PRD-06](../../../../PRD/06-MVP_Local_Workspace_Delivery.md)
+**关联 ADR/PRD**: [AgentHub-多Agent协作平台设计](../../../AgentHub-多Agent协作平台设计.md)、[ADR-0005](../../../../adr/0005-目标架构.md)、[ADR-0008](../../../../archive/adr/0008-revised-development-strategy.md)、[ADR-0009](../../../../archive/adr/0009-project-workspace-model.md)、[ADR-0010](../../../../archive/adr/0010-message-level-artifact-experience.md)、[PRD-05](../../../../PRD/05-End_to_End_Product_Flow.md)、[PRD-06](../../../../PRD/06-MVP_Local_Workspace_Delivery.md)
 **依赖模块**: Phase 6 Workspace Runtime + CLI Engine + Artifact Bridge、Phase 7 Runtime Control + Approval + Health + IM baseline
 
 > 早期的“AgentHub-多Agent协作平台设计”虽然位于 `docs/archive/`，但仍是核心启动需求源。Phase 8 只负责把 P1 桌面版收敛到可发布候选状态，并为 P2 的 Provider 抽象留出接口边界；P2 云端实现拆分到 Phase 9-12。
@@ -330,9 +330,9 @@ ChatWorkspace
 
 | 本模块的决策 | 依据 |
 |------------|------|
-| CLI Agent 必须以 `Project.workspace_path` 为 cwd | [ADR-0009](../../../../adr/0009-project-workspace-model.md) |
-| Artifact 跟随消息级卡片展示，不恢复右侧 Drawer | [ADR-0010](../../../../adr/0010-message-level-artifact-experience.md) |
-| Adapter/Runtime 通过事件输出，不直接耦合前端 | [ADR-0005](../../../../adr/0005-target-architecture.md) |
+| CLI Agent 必须以 `Project.workspace_path` 为 cwd | [ADR-0009](../../../../archive/adr/0009-project-workspace-model.md) |
+| Artifact 跟随消息级卡片展示，不恢复右侧 Drawer | [ADR-0010](../../../../archive/adr/0010-message-level-artifact-experience.md) |
+| Adapter/Runtime 通过事件输出，不直接耦合前端 | [ADR-0005](../../../../adr/0005-目标架构.md) |
 | P1 不把公网一键部署作为硬门槛 | [PRD-00](../../../../PRD/00-Master_Hub.md)、[PRD-06](../../../../PRD/06-MVP_Local_Workspace_Delivery.md) |
 | Build/Export/Preview 是 P1 本地交付闭环 | [PRD-06](../../../../PRD/06-MVP_Local_Workspace_Delivery.md) |
 

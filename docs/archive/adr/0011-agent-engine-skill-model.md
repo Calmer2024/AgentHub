@@ -3,7 +3,7 @@
 **日期**: 2026-06-05
 **更新**: 2026-06-08
 **状态**: Accepted
-**相关**: [PRD-01](../PRD/01-Architecture_Adapter.md), [PRD-02](../PRD/02-Orchestrator_Engine.md), [ADR-0007](0007-orchestrator-architecture.md), [ADR-0009](0009-project-workspace-model.md)
+**相关**: [PRD-01](../../PRD/01-Architecture_Adapter.md), [PRD-02](../../PRD/02-Orchestrator_Engine.md), [ADR-0007](../../adr/0007-Orchestrator%20架构设计.md), [ADR-0009](0009-project-workspace-model.md)
 
 ## 背景
 

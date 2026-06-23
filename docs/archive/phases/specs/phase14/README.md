@@ -3,7 +3,7 @@
 **版本**: v0.1
 **创建日期**: 2026-06-09
 **状态**: Completed
-**关联 ADR/PRD**: [AgentHub-多Agent协作平台设计](../../../AgentHub-多Agent协作平台设计.md)、[ADR-0005](../../../../adr/0005-target-architecture.md)、[ADR-0009](../../../../adr/0009-project-workspace-model.md)、[PRD-04](../../../../PRD/04-Data_API_Contracts.md)、[PRD-07](../../../../PRD/07-SaaS_Cloud_Workspace_Delivery.md)
+**关联 ADR/PRD**: [AgentHub-多Agent协作平台设计](../../../AgentHub-多Agent协作平台设计.md)、[ADR-0005](../../../../adr/0005-目标架构.md)、[ADR-0009](../../../../archive/adr/0009-project-workspace-model.md)、[PRD-04](../../../../PRD/04-Data_API_Contracts.md)、[PRD-07](../../../../PRD/07-SaaS_Cloud_Workspace_Delivery.md)
 **依赖模块**: Phase 9 Cloud Workspace Foundation、Phase 12 协作与通知、Phase 13 多端产品壳拆分
 
 > Phase 14 把 Phase 9 的开发态用户/团队/RBAC 收口为生产可用的身份认证与多租户边界。它不改变本机版 Project-first 工作流：本地桌面端仍可离线访问本机目录；SaaS Web 与 Mobile 必须使用同一个云端身份体系。

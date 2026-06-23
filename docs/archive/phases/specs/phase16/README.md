@@ -3,7 +3,7 @@
 **版本**: v0.1
 **创建日期**: 2026-06-09
 **状态**: Completed
-**关联 ADR/PRD**: [AgentHub-多Agent协作平台设计](../../../AgentHub-多Agent协作平台设计.md)、[ADR-0010](../../../../adr/0010-message-level-artifact-experience.md)、[PRD-03](../../../../PRD/03-User_Experience.md)、[PRD-05](../../../../PRD/05-End_to_End_Product_Flow.md)、[PRD-07](../../../../PRD/07-SaaS_Cloud_Workspace_Delivery.md)
+**关联 ADR/PRD**: [AgentHub-多Agent协作平台设计](../../../AgentHub-多Agent协作平台设计.md)、[ADR-0010](../../../../archive/adr/0010-message-level-artifact-experience.md)、[PRD-03](../../../../PRD/03-User_Experience.md)、[PRD-05](../../../../PRD/05-End_to_End_Product_Flow.md)、[PRD-07](../../../../PRD/07-SaaS_Cloud_Workspace_Delivery.md)
 **依赖模块**: Phase 11 Cloud Preview 与 Deployment、Phase 14 生产 Auth 与租户隔离收口、Phase 15 真实云 Sandbox Runtime
 
 > Phase 16 把 Phase 11 的 preview/deployment 状态闭环替换为真实公网发布能力。用户从 Artifact Card 点击一次发布后，应得到可访问、可回滚、可审计的线上 URL。

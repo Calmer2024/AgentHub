@@ -15,13 +15,16 @@ docs/PRD/
   -> 产品需求、范围、验收口径
 
 docs/adr/
-  -> 架构决策原因和约束
+  -> 关键架构决策、核心设计和开发约束
 
 docs/architecture/
   -> 当前系统事实
 
+docs/documentation-governance.md
+  -> 文档权威边界、索引规则和归档规则
+
 docs/archive/phases/
-  -> 历史 Phase 规格、交付快照、开发日志
+  -> 历史 Phase 规格和开发日志
 
 docs/user-guides/
   -> 面向用户的配置和使用说明
@@ -36,15 +39,18 @@ docs/submission/
 | --- | --- |
 | 项目当前是什么、读文档从哪里开始 | `README.md`, `CONTEXT.md` |
 | 产品为什么要做这个能力 | `docs/PRD/` |
-| 架构为什么做这个选择 | `docs/adr/` |
+| 关键架构决策、核心设计和开发约束是什么 | `docs/adr/` |
 | 当前代码架构、数据模型、事件契约是什么 | `docs/architecture/` |
+| 文档放在哪里、怎么索引、何时归档或删除 | `docs/documentation-governance.md` |
 | 已完成阶段当时怎么验收 | `docs/archive/phases/` |
 | 用户怎么配置和使用 | `docs/user-guides/` |
 | 答辩怎么讲 | `docs/submission/` |
 
 ## ADR 规则
 
-ADR 只回答“为什么做了这个架构决策”。它不应该长期保存完整当前实现细节。
+ADR 记录项目已经确立的关键架构决策、核心设计和后续开发必须遵守的架构约束。背景、取舍和触发因素只能作为辅助上下文，不能把 ADR 定位成“说明为什么做决定”的文档。
+
+ADR 不应该长期保存完整当前实现细节；当前实现事实应收敛到 `docs/architecture/`。
 
 新增 ADR 的条件：
 
@@ -52,7 +58,7 @@ ADR 只回答“为什么做了这个架构决策”。它不应该长期保存�
 - 改变技术栈或运行环境。
 - 改变数据持久化、租户隔离、安全、部署、runtime 策略。
 - 推翻已有 ADR。
-- 一个选择未来会被反复争论。
+- 一个核心设计会成为后续开发约束，或未来容易被反复争论。
 
 不需要 ADR：
 
@@ -72,7 +78,8 @@ ADR 只回答“为什么做了这个架构决策”。它不应该长期保存�
 | `data-model.md` | 当前表结构、表组和数据关系 |
 | `runtime-model.md` | 本机/云端 runtime、Run/Task/Process 状态 |
 | `event-contracts.md` | SSE、WebSocket、EventBus 事件导航 |
-| `documentation-governance.md` | 文档边界和更新规则 |
+
+文档边界、索引和归档规则由本文档负责，不再放入 `docs/architecture/`。
 
 ## 归档规则
 
@@ -87,7 +94,7 @@ ADR 只回答“为什么做了这个架构决策”。它不应该长期保存�
 
 1. 改领域术语：更新 `CONTEXT.md`。
 2. 改产品范围：更新对应 PRD。
-3. 改架构决策：新增或修订 ADR。
+3. 改关键架构决策、核心设计或长期架构约束：新增或修订 ADR。
 4. 改当前数据模型、运行链路、事件契约：更新 `docs/architecture/`。
 5. 改用户操作方式：更新 `docs/user-guides/`。
 6. 改答辩材料：更新 `docs/submission/`。
@@ -108,7 +115,7 @@ ADR 只回答“为什么做了这个架构决策”。它不应该长期保存�
 推荐写法：
 
 ```text
-ADR 说明为什么选择 Project-first。
+ADR 记录 Project-first 是项目级架构决策，以及它对开发形成的约束。
 architecture/data-model.md 说明当前 Project 相关表结构。
 CONTEXT.md 只给术语定义和链接。
 README.md 只给入口和摘要。

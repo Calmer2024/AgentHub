@@ -1,6 +1,6 @@
 # Phase 4: 消息交互闭环 ✅ COMPLETED
 
-**关联 ADR**: [ADR-0008](../../../../adr/0008-revised-development-strategy.md) §4
+**关联 ADR**: [ADR-0008](../../../../archive/adr/0008-revised-development-strategy.md) §4
 **依赖**: Phase 3 (MessageService ABC, DB 列: parent_message_id, is_pinned, FTS5 触发器)
 **状态**: 已完成
 **完成日期**: 2026-06-02

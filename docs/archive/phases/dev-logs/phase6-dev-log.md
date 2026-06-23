@@ -64,7 +64,7 @@ Phase 6 核心闭环已完成；剩余边界进入 Phase 7 或持续加固：
 - 6F：CLI 输出与 workspace diff 转 Artifact 的核心闭环已验收，后续只做真实输出样本加固。
 - Phase 7：运行可控性、审批卡片、环境体检和端到端演示闭环。
 
-下一步建议优先从 [Phase 7 Spec](../specs/phase7/README.md)、[Artifact Bridge 交付快照](../deliverables/phase6-artifact-bridge/README.md) 与 [CLI Adapter 交付快照](../deliverables/phase6-cli-adapter/README.md) 开始，继续围绕运行可控性、审批体验、环境体检和真实 CLI 输出样本补强。
+下一步建议优先从 [Phase 7 Spec](../specs/phase7/README.md)、[Artifact Bridge Spec](../specs/phase6/02-artifact-output-bridge.md) 与 [CLI Adapter Spec](../specs/phase6/01-cli-adapter.md) 开始，继续围绕运行可控性、审批体验、环境体检和真实 CLI 输出样本补强。
 
 ---
 
@@ -107,7 +107,7 @@ cd backend && .\venv\Scripts\python.exe test_real_api_codex_smoke.py
 - Codex 支持官方 OpenAI 与第三方中转 API；AgentHub 能检测 `CODEX_HOME` / `~/.codex`，并通过 UI 写入 `config.toml` 与 `.env`，避免要求用户手动编辑本机配置文件。
 - OpenCode 接入完成真实人工验收，修复了早期参数模式导致“进程结束但气泡等待回复”的问题。
 - 前端完成 Agent 设置弹窗、CLI 好友头像、Telegram 风格对话气泡、滚动条、Markdown、搜索/引用/操作与项目删除/重命名等一轮 UI 整体优化。
-- 新增阶段交付文档目录：[docs/deliverables/phase6-cli-adapter](../deliverables/phase6-cli-adapter/README.md)。
+- 新增阶段交付文档目录：`docs/deliverables/phase6-cli-adapter`。该旧目录已在 2026-06-22 文档整理中删除，当前以 [CLI Adapter Spec](../specs/phase6/01-cli-adapter.md) 和本文为追溯入口。
 
 当前仍需继续推进：
 

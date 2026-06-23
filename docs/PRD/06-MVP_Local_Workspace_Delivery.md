@@ -75,7 +75,7 @@ Project
        -> artifacts
 ```
 
-一个 Project 绑定一个 workspace 目录。Project 创建时用户选择/新建目录，此后不可更改。Project 内所有 Session 的所有 Agent 共享此目录作为 `cwd`。详见 [ADR-0009](../adr/0009-project-workspace-model.md)。
+一个 Project 绑定一个 workspace 目录。Project 创建时用户选择/新建目录，此后不可更改。Project 内所有 Session 的所有 Agent 共享此目录作为 `cwd`。详见 [ADR-0009](../archive/adr/0009-project-workspace-model.md)。
 
 ### 3.2 推荐目录结构
 

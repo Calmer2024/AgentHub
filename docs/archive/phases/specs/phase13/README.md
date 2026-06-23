@@ -3,7 +3,7 @@
 **版本**: v1.0
 **创建日期**: 2026-06-09
 **状态**: Completed
-**关联 ADR/PRD**: [AgentHub-多Agent协作平台设计](../../../AgentHub-多Agent协作平台设计.md)、[ADR-0001](../../../../adr/0001-tech-stack-selection.md)、[ADR-0009](../../../../adr/0009-project-workspace-model.md)、[ADR-0010](../../../../adr/0010-message-level-artifact-experience.md)、[ADR-0011](../../../../adr/0011-agent-engine-skill-model.md)、[PRD-00](../../../../PRD/00-Master_Hub.md)、[PRD-03](../../../../PRD/03-User_Experience.md)、[PRD-05](../../../../PRD/05-End_to_End_Product_Flow.md)、[PRD-06](../../../../PRD/06-MVP_Local_Workspace_Delivery.md)、[PRD-07](../../../../PRD/07-SaaS_Cloud_Workspace_Delivery.md)
+**关联 ADR/PRD**: [AgentHub-多Agent协作平台设计](../../../AgentHub-多Agent协作平台设计.md)、[ADR-0001](../../../../adr/0001-技术栈选型.md)、[ADR-0009](../../../../archive/adr/0009-project-workspace-model.md)、[ADR-0010](../../../../archive/adr/0010-message-level-artifact-experience.md)、[ADR-0011](../../../../archive/adr/0011-agent-engine-skill-model.md)、[PRD-00](../../../../PRD/00-Master_Hub.md)、[PRD-03](../../../../PRD/03-User_Experience.md)、[PRD-05](../../../../PRD/05-End_to_End_Product_Flow.md)、[PRD-06](../../../../PRD/06-MVP_Local_Workspace_Delivery.md)、[PRD-07](../../../../PRD/07-SaaS_Cloud_Workspace_Delivery.md)
 **依赖模块**: Phase 9 Cloud Workspace Foundation、Phase 10 Sandbox Runner 与云端 Agent Runtime、Phase 11 Cloud Preview 与 Deployment、Phase 12 协作、多端与高级 Artifact
 
 > Phase 13 不新增新的 Agent 执行模型，也不改变 Project-first 工作流。它把 Phase 9-12 累积出的本地版、SaaS 版和移动端能力拆成可独立启动、独立构建、独立发布、独立验收的产品壳，消除当前“一个 React 壳里混放本地/云端/移动能力”的体验债。

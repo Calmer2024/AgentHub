@@ -1,10 +1,10 @@
-﻿# 需求规格说明书 (PRD)：02 - 核心引擎与 DAG 调度逻辑 (Orchestrator Engine)
+# 需求规格说明书 (PRD)：02 - 核心引擎与 DAG 调度逻辑 (Orchestrator Engine)
 
 ## 1. 文档定位
 本文档面向**核心业务逻辑研发**、**AI 算法/Prompt 工程师**。
 如果说底层 CLI Agent 是 AgentHub 的“手脚”，那么 Orchestrator（协调器）就是平台唯一的“大脑”。本文档详细规定了 Orchestrator 如何处理宏大需求，如何避免大模型在长上下文中崩溃，以及如何实现类似 GitHub Actions 的工业级流水线调度。
 
-> **2026-06-05 口径修订**：底层 Claude Code / Codex / OpenCode 应理解为 Engine。用户可见 Agent Profile = Engine + Toolset + Context Policy。Orchestrator 也遵循同一模型，是内置调度器 Agent 模板；Scheduler/Executor 则是读取 Plan/DAG 后启动任务的后端执行机制。详见 [ADR-0011](../adr/0011-agent-engine-skill-model.md)。
+> **2026-06-05 口径修订**：底层 Claude Code / Codex / OpenCode 应理解为 Engine。用户可见 Agent Profile = Engine + Toolset + Context Policy。Orchestrator 也遵循同一模型，是内置调度器 Agent 模板；Scheduler/Executor 则是读取 Plan/DAG 后启动任务的后端执行机制。详见 [ADR-0011](../archive/adr/0011-agent-engine-skill-model.md)。
 
 ---
 

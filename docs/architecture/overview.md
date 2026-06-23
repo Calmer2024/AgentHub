@@ -1,6 +1,6 @@
 # AgentHub 当前架构总览
 
-> 本文档描述 AgentHub 当前系统架构事实。整体架构约束见 `docs/adr/0005-target-architecture.md`，专项决策见 `docs/adr/`，产品需求见 `docs/PRD/`。
+> 本文档描述 AgentHub 当前系统架构事实。整体架构约束见 `docs/adr/0005-目标架构.md`，专项决策见 `docs/adr/`，产品需求见 `docs/PRD/`。
 
 ## 架构结论
 
@@ -313,8 +313,8 @@ flowchart TB
 | --- | --- |
 | 项目是什么、怎么运行 | `README.md` |
 | 领域术语和当前状态 | `CONTEXT.md` |
-| 整体目标架构约束 | `docs/adr/0005-target-architecture.md` |
-| 为什么做专项决策 | `docs/adr/` |
+| 整体目标架构约束 | `docs/adr/0005-目标架构.md` |
+| 专项架构决策和开发约束 | `docs/adr/` |
 | 当前架构事实 | `docs/architecture/` |
 | 产品需求和范围 | `docs/PRD/` |
 | 已完成 Phase 追溯 | `docs/archive/phases/` |

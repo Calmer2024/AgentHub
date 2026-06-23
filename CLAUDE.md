@@ -14,7 +14,7 @@ IM 式聊天平台，用户可与 AI Agent（Claude Code、Codex、OpenCode 等�
 |---------|------|------|
 | **CLAUDE.md** | 中文 | AI Agent 行为规则 |
 | **CONTEXT.md** | 中文 | 领域知识 + 文档索引 |
-| **ADR** (架构决策记录) | 中文 | 架构决策及原因 |
+| **ADR** (架构决策记录) | 中文 | 关键架构决策、核心设计和开发约束 |
 | **Spec** (功能规格) | 中文 | 已归档 Phase 的功能规格与验收标准 |
 | **PRD** (产品需求文档) | 中文 | 产品需求 |
 | **Dev Log** (开发日志) | 中文 | 开发时间线与教训 |
@@ -100,7 +100,7 @@ IM 式聊天平台，用户可与 AI Agent（Claude Code、Codex、OpenCode 等�
 
 项目文档遵循**渐进式披露**策略：
 
-1. **按细节深度分层，不是按主题**。入口文档（CLAUDE.md、CONTEXT.md）提供概览并往下链接。ADR 解释决策。归档 Spec 定义历史阶段需求。Dev Log 记录历史。
+1. **按细节深度分层，不是按主题**。入口文档（CLAUDE.md、CONTEXT.md）提供概览并往下链接。ADR 记录关键架构决策、核心设计和开发约束。归档 Spec 定义历史阶段需求。Dev Log 记录历史。
 2. **概括，不复制**。下游文档可概括上游概念并链接，但绝不复制全文。一个事实一个权威源。
 3. **交叉引用，不重复声明**。若规则/决策已在其他文档中存在，链接过去而非重述。
 4. **先索引，后细节**。每个文档目录都有索引，读者无需通读全文就能找到所需内容。
@@ -170,6 +170,6 @@ Debug 不是"让 bug 消失"，而是"让系统更正确"：
 | **P1（当前）** | **桌面版**：桌面端（Tauri/Node.js）= 本地无头服务器 + 本地特权执行引擎；Web 端（浏览器）= 主力 UI | 浏览器 → localhost 后端 → 本机文件系统 + 本机 CLI Agent | ❌ |
 | **P2（云端协作切片已启动，产品壳已拆分）** | **SaaS 云版**：Web 浏览器 + 云端后端 + 云端容器沙箱 | 浏览器 → 云端后端 → 云端沙箱 + 云端 CLI Agent → 云端 URL | ✅ |
 
-**Project-first 工作流**：用户必须先创建 Project，然后在 Project 下创建私聊或群聊。P1 本地 Project 使用新建空白 workspace 目录或系统原生目录选择器绑定已有目录，Project 内所有本地 Agent 共享 `Project.workspace_path` 作为 `cwd`；P2 云端 Project 使用 `workspaceId` 和 `cloud://agenthub/workspaces/{id}` 逻辑 URI，前端不应看到服务器或用户本机物理路径，云端 runner 将其映射到隔离 cloud workspace 目录。Project 不再暴露“静态网页 / Vite React / 已有项目”等用户可选属性。详见 [ADR-0009](docs/adr/0009-project-workspace-model.md)；Phase 9/10/13 的实现规格已归档到 [docs/archive/phases/specs/](docs/archive/phases/specs/)。
+**Project-first 工作流**：用户必须先创建 Project，然后在 Project 下创建私聊或群聊。P1 本地 Project 使用新建空白 workspace 目录或系统原生目录选择器绑定已有目录，Project 内所有本地 Agent 共享 `Project.workspace_path` 作为 `cwd`；P2 云端 Project 使用 `workspaceId` 和 `cloud://agenthub/workspaces/{id}` 逻辑 URI，前端不应看到服务器或用户本机物理路径，云端 runner 将其映射到隔离 cloud workspace 目录。Project 不再暴露“静态网页 / Vite React / 已有项目”等用户可选属性。详见 [ADR-0009](docs/archive/adr/0009-project-workspace-model.md)；Phase 9/10/13 的实现规格已归档到 [docs/archive/phases/specs/](docs/archive/phases/specs/)。
 
 > 完整的 P1/P2 定义、Workspace 位置、运行环境、安全边界见 [CONTEXT.md §产品交付阶段](CONTEXT.md)。

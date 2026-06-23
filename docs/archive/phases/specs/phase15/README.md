@@ -3,7 +3,7 @@
 **版本**: v0.1
 **创建日期**: 2026-06-09
 **状态**: Completed
-**关联 ADR/PRD**: [AgentHub-多Agent协作平台设计](../../../AgentHub-多Agent协作平台设计.md)、[ADR-0005](../../../../adr/0005-target-architecture.md)、[ADR-0009](../../../../adr/0009-project-workspace-model.md)、[PRD-01](../../../../PRD/01-Architecture_Adapter.md)、[PRD-02](../../../../PRD/02-Orchestrator_Engine.md)、[PRD-07](../../../../PRD/07-SaaS_Cloud_Workspace_Delivery.md)
+**关联 ADR/PRD**: [AgentHub-多Agent协作平台设计](../../../AgentHub-多Agent协作平台设计.md)、[ADR-0005](../../../../adr/0005-目标架构.md)、[ADR-0009](../../../../archive/adr/0009-project-workspace-model.md)、[PRD-01](../../../../PRD/01-Architecture_Adapter.md)、[PRD-02](../../../../PRD/02-Orchestrator_Engine.md)、[PRD-07](../../../../PRD/07-SaaS_Cloud_Workspace_Delivery.md)
 **依赖模块**: Phase 10 Sandbox Runner 与云端 Agent Runtime、Phase 14 生产 Auth 与租户隔离收口
 
 > Phase 15 把 Phase 10 的本机模拟 cloud runtime 替换为生产级云端隔离运行时。它必须继续遵守 CLI Wrapper 事件契约：AgentHub 仍然封装真实 CLI 工具，而不是裸调 HTTP LLM API。

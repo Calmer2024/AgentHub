@@ -3,7 +3,7 @@
 **状态**: ✅ 本轮验收通过（6A Workspace Runtime、6B-6E CLI Adapter、6F Artifact Bridge 均已落地；Phase 7 已补齐群聊 runtime 与 Artifact 链路同步）
 **版本**: v3.9
 **更新日期**: 2026-06-08
-**关联 ADR**: [ADR-0005](../../../../adr/0005-target-architecture.md)、[ADR-0009](../../../../adr/0009-project-workspace-model.md)
+**关联 ADR**: [ADR-0005](../../../../adr/0005-目标架构.md)、[ADR-0009](../../../../archive/adr/0009-project-workspace-model.md)
 **关联 PRD**: [PRD-01](../../../../PRD/01-Architecture_Adapter.md)、[PRD-05](../../../../PRD/05-End_to_End_Product_Flow.md)、[PRD-06](../../../../PRD/06-MVP_Local_Workspace_Delivery.md)
 **依赖**: Phase 3（BaseAgentAdapter / EventBus / SessionService）、Phase 5（ArtifactService）
 
@@ -49,8 +49,8 @@ Phase 6 完成后，AgentHub 能明确回答：
 | **6B-6E: CLI Adapter** | [01-cli-adapter.md](01-cli-adapter.md) | ✅ ClaudeCodeAdapter / CodexAdapter / OpenCodeAdapter + subprocess 进程管理 + ANSI 清洗 + Codex 官方/中转配置 + 执行轨迹分层渲染 |
 | **6F: Artifact Bridge** | [02-artifact-output-bridge.md](02-artifact-output-bridge.md) | ✅ CLI 消息完成后自动扫描回复、执行轨迹和 workspace diff，创建 Artifact，并接入消息下方产物卡片流 |
 | **6G: Agent Profile** | [03-agent-engine-skill-profile.md](03-agent-engine-skill-profile.md) | ✅ Agent Profile 建模、本机 Skill Registry、Prompt Assembly、Toolset-based AgentSelector |
-| **CLI Adapter 交付快照** | [../../deliverables/phase6-cli-adapter/README.md](../../deliverables/phase6-cli-adapter/README.md) | CLI Adapter 架构原理、使用指南、阶段开发日志 |
-| **Artifact Bridge 交付快照** | [../../deliverables/phase6-artifact-bridge/README.md](../../deliverables/phase6-artifact-bridge/README.md) | 消息级 Artifact 卡片、文件编辑器、代码引用、版本管理与验收日志 |
+| **CLI Adapter 开发日志** | [../../dev-logs/phase6-cli-adapter-dev-log.md](../../dev-logs/phase6-cli-adapter-dev-log.md) | CLI Adapter 接入、问题和验收过程 |
+| **Phase 6 开发日志** | [../../dev-logs/phase6-dev-log.md](../../dev-logs/phase6-dev-log.md) | Workspace Runtime、Artifact Bridge、人工验收和后续衔接 |
 
 ---
 

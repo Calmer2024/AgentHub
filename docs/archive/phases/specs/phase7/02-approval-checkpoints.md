@@ -3,7 +3,7 @@
 **版本**: v2.0
 **创建日期**: 2026-06-06
 **状态**: 验收通过
-**关联 ADR/PRD**: [ADR-0008](../../../../adr/0008-revised-development-strategy.md)、[ADR-0010](../../../../adr/0010-message-level-artifact-experience.md)、[PRD-02](../../../../PRD/02-Orchestrator_Engine.md)、[PRD-03](../../../../PRD/03-User_Experience.md)、[PRD-05](../../../../PRD/05-End_to_End_Product_Flow.md)
+**关联 ADR/PRD**: [ADR-0008](../../../../archive/adr/0008-revised-development-strategy.md)、[ADR-0010](../../../../archive/adr/0010-message-level-artifact-experience.md)、[PRD-02](../../../../PRD/02-Orchestrator_Engine.md)、[PRD-03](../../../../PRD/03-User_Experience.md)、[PRD-05](../../../../PRD/05-End_to_End_Product_Flow.md)
 **依赖模块**: Phase 7A Run/Task 状态、Phase 6F 消息级 Artifact 卡片、Phase 5 Artifact 版本/编辑
 
 > 2026-06-06 实现同步：本模块已落地 `approval_checkpoints` 表、ApprovalService、审批 API、SSE `approval.created` 事件与前端 `ApprovalCard`。审批卡片绑定原消息与关联 Artifact，确认会把 checkpoint 标记为 approved 并完成 task，驳回会记录原因并把 Artifact/代码引用上下文回流到对话修订路径。

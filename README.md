@@ -57,7 +57,7 @@ AgentHub 是一个以 IM 聊天为核心交互范式的多 Agent 协作平台。
 ### 4.3 AI 协作开发记录
 
 1. 展示 `CLAUDE.md` / `CONTEXT.md` 项目规则。
-2. 展示 `docs/archive/phases/` 中的阶段规格与验收记录归档。
+2. 展示 `docs/archive/phases/` 中的阶段规格与开发日志归档。
 3. 展示早期 Skill 在 Git 历史中的演进和退役记录。
 4. 展示 `docs/archive/phases/dev-logs/` 阶段开发记录。
 
@@ -158,9 +158,9 @@ SQLite / Cloud Workspace Metadata
 | 课题要求 | 对应实现 | 文档位置 |
 | --- | --- | --- |
 | IM 聊天式交互 | Project、单聊、群聊、消息操作、上下文连续。 | `docs/PRD/03-User_Experience.md` |
-| 主 Agent 协调器 | Orchestrator、DAG、调度状态、人机确认。 | `docs/adr/0007-orchestrator-architecture.md` |
+| 主 Agent 协调器 | Orchestrator、DAG、调度状态、人机确认。 | `docs/adr/0007-Orchestrator 架构设计.md` |
 | 多 Agent 接入 | Claude Code、Codex、OpenCode CLI Adapter。 | `docs/PRD/01-Architecture_Adapter.md` |
-| 产物预览与编辑 | Artifact 卡片、预览、编辑、Diff、版本。 | `docs/adr/0010-message-level-artifact-experience.md` |
+| 产物预览与编辑 | Artifact 卡片、预览、编辑、Diff、版本。 | `docs/archive/adr/0010-message-level-artifact-experience.md` |
 | 部署发布 | SaaS 云端 deployment、访问链接。 | `docs/archive/phases/specs/phase11/README.md` |
 | 多端支持 | Local Desktop、SaaS Web、Mobile。 | `docs/archive/phases/specs/phase13/README.md` |
 | AI 协作能力 | Rules、Spec、Skill、Dev Log。 | `docs/submission/03-AI协作开发记录.md` |
@@ -204,7 +204,7 @@ npm run build
 | ADR 状态与决策 | [docs/adr/README.md](docs/adr/README.md) |
 | 当前架构事实 | [docs/architecture/overview.md](docs/architecture/overview.md) |
 | 数据模型 | [docs/architecture/data-model.md](docs/architecture/data-model.md) |
+| 文档治理规范 | [docs/documentation-governance.md](docs/documentation-governance.md) |
 | Phase 归档 | [docs/archive/phases/](docs/archive/phases/) |
 | 规格归档 | [docs/archive/phases/specs/](docs/archive/phases/specs/) |
-| 阶段交付快照归档 | [docs/archive/phases/deliverables/](docs/archive/phases/deliverables/) |
 | 开发日志归档 | [docs/archive/phases/dev-logs/](docs/archive/phases/dev-logs/) |

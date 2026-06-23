@@ -1,7 +1,7 @@
 # AgentHub Specs — 功能规格文档索引
 
 **最后更新**: 2026-06-20
-**关联**: [ADR-0008](../../../adr/0008-revised-development-strategy.md) (开发策略)、[AgentHub-多Agent协作平台设计](../../AgentHub-多Agent协作平台设计.md) (核心启动需求源)、[PRD 总览](../../../PRD/00-Master_Hub.md) (阶段化产品需求)
+**关联**: [ADR-0008](../../../archive/adr/0008-revised-development-strategy.md) (开发策略)、[AgentHub-多Agent协作平台设计](../../AgentHub-多Agent协作平台设计.md) (核心启动需求源)、[PRD 总览](../../../PRD/00-Master_Hub.md) (阶段化产品需求)
 
 ---
 
@@ -107,4 +107,4 @@ Phase 9 起进入 SaaS 云端化阶段，但 P2 开发不得破坏 P1 本机版�
 
 - **新成员**：先读根目录 [README.md](../../../../README.md) 与 [CONTEXT.md](../../../../CONTEXT.md)，需要追溯历史阶段时再按 Phase 顺序阅读本目录。
 - **开发者**：产品优化工作优先查看 PRD/ADR 与当前代码；归档 Spec 只用于理解历史验收标准和边界。
-- **架构师**：从 [ADR-0008](../../../adr/0008-revised-development-strategy.md) 了解阶段策略，从各 Phase README 追溯完成度。
+- **架构师**：从 [ADR-0008](../../../archive/adr/0008-revised-development-strategy.md) 了解阶段策略，从各 Phase README 追溯完成度。

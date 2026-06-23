@@ -3,7 +3,7 @@
 **阶段**: Phase 3 — Orchestrator + 基础设施
 **分支**: `phase/phase3-smart-collab`
 **时间线**: 2026-05-27 → 2026-06-02
-**关联**: [Phase 3 审计报告](../audit/phase3-audit-report.md)
+**关联**: Phase 3 审计报告已在 2026-06-22 文档整理中删除；当前可从 [Phase 3 Spec](../specs/phase3/README.md) 和本文追溯 Phase 3。
 
 ---
 

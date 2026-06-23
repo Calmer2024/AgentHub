@@ -3,7 +3,7 @@
 **状态**: Implementation Baseline
 **创建日期**: 2026-06-07
 **更新日期**: 2026-06-08
-**关联**: [Phase 6 CLI Adapter](../phase6/01-cli-adapter.md)、[7A Runtime Control](01-runtime-task-control.md)、[7E Context Pack](05-context-pack-and-cache-strategy.md)、[ADR-0011 Agent Engine Skill Model](../../../../adr/0011-agent-engine-skill-model.md)
+**关联**: [Phase 6 CLI Adapter](../phase6/01-cli-adapter.md)、[7A Runtime Control](01-runtime-task-control.md)、[7E Context Pack](05-context-pack-and-cache-strategy.md)、[ADR-0011 Agent Engine Skill Model](../../../../archive/adr/0011-agent-engine-skill-model.md)
 
 ---
 

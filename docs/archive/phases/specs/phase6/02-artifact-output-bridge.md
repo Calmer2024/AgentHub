@@ -4,7 +4,7 @@
 **创建日期**: 2026-06-03
 **更新日期**: 2026-06-08
 **状态**: ✅ 本轮验收通过（消息内 Artifact 卡片、文件编辑、片段引用、版本管理已落地；群聊 Agent 子消息 workspace diff 归属已同步）
-**关联 ADR/PRD**: [PRD-01](../../../../PRD/01-Architecture_Adapter.md) §3.4、[PRD-03](../../../../PRD/03-User_Experience.md) §3.3-3.4、[PRD-05](../../../../PRD/05-End_to_End_Product_Flow.md)、[PRD-06](../../../../PRD/06-MVP_Local_Workspace_Delivery.md)、[ADR-0005](../../../../adr/0005-target-architecture.md)、[ADR-0009](../../../../adr/0009-project-workspace-model.md)
+**关联 ADR/PRD**: [PRD-01](../../../../PRD/01-Architecture_Adapter.md) §3.4、[PRD-03](../../../../PRD/03-User_Experience.md) §3.3-3.4、[PRD-05](../../../../PRD/05-End_to_End_Product_Flow.md)、[PRD-06](../../../../PRD/06-MVP_Local_Workspace_Delivery.md)、[ADR-0005](../../../../adr/0005-目标架构.md)、[ADR-0009](../../../../archive/adr/0009-project-workspace-model.md)
 **依赖模块**: Phase 6A Workspace Runtime、Phase 6B-6E CLI Adapter、Phase 5 ArtifactService、当前 Telegram 风格 Chat UI
 
 > 本模块不是再设计一套新的产物系统，而是把已经落地的 Project workspace、真实 CLI 执行、执行轨迹、ArtifactService 和聊天流中的产物卡片接成一条可靠链路。
@@ -468,7 +468,7 @@ SSE/API: scan completed with candidateCount > 0 and createdCount = 0
 - 真实 cc 服务验收：`cd backend && .\venv\Scripts\python.exe test_real_api_claude_artifact_bridge.py` → ok=true；Claude Code 2.1.165 在临时 workspace 写入 `index.html`、`package.json`、`src/App.tsx`，最终 `done` 前创建 `web_preview`、`file_tree`、`code_diff` 三类 Artifact。
 - UI 增强回归（2026-06-06）：`cd frontend && npx tsc --noEmit`，`npx vitest run src/components/MessageArtifactStrip.test.tsx src/components/ArtifactCard.test.tsx src/components/ChatInput.test.tsx src/api/client.test.ts` → 23 passed；`npm run build` → passed（仅 Vite chunk 体积告警）。
 - 后端增强回归（2026-06-06）：`cd backend && .\venv\Scripts\python.exe -m pytest test_api/test_chat.py test_api/test_group_chat.py test_api/test_artifact_output_bridge_phase6.py test_api/test_artifacts_phase5.py test_api/test_projects_phase6.py test_unit/test_cli_adapter_runtime.py test_unit/test_codex_local_config_service.py -q` → 98 passed。
-- 人工验收（2026-06-06）：确认产物工作台已移除，消息下方 Artifact 卡片、VS Code/GitHub 风格 diff、页面级弹窗、IDE 风格 CodeMirror 文件编辑器、代码片段引用、版本管理、会话文件入口和 CLI Agent logo 头像均通过本轮验收。交付快照见 [../../deliverables/phase6-artifact-bridge/README.md](../../deliverables/phase6-artifact-bridge/README.md)。
+- 人工验收（2026-06-06）：确认产物工作台已移除，消息下方 Artifact 卡片、VS Code/GitHub 风格 diff、页面级弹窗、IDE 风格 CodeMirror 文件编辑器、代码片段引用、版本管理、会话文件入口和 CLI Agent logo 头像均通过本轮验收。旧 Artifact Bridge 交付快照目录已在 2026-06-22 文档整理中删除，当前追溯入口为本文与 [Phase 6 Dev Log](../../dev-logs/phase6-dev-log.md)。
 - 群聊同步验收（2026-06-08）：`backend/test_api/test_group_chat.py` 与 `backend/test_api/test_artifact_output_bridge_phase6.py` 覆盖群聊同一 Agent runtime 复用、EngineSession 持久化、两个 Agent 分别写入 HTML 后各自生成 `workspace_diff` `web_preview/code_diff` Artifact；真实 HTTP 服务验收创建临时 Project + 群聊 + 两个 custom CLI Agent，得到 2 个 web preview、2 个 code diff，均绑定到对应 Agent 消息。
 
 ---

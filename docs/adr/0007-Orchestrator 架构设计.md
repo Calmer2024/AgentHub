@@ -4,7 +4,7 @@
 **状态**: Accepted（2026-06-01 finalized）
 **取代**: ADR-0005 §2（Message Service Contract, partial）, Phase 3 Spec §5.1
 
-> **2026-06-04 修订说明**：本 ADR 记录 Phase 3 Orchestrator 设计时的历史语境，其中“Agent 底层调用多家 HTTP 模型厂商”“orchestratorProvider/orchestratorModel”等表述已被 [ADR-0009](0009-project-workspace-model.md) 和 [PRD-01](../PRD/01-Architecture_Adapter.md) 覆盖。当前产品口径是：用户可见 Agent 只代表本机 CLI 工具实例；DeepSeek 只作为后端内部系统模型能力，用于标题生成、中枢总结和产物编辑辅助。
+> **2026-06-04 修订说明**：本 ADR 记录 Phase 3 Orchestrator 设计时的历史语境，其中“Agent 底层调用多家 HTTP 模型厂商”“orchestratorProvider/orchestratorModel”等表述已被 [ADR-0009](../archive/adr/0009-project-workspace-model.md) 和 [PRD-01](../PRD/01-Architecture_Adapter.md) 覆盖。当前产品口径是：用户可见 Agent 只代表本机 CLI 工具实例；DeepSeek 只作为后端内部系统模型能力，用于标题生成、中枢总结和产物编辑辅助。
 
 ---
 
@@ -425,23 +425,23 @@ class TestAgentExecutor:
 
 ## 10. 关键决策记录
 
-| 决策 | 选项 | 选择 | 理由 |
+| 决策 | 选项 | 选择 | 形成的约束 |
 |------|------|------|------|
-| Pipeline 模式 | Pipeline vs. Chain of Responsibility vs. Strategy | **Pipeline** | 每阶段不可变，易于测试和调试 |
-| 意图识别 | 关键词 vs. LLM 分类 | **关键词 (Phase 3)** | 零延迟、零成本，Phase 4 升级为 LLM |
-| Agent 选择 | Provider评分 vs. Agent元数据匹配 | **Agent元数据匹配** | Agent≠Provider；用户自定义名称/描述/system_prompt，元数据匹配更精准 |
-| 并行上限 | 3 vs. 5 vs. 无限 | **5** | 平衡并发成本和响应速度 |
-| 链式触发方式 | 手动开关 vs. 自动判断 | **自动判断** | 自动化优先原则；Phase 3 模板驱动 + Phase 4 LLM 动态 |
-| 角色分配 | 硬编码 producer/reviewer vs. 模板枚举 vs. LLM动态 | **模板枚举 (Phase 3)** | 6 种角色模板覆盖常见场景，Phase 4 升级 LLM 动态 |
-| 协作展示 | 多气泡 vs. 协作面板 vs. 折叠卡片 | **面板 + Agent气泡 + 中枢总结** | 保留每个 Agent 的可追溯产出；DAG/chain 等结构化协作由 Orchestrator 汇总成最终答复 |
-| 执行器位置 | Domain 层 vs. Service 层 | **Service 层** | Agent 调用涉及 I/O，应在 Service 层 |
-| 自动化程度 | 用户配置 vs. 自动处理 | **自动化优先** | 复杂决策由后端 Orchestrator 自动完成，不暴露给用户 |
-| 消息来源建模 | agentName 字符串 vs. 一等来源字段 | **sourceType/contentType/metadata** | 支持系统整理、产物归属、审计和后续重新综合 |
-| Orchestrator 模型 | 借用成员 Agent vs. 独立配置 | **独立 orchestratorProvider/orchestratorModel** | 中枢是编排层能力，不应受某个成员 Agent 的模型身份影响 |
-| 调度器第一版形态 | 自动执行 vs. Plan-first dry-run | **只生成 draft plan** | 先可视化和调试调度脑子，避免过早唤醒真实 Agent |
-| 调度器 Agent | 硬编码服务 vs. Engine + Toolset Agent | **特殊 Agent Profile** | 与 Agent = Engine + Toolset + Context Policy 的产品模型保持一致 |
-| 任务分配口径 | 只按 Agent vs. 只按 Skill vs. 二者同时保留 | **required_skills + assigned_agent_id + reason** | 执行按 Agent，解释和兜底按能力 |
-| 第一版 Engine | ClaudeCode CLI vs. LLM 假 Agent | **LLM 假 Agent** | 真实 CLI 接入前先跑通结构化计划链路 |
+| Pipeline 模式 | Pipeline vs. Chain of Responsibility vs. Strategy | **Pipeline** | 请求必须按阶段流转；阶段产物保持不可变，便于测试、调试和替换单阶段实现。 |
+| 意图识别 | 关键词 vs. LLM 分类 | **关键词 (Phase 3)** | Phase 3 默认不依赖额外 LLM 调用；后续升级 LLM 分类时必须保持同一意图输出契约。 |
+| Agent 选择 | Provider评分 vs. Agent元数据匹配 | **Agent元数据匹配** | 选择逻辑必须围绕 Agent Profile 的名称、描述和 system_prompt；不得把 Provider 当成 Agent 身份。 |
+| 并行上限 | 3 vs. 5 vs. 无限 | **5** | 同一轮并发 Agent 调用默认不得无限扩张；扩容必须显式评估成本、速度和前端承载能力。 |
+| 链式触发方式 | 手动开关 vs. 自动判断 | **自动判断** | 链式协作由 Orchestrator 根据任务阶段性自动触发，不暴露为普通用户必须配置的开关。 |
+| 角色分配 | 硬编码 producer/reviewer vs. 模板枚举 vs. LLM动态 | **模板枚举 (Phase 3)** | Phase 3 使用 6 种角色模板作为角色分配边界；后续 LLM 动态分配也必须落到可解释角色。 |
+| 协作展示 | 多气泡 vs. 协作面板 vs. 折叠卡片 | **面板 + Agent气泡 + 中枢总结** | 前端必须保留每个 Agent 的可追溯产出，并由 Orchestrator 汇总 DAG/chain 的最终答复。 |
+| 执行器位置 | Domain 层 vs. Service 层 | **Service 层** | 真实 Agent 调用涉及 I/O，执行器不得下沉到纯 Domain 层。 |
+| 自动化程度 | 用户配置 vs. 自动处理 | **自动化优先** | 复杂协作决策由后端 Orchestrator 自动完成，前端只暴露必要的人机控制点。 |
+| 消息来源建模 | agentName 字符串 vs. 一等来源字段 | **sourceType/contentType/metadata** | 消息必须以一等来源字段承载系统整理、产物归属、审计和后续重新综合。 |
+| Orchestrator 模型 | 借用成员 Agent vs. 独立配置 | **独立 orchestratorProvider/orchestratorModel** | Orchestrator 作为编排层能力独立配置，不继承任一成员 Agent 的模型身份。 |
+| 调度器第一版形态 | 自动执行 vs. Plan-first dry-run | **只生成 draft plan** | 第一版调度器只产出可视化 draft plan；真实 Agent 执行必须等后续执行链路接入。 |
+| 调度器 Agent | 硬编码服务 vs. Engine + Toolset Agent | **特殊 Agent Profile** | 调度器纳入 Agent Profile 模型，遵循 Engine + Toolset + Context Policy 的产品口径。 |
+| 任务分配口径 | 只按 Agent vs. 只按 Skill vs. 二者同时保留 | **required_skills + assigned_agent_id + reason** | 计划必须同时保留能力需求、实际分配 Agent 和分配说明，便于执行、解释和兜底。 |
+| 第一版 Engine | ClaudeCode CLI vs. LLM 假 Agent | **LLM 假 Agent** | 真实 CLI 接入前，Plan-first 链路以 LLM 假 Agent 验证结构化计划契约。 |
 
 ---
 
@@ -507,17 +507,17 @@ class TokenEvent:
 
 ### 架构决议
 
-| # | 决议 | 选择 | 理由 |
+| # | 决议 | 选择 | 形成的约束 |
 |---|------|------|------|
-| 1 | 组件拆分粒度 | **独立类，暂不定义 ABC** | 各组件当前只有一个实现，ABC 是 YAGNI；但独立类=可独立测试+Phase 4 可替换 |
-| 2 | 链式触发方式 | **Orchestrator 自动判断** | 自动化优先；Phase 3 模板驱动，Phase 4 LLM 动态 |
-| 3 | 角色分配 | **6 种模板枚举，动态匹配** | 覆盖常见场景；不硬编码 producer/reviewer |
-| 4 | V1 去留 | **删除 orchestrator.py** | V2 覆盖全部功能 |
-| 5 | 执行模式优先级 | **自动链式 > complex(chain) > parallel > single** | 多阶段依赖自动串联 |
-| 6 | SSE 新增事件 | **task_started + chain_step + task_completed** | 为 CollaborationView 提供结构化数据 |
-| 7 | 错误处理补齐 | **超时 60s + 全失败兜底 + 链中断处理** | 补齐 3 项保护缺口 |
-| 8 | 前端协作展示 | **CollaborationView 独立面板** | 每个Agent思考/计划/工具调用独立展示，最终统一结果气泡 |
-| 9 | 开发规则 | **自动化优先原则** | 任何功能设计让任务尽量自动化，不暴露过多配置给用户 |
+| 1 | 组件拆分粒度 | **独立类，暂不定义 ABC** | Orchestrator 组件必须可独立测试；只有出现多个真实实现时才引入 ABC。 |
+| 2 | 链式触发方式 | **Orchestrator 自动判断** | 链式协作由 Orchestrator 根据任务结构触发，前端不提供强制用户配置的主流程开关。 |
+| 3 | 角色分配 | **6 种模板枚举，动态匹配** | 角色集合以 planner / executor / reviewer / researcher / synthesizer / critic 为基线，不回退到 producer/reviewer 双角色。 |
+| 4 | V1 去留 | **删除 orchestrator.py** | 后续实现以 V2 Pipeline 为唯一 Orchestrator 主线，不维护双栈。 |
+| 5 | 执行模式优先级 | **自动链式 > complex(chain) > parallel > single** | 多阶段依赖优先串联执行；简单多 Agent 场景才退化为并行或单 Agent。 |
+| 6 | SSE 新增事件 | **task_started + chain_step + task_completed** | 前端协作视图依赖结构化生命周期事件，不能只依赖纯文本 token。 |
+| 7 | 错误处理补齐 | **超时 60s + 全失败兜底 + 链中断处理** | Agent 执行必须覆盖超时、全失败和链式中断三类保护路径。 |
+| 8 | 前端协作展示 | **CollaborationView 独立面板** | 多 Agent 协作必须有独立进度与产出展示面板，最终再统一为结果气泡。 |
+| 9 | 开发规则 | **自动化优先原则** | 功能设计默认让系统自动处理任务编排，仅保留必要的人机确认和审批点。 |
 
 ### 6 种动态角色
 

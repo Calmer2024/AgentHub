@@ -1,6 +1,6 @@
 # AgentHub 数据模型
 
-> 本文档描述当前数据库事实。为什么选择 SQLite 和 Project-first 持久化模型，见 [ADR-0012](../adr/0012-data-persistence-model.md)。
+> 本文档描述当前数据库事实。SQLite 与 Project-first 持久化模型的架构决策和开发约束见 [ADR-0012](../archive/adr/0012-data-persistence-model.md)。
 
 ## 数据库配置
 

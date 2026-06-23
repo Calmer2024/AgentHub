@@ -1,7 +1,7 @@
 # Phase 3: Orchestrator + 基础设施 ✅ COMPLETED
 
-**关联 ADR**: [ADR-0007](../../../../adr/0007-orchestrator-architecture.md)
-**开发策略**: [ADR-0008](../../../../adr/0008-revised-development-strategy.md) §3
+**关联 ADR**: [ADR-0007](../../../../adr/0007-Orchestrator%20架构设计.md)
+**开发策略**: [ADR-0008](../../../../archive/adr/0008-revised-development-strategy.md) §3
 
 ---
 

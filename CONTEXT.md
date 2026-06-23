@@ -2,7 +2,7 @@
 
 > **这是 AgentHub 项目的全局上下文文档。** 首次参与本项目的开发者/Agent 必须先阅读此文件，建立全局认知后再深入各子文档。
 >
-> 本项目文档采用**渐进式披露**策略：入口层概述 → 决策层解释 → 规格层定义 → 记录层沉淀。每层总结并向下链接，不跨层复制内容。
+> 本项目文档采用**渐进式披露**策略：入口层概述 → 决策与约束层定边界 → 规格层定义 → 记录层沉淀。每层总结并向下链接，不跨层复制内容。
 
 ---
 
@@ -15,10 +15,11 @@
 | 3 | [CLAUDE.md](CLAUDE.md) | AI Agent 行为规则：架构约束、代码规则、禁止事项、Debug 守则 |
 | 4 | [AgentHub-多Agent协作平台设计](docs/archive/AgentHub-多Agent协作平台设计.md) | 核心启动需求源 — IM、多 Agent 协作、Artifact、预览/编辑/部署、多端协作 |
 | 5 | [docs/PRD/](docs/PRD/) | 产品需求拆解文档（8 篇）— 北极星指标、CLI 适配器、Orchestrator、UX 设计、数据契约、端到端闭环、MVP/SaaS Workspace |
-| 6 | [docs/adr/](docs/adr/) | 架构决策记录 — 关键决策及原因 |
-| 7 | [docs/architecture/](docs/architecture/) | 当前架构事实 — 架构总览、数据模型、运行模型、事件契约、文档治理 |
-| 8 | [docs/archive/phases/](docs/archive/phases/) | Phase 归档 — 已完成 Phase 的规格、交付快照、开发日志与审计记录 |
-| 9 | [docs/user-guides/](docs/user-guides/) | 用户手册 — 面向最终用户的配置与使用说明 |
+| 6 | [docs/adr/](docs/adr/) | 架构决策记录 — 关键决策、核心设计和开发约束 |
+| 7 | [docs/architecture/](docs/architecture/) | 当前架构事实 — 架构总览、数据模型、运行模型、事件契约 |
+| 8 | [docs/documentation-governance.md](docs/documentation-governance.md) | 文档治理规范 — 文档边界、索引规则、归档规则 |
+| 9 | [docs/archive/phases/](docs/archive/phases/) | Phase 归档 — 已完成 Phase 的规格与开发日志 |
+| 10 | [docs/user-guides/](docs/user-guides/) | 用户手册 — 面向最终用户的配置与使用说明 |
 
 ---
 
@@ -35,7 +36,7 @@
 - **CLI Adapter**：底层执行适配器，每个 CLI 工具单独适配（`ClaudeCodeAdapter`、`CodexAdapter`、`OpenCodeAdapter`），各自理解该 CLI 的特定输出格式。Adapter 通过 PTY/subprocess 孵化进程、读取 stdout/stderr、做语义分层解析（文本→聊天消息、进度指示器→状态条、Diff/代码块→Artifact Card）、ANSI 清洗、交互式提示（y/n）拦截。Adapter 把 CLI 输出转为标准事件（`agent.output` / `artifact.detected` / `interactive_prompt`）。CLI 工具由用户在外部安装，AgentHub 只管理配置（executable 路径、init_args、env vars）。DeepSeek 仅作为系统模型用于中枢总结、标题生成和产物编辑辅助，不作为用户可聊天 Agent。
 - **Orchestrator Agent**：特殊 Agent Profile，负责意图分析、任务拆解、DAG/Plan 生成和 Agent 分配建议。它本质上也是 Agent 的一种，第一版先产出计划，不直接执行子 Agent。
 - **Scheduler / Executor**：读取 Orchestrator Agent 产出的 Plan/DAG，校验依赖关系，并启动对应 Agent Profile 的后端服务。它是执行机制，不是一个用户可聊天 Agent。
-- **Project（项目）**：AgentHub 的顶层组织实体。用户必须先创建 Project（新建空白文件夹，或通过系统原生目录选择器选择已有文件夹），然后在该 Project 下创建任意数量的私聊或群聊 Session。一个 Project 绑定一个 workspace 目录，Project 内所有 Session 共享此目录。所有聊天必须属于某个 Project，不存在"无 Project 的聊天"。详见 [ADR-0009](docs/adr/0009-project-workspace-model.md)。
+- **Project（项目）**：AgentHub 的顶层组织实体。用户必须先创建 Project（新建空白文件夹，或通过系统原生目录选择器选择已有文件夹），然后在该 Project 下创建任意数量的私聊或群聊 Session。一个 Project 绑定一个 workspace 目录，Project 内所有 Session 共享此目录。所有聊天必须属于某个 Project，不存在"无 Project 的聊天"。详见 [ADR-0009](docs/archive/adr/0009-project-workspace-model.md)。
 - **Workspace**：Project 绑定的物理或云端工作目录。MVP 版是本机 `workspace_path`（Project 创建时指定）；Project 内所有 CLI Agent 以该路径作为 `cwd` 执行。SaaS 版是云端隔离 workspace，由 sandbox/runner 挂载。详见 [PRD-06](docs/PRD/06-MVP_Local_Workspace_Delivery.md) 和 [PRD-07](docs/PRD/07-SaaS_Cloud_Workspace_Delivery.md)。
 - **单聊模式**：在某个 Project 下，1v1 与单个 Agent 的私聊 Session。该 Agent 以 Project 的 `workspace_path` 为 `cwd` 执行；支持常驻协议的 CLI 以“一个私聊 Session 一个 Agent runtime”复用底层 Engine session 与物理进程。
 - **群聊模式**：在某个 Project 下，包含多个 Agent Profile 的对话 Session，支持 @ 指定，Orchestrator Agent 自动协调分工。所有 Agent 共享 Project 的 `workspace_path`；支持常驻协议的 CLI 按“一个群聊 Session + 一个 Agent 一个 runtime”隔离复用，不共享用户私聊进程。
@@ -50,8 +51,8 @@
 - **CollaborationPanel**：前端 DAG 可视化面板，展示协作流程的各 Phase 及其实时状态。
 - **产物 (Artifact)**：Agent 生成的富媒体内容，类型包括 `code_diff`、`web_preview`、`document`、`file_tree`。Phase 5 已完成已有 Artifact 的版本历史、Diff 和在线编辑；Phase 6 已补齐 Agent 输出入口、消息级 Artifact Card、文件编辑器、代码引用和版本管理；Phase 7 已补齐运行可控性、审批回流、环境体检、IM 会话基线、v1.0 UI 加固，以及群聊中每个 Agent 消息的 workspace diff 产物归属。
 - **Artifact Card**：聊天流中的产物卡片，由标准 `artifact.created` 事件驱动，绑定 `artifact_id / message_id / task_id / version`，不是前端临时扫描 Markdown 得到的装饰。
-- **消息级 Artifact 体验**：P1 当前产物体验基线。Artifact 与代码变更跟随具体 assistant 消息，通过 `MessageArtifactStrip` 与 `ArtifactCard` 展示；预览、编辑、版本管理使用页面级弹窗，不恢复独立产物工作台或右侧 Drawer。详见 [ADR-0010](docs/adr/0010-message-level-artifact-experience.md)。
-- **北极星链路**：AgentHub MVP 必须打通的端到端链路：创建 Project + 绑定 workspace → 在 Project 下创建私聊/群聊 → 用户输入 → Orchestrator/Agent 执行 → Agent 读写 workspace → Artifact 创建 → 聊天流消息级 Artifact Card → 预览/编辑/版本化 → 审批继续调度 → 中枢总结。核心需求源见 [AgentHub-多Agent协作平台设计](docs/archive/AgentHub-多Agent协作平台设计.md)，阶段化定义见 [PRD-05](docs/PRD/05-End_to_End_Product_Flow.md)，P1 Artifact 体验修订见 [ADR-0010](docs/adr/0010-message-level-artifact-experience.md)。
+- **消息级 Artifact 体验**：P1 当前产物体验基线。Artifact 与代码变更跟随具体 assistant 消息，通过 `MessageArtifactStrip` 与 `ArtifactCard` 展示；预览、编辑、版本管理使用页面级弹窗，不恢复独立产物工作台或右侧 Drawer。详见 [ADR-0010](docs/archive/adr/0010-message-level-artifact-experience.md)。
+- **北极星链路**：AgentHub MVP 必须打通的端到端链路：创建 Project + 绑定 workspace → 在 Project 下创建私聊/群聊 → 用户输入 → Orchestrator/Agent 执行 → Agent 读写 workspace → Artifact 创建 → 聊天流消息级 Artifact Card → 预览/编辑/版本化 → 审批继续调度 → 中枢总结。核心需求源见 [AgentHub-多Agent协作平台设计](docs/archive/AgentHub-多Agent协作平台设计.md)，阶段化定义见 [PRD-05](docs/PRD/05-End_to_End_Product_Flow.md)，P1 Artifact 体验修订见 [ADR-0010](docs/archive/adr/0010-message-level-artifact-experience.md)。
 
 ### 方法论术语
 
@@ -59,7 +60,7 @@
 - **Walking Skeleton**：贯穿所有架构层的最薄可运行实现，验证全链路可行（来源：Alistair Cockburn）。
 - **Architectural Runway**：只为你近期要飞过的跑道铺路，不为远期需求过早投资（来源：SAFe）。
 - **Incremental Delivery**：每次迭代产出可演示的完整功能切片，而非零散功能点堆积。
-- **功能板块制**：Phase 4 起采用的新开发策略。每个 Phase = 一个独立功能板块，板块内做到 PRD 级完整后才进入下一板块。详见 [ADR-0008](docs/adr/0008-revised-development-strategy.md)。
+- **功能板块制**：Phase 4 起采用的新开发策略。每个 Phase = 一个独立功能板块，板块内做到 PRD 级完整后才进入下一板块。详见 [ADR-0008](docs/archive/adr/0008-revised-development-strategy.md)。
 
 ---
 
@@ -74,7 +75,7 @@
       → 数据持久化层
 ```
 
-**核心规则**：AgentHub 采用六层架构。配置、凭据、Secret、Provider Registry 和启动装配机制归入基础设施层，不作为单独架构层。整体架构约束见 ADR-0005；架构按需增长的方法论见 ADR-0004。
+**核心规则**：AgentHub 采用六层架构。配置、凭据、Secret、Provider Registry 和启动装配机制归入基础设施层，不作为单独架构层。整体架构约束见 ADR-0005。
 
 ---
 
@@ -104,7 +105,7 @@
 | **Phase 15** | 真实云 Sandbox Runtime | ✅ | 真实容器/K8s/microVM runner、隔离卷、资源限制、运行清理和云端 runtime 验证已完成 |
 | **Phase 16** | 真实一键部署 Provider | ✅ | 真实 HTTPS 发布、provider、release、回滚和移动端审批链路已完成 |
 
-Phase 4-16 采用**功能板块制**：每板块独立完整交付。板块间按用户可感知价值排序。详见 [ADR-0008](docs/adr/0008-revised-development-strategy.md)。
+Phase 4-16 采用**功能板块制**：每板块独立完整交付。板块间按用户可感知价值排序。详见 [ADR-0008](docs/archive/adr/0008-revised-development-strategy.md)。
 
 ### 产品交付阶段
 
@@ -121,18 +122,17 @@ Phase 4-16 采用**功能板块制**：每板块独立完整交付。板块间�
 
 ### Project-first 工作流
 
-用户必须先创建 Project（新建空白 workspace 目录，或通过系统目录选择器选择已有目录），然后在 Project 下创建私聊或群聊。所有聊天必须属于某个 Project。Project 不再暴露“静态网页 / Vite React / 已有项目”等用户可选属性；Project 内所有 Agent 共享 `Project.workspace_path` 作为 `cwd`。详见 [ADR-0009](docs/adr/0009-project-workspace-model.md)。
+用户必须先创建 Project（新建空白 workspace 目录，或通过系统目录选择器选择已有目录），然后在 Project 下创建私聊或群聊。所有聊天必须属于某个 Project。Project 不再暴露“静态网页 / Vite React / 已有项目”等用户可选属性；Project 内所有 Agent 共享 `Project.workspace_path` 作为 `cwd`。详见 [ADR-0009](docs/archive/adr/0009-project-workspace-model.md)。
 
 ---
 
 ## 核心原则
 
-1. **架构按需增长** — 不为远期需求过早铺满所有模块（ADR-0004）。
-2. **接口先于实现** — 先定义契约，实现可自由迭代（ADR-0005）。
-3. **每个增量可演示** — 不允许"后端完成但前端未接通"的中间态。
-4. **自动化优先** — 复杂决策（链式触发、角色分配、Agent 选择）由后端自动完成，不暴露为前端配置项。
-5. **功能板块完整交付** — 每个板块所有子模块（后端 + 前端 + 测试）达到 PRD 级完整后，才进入下一板块。严禁"所有板块都碰一点"（ADR-0008，Phase 4 起执行）。
-6. **每个架构决策记录为 ADR** — 包含：为什么现在做、考虑了哪些替代方案。
+1. **接口先于实现** — 先定义契约，实现可自由迭代（ADR-0005）。
+2. **每个增量可演示** — 不允许"后端完成但前端未接通"的中间态。
+3. **自动化优先** — 复杂决策（链式触发、角色分配、Agent 选择）由后端自动完成，不暴露为前端配置项。
+4. **功能板块完整交付** — 每个板块所有子模块（后端 + 前端 + 测试）达到 PRD 级完整后，才进入下一板块。严禁"所有板块都碰一点"。
+5. **关键架构决策记录为 ADR** — ADR 定义核心设计和后续开发必须遵守的架构约束；背景和取舍只作为辅助上下文。
 
 > 行为规则（代码规范、禁止事项、Debug 守则、文档修改规则）见 [CLAUDE.md](CLAUDE.md)，此处不重复。
 
@@ -163,23 +163,23 @@ PRD 系列与早期核心设计文档共同构成需求权威。早期设计定�
 
 ### ADR — 架构决策记录
 
-ADR 目录回答“为什么做这个架构决策”。当前系统事实、数据模型和事件契约见 [docs/architecture/](docs/architecture/)；ADR 状态索引见 [docs/adr/README.md](docs/adr/README.md)。
+ADR 目录记录已经确立的关键架构决策、核心设计和开发约束。当前系统事实、数据模型和事件契约见 [docs/architecture/](docs/architecture/)；ADR 状态索引见 [docs/adr/README.md](docs/adr/README.md)。
 
 | 编号 | 文件 | 决策 |
 |------|------|------|
 | ADR 索引 | [README.md](docs/adr/README.md) | ADR 状态、治理规则和新增 ADR 触发条件 |
-| ADR-0001 | [0001-tech-stack-selection.md](docs/adr/0001-tech-stack-selection.md) | 技术栈选型：React / FastAPI / SQLite |
-| ADR-0002 | [0002-directory-structure.md](docs/adr/0002-directory-structure.md) | 项目目录结构规范 |
-| ADR-0003 | [0003-vibe-coding-philosophy.md](docs/adr/0003-vibe-coding-philosophy.md) | 结构化 Vibe Coding 模式 |
-| ADR-0004 | [0004-development-methodology.md](docs/adr/0004-development-methodology.md) | 架构跑道 + 行走骨架 + 增量交付 |
-| ADR-0005 | [0005-target-architecture.md](docs/adr/0005-target-architecture.md) | 整体目标架构：前端、API、应用服务、领域、基础设施、数据持久化六层架构 |
-| ADR-0006 | [0006-ai-collaboration-system.md](docs/adr/0006-ai-collaboration-system.md) | AI 协作体系：Rules / Spec / Skill 三层沉淀 |
-| ADR-0007 | [0007-orchestrator-architecture.md](docs/adr/0007-orchestrator-architecture.md) | Orchestrator 架构：Pipeline 四阶段 + DAG |
-| ADR-0008 | [0008-revised-development-strategy.md](docs/adr/0008-revised-development-strategy.md) | 功能板块制 + Phase 4-7 路线图 + 文档治理 |
-| ADR-0009 | [0009-project-workspace-model.md](docs/adr/0009-project-workspace-model.md) | **🆕** Project-Workspace 模型 + CLI 适配策略 + 分层渲染 |
-| ADR-0010 | [0010-message-level-artifact-experience.md](docs/adr/0010-message-level-artifact-experience.md) | 消息级 Artifact 体验取代 P1 右侧 Drawer |
-| ADR-0011 | [0011-agent-engine-skill-model.md](docs/adr/0011-agent-engine-skill-model.md) | **🆕** Agent Profile = System Prompt + Rules + Toolset + Context Policy + Runtime Config + Engine；调度器作为特殊 Agent |
-| ADR-0012 | [0012-data-persistence-model.md](docs/adr/0012-data-persistence-model.md) | **🆕** 数据持久化模型：SQLite + SQLAlchemy + Project-first 数据结构 |
+| ADR-0001 | [0001-技术栈选型.md](docs/adr/0001-技术栈选型.md) | 技术栈选型：React / FastAPI / SQLite |
+| ADR-0002 | [0002-目录结构规范.md](docs/adr/0002-目录结构规范.md) | 项目目录结构规范 |
+| ADR-0003 | [0003-vibe-coding-philosophy.md](docs/archive/adr/0003-vibe-coding-philosophy.md) | 结构化 Vibe Coding 模式 |
+| ADR-0004 | [0004-development-methodology.md](docs/archive/adr/0004-development-methodology.md) | 架构跑道 + 行走骨架 + 增量交付 |
+| ADR-0005 | [0005-目标架构.md](docs/adr/0005-目标架构.md) | 整体目标架构：前端、API、应用服务、领域、基础设施、数据持久化六层架构 |
+| ADR-0006 | [0006-ai-collaboration-system.md](docs/archive/adr/0006-ai-collaboration-system.md) | AI 协作体系：Rules / Spec / Skill 三层沉淀 |
+| ADR-0007 | [0007-Orchestrator 架构设计.md](docs/adr/0007-Orchestrator%20架构设计.md) | Orchestrator 架构：Pipeline 四阶段 + DAG |
+| ADR-0008 | [0008-revised-development-strategy.md](docs/archive/adr/0008-revised-development-strategy.md) | 功能板块制 + Phase 4-7 路线图 + 文档治理 |
+| ADR-0009 | [0009-project-workspace-model.md](docs/archive/adr/0009-project-workspace-model.md) | **🆕** Project-Workspace 模型 + CLI 适配策略 + 分层渲染 |
+| ADR-0010 | [0010-message-level-artifact-experience.md](docs/archive/adr/0010-message-level-artifact-experience.md) | 消息级 Artifact 体验取代 P1 右侧 Drawer |
+| ADR-0011 | [0011-agent-engine-skill-model.md](docs/archive/adr/0011-agent-engine-skill-model.md) | **🆕** Agent Profile = System Prompt + Rules + Toolset + Context Policy + Runtime Config + Engine；调度器作为特殊 Agent |
+| ADR-0012 | [0012-data-persistence-model.md](docs/archive/adr/0012-data-persistence-model.md) | **🆕** 数据持久化模型：SQLite + SQLAlchemy + Project-first 数据结构 |
 
 ### Architecture — 当前架构事实
 
@@ -190,25 +190,21 @@ ADR 目录回答“为什么做这个架构决策”。当前系统事实、数�
 | [data-model.md](docs/architecture/data-model.md) | 当前数据库表组、核心关系、FTS 表和数据设计约束 |
 | [runtime-model.md](docs/architecture/runtime-model.md) | 本机 CLI runtime、云端 runtime、Run/Task/Process 状态和审批 |
 | [event-contracts.md](docs/architecture/event-contracts.md) | SSE、WebSocket、EventBus 事件类型和新增事件规则 |
-| [documentation-governance.md](docs/architecture/documentation-governance.md) | ADR、PRD、Architecture、Archive 等文档边界和更新规则 |
+| [documentation-governance.md](docs/documentation-governance.md) | ADR、PRD、Architecture、Archive 等文档边界、索引规则和归档规则 |
 
 ### Phase 归档 — 已完成阶段资料
 
-所有 Phase 文档已归档到 `docs/archive/phases/`。这些资料用于追溯历史设计、验收标准、交付快照和开发过程，不再作为活跃开发入口。
+所有 Phase 文档已归档到 `docs/archive/phases/`。这些资料用于追溯历史设计、验收标准和开发过程，不再作为活跃开发入口。2026-06-22 文档整理后，旧 `deliverables/`、`audit/`、`planning/` 目录已从当前工作区删除或收拢；当前可点击入口只保留规格与开发日志。
 
 | 类别 | 目录 | 内容 |
 |------|------|------|
-| 规格归档 | [docs/archive/phases/specs/](docs/archive/phases/specs/) | Phase 1-16 规格、验收标准和历史 planning 文档 |
-| 交付快照归档 | [docs/archive/phases/deliverables/](docs/archive/phases/deliverables/) | 阶段实现快照、验收记录、交接文档 |
+| 规格归档 | [docs/archive/phases/specs/](docs/archive/phases/specs/) | Phase 1-16 规格、验收标准和历史设计 |
 | 开发日志归档 | [docs/archive/phases/dev-logs/](docs/archive/phases/dev-logs/) | Phase 开发时间线、问题、修复和经验沉淀 |
-| 审计归档 | [docs/archive/phases/audit/](docs/archive/phases/audit/) | 阶段审计和 PRD/Spec 覆盖审计 |
 
-### 测试、审计与历史日志
+### 测试与历史日志
 
 | 文档 | 内容 |
 |------|------|
-| [Phase 3 审计报告](docs/archive/phases/audit/phase3-audit-report.md) | PRD 符合性矩阵、架构偏离分析、模块完成度、文档债 |
-| [PRD/Spec 覆盖审计](docs/archive/phases/audit/prd-spec-coverage-audit.md) | 启动/核心设计文档 → PRD → Spec 覆盖审计 |
 | [Git 协议](docs/GIT_PROTOCOL.md) | 分支策略（phase/main 唯一集成分支）、Commit 格式、AI 提交规则 |
 | [测试协议](docs/TEST_PROTOCOL.md) | 测试金字塔、工具链、环境、Bug 修复流程 |
 | [UX 测试规范](docs/testing/UX_TEST_SPEC.md) | UX 交互体验：6 状态模型、检查清单、P0-P3 分级 |
@@ -251,4 +247,4 @@ AgentHub 早期开发阶段 Skill 已退役。以下名称只作为历史流程�
 3. **Architecture 文档保存当前事实** — 数据模型、运行模型、事件契约等当前实现事实放入 `docs/architecture/`。
 4. **Spec 文件必须被索引** — 不被本文件索引的 Spec = 无效文档。
 5. **旧文档状态必须显式标注** — 不再适用的文档移入 `docs/archive/`；归档位置不等于需求失效，仍具权威性的归档文档必须在索引中说明当前用途。
-6. **一个事实一个权威源** — 同一信息不出现在两个地方。引用用链接，不复制。详细规则见 [docs/architecture/documentation-governance.md](docs/architecture/documentation-governance.md)。
+6. **一个事实一个权威源** — 同一信息不出现在两个地方。引用用链接，不复制。详细规则见 [docs/documentation-governance.md](docs/documentation-governance.md)。

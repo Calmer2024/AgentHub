@@ -4,7 +4,7 @@
 本文档专为**UI/UX 设计师**以及**前端开发工程师**编写。
 为了方便直接将其内容输入给 UI 原型生成 AI（如 Midjourney、v0.dev 或 Figma AI），本节将使用高度画面感、结构化的语言，精确描述每一个核心界面的空间布局、元素排列以及动态交互逻辑。本系统无需关注过于具体的颜色和圆角，只需保证排版的科学性与生产力属性。
 
-> 2026-06-07 修订说明：P1 Artifact 主路线已按 [ADR-0010](../adr/0010-message-level-artifact-experience.md) 从右侧 Drawer 调整为“聊天流消息级 Artifact Card + 页面级预览/编辑/版本管理弹窗”。本文保留三栏 IM 布局作为产品基线，但不再把右侧 Drawer 作为 P1 必做路线。
+> 2026-06-07 修订说明：P1 Artifact 主路线已按 [ADR-0010](../archive/adr/0010-message-level-artifact-experience.md) 从右侧 Drawer 调整为“聊天流消息级 Artifact Card + 页面级预览/编辑/版本管理弹窗”。本文保留三栏 IM 布局作为产品基线，但不再把右侧 Drawer 作为 P1 必做路线。
 
 ---
 

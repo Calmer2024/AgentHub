@@ -3,7 +3,7 @@
 **版本**: v1.1
 **创建日期**: 2026-06-08
 **状态**: Completed
-**关联 ADR/PRD**: [AgentHub-多Agent协作平台设计](../../../AgentHub-多Agent协作平台设计.md)、[ADR-0005](../../../../adr/0005-target-architecture.md)、[ADR-0009](../../../../adr/0009-project-workspace-model.md)、[PRD-01](../../../../PRD/01-Architecture_Adapter.md)、[PRD-02](../../../../PRD/02-Orchestrator_Engine.md)、[PRD-07](../../../../PRD/07-SaaS_Cloud_Workspace_Delivery.md)
+**关联 ADR/PRD**: [AgentHub-多Agent协作平台设计](../../../AgentHub-多Agent协作平台设计.md)、[ADR-0005](../../../../adr/0005-目标架构.md)、[ADR-0009](../../../../archive/adr/0009-project-workspace-model.md)、[PRD-01](../../../../PRD/01-Architecture_Adapter.md)、[PRD-02](../../../../PRD/02-Orchestrator_Engine.md)、[PRD-07](../../../../PRD/07-SaaS_Cloud_Workspace_Delivery.md)
 **依赖模块**: Phase 9 Cloud Workspace Foundation、Phase 6/7 CLI Runtime contract、Phase 8 Context Pack/Orchestrator hardening
 
 > Phase 10 把 P1 的本机 CLI Runtime 迁移到云端隔离 sandbox。它必须保持 CLI 事件契约兼容，让前端和 Orchestrator 不需要关心 Agent 在本机还是云端运行。
@@ -27,7 +27,7 @@ Phase 10 解决 P2 的真实执行问题：云端 Project 有 workspace 后，�
 - [x] 本阶段 SaaS 最小可运行切片为：cloud Project → 创建 run → sandbox ready → 真实 CLI 输出标准事件 → Artifact Card 或 run 终态。
 - [x] 不通过标准：云端 Agent 通过裸 HTTP LLM API 假装执行，或 sandbox 间可互相读写 workspace。
 
-**实现说明**：Phase 10 已交付可替换 runner 切片。当前开发实现把 `cloud://agenthub/workspaces/{workspaceId}` 映射到 `data/workspaces/.cloud-workspaces/{workspaceId}` 的隔离目录，并通过真实 subprocess/CLI Adapter 执行 Agent；不是最终生产 Docker/microVM，但 API、DB、SSE、Artifact、Secret、Quota 和前端契约已按云端 runtime 形态落地。交付快照见 [Phase 10 Cloud Runtime 交付文档](../../deliverables/phase10-cloud-runtime/README.md)。
+**实现说明**：Phase 10 已交付可替换 runner 切片。当前开发实现把 `cloud://agenthub/workspaces/{workspaceId}` 映射到 `data/workspaces/.cloud-workspaces/{workspaceId}` 的隔离目录，并通过真实 subprocess/CLI Adapter 执行 Agent；不是最终生产 Docker/microVM，但 API、DB、SSE、Artifact、Secret、Quota 和前端契约已按云端 runtime 形态落地。旧交付快照目录已在 2026-06-22 文档整理中删除，当前追溯入口为本文与 [Phase 10 Dev Log](../../dev-logs/phase10-dev-log.md)。
 
 ---
 
@@ -355,8 +355,8 @@ ChatWorkspace
 | 本模块的决策 | 依据 |
 |------------|------|
 | 用户可见 Agent 必须是真实 CLI/RPC 运行，不裸调 HTTP LLM API | [PRD-01](../../../../PRD/01-Architecture_Adapter.md) |
-| 云端运行必须挂载 Project workspace | [ADR-0009](../../../../adr/0009-project-workspace-model.md)、[PRD-07](../../../../PRD/07-SaaS_Cloud_Workspace_Delivery.md) |
-| 事件契约兼容 P1 CLI Runtime | [ADR-0005](../../../../adr/0005-target-architecture.md)、[PRD-01](../../../../PRD/01-Architecture_Adapter.md) |
+| 云端运行必须挂载 Project workspace | [ADR-0009](../../../../archive/adr/0009-project-workspace-model.md)、[PRD-07](../../../../PRD/07-SaaS_Cloud_Workspace_Delivery.md) |
+| 事件契约兼容 P1 CLI Runtime | [ADR-0005](../../../../adr/0005-目标架构.md)、[PRD-01](../../../../PRD/01-Architecture_Adapter.md) |
 | 多租户 sandbox 必须有隔离、配额、secret 策略 | [PRD-07](../../../../PRD/07-SaaS_Cloud_Workspace_Delivery.md) |
 
 ---

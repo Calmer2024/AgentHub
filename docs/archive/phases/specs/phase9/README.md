@@ -3,7 +3,7 @@
 **版本**: v1.2
 **创建日期**: 2026-06-08
 **状态**: Completed
-**关联 ADR/PRD**: [AgentHub-多Agent协作平台设计](../../../AgentHub-多Agent协作平台设计.md)、[ADR-0005](../../../../adr/0005-target-architecture.md)、[ADR-0009](../../../../adr/0009-project-workspace-model.md)、[PRD-00](../../../../PRD/00-Master_Hub.md)、[PRD-04](../../../../PRD/04-Data_API_Contracts.md)、[PRD-07](../../../../PRD/07-SaaS_Cloud_Workspace_Delivery.md)
+**关联 ADR/PRD**: [AgentHub-多Agent协作平台设计](../../../AgentHub-多Agent协作平台设计.md)、[ADR-0005](../../../../adr/0005-目标架构.md)、[ADR-0009](../../../../archive/adr/0009-project-workspace-model.md)、[PRD-00](../../../../PRD/00-Master_Hub.md)、[PRD-04](../../../../PRD/04-Data_API_Contracts.md)、[PRD-07](../../../../PRD/07-SaaS_Cloud_Workspace_Delivery.md)
 **依赖模块**: Phase 8 P1 发布候选收口、Project-first workspace model、Artifact metadata baseline
 
 > Phase 9 是 P2 SaaS 云版的地基阶段。它只建立云端 Project/Workspace/Team/Auth 的领域模型和 Provider 边界，不运行云端 CLI，不提供公网部署。
@@ -345,9 +345,9 @@ WorkspaceSettingsPage
 
 | 本模块的决策 | 依据 |
 |------------|------|
-| Project-first 仍是顶层工作流 | [ADR-0009](../../../../adr/0009-project-workspace-model.md) |
+| Project-first 仍是顶层工作流 | [ADR-0009](../../../../archive/adr/0009-project-workspace-model.md) |
 | P2 workspace 位于云端隔离环境 | [PRD-00](../../../../PRD/00-Master_Hub.md)、[PRD-07](../../../../PRD/07-SaaS_Cloud_Workspace_Delivery.md) |
-| Provider 抽象不让上层依赖具体文件系统 | [ADR-0005](../../../../adr/0005-target-architecture.md) |
+| Provider 抽象不让上层依赖具体文件系统 | [ADR-0005](../../../../adr/0005-目标架构.md) |
 | 团队/权限/审计是 SaaS 基础能力 | [PRD-07](../../../../PRD/07-SaaS_Cloud_Workspace_Delivery.md) |
 
 ---

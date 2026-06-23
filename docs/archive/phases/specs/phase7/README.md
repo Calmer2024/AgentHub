@@ -3,7 +3,7 @@
 **版本**: v3.8
 **创建日期**: 2026-06-06
 **状态**: v1.0 Baseline — 7A/7B/7C 已验收，7D IM 基线与 v1.0 UI 加固已实现；7E/7F 已落地 Engine Session、Claude Code stdin JSONL 常驻进程与 Codex/OpenCode 常驻 RPC 基线；群聊已同步单聊的 Agent runtime 与 workspace Artifact 链路；7G 已完成群聊人机协作控制权诊断，待按切片修复；真实 CLI 完整自动化演示脚本待沉淀
-**关联 ADR/PRD**: [ADR-0008](../../../../adr/0008-revised-development-strategy.md)、[ADR-0009](../../../../adr/0009-project-workspace-model.md)、[ADR-0010](../../../../adr/0010-message-level-artifact-experience.md)、[PRD-02](../../../../PRD/02-Orchestrator_Engine.md)、[PRD-03](../../../../PRD/03-User_Experience.md)、[PRD-05](../../../../PRD/05-End_to_End_Product_Flow.md)、[PRD-06](../../../../PRD/06-MVP_Local_Workspace_Delivery.md)
+**关联 ADR/PRD**: [ADR-0008](../../../../archive/adr/0008-revised-development-strategy.md)、[ADR-0009](../../../../archive/adr/0009-project-workspace-model.md)、[ADR-0010](../../../../archive/adr/0010-message-level-artifact-experience.md)、[PRD-02](../../../../PRD/02-Orchestrator_Engine.md)、[PRD-03](../../../../PRD/03-User_Experience.md)、[PRD-05](../../../../PRD/05-End_to_End_Product_Flow.md)、[PRD-06](../../../../PRD/06-MVP_Local_Workspace_Delivery.md)
 **依赖模块**: Phase 4 消息交互闭环、Phase 5 Artifact 版本/编辑、Phase 6 Workspace Runtime + CLI Adapter + Artifact Bridge
 
 > 2026-06-06 重构说明：旧 Phase 7 文档仍围绕右侧 Artifact Drawer、独立产物工作台和旧 Store 收尾展开，已经与当前实现路线不一致。Phase 6F 已验收的基线是：产物与代码变更作为消息级 Artifact 卡片跟随具体 assistant 消息展示，预览/编辑/版本管理通过页面级弹窗和会话文件入口完成。Phase 7 不再重新实现 Drawer，也不再恢复独立产物工作台。
@@ -88,7 +88,7 @@ Project workspace
 
 2026-06-06 验收记录：7A/7B/7C 已完成实现基线并通过本轮人工验收。验收中发现的“停止输出后无明确中止提示、输入框仍显示 AI 正在回复、其它会话被全局占用”问题已修复：前端点击停止后立即 abort 当前流、本地标记 run/message 为 cancelled、追加可见“本次运行已中止成功”系统消息并解锁输入框；后端取消也会持久化 cancelled metadata 和运行控制消息。
 
-2026-06-07 7D 实现记录：会话列表补齐 IM 基线，包括搜索、置顶分组、归档箱、未读数、免打扰和最近活跃排序；消息气泡改为右键菜单，支持引用、重新生成、Pin、复制、转发和多选；转发通过真实 API 创建目标会话消息并保留来源快照；明亮主题辅色收敛为纯白，输入框外层透明，执行过程可全屏查看。交付快照见 [phase7-im-hardening](../../deliverables/phase7-im-hardening/README.md)。
+2026-06-07 7D 实现记录：会话列表补齐 IM 基线，包括搜索、置顶分组、归档箱、未读数、免打扰和最近活跃排序；消息气泡改为右键菜单，支持引用、重新生成、Pin、复制、转发和多选；转发通过真实 API 创建目标会话消息并保留来源快照；明亮主题辅色收敛为纯白，输入框外层透明，执行过程可全屏查看。旧 `phase7-im-hardening` 交付快照目录已在 2026-06-22 文档整理中删除，当前追溯入口为本文与 [Phase 7 Dev Log](../../dev-logs/phase7-dev-log.md)。
 
 2026-06-08 群聊同步记录：群聊 Agent 调用链路已与单聊 runtime/Artifact 基线对齐。`CliAgentExecutor` 会按真实群聊 `session_id` 与 `agent_id` 解析 EngineSession、生成群聊内专属 runtime key，并在每个 Agent 执行前创建 workspace snapshot；`GroupChatFinalizer` 将运行 metadata 与 snapshot 写入对应 Agent 消息，再由 Artifact Bridge 扫描该消息的 workspace diff、文本代码块和执行轨迹。产物绑定具体 Agent message/sourceId，不挂到 Orchestrator 总结或会话级全局位置。
 

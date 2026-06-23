@@ -1,7 +1,7 @@
 # 03 Agent Engine + Toolset Profile
 
 **状态**: 已更新
-**关联 ADR**: [ADR-0011](../../../../adr/0011-agent-engine-skill-model.md)
+**关联 ADR**: [ADR-0011](../../../../archive/adr/0011-agent-engine-skill-model.md)
 **关联 PRD**: [PRD-01](../../../../PRD/01-Architecture_Adapter.md), [PRD-02](../../../../PRD/02-Orchestrator_Engine.md), [PRD-04](../../../../PRD/04-Data_API_Contracts.md)
 **依赖**: Phase 6 CLI Adapter 基线、Agent 设置面板、Project workspace runtime
 

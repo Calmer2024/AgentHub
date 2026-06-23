@@ -1,7 +1,7 @@
 # AgentHub Orchestrator — 设计文档总览
 
 **最后更新**: 2026-06-07
-**架构决策**: [ADR-0007](../../../../../adr/0007-orchestrator-architecture.md)
+**架构决策**: [ADR-0007](../../../../../adr/0007-Orchestrator%20架构设计.md)
 **当前分支**: `phase/group-steward-routing`
 
 ---
@@ -22,7 +22,7 @@
 | 10 | [10-real-agent-execution/](10-real-agent-execution/) | 真实 CLI Agent 执行复盘、问题清单、后续切片 | 所有人 |
 | 11 | [11-group-chat-steward-routing.md](11-group-chat-steward-routing.md) | 群聊不 @ 时由调度器管家做四档意图分流，避免旧自动路由直接执行 | 后端/产品 |
 
-> **ADR-0007** 在 `docs/adr/0007-orchestrator-architecture.md`。收录了所有架构决策的"是什么 + 为什么"。本文档集只描述"是什么 + 怎么做"，不重复决策理由。
+> **ADR-0007** 在 `docs/adr/0007-Orchestrator 架构设计.md`。收录 Orchestrator 的关键架构决策和开发约束。本文档集只描述历史实现规格和当时的落地方式，不重复 ADR 约束。
 
 ---
 
@@ -61,6 +61,6 @@
 | Phase 3.4 | Orchestrator 核心 (Pipeline + 组件 + ContextManager) | 01, 02, 03, 04 |
 | Phase 3.5 | 链式协作 (Chain + CollabProgressCard) | 04 (chain), 06, 07 |
 | Phase 3.6 | 协作交互设计 (DAG + 上下文共享 + 面板气泡) | 05, 07 |
-| ADR-0007 | 架构决策 | docs/adr/0007-orchestrator-architecture.md |
+| ADR-0007 | 架构决策 | docs/adr/0007-Orchestrator 架构设计.md |
 
 > 旧 spec 文件 (`phase3.4-*`, `phase3.5-*`, `phase3.6-*`) 标记为 archived，以本文档集为准。

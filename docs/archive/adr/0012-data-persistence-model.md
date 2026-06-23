@@ -2,7 +2,7 @@
 
 **日期**: 2026-06-22  
 **状态**: Accepted  
-**相关**: [ADR-0001](0001-tech-stack-selection.md), [ADR-0009](0009-project-workspace-model.md), [ADR-0011](0011-agent-engine-skill-model.md), [architecture/data-model](../architecture/data-model.md)
+**相关**: [ADR-0001](../../adr/0001-技术栈选型.md), [ADR-0009](0009-project-workspace-model.md), [ADR-0011](0011-agent-engine-skill-model.md), [architecture/data-model](../../architecture/data-model.md)
 
 ## 背景
 
@@ -65,11 +65,11 @@ flowchart LR
 
 消息全文搜索采用 SQLite FTS5 虚拟表 `messages_fts`。
 
-## 为什么选择 SQLite
+## SQLite 决策约束
 
-选择 SQLite 的原因：
+选择 SQLite 后形成的约束和影响：
 
-| 原因 | 说明 |
+| 约束 / 影响 | 说明 |
 | --- | --- |
 | 本机优先 | P1 数据和 Agent 执行都在用户电脑闭环，SQLite 单文件数据库足够支撑。 |
 | 零部署 | 用户不需要安装 MySQL/PostgreSQL、配置端口、账号和服务。 |
@@ -88,7 +88,7 @@ flowchart LR
 - 并发写入、索引能力、JSONB、权限和运维生态更强。
 - 适合多租户和大规模团队使用。
 
-未选择作为 P1 默认数据库的原因：
+不作为 P1 默认数据库的边界：
 
 - 本机桌面端需要额外数据库服务，破坏零部署体验。
 - 答辩 Demo 和用户试用时配置成本更高。
@@ -107,7 +107,7 @@ flowchart LR
 - 部署广泛，团队熟悉度高。
 - 可支撑常规 Web 业务。
 
-未选择原因：
+未纳入当前决策的边界：
 
 - 对本机桌面版同样需要额外服务。
 - 项目后续如果走 SaaS，多租户、JSON 查询、全文搜索和复杂约束上 PostgreSQL 更匹配。
@@ -120,7 +120,7 @@ flowchart LR
 - 实现简单。
 - 本机便携。
 
-未选择原因：
+未纳入当前决策的边界：
 
 - 难以表达 Project / Session / Message / Artifact / Run 之间的关系。
 - 搜索、分页、迁移、并发写入和数据修复成本高。
@@ -130,11 +130,11 @@ flowchart LR
 
 ### Project-first 模型
 
-`projects` 是顶层组织边界，所有聊天、文件、产物和执行记录都归属到 Project。原因见 [ADR-0009](0009-project-workspace-model.md)。
+`projects` 是顶层组织边界，所有聊天、文件、产物和执行记录都归属到 Project。该约束来自 [ADR-0009](0009-project-workspace-model.md)。
 
 ### 消息级 Artifact
 
-Artifact 绑定具体 `message_id`，而不是只绑定 Project。原因见 [ADR-0010](0010-message-level-artifact-experience.md)。
+Artifact 绑定具体 `message_id`，而不是只绑定 Project。该约束来自 [ADR-0010](0010-message-level-artifact-experience.md)。
 
 ### Run / Task / Process 分层
 
@@ -148,7 +148,7 @@ Artifact 绑定具体 `message_id`，而不是只绑定 Project。原因见 [ADR
 
 ### Agent Profile 独立建模
 
-`agent_configs` 保存用户可见 Agent Profile，而不是只保存模型名或 CLI 名。原因见 [ADR-0011](0011-agent-engine-skill-model.md)。
+`agent_configs` 保存用户可见 Agent Profile，而不是只保存模型名或 CLI 名。该约束来自 [ADR-0011](0011-agent-engine-skill-model.md)。
 
 ### JSON metadata 字段
 
@@ -200,8 +200,8 @@ Artifact 绑定具体 `message_id`，而不是只绑定 Project。原因见 [ADR
 
 当前所有表、表组和关系说明不放在本 ADR 中维护，权威事实源是：
 
-- [docs/architecture/data-model.md](../architecture/data-model.md)
+- [docs/architecture/data-model.md](../../architecture/data-model.md)
 - `backend/app/models/`
 - `backend/migrations/`
 
-本 ADR 只记录为什么采用当前持久化策略。
+本 ADR 只记录当前持久化策略的关键决策、核心设计和开发约束。

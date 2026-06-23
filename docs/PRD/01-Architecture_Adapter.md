@@ -1,10 +1,10 @@
-﻿# 需求规格说明书 (PRD)：01 - 底层适配器架构决策 (CLI Adapter Architecture)
+# 需求规格说明书 (PRD)：01 - 底层适配器架构决策 (CLI Adapter Architecture)
 
 ## 1. 文档定位
 本文档为 AgentHub 的底层核心通信层设计规范，主要面向**系统架构师**、**后端核心研发人员**。
 本章节将详细论述 AgentHub 如何摒弃传统的”裸调 HTTP LLM API”的伪 Agent 模式，转而利用操作系统底层进程管理技术，直接封装 Anthropic 官方的 `claude` CLI、OpenAI 的 `codex` CLI、开源的 `opencode` 三个真实物理工具。涵盖：通用进程管理层（PTY/subprocess、ANSI 清洗、交互拦截）、每个 CLI 的专属适配策略（各自理解其输出格式和交互模式）、分层渲染方案（文本/进度/产物/交互 → 前端不同渲染形态）。这是本课题取得高分、实现工业级”Agent-as-a-Service”的关键基石。
 
-> **2026-06-05 口径修订**：本 PRD 中的 CLI 工具应理解为 **Engine**，而不是用户最终调度的 Agent 本体。用户可见 Agent Profile = Engine + Toolset + Context Policy + Runtime Config。详见 [ADR-0011 Agent = Engine + Toolset 建模](../adr/0011-agent-engine-skill-model.md)。
+> **2026-06-05 口径修订**：本 PRD 中的 CLI 工具应理解为 **Engine**，而不是用户最终调度的 Agent 本体。用户可见 Agent Profile = Engine + Toolset + Context Policy + Runtime Config。详见 [ADR-0011 Agent = Engine + Toolset 建模](../archive/adr/0011-agent-engine-skill-model.md)。
 
 ---
 
@@ -116,7 +116,7 @@ CLI 工具由用户在操作系统层面安装（如 `npm install -g @anthropic-
 *   **超时强杀 (Timeout Kill)**：任何单一的交互轮次，绝对不允许超过 5 分钟的静默期（无 stdout 输出）。一旦超时，判定进程死锁，使用 `SIGKILL` 强杀。
 
 ### 4.2 本机 Workspace 隔离 (Local Workspace Isolation)
-在 MVP 阶段，我们明确不使用 Docker 进行强隔离。为了保证安全和工程的可访问性，系统采用本机 workspace 目录作为 Agent 的物理执行边界。Workspace 归属于 Project（非 Session），完整产品链路见 [PRD-06 MVP 本机 Workspace](./06-MVP_Local_Workspace_Delivery.md) 和 [ADR-0009 Project-Workspace 模型](../adr/0009-project-workspace-model.md)。
+在 MVP 阶段，我们明确不使用 Docker 进行强隔离。为了保证安全和工程的可访问性，系统采用本机 workspace 目录作为 Agent 的物理执行边界。Workspace 归属于 Project（非 Session），完整产品链路见 [PRD-06 MVP 本机 Workspace](./06-MVP_Local_Workspace_Delivery.md) 和 [ADR-0009 Project-Workspace 模型](../archive/adr/0009-project-workspace-model.md)。
 
 *   **Workspace Root**：整个 AgentHub 后端启动时，通过 `.env` 或命令行参数指定 `AGENTHUB_WORKSPACE_ROOT`，例如 `D:\AgentHub\workspaces`。这是 AgentHub 可以创建和绑定项目目录的根目录，不等同于某一个具体项目。
 *   **Project Workspace**：用户创建 Project 时选择/新建一个目录作为其 workspace。新建目录默认位于 `AGENTHUB_WORKSPACE_ROOT`；绑定已有目录必须由系统原生目录选择器授权。`projects.workspace_path` 记录绝对路径。一个 Project 绑定一个 workspace，不可更改。

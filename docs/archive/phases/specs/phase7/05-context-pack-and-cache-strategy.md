@@ -3,7 +3,7 @@
 **状态**: Draft（Claude Code / Codex / OpenCode Engine Session Adapter 闭环已落地；Claude Code stdin JSONL、Codex MCP、OpenCode ACP Session Process Runtime 已实现基线；群聊按 Agent 隔离 runtime 已同步）
 **创建日期**: 2026-06-07
 **更新日期**: 2026-06-08
-**关联**: [Phase 6 CLI Adapter](../phase6/01-cli-adapter.md)、[Phase 7 Runtime Control](01-runtime-task-control.md)、[ADR-0007 Orchestrator Architecture](../../../../adr/0007-orchestrator-architecture.md)、[ADR-0011 Agent Engine Skill Model](../../../../adr/0011-agent-engine-skill-model.md)
+**关联**: [Phase 6 CLI Adapter](../phase6/01-cli-adapter.md)、[Phase 7 Runtime Control](01-runtime-task-control.md)、[ADR-0007 Orchestrator Architecture](../../../../adr/0007-Orchestrator%20架构设计.md)、[ADR-0011 Agent Engine Skill Model](../../../../archive/adr/0011-agent-engine-skill-model.md)
 
 ---
 

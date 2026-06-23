@@ -3,7 +3,7 @@
 **版本**: v1.1
 **创建日期**: 2026-06-08
 **状态**: Completed
-**关联 ADR/PRD**: [AgentHub-多Agent协作平台设计](../../../AgentHub-多Agent协作平台设计.md)、[ADR-0010](../../../../adr/0010-message-level-artifact-experience.md)、[PRD-03](../../../../PRD/03-User_Experience.md)、[PRD-05](../../../../PRD/05-End_to_End_Product_Flow.md)、[PRD-06](../../../../PRD/06-MVP_Local_Workspace_Delivery.md)、[PRD-07](../../../../PRD/07-SaaS_Cloud_Workspace_Delivery.md)
+**关联 ADR/PRD**: [AgentHub-多Agent协作平台设计](../../../AgentHub-多Agent协作平台设计.md)、[ADR-0010](../../../../archive/adr/0010-message-level-artifact-experience.md)、[PRD-03](../../../../PRD/03-User_Experience.md)、[PRD-05](../../../../PRD/05-End_to_End_Product_Flow.md)、[PRD-06](../../../../PRD/06-MVP_Local_Workspace_Delivery.md)、[PRD-07](../../../../PRD/07-SaaS_Cloud_Workspace_Delivery.md)
 **依赖模块**: Phase 9 Cloud Workspace Foundation、Phase 10 Sandbox Runner 与 Cloud Agent Runtime、Phase 8 Build/Export/Preview baseline
 
 > Phase 11 把 P2 的 Artifact 交付从“云端执行后有文件”推进到“可打开 preview URL、可批准发布、可查看部署日志和最终 URL”。它不负责多端通知和团队协作评论。
@@ -331,7 +331,7 @@ ArtifactCard
 | 本模块的决策 | 依据 |
 |------------|------|
 | P2 支持云端 preview URL 与一键部署 | [PRD-00](../../../../PRD/00-Master_Hub.md)、[PRD-07](../../../../PRD/07-SaaS_Cloud_Workspace_Delivery.md) |
-| Artifact 体验仍跟随消息级卡片 | [ADR-0010](../../../../adr/0010-message-level-artifact-experience.md) |
+| Artifact 体验仍跟随消息级卡片 | [ADR-0010](../../../../archive/adr/0010-message-level-artifact-experience.md) |
 | 端到端闭环包含 preview/edit/version/approval/summary | [PRD-05](../../../../PRD/05-End_to_End_Product_Flow.md) |
 | P1 本地导出与 P2 公网发布边界不同 | [PRD-06](../../../../PRD/06-MVP_Local_Workspace_Delivery.md)、[PRD-07](../../../../PRD/07-SaaS_Cloud_Workspace_Delivery.md) |
 

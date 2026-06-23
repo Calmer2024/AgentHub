@@ -2,7 +2,7 @@
 
 **状态**: 诊断完成 / 核心闭环已实现 / 持续验收  
 **创建日期**: 2026-06-08  
-**关联**: [PRD-02](../../../../PRD/02-Orchestrator_Engine.md)、[PRD-03](../../../../PRD/03-User_Experience.md)、[ADR-0007](../../../../adr/0007-orchestrator-architecture.md)、[群聊调度器管家路由](../phase3/02-orchestrator/11-group-chat-steward-routing.md)、[Phase 7 README](README.md)
+**关联**: [PRD-02](../../../../PRD/02-Orchestrator_Engine.md)、[PRD-03](../../../../PRD/03-User_Experience.md)、[ADR-0007](../../../../adr/0007-Orchestrator%20架构设计.md)、[群聊调度器管家路由](../phase3/02-orchestrator/11-group-chat-steward-routing.md)、[Phase 7 README](README.md)
 
 ---
 
@@ -130,7 +130,7 @@ single / serial / parallel / chain / dag
 
 ### 2.6 现有测试把不理想体验固化成了正确行为
 
-文件：[backend/test_api/test_group_chat.py](../../../../../backend/test_api/test_group_chat.py)
+文件：[test/backend/api/test_group_chat.py](../../../../../test/backend/api/test_group_chat.py)
 
 现有 `test_unmentioned_product_alignment_routes_to_product_manager` 断言：
 
