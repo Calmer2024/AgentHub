@@ -32,14 +32,6 @@ function statusIcon(status: RunRead["status"]) {
   return <Clock3 size={13} aria-hidden="true" />;
 }
 
-function statusToneClass(status: RunRead["status"]) {
-  if (status === "running" || status === "queued" || status === "cancelling") return "agenthub-runtime-chip-active";
-  if (status === "paused" || status === "interrupted") return "agenthub-runtime-chip-waiting";
-  if (status === "failed" || status === "cancelled") return "agenthub-runtime-chip-danger";
-  if (status === "completed") return "agenthub-runtime-chip-group";
-  return "agenthub-runtime-chip-idle";
-}
-
 function elapsed(startedAt: string, completedAt?: string | null) {
   const start = Date.parse(startedAt);
   const end = completedAt ? Date.parse(completedAt) : Date.now();
@@ -61,11 +53,13 @@ export function RuntimeControlStrip({ run, tasks = [], onCancel, cancelling }: P
   const RuntimeIcon = runtimeMode === "cloud" ? Cloud : HardDrive;
 
   return (
-    <div className="agenthub-runtime-statusbar mt-3 flex min-h-9 min-w-0 max-w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs">
-      <span className={`agenthub-runtime-chip agenthub-runtime-chip-with-icon ${statusToneClass(run.status)} shrink-0 px-2 py-1`}>
+    <div className="agenthub-soft mt-3 flex min-h-9 min-w-0 max-w-full items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs">
+      <span className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${
+        run.status === "failed" ? "text-[color:var(--ah-danger)]" : "agenthub-muted"
+      }`}>
         {statusIcon(run.status)}
-        <span>{statusText(run.status)}</span>
       </span>
+      <span className="font-medium">{statusText(run.status)}</span>
       {primaryTask && (
         <span className="agenthub-muted min-w-0 flex-1 truncate">
           {primaryTask.role ?? "executor"} · {primaryTask.name}

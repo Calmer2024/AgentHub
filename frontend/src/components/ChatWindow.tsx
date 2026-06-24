@@ -263,13 +263,6 @@ export function ChatWindow({
     ? "对方正在输入"
     : activeGroupDialog ? `等待你回复 @${activeGroupDialog.activeAgentName}`
     : isGroup ? "多智能体协作" : currentAgent?.name ?? currentAgent?.cliTool ?? "命令行智能体";
-  const headerStatusTone = isStreaming || hasActiveRun
-    ? "agenthub-runtime-chip-active"
-    : activeGroupDialog
-      ? "agenthub-runtime-chip-waiting"
-      : isGroup
-        ? "agenthub-runtime-chip-group"
-        : "agenthub-runtime-chip-idle";
 
   const refreshRuntime = useCallback(async () => {
     try {
@@ -628,9 +621,9 @@ export function ChatWindow({
             <h1 className="agenthub-strong truncate text-base font-semibold">
               {currentSession?.title ?? (isGroup ? "群聊" : currentAgent?.name ?? "未选择智能体")}
             </h1>
-            <span className={`agenthub-runtime-chip ${headerStatusTone} mt-1 max-w-full px-2 py-1`}>
-              <span className="truncate">{headerStatus}</span>
-            </span>
+            <p className="agenthub-muted mt-0.5 truncate text-xs">
+              {headerStatus}
+            </p>
           </div>
         </div>
         <div className="flex items-center gap-2 sm:gap-3">
