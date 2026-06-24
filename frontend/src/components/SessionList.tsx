@@ -234,9 +234,15 @@ export function SessionList({
                   {session.mode === "group" && <Users size={13} className="agenthub-muted shrink-0" />}
                 </div>
                 <div className="mt-0.5 flex items-center justify-between gap-2">
-                  <p className="agenthub-muted truncate text-xs">
-                    {variant === "archived" ? "已归档" : running ? "对方正在输入" : info.label}
-                  </p>
+                  {running && variant !== "archived" ? (
+                    <span className="agenthub-runtime-chip agenthub-runtime-chip-active max-w-full px-2 py-0.5 text-[11px]">
+                      <span className="truncate">对方正在输入</span>
+                    </span>
+                  ) : (
+                    <p className="agenthub-muted truncate text-xs">
+                      {variant === "archived" ? "已归档" : info.label}
+                    </p>
+                  )}
                   <div className="flex shrink-0 items-center gap-1.5">
                     {hasUnread && (
                       <span className={`agenthub-unread-badge inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[10px] font-semibold ${
