@@ -62,6 +62,7 @@ describe("AuthGate", () => {
     );
 
     await screen.findByRole("heading", { name: "登录云端工作区" });
+    expect(screen.queryByText("请先登录后继续")).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("用户名或邮箱"), { target: { value: "phase14@example.com" } });
     fireEvent.change(screen.getByLabelText("密码"), { target: { value: "Phase14-passw0rd" } });
     const loginButtons = screen.getAllByRole("button", { name: "登录" });

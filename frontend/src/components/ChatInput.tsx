@@ -57,6 +57,30 @@ export function ChatInput({
   }, []);
 
   useEffect(() => {
+    const prefillInput = (event: Event) => {
+      const detail = (event as CustomEvent<{ content?: string; mode?: "replace" | "append" }>).detail;
+      const nextContent = detail?.content?.trim();
+      if (!nextContent) return;
+      setContent((current) => {
+        if (detail?.mode === "append" && current.trim()) {
+          return `${current.trimEnd()}\n${nextContent}`;
+        }
+        return nextContent;
+      });
+      setShowMentions(false);
+      window.requestAnimationFrame(() => {
+        const input = inputRef.current;
+        if (!input) return;
+        input.focus();
+        const end = input.value.length;
+        input.setSelectionRange(end, end);
+      });
+    };
+    window.addEventListener("agenthub:prefill-chat-input", prefillInput);
+    return () => window.removeEventListener("agenthub:prefill-chat-input", prefillInput);
+  }, []);
+
+  useEffect(() => {
     const input = inputRef.current;
     if (!input) return;
     input.style.height = "auto";
@@ -236,7 +260,7 @@ export function ChatInput({
         </div>
       )}
       {codeReference && (
-        <div className="agenthub-soft mx-auto mb-3 max-w-4xl rounded-2xl border px-3 py-2 text-sm">
+        <div className="agenthub-reference-card mx-auto mb-3 max-w-4xl rounded-2xl border px-3 py-2 text-sm">
           <div className="flex items-center gap-2">
             <FileCode2 size={15} className="agenthub-accent shrink-0" aria-hidden="true" />
             <div className="min-w-0 flex-1">

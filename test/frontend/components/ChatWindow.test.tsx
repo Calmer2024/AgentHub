@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ChatWindow } from "../../../frontend/src/components/ChatWindow";
 import { useChatStore } from "../../../frontend/src/stores/chatStore";
 import { useToastStore } from "../../../frontend/src/stores/toastStore";
@@ -153,7 +153,15 @@ const runningTask: TaskRead = {
   dependsOn: [],
 };
 
-function Harness({ onSend = vi.fn() }: { onSend?: (content: string, mentions: string[]) => void } = {}) {
+function Harness({
+  onSend = vi.fn(),
+  onToggleProjectFiles,
+  projectFilesOpen,
+}: {
+  onSend?: (content: string, mentions: string[]) => void;
+  onToggleProjectFiles?: () => void;
+  projectFilesOpen?: boolean;
+} = {}) {
   const state = useChatStore();
   return (
     <ChatWindow
@@ -183,6 +191,8 @@ function Harness({ onSend = vi.fn() }: { onSend?: (content: string, mentions: st
       onRegenerate={vi.fn()}
       onTogglePin={vi.fn()}
       onArtifactsChanged={vi.fn()}
+      onToggleProjectFiles={onToggleProjectFiles}
+      projectFilesOpen={projectFilesOpen}
       onRenameSession={vi.fn(() => Promise.resolve())}
       onAddGroupMember={vi.fn(() => Promise.resolve())}
       onRemoveGroupMember={vi.fn(() => Promise.resolve())}
@@ -433,6 +443,42 @@ describe("ChatWindow runtime cancel", () => {
     });
     const copyToasts = useToastStore.getState().toasts;
     expect(copyToasts[copyToasts.length - 1]?.title).toBe("已复制到剪贴板");
+  });
+
+  it("项目资源管理器入口位于会话文件按钮左侧，环境体检保持圆点入口", () => {
+    const onToggleProjectFiles = vi.fn();
+    resetStore();
+
+    render(<Harness onToggleProjectFiles={onToggleProjectFiles} />);
+
+    const healthTrigger = screen.getByLabelText("刷新环境体检：环境未检查");
+    expect(healthTrigger).toHaveClass("agenthub-health-dot");
+
+    const projectFilesButton = screen.getByRole("button", { name: "打开项目资源管理器" });
+    const artifactsButton = screen.getByRole("button", { name: "会话文件，0 个产物" });
+    expect(
+      projectFilesButton.compareDocumentPosition(artifactsButton) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    fireEvent.click(projectFilesButton);
+    expect(onToggleProjectFiles).toHaveBeenCalledTimes(1);
+  });
+
+  it("空白会话提供可直接落笔的任务建议，并可一键写入输入框", async () => {
+    resetStore();
+
+    render(<Harness />);
+
+    expect(screen.getByText("和 验收 Agent 开始一个任务")).toBeInTheDocument();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /设计实现方案/ }));
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getByDisplayValue("请先理解当前项目，然后给我一份实现方案，包含改动点和验收标准。"),
+      ).toHaveFocus();
+    });
   });
 
   it("转发成功后把返回消息写入目标会话缓存", async () => {

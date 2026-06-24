@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CheckSquare, Files, Forward, Search, Users, X } from "lucide-react";
+import { CheckSquare, Files, FolderOpen, Forward, Search, Users, X } from "lucide-react";
 import type {
   Message, AgentConfig, CollabTask, ChainStep, DAGPhase, Artifact,
   ApprovalCheckpoint, TaskRead, DraftOrchestratorPlan, Session, OrchestratorExecution,
@@ -66,6 +66,8 @@ interface Props {
   onRegenerate: (message: Message) => void;
   onTogglePin: (message: Message) => void;
   onArtifactsChanged: () => void;
+  onToggleProjectFiles?: () => void;
+  projectFilesOpen?: boolean;
   onRenameSession: (sessionId: string, title: string) => Promise<void>;
   onAddGroupMember: (sessionId: string, agentId: string) => Promise<void>;
   onRemoveGroupMember: (sessionId: string, agentId: string) => Promise<void>;
@@ -125,6 +127,7 @@ export function ChatWindow({
   groupMembersLoading = false,
   collabTasks, dagPhases, collabCompleted, collabSummary, draftPlan,
   onSend, onDismissError, onReply, onRegenerate, onTogglePin, onArtifactsChanged,
+  onToggleProjectFiles, projectFilesOpen = false,
   onRenameSession, onAddGroupMember, onRemoveGroupMember,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -378,6 +381,19 @@ export function ChatWindow({
       });
   }, [pushToast]);
 
+  const focusComposer = useCallback(() => {
+    window.dispatchEvent(new Event("agenthub:focus-chat-input"));
+  }, []);
+
+  const prefillComposer = useCallback((content: string) => {
+    window.dispatchEvent(new CustomEvent("agenthub:prefill-chat-input", {
+      detail: {
+        content,
+        mode: "replace",
+      },
+    }));
+  }, []);
+
   const beginMultiSelect = useCallback((message: Message) => {
     setSelectionMode(true);
     setSelectedMessageIds(new Set([message.id]));
@@ -549,6 +565,47 @@ export function ChatWindow({
     window.setTimeout(() => setHighlightedMessageId((id) => (id === messageId ? null : id)), 2000);
   }, []);
 
+  const emptyStateSuggestions = useMemo<Array<{ label: string; prompt: string }>>(() => {
+    if (isGroup) {
+      return [
+        {
+          label: "先拆解任务",
+          prompt: "请先拆解这个需求，给出执行顺序、依赖关系和验收标准。",
+        },
+        {
+          label: "安排多人协作",
+          prompt: "请按规划、实现、验证三个角色安排协作，并说明每一步输出。",
+        },
+        {
+          label: "审查当前项目",
+          prompt: "请先审查当前项目，找出最值得优先处理的三个问题。",
+        },
+        {
+          label: "整理交付方案",
+          prompt: "请输出一个可以直接执行的交付计划，包含里程碑、风险和回退方案。",
+        },
+      ];
+    }
+    return [
+      {
+        label: "审查当前项目",
+        prompt: "请先审查当前项目结构，并给我一个高优先级改进清单。",
+      },
+      {
+        label: "定位一个问题",
+        prompt: "请先阅读项目上下文，然后帮我定位这个问题：",
+      },
+      {
+        label: "设计实现方案",
+        prompt: "请先理解当前项目，然后给我一份实现方案，包含改动点和验收标准。",
+      },
+      {
+        label: "开始写代码",
+        prompt: "请先理解当前项目，然后直接开始实现这个需求：",
+      },
+    ];
+  }, [isGroup]);
+
   return (
     <div className="agenthub-chat relative flex h-full min-h-0 min-w-0 max-w-full flex-1 flex-col overflow-hidden transition-colors duration-300">
       {/* Header */}
@@ -569,8 +626,8 @@ export function ChatWindow({
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="hidden w-40 sm:block">
+        <div className="flex items-center gap-2 sm:gap-3">
+          <div className="shrink-0">
             <HealthCheckCard
               health={systemHealth}
               loading={healthLoading}
@@ -595,6 +652,20 @@ export function ChatWindow({
                   {groupMembersFull.length > 9 ? "9+" : groupMembersFull.length}
                 </span>
               )}
+            </button>
+          )}
+          {onToggleProjectFiles && (
+            <button
+              type="button"
+              onClick={onToggleProjectFiles}
+              disabled={!currentSession?.projectId}
+              className={`agenthub-icon-button inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full disabled:cursor-not-allowed disabled:opacity-45 ${
+                projectFilesOpen ? "agenthub-file-entry-active" : ""
+              }`}
+              aria-label={projectFilesOpen ? "关闭项目资源管理器" : "打开项目资源管理器"}
+              title={currentSession?.projectId ? "项目资源管理器" : "当前对话未绑定项目"}
+            >
+              <FolderOpen size={16} />
             </button>
           )}
           <button
@@ -748,11 +819,16 @@ export function ChatWindow({
           {messages.length === 0 && collabTasks.length === 0 && hydrating ? (
             <MessageListSkeleton />
           ) : messages.length === 0 && collabTasks.length === 0 ? (
-            <div className="agenthub-strong flex flex-col items-center justify-center h-full text-center">
-              <p className="text-2xl font-medium">
-                {isGroup ? "我们应该先讨论什么？" : "开始对话吧"}
-              </p>
-            </div>
+            <ChatEmptyState
+              isGroup={isGroup}
+              sessionTitle={currentSession?.title ?? null}
+              currentAgent={currentAgent}
+              canOpenProjectFiles={Boolean(currentSession?.projectId && onToggleProjectFiles)}
+              onOpenProjectFiles={onToggleProjectFiles}
+              onFocusComposer={focusComposer}
+              onPrefillComposer={prefillComposer}
+              suggestions={emptyStateSuggestions}
+            />
           ) : (
             messages.map((msg) => {
               const prompts = promptsByMessageId.get(msg.id) ?? [];
@@ -1107,6 +1183,98 @@ function MessageListSkeleton() {
 }
 
 export const MemoChatWindow = memo(ChatWindow);
+
+function ChatEmptyState({
+  isGroup,
+  sessionTitle,
+  currentAgent,
+  canOpenProjectFiles,
+  onOpenProjectFiles,
+  onFocusComposer,
+  onPrefillComposer,
+  suggestions,
+}: {
+  isGroup: boolean;
+  sessionTitle: string | null;
+  currentAgent: AgentConfig | null;
+  canOpenProjectFiles: boolean;
+  onOpenProjectFiles?: () => void;
+  onFocusComposer: () => void;
+  onPrefillComposer: (content: string) => void;
+  suggestions: Array<{ label: string; prompt: string }>;
+}) {
+  const title = isGroup
+    ? "从一个明确目标开始协作"
+    : `和 ${currentAgent?.name ?? "当前智能体"} 开始一个任务`;
+  const summary = isGroup
+    ? "先给出目标、约束和验收标准，调度器会更稳定地拆解与分派。"
+    : "给出目标、上下文和验收标准，回复、运行状态与产物会回流到当前会话。";
+
+  return (
+    <div className="flex h-full items-center justify-center py-4">
+      <section className="agenthub-empty-state w-full max-w-3xl rounded-[28px] border px-5 py-5 md:px-6 md:py-6">
+        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+          <div className="min-w-0">
+            <div className="flex items-center gap-3">
+              <AgentAvatar
+                agent={!isGroup ? currentAgent : undefined}
+                name={isGroup ? sessionTitle ?? "群聊" : currentAgent?.name ?? "当前智能体"}
+                kind={isGroup ? "group" : "agent"}
+                size="lg"
+              />
+              <div className="min-w-0">
+                <p className="agenthub-faint truncate text-xs">
+                  {isGroup ? "协作会话" : currentAgent?.cliTool === "codex" ? "Codex" : "单智能体会话"}
+                </p>
+                <h2 className="agenthub-strong truncate text-[1.4rem] font-semibold leading-tight">
+                  {title}
+                </h2>
+              </div>
+            </div>
+            <p className="agenthub-muted mt-3 max-w-2xl text-sm leading-7">
+              {summary}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2 md:max-w-[220px] md:justify-end">
+            <button
+              type="button"
+              onClick={onFocusComposer}
+              className="agenthub-primary-button inline-flex h-10 items-center justify-center rounded-full px-4 text-sm font-medium"
+            >
+              立即开始
+            </button>
+            {canOpenProjectFiles && onOpenProjectFiles && (
+              <button
+                type="button"
+                onClick={onOpenProjectFiles}
+                className="agenthub-icon-button inline-flex h-10 items-center justify-center rounded-full px-4 text-sm font-medium"
+              >
+                打开项目文件
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-3 md:grid-cols-2">
+          {suggestions.map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              onClick={() => {
+                onPrefillComposer(item.prompt);
+                onFocusComposer();
+              }}
+              className="agenthub-empty-suggestion group flex min-h-[84px] flex-col items-start justify-between rounded-3xl border px-4 py-3 text-left"
+            >
+              <span className="agenthub-strong text-sm font-medium">{item.label}</span>
+              <span className="agenthub-muted text-xs leading-5">{item.prompt}</span>
+            </button>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
 
 interface ActiveGroupDialog {
   activeAgentId: string;

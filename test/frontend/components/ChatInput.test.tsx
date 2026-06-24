@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ChatInput } from "../../../frontend/src/components/ChatInput";
 import { useChatStore } from "../../../frontend/src/stores/chatStore";
 
@@ -38,6 +38,7 @@ describe("ChatInput", () => {
     });
 
     render(<ChatInput onSubmit={onSubmit} mentionableAgents={[]} />);
+    expect(screen.getByText("src/app.ts").closest(".agenthub-reference-card")).toBeInTheDocument();
     fireEvent.change(screen.getByPlaceholderText("输入消息，@ 提及智能体"), {
       target: { value: "请把这里改成 2" },
     });
@@ -93,6 +94,24 @@ describe("ChatInput", () => {
     fireEvent.click(screen.getByRole("button", { name: "发送" }));
 
     expect(onSubmit).toHaveBeenCalledWith("@文档专家 帮我整理需求", ["agent-writer"]);
+  });
+
+  it("收到预填充事件后写入输入框并聚焦", () => {
+    render(<ChatInput onSubmit={vi.fn()} mentionableAgents={[]} />);
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent("agenthub:prefill-chat-input", {
+        detail: {
+          content: "请先审查当前项目结构，并给我一个高优先级改进清单。",
+          mode: "replace",
+        },
+      }));
+    });
+
+    return waitFor(() => {
+      const input = screen.getByDisplayValue("请先审查当前项目结构，并给我一个高优先级改进清单。");
+      expect(input).toHaveFocus();
+    });
   });
 
   it("上传附件后发送 attachmentIds 作为下一轮上下文", async () => {
