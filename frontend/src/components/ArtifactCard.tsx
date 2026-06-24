@@ -628,6 +628,7 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
                 previewUrl={artifactFileUrl}
                 previewLabel={previewLabel}
                 onEditFile={(change) => setEditingFile(change)}
+                projectId={artifact.projectId}
               />
             </div>
 
@@ -866,6 +867,7 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
             previewUrl={artifactFileUrl}
             previewLabel={previewLabel}
             onEditFile={(change) => setEditingFile(change)}
+            projectId={artifact.projectId}
           />
         </div>
       </article>
@@ -909,6 +911,7 @@ function ArtifactPreview({
   previewUrl,
   previewLabel,
   onEditFile,
+  projectId,
 }: {
   artifact: Artifact;
   content: string;
@@ -920,13 +923,14 @@ function ArtifactPreview({
   previewUrl: string | null;
   previewLabel: string;
   onEditFile?: (change: FileTreeChange) => void;
+  projectId?: string | null;
 }) {
   if (artifact.type === "code_diff") {
     return <DiffViewer diff={contentDiff} compact title={artifact.filePath ?? artifact.title ?? "差异"} />;
   }
 
   if (artifact.type === "file_tree") {
-    return <FileTreePreview changes={fileTreeChanges} compact onEditFile={onEditFile} />;
+    return <FileTreePreview changes={fileTreeChanges} compact onEditFile={onEditFile} projectId={projectId} />;
   }
 
   const preview = getArtifactPreviewInfo(artifact);
@@ -984,6 +988,7 @@ function ArtifactFullPreview({
   previewUrl,
   previewLabel,
   onEditFile,
+  projectId,
 }: {
   artifact: Artifact;
   content: string;
@@ -995,6 +1000,7 @@ function ArtifactFullPreview({
   previewUrl: string | null;
   previewLabel: string;
   onEditFile?: (change: FileTreeChange) => void;
+  projectId?: string | null;
 }) {
   const preview = getArtifactPreviewInfo(artifact);
 
@@ -1042,7 +1048,7 @@ function ArtifactFullPreview({
   }
 
   if (artifact.type === "file_tree") {
-    return <FileTreePreview changes={fileTreeChanges} expanded onEditFile={onEditFile} />;
+    return <FileTreePreview changes={fileTreeChanges} expanded onEditFile={onEditFile} projectId={projectId} />;
   }
 
   if (artifact.type === "code_diff") {
@@ -1197,11 +1203,13 @@ function FileTreePreview({
   compact = false,
   expanded = false,
   onEditFile,
+  projectId,
 }: {
   changes: FileTreeChange[];
   compact?: boolean;
   expanded?: boolean;
   onEditFile?: (change: FileTreeChange) => void;
+  projectId?: string | null;
 }) {
   if (changes.length === 0) {
     return (
@@ -1222,6 +1230,7 @@ function FileTreePreview({
           change={change}
           expanded={expanded}
           onEditFile={onEditFile}
+          projectId={projectId}
         />
       ))}
       {hiddenCount > 0 && (
@@ -1237,10 +1246,12 @@ function FileChangeRow({
   change,
   expanded,
   onEditFile,
+  projectId,
 }: {
   change: FileTreeChange;
   expanded: boolean;
   onEditFile?: (change: FileTreeChange) => void;
+  projectId?: string | null;
 }) {
   const rowRef = useRef<HTMLDivElement | null>(null);
   const [hoverPreviewPosition, setHoverPreviewPosition] = useState<{ left: number; top: number; width: number } | null>(null);
@@ -1278,6 +1289,23 @@ function FileChangeRow({
         <span className="min-w-0 flex-1 truncate font-mono">{change.path}</span>
         {hasDiff && (
           <span className="agenthub-faint shrink-0 text-[11px]">{expanded ? "差异" : "悬停"}</span>
+        )}
+        {onEditFile && change.change !== "deleted" && change.change !== "removed" && (
+          <button
+            type="button"
+            onClick={() => {
+              if (!projectId) return;
+              window.dispatchEvent(new CustomEvent("agenthub:open-project-file", {
+                detail: { projectId, path: change.path },
+              }));
+            }}
+            disabled={!projectId}
+            className="agenthub-icon-button inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full disabled:opacity-40"
+            aria-label={`在项目文件中打开 ${change.path}`}
+            title="在项目文件中打开"
+          >
+            <Files size={13} aria-hidden="true" />
+          </button>
         )}
         {onEditFile && change.change !== "deleted" && change.change !== "removed" && (
           <button

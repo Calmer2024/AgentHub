@@ -2,7 +2,7 @@ import mimetypes
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from urllib.parse import quote
@@ -39,6 +39,9 @@ from ..services.auth_service import AuthService
 from ..services.html_preview_assets import inline_local_html_assets
 from ..services.tenant_guard import TenantGuard, tenant_scope_required_for_cloud
 from ..services.workspace_provider import (
+    EXCLUDED_NAMES,
+    WorkspaceFileConflictError,
+    WorkspaceFileExistsError,
     WorkspaceFileTooLargeError,
     WorkspaceNotFoundError,
     WorkspaceSecurityError,
@@ -101,11 +104,61 @@ class FileRead(BaseModel):
     path: str
     content: str
     size: int
+    name: str | None = None
+    type: str | None = None
+    mtime: float | None = None
+    etag: str | None = None
+    media_type: str | None = Field(default=None, alias="mediaType")
+    extension: str | None = None
+    editable: bool | None = None
+    previewable: bool | None = None
+    preview_kind: str | None = Field(default=None, alias="previewKind")
+    readonly_reason: str | None = Field(default=None, alias="readonlyReason")
+    encoding: str | None = None
+
+    model_config = {"populate_by_name": True}
 
 
 class FileWriteRequest(BaseModel):
     path: str
     content: str
+    base_etag: str | None = Field(default=None, alias="baseEtag")
+    force: bool = False
+
+    model_config = {"populate_by_name": True}
+
+
+class FileCreateRequest(BaseModel):
+    path: str
+    content: str = ""
+    overwrite: bool = False
+
+
+class DirectoryCreateRequest(BaseModel):
+    path: str
+
+
+class PathMoveRequest(BaseModel):
+    source_path: str = Field(alias="sourcePath")
+    target_path: str = Field(alias="targetPath")
+    overwrite: bool = False
+
+    model_config = {"populate_by_name": True}
+
+
+class PathDeleteRequest(BaseModel):
+    paths: list[str]
+    use_trash: bool = Field(default=True, alias="useTrash")
+
+    model_config = {"populate_by_name": True}
+
+
+class PathOperationRead(BaseModel):
+    items: list[dict]
+
+
+class SearchRead(BaseModel):
+    items: list[dict]
 
 
 class SnapshotRequest(BaseModel):
@@ -304,15 +357,186 @@ async def read_file(project_id: str, path: str, request: Request, db: AsyncSessi
 async def write_file(project_id: str, data: FileWriteRequest, request: Request, db: AsyncSession = Depends(get_db)):
     try:
         await _authorize_project(request, db, project_id, mode="write")
-        return await _svc(db).write_file(project_id, data.path, data.content)
+        return await _svc(db).write_file(
+            project_id,
+            data.path,
+            data.content,
+            base_etag=data.base_etag,
+            force=data.force,
+        )
     except ProjectNotFoundError:
         raise HTTPException(status_code=404, detail="project not found")
     except WorkspaceSecurityError:
         raise HTTPException(status_code=403, detail="无权访问此路径")
+    except WorkspaceFileConflictError as exc:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "detail": str(exc),
+                "code": "workspace_file_conflict",
+                "currentContent": exc.current_content,
+                "currentEtag": exc.current_etag,
+                "currentMtime": exc.current_mtime,
+            },
+        )
     except ProjectValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except WorkspaceNotFoundError:
         raise HTTPException(status_code=404, detail="workspace not found")
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+
+
+@router.post("/{project_id}/files", response_model=FileRead, status_code=201)
+async def create_file(project_id: str, data: FileCreateRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    try:
+        await _authorize_project(request, db, project_id, mode="write")
+        return await _svc(db).create_file(
+            project_id,
+            data.path,
+            data.content,
+            overwrite=data.overwrite,
+        )
+    except ProjectNotFoundError:
+        raise HTTPException(status_code=404, detail="project not found")
+    except WorkspaceSecurityError:
+        raise HTTPException(status_code=403, detail="无权访问此路径")
+    except WorkspaceFileExistsError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except (ProjectValidationError, WorkspaceNotFoundError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+
+
+@router.post("/{project_id}/directories", status_code=201)
+async def create_directory(
+    project_id: str,
+    data: DirectoryCreateRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        await _authorize_project(request, db, project_id, mode="write")
+        return await _svc(db).create_directory(project_id, data.path)
+    except ProjectNotFoundError:
+        raise HTTPException(status_code=404, detail="project not found")
+    except WorkspaceSecurityError:
+        raise HTTPException(status_code=403, detail="无权访问此路径")
+    except WorkspaceFileExistsError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except (ProjectValidationError, WorkspaceNotFoundError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+
+
+@router.patch("/{project_id}/paths")
+async def move_path(project_id: str, data: PathMoveRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    try:
+        await _authorize_project(request, db, project_id, mode="write")
+        return await _svc(db).move_path(
+            project_id,
+            data.source_path,
+            data.target_path,
+            overwrite=data.overwrite,
+        )
+    except ProjectNotFoundError:
+        raise HTTPException(status_code=404, detail="project not found")
+    except WorkspaceSecurityError:
+        raise HTTPException(status_code=403, detail="无权访问此路径")
+    except WorkspaceFileExistsError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except WorkspaceNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ProjectValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+
+
+@router.delete("/{project_id}/paths", response_model=PathOperationRead)
+async def delete_paths(project_id: str, data: PathDeleteRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    try:
+        await _authorize_project(request, db, project_id, mode="write")
+        return await _svc(db).delete_paths(project_id, data.paths, use_trash=data.use_trash)
+    except ProjectNotFoundError:
+        raise HTTPException(status_code=404, detail="project not found")
+    except WorkspaceSecurityError:
+        raise HTTPException(status_code=403, detail="无权访问此路径")
+    except WorkspaceNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ProjectValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+
+
+@router.get("/{project_id}/search-files", response_model=SearchRead)
+async def search_files(
+    project_id: str,
+    q: str,
+    request: Request,
+    includeContent: bool = True,
+    limit: int = 50,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        await _authorize_project(request, db, project_id, mode="read")
+        return await _svc(db).search_files(
+            project_id,
+            q,
+            include_content=includeContent,
+            limit=max(1, min(limit, 200)),
+        )
+    except ProjectNotFoundError:
+        raise HTTPException(status_code=404, detail="project not found")
+    except WorkspaceSecurityError:
+        raise HTTPException(status_code=403, detail="无权访问此路径")
+    except WorkspaceNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ProjectValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+
+
+@router.get("/{project_id}/download")
+async def download_path(
+    project_id: str,
+    request: Request,
+    path: str | None = None,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        await _authorize_project(request, db, project_id, mode="read")
+        if path:
+            svc = _svc(db)
+            project = await svc._get_project(project_id)
+            workspace_path = svc._file_workspace_path(project)
+            target = svc.provider.safe_resolve(workspace_path, path)
+            rel_parts = target.relative_to(Path(workspace_path).expanduser().resolve()).parts
+            if any(part in EXCLUDED_NAMES for part in rel_parts):
+                raise WorkspaceSecurityError("protected path")
+            if not target.exists():
+                raise WorkspaceNotFoundError("path not found")
+            if target.is_file():
+                return FileResponse(
+                    target,
+                    media_type=_media_type_for_path(target),
+                    filename=target.name,
+                    headers={"X-Content-Type-Options": "nosniff"},
+                )
+        data, filename = await _svc(db).download_path(project_id, path)
+        return _zip_response(data, filename)
+    except ProjectNotFoundError:
+        raise HTTPException(status_code=404, detail="project not found")
+    except WorkspaceSecurityError:
+        raise HTTPException(status_code=403, detail="无权访问此路径")
+    except WorkspaceNotFoundError:
+        raise HTTPException(status_code=404, detail="path not found")
+    except ProjectValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     except PermissionDeniedError as exc:
         raise HTTPException(status_code=403, detail=str(exc))
 

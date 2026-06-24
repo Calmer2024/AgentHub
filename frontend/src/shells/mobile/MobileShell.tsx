@@ -56,6 +56,7 @@ import type {
 } from "../../types";
 import { chinaNowIso } from "../../utils/time";
 import { getArtifactPreviewInfo } from "../../utils/artifactPreview";
+import { ProjectFileWorkspaceModal } from "../../components/ProjectFileWorkspaceModal";
 
 type MobilePane = "inbox" | "chat" | "artifacts" | "approvals" | "notifications";
 type SessionsByProject = Record<string, Session[]>;
@@ -77,6 +78,7 @@ export function MobileShell() {
   const [composer, setComposer] = useState("");
   const [showArchived, setShowArchived] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
+  const [fileWorkspaceOpen, setFileWorkspaceOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -419,6 +421,7 @@ export function MobileShell() {
         unreadTotal={unreadTotal}
         refreshing={refreshing}
         onRefresh={() => void loadOverview(true)}
+        onOpenFiles={() => setFileWorkspaceOpen(true)}
         onProfile={() => setShowProfile(true)}
       />
 
@@ -521,6 +524,12 @@ export function MobileShell() {
           onClose={() => setShowProfile(false)}
         />
       )}
+      <ProjectFileWorkspaceModal
+        open={fileWorkspaceOpen}
+        project={activeSessionProject}
+        onClose={() => setFileWorkspaceOpen(false)}
+        onChanged={() => void loadOverview(true)}
+      />
     </main>
   );
 }
@@ -532,6 +541,7 @@ function MobileTopBar({
   unreadTotal,
   refreshing,
   onRefresh,
+  onOpenFiles,
   onProfile,
 }: {
   user: CurrentUser | null;
@@ -540,6 +550,7 @@ function MobileTopBar({
   unreadTotal: number;
   refreshing: boolean;
   onRefresh: () => void;
+  onOpenFiles: () => void;
   onProfile: () => void;
 }) {
   return (
@@ -567,6 +578,16 @@ function MobileTopBar({
             {unreadTotal > 99 ? "99+" : unreadTotal}
           </span>
         )}
+        <button
+          type="button"
+          onClick={onOpenFiles}
+          aria-label="打开项目文件"
+          disabled={!project}
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border text-[color:var(--ah-text-strong)] disabled:opacity-40"
+          style={{ borderColor: "var(--ah-border)" }}
+        >
+          <Files size={17} />
+        </button>
         <button
           type="button"
           onClick={onRefresh}

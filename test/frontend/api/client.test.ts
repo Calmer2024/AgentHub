@@ -6,6 +6,8 @@ import {
   createArtifactPreview,
   createDeployment,
   createProject,
+  createProjectDirectory,
+  createProjectFile,
   createTeam,
   createWorkspaceSnapshot,
   createProjectBuildPreview,
@@ -21,6 +23,7 @@ import {
   fetchDeploymentLogs,
   fetchProjectBuildLogs,
   fetchProjectBuilds,
+  fetchProjectTree,
   fetchWorkspace,
   importWorkspaceGithub,
   fetchRuntimeImages,
@@ -28,7 +31,9 @@ import {
   fetchTeamJoinCode,
   fetchTeamMembers,
   joinTeamByCode,
+  moveProjectPath,
   projectBuildExportUrl,
+  projectPathDownloadUrl,
   projectSourceExportUrl,
   readProjectFile,
   removeTeamMember,
@@ -41,7 +46,10 @@ import {
   loginWithEmail,
   saveCliCredential,
   updateTeamMemberRole,
+  WorkspaceFileConflict,
   writeProjectFile,
+  deleteProjectPaths,
+  searchProjectFiles,
 } from "../../../frontend/src/api/client";
 
 function sseResponse(events: string[]): Response {
@@ -812,14 +820,82 @@ describe("artifact APIs", () => {
       }), { status: 200 }));
 
     await readProjectFile("p1", "src/app.ts");
-    await writeProjectFile("p1", "src/app.ts", "new");
+    await writeProjectFile("p1", "src/app.ts", "new", { baseEtag: "etag-old" });
 
     expect(String(vi.mocked(globalThis.fetch).mock.calls[0][0])).toBe("/api/projects/p1/files?path=src%2Fapp.ts");
     const writeInit = vi.mocked(globalThis.fetch).mock.calls[1][1] as RequestInit;
     expect(JSON.parse(String(writeInit.body))).toMatchObject({
       path: "src/app.ts",
       content: "new",
+      baseEtag: "etag-old",
+      force: false,
     });
+  });
+
+  it("项目文件工作台 API 覆盖树、创建、移动、删除、搜索和下载 URL", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        tree: [{ path: "README.md", name: "README.md", type: "file", size: 12 }],
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        path: "src/app.ts",
+        content: "",
+        size: 0,
+      }), { status: 201 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        path: "src",
+        name: "src",
+        type: "dir",
+        size: 0,
+      }), { status: 201 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        path: "src/main.ts",
+        name: "main.ts",
+        type: "file",
+        size: 3,
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        items: [{ path: "src/main.ts", status: "trashed" }],
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        items: [{ path: "src/main.ts", type: "file", matchType: "content", line: 1, snippet: "main" }],
+      }), { status: 200 }));
+
+    expect(await fetchProjectTree("p1")).toHaveLength(1);
+    await createProjectFile("p1", "src/app.ts");
+    await createProjectDirectory("p1", "src");
+    await moveProjectPath("p1", "src/app.ts", "src/main.ts");
+    await deleteProjectPaths("p1", ["src/main.ts"]);
+    expect(await searchProjectFiles("p1", "main")).toHaveLength(1);
+    expect(projectPathDownloadUrl("p1", "src/main.ts")).toBe("/api/projects/p1/download?path=src%2Fmain.ts");
+
+    const calls = vi.mocked(globalThis.fetch).mock.calls;
+    expect(String(calls[0][0])).toBe("/api/projects/p1/tree");
+    expect(JSON.parse(String((calls[1][1] as RequestInit).body))).toMatchObject({ path: "src/app.ts", overwrite: false });
+    expect(JSON.parse(String((calls[2][1] as RequestInit).body))).toMatchObject({ path: "src" });
+    expect(JSON.parse(String((calls[3][1] as RequestInit).body))).toMatchObject({
+      sourcePath: "src/app.ts",
+      targetPath: "src/main.ts",
+    });
+    expect(JSON.parse(String((calls[4][1] as RequestInit).body))).toMatchObject({
+      paths: ["src/main.ts"],
+      useTrash: true,
+    });
+    expect(String(calls[5][0])).toBe("/api/projects/p1/search-files?q=main&includeContent=true&limit=50");
+  });
+
+  it("写入项目文件遇到冲突时抛出结构化错误", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      detail: "file changed since it was opened",
+      code: "workspace_file_conflict",
+      currentContent: "new",
+      currentEtag: "etag-new",
+      currentMtime: 123,
+    }), { status: 409 }));
+
+    await expect(writeProjectFile("p1", "src/app.ts", "local", { baseEtag: "etag-old" }))
+      .rejects
+      .toBeInstanceOf(WorkspaceFileConflict);
   });
 });
 

@@ -35,6 +35,8 @@ from .team_service import PermissionDeniedError, TeamService
 from .tenant_guard import TenantGuard, TenantScope, tenant_scope_required_for_cloud
 from .workspace_provider import (
     LocalWorkspaceProvider,
+    WorkspaceFileConflictError,
+    WorkspaceFileExistsError,
     WorkspaceFileTooLargeError,
     WorkspaceNotFoundError,
     WorkspaceSecurityError,
@@ -301,29 +303,152 @@ class ProjectService:
         project = await self._get_project(project_id)
         workspace_path = self._file_workspace_path(project)
         entries = self.provider.list_tree(workspace_path, subpath)
-        return [entry.__dict__ for entry in entries]
+        return [entry.to_api() for entry in entries]
 
     async def read_file(self, project_id: str, path: str) -> dict:
         project = await self._get_project(project_id)
         workspace_path = self._file_workspace_path(project)
-        content, size = self.provider.read_text_file(workspace_path, path)
-        return {"path": path.replace("\\", "/"), "content": content, "size": size}
+        content, entry = self.provider.read_text_file(workspace_path, path)
+        return {
+            **entry.to_api(),
+            "content": content,
+            "encoding": "utf-8" if entry.editable else None,
+        }
 
-    async def write_file(self, project_id: str, path: str, content: str) -> dict:
+    async def write_file(
+        self,
+        project_id: str,
+        path: str,
+        content: str,
+        *,
+        base_etag: str | None = None,
+        force: bool = False,
+    ) -> dict:
         project = await self._get_project(project_id)
         workspace_path = self._file_workspace_path(project)
-        target = self.provider.safe_resolve(workspace_path, path)
-        workspace_root = Path(workspace_path).expanduser().resolve()
-        if target == workspace_root or (target.exists() and target.is_dir()):
-            raise ProjectValidationError("path must be a file")
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content, encoding="utf-8")
-        rel = target.relative_to(workspace_root).as_posix()
+        saved_content, entry = self.provider.write_text_file(
+            workspace_path,
+            path,
+            content,
+            base_etag=base_etag,
+            force=force,
+        )
         await self._publish(EventType.WORKSPACE_FILE_CHANGED, {
             "projectId": project.id,
-            "changes": [{"path": rel, "change": "modified"}],
+            "changes": [{"path": entry.path, "change": "modified", "etag": entry.etag}],
         })
-        return {"path": rel, "content": content, "size": target.stat().st_size}
+        return {
+            **entry.to_api(),
+            "content": saved_content,
+            "encoding": "utf-8",
+        }
+
+    async def create_file(
+        self,
+        project_id: str,
+        path: str,
+        content: str = "",
+        *,
+        overwrite: bool = False,
+    ) -> dict:
+        project = await self._get_project(project_id)
+        workspace_path = self._file_workspace_path(project)
+        saved_content, entry = self.provider.create_text_file(
+            workspace_path,
+            path,
+            content,
+            overwrite=overwrite,
+        )
+        await self._publish(EventType.WORKSPACE_FILE_CHANGED, {
+            "projectId": project.id,
+            "changes": [{"path": entry.path, "change": "added", "etag": entry.etag}],
+        })
+        return {
+            **entry.to_api(),
+            "content": saved_content,
+            "encoding": "utf-8",
+        }
+
+    async def create_directory(self, project_id: str, path: str) -> dict:
+        project = await self._get_project(project_id)
+        workspace_path = self._file_workspace_path(project)
+        entry = self.provider.create_directory(workspace_path, path)
+        await self._publish(EventType.WORKSPACE_FILE_CHANGED, {
+            "projectId": project.id,
+            "changes": [{"path": entry.path, "change": "added"}],
+        })
+        return entry.to_api()
+
+    async def move_path(
+        self,
+        project_id: str,
+        source_path: str,
+        target_path: str,
+        *,
+        overwrite: bool = False,
+    ) -> dict:
+        project = await self._get_project(project_id)
+        workspace_path = self._file_workspace_path(project)
+        entry = self.provider.move_path(
+            workspace_path,
+            source_path,
+            target_path,
+            overwrite=overwrite,
+        )
+        await self._publish(EventType.WORKSPACE_FILE_CHANGED, {
+            "projectId": project.id,
+            "changes": [
+                {"path": source_path.replace("\\", "/"), "change": "deleted"},
+                {"path": entry.path, "change": "added", "etag": entry.etag},
+            ],
+        })
+        return entry.to_api()
+
+    async def delete_paths(
+        self,
+        project_id: str,
+        paths: list[str],
+        *,
+        use_trash: bool = True,
+    ) -> dict:
+        clean_paths = [path.strip() for path in paths if path.strip()]
+        if not clean_paths:
+            raise ProjectValidationError("paths must not be empty")
+        project = await self._get_project(project_id)
+        workspace_path = self._file_workspace_path(project)
+        deleted = self.provider.delete_paths(workspace_path, clean_paths, use_trash=use_trash)
+        await self._publish(EventType.WORKSPACE_FILE_CHANGED, {
+            "projectId": project.id,
+            "changes": [{"path": item["path"], "change": item["status"]} for item in deleted],
+        })
+        return {"items": deleted}
+
+    async def search_files(
+        self,
+        project_id: str,
+        query: str,
+        *,
+        include_content: bool = True,
+        limit: int = 50,
+    ) -> dict:
+        clean_query = query.strip()
+        if not clean_query:
+            return {"items": []}
+        project = await self._get_project(project_id)
+        workspace_path = self._file_workspace_path(project)
+        return {
+            "items": self.provider.search_paths(
+                workspace_path,
+                clean_query,
+                include_content=include_content,
+                limit=limit,
+            ),
+        }
+
+    async def download_path(self, project_id: str, path: str | None = None) -> tuple[bytes, str]:
+        project = await self._get_project(project_id)
+        workspace_path = self._file_workspace_path(project)
+        return self.provider.zip_path(workspace_path, path)
 
     async def create_snapshot(self, project_id: str, label: str) -> dict:
         project = await self._get_project(project_id)

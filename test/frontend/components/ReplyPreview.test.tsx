@@ -15,10 +15,11 @@ const message: Message = {
 describe("ReplyPreview", () => {
   it("渲染引用摘要并支持跳转", () => {
     const onJump = vi.fn();
-    render(<ReplyPreview message={message} onJump={onJump} />);
+    const { container } = render(<ReplyPreview message={message} onJump={onJump} />);
 
     fireEvent.click(screen.getByRole("button", { name: "用户" }));
     expect(screen.getByText("这是一条需要引用的消息")).toBeInTheDocument();
+    expect(container.querySelector(".agenthub-reference-card")).toBeInTheDocument();
     expect(onJump).toHaveBeenCalledWith("m-parent");
   });
 

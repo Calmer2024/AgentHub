@@ -5,7 +5,7 @@ import type {
   Artifact, ArtifactDiff, ArtifactEditRequest, ArtifactEditResult, ArtifactVersion,
   ArtifactScanResult,
   Project, ProjectCreateInput, ProjectUpdateInput, ProjectDeleteResult, FolderPickResult,
-  PreviewResult, WorkspaceFile,
+  PreviewResult, WorkspaceFile, WorkspacePathOperationResult, WorkspaceSearchItem, WorkspaceTreeNode,
   BuildList, BuildLogs, BuildQueuedResult, ProjectPreviewResult,
   PreviewSession, Deployment, DeploymentLogs,
   ExecutionTraceItem,
@@ -866,7 +866,7 @@ export function projectBuildExportUrl(projectId: string, buildId: string): strin
 export async function readProjectFile(projectId: string, path: string): Promise<WorkspaceFile> {
   const params = new URLSearchParams({ path });
   const res = await fetch(`${API_BASE}/projects/${projectId}/files?${params.toString()}`, { headers: cloudHeaders() });
-  if (!res.ok) throw new Error("Failed to read project file");
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to read project file"));
   return res.json();
 }
 
@@ -874,14 +874,144 @@ export async function writeProjectFile(
   projectId: string,
   path: string,
   content: string,
+  options: { baseEtag?: string | null; force?: boolean } = {},
 ): Promise<WorkspaceFile> {
   const res = await fetch(`${API_BASE}/projects/${projectId}/files`, {
     method: "PUT",
     headers: cloudJsonHeaders(),
-    body: JSON.stringify({ path, content }),
+    body: JSON.stringify({
+      path,
+      content,
+      baseEtag: options.baseEtag ?? undefined,
+      force: Boolean(options.force),
+    }),
   });
-  if (!res.ok) throw new Error("Failed to write project file");
+  if (!res.ok) {
+    const detail = await readWorkspaceFileError(res, "Failed to write project file");
+    throw detail;
+  }
   return res.json();
+}
+
+export async function fetchProjectTree(
+  projectId: string,
+  subpath?: string | null,
+): Promise<WorkspaceTreeNode[]> {
+  const params = new URLSearchParams();
+  if (subpath) params.set("subpath", subpath);
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  const res = await fetch(`${API_BASE}/projects/${projectId}/tree${suffix}`, { headers: cloudHeaders() });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to fetch project tree"));
+  const data = await res.json() as { tree?: WorkspaceTreeNode[] };
+  return Array.isArray(data.tree) ? data.tree : [];
+}
+
+export async function createProjectFile(
+  projectId: string,
+  path: string,
+  content = "",
+  overwrite = false,
+): Promise<WorkspaceFile> {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/files`, {
+    method: "POST",
+    headers: cloudJsonHeaders(),
+    body: JSON.stringify({ path, content, overwrite }),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to create project file"));
+  return res.json();
+}
+
+export async function createProjectDirectory(
+  projectId: string,
+  path: string,
+): Promise<WorkspaceTreeNode> {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/directories`, {
+    method: "POST",
+    headers: cloudJsonHeaders(),
+    body: JSON.stringify({ path }),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to create project directory"));
+  return res.json();
+}
+
+export async function moveProjectPath(
+  projectId: string,
+  sourcePath: string,
+  targetPath: string,
+  overwrite = false,
+): Promise<WorkspaceTreeNode> {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/paths`, {
+    method: "PATCH",
+    headers: cloudJsonHeaders(),
+    body: JSON.stringify({ sourcePath, targetPath, overwrite }),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to move project path"));
+  return res.json();
+}
+
+export async function deleteProjectPaths(
+  projectId: string,
+  paths: string[],
+  useTrash = true,
+): Promise<WorkspacePathOperationResult> {
+  const res = await fetch(`${API_BASE}/projects/${projectId}/paths`, {
+    method: "DELETE",
+    headers: cloudJsonHeaders(),
+    body: JSON.stringify({ paths, useTrash }),
+  });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to delete project paths"));
+  return res.json();
+}
+
+export async function searchProjectFiles(
+  projectId: string,
+  query: string,
+  options: { includeContent?: boolean; limit?: number } = {},
+): Promise<WorkspaceSearchItem[]> {
+  const params = new URLSearchParams({
+    q: query,
+    includeContent: String(options.includeContent ?? true),
+    limit: String(options.limit ?? 50),
+  });
+  const res = await fetch(`${API_BASE}/projects/${projectId}/search-files?${params.toString()}`, { headers: cloudHeaders() });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to search project files"));
+  const data = await res.json() as { items?: WorkspaceSearchItem[] };
+  return Array.isArray(data.items) ? data.items : [];
+}
+
+export function projectPathDownloadUrl(projectId: string, path?: string | null): string {
+  const params = new URLSearchParams();
+  if (path) params.set("path", path);
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  return `${API_BASE}/projects/${projectId}/download${suffix}`;
+}
+
+export class WorkspaceFileConflict extends Error {
+  currentContent: string;
+  currentEtag: string | null;
+  currentMtime: number | null;
+
+  constructor(message: string, payload: { currentContent?: unknown; currentEtag?: unknown; currentMtime?: unknown }) {
+    super(message);
+    this.name = "WorkspaceFileConflict";
+    this.currentContent = typeof payload.currentContent === "string" ? payload.currentContent : "";
+    this.currentEtag = typeof payload.currentEtag === "string" ? payload.currentEtag : null;
+    this.currentMtime = typeof payload.currentMtime === "number" ? payload.currentMtime : null;
+  }
+}
+
+async function readWorkspaceFileError(res: Response, fallback: string): Promise<Error> {
+  try {
+    const data = await res.json();
+    if (res.status === 409 && data?.code === "workspace_file_conflict") {
+      return new WorkspaceFileConflict(formatApiDetail(data.detail) ?? fallback, data);
+    }
+    if (data && typeof data === "object" && "detail" in data) {
+      const detail = formatApiDetail((data as { detail?: unknown }).detail);
+      if (detail) return new Error(detail);
+    }
+  } catch { /* keep fallback */ }
+  return new Error(fallback);
 }
 
 export async function deleteProject(

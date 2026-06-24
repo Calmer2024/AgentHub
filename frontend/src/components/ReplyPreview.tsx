@@ -22,7 +22,7 @@ export function ReplyPreview({ message, compact = false, onClear, onJump }: Prop
 
   return (
     <div
-      className={`agenthub-soft border-l-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] ${
+      className={`agenthub-reference-card border-l-2 ${
         compact ? "px-3 py-2 text-xs rounded-xl mb-2" : "px-4 py-3 text-sm rounded-2xl"
       }`}
       style={{ borderLeftColor: "var(--ah-accent)" }}

@@ -120,21 +120,11 @@ Phase 4-16 采用**功能板块制**：每板块独立完整交付。板块间�
 
 桌面版（P1）的核心特征：Web 端是主力 UI，所有 API 调用指向本地桌面端后端；桌面端是"特权层"——拥有文件系统访问权、能 spawn CLI 进程。数据和 Agent 执行都在本机闭环。
 
-### Project-first 工作流
-
-用户必须先创建 Project（新建空白 workspace 目录，或通过系统目录选择器选择已有目录），然后在 Project 下创建私聊或群聊。所有聊天必须属于某个 Project。Project 不再暴露“静态网页 / Vite React / 已有项目”等用户可选属性；Project 内所有 Agent 共享 `Project.workspace_path` 作为 `cwd`。详见 [ADR-0009](docs/archive/adr/0009-project-workspace-model.md)。
-
 ---
 
 ## 核心原则
 
-1. **接口先于实现** — 先定义契约，实现可自由迭代（ADR-0005）。
-2. **每个增量可演示** — 不允许"后端完成但前端未接通"的中间态。
-3. **自动化优先** — 复杂决策（链式触发、角色分配、Agent 选择）由后端自动完成，不暴露为前端配置项。
-4. **功能板块完整交付** — 每个板块所有子模块（后端 + 前端 + 测试）达到 PRD 级完整后，才进入下一板块。严禁"所有板块都碰一点"。
-5. **关键架构决策记录为 ADR** — ADR 定义核心设计和后续开发必须遵守的架构约束；背景和取舍只作为辅助上下文。
-
-> 行为规则（代码规范、禁止事项、Debug 守则、文档修改规则）见 [CLAUDE.md](CLAUDE.md)，此处不重复。
+> 你必须严格遵守[CLAUDE.md](CLAUDE.md) 中定义的行为规则（代码规范、禁止事项、Debug 守则、文档修改规则）
 
 ---
 
@@ -242,9 +232,4 @@ AgentHub 早期开发阶段 Skill 已退役。以下名称只作为历史流程�
 
 ## 文档治理
 
-1. **Phase 结束时审计** — 检查所有 `docs/` 下的交叉引用是否有效。
-2. **ADR 编号与文件名一致** — `NNNN-title.md` 内部标题必须是 `ADR-NNNN`。
-3. **Architecture 文档保存当前事实** — 数据模型、运行模型、事件契约等当前实现事实放入 `docs/architecture/`。
-4. **Spec 文件必须被索引** — 不被本文件索引的 Spec = 无效文档。
-5. **旧文档状态必须显式标注** — 不再适用的文档移入 `docs/archive/`；归档位置不等于需求失效，仍具权威性的归档文档必须在索引中说明当前用途。
-6. **一个事实一个权威源** — 同一信息不出现在两个地方。引用用链接，不复制。详细规则见 [docs/documentation-governance.md](docs/documentation-governance.md)。
+当需要治理文档时，你必须查阅 [docs/documentation-governance.md](docs/documentation-governance.md)，严格遵守文档治理规则

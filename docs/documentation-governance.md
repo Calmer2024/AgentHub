@@ -42,7 +42,7 @@ docs/submission/
 | 关键架构决策、核心设计和开发约束是什么 | `docs/adr/` |
 | 当前代码架构、数据模型、事件契约是什么 | `docs/architecture/` |
 | 文档放在哪里、怎么索引、何时归档或删除 | `docs/documentation-governance.md` |
-| 已完成阶段当时怎么验收 | `docs/archive/phases/` |
+| 已淘汰、陈旧的文档放在哪里 | `docs/archive` |
 | 用户怎么配置和使用 | `docs/user-guides/` |
 | 答辩怎么讲 | `docs/submission/` |
 

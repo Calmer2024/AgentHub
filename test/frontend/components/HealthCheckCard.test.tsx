@@ -40,8 +40,9 @@ describe("HealthCheckCard", () => {
   it("紧凑体检详情浮到页面顶层且标题不截断", () => {
     render(<HealthCheckCard health={warningHealth} compact onRefresh={vi.fn()} />);
 
-    expect(screen.getByText("环境有警告")).toHaveClass("whitespace-nowrap");
-    fireEvent.click(screen.getByLabelText("展开环境体检详情"));
+    const trigger = screen.getByLabelText("展开环境体检详情：环境有警告");
+    expect(trigger).toHaveClass("agenthub-health-dot");
+    fireEvent.click(trigger);
 
     const details = screen.getByTestId("health-check-details");
     expect(details).toHaveClass("fixed");

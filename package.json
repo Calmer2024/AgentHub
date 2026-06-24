@@ -1,0 +1,26 @@
+{
+  "name": "agenthub",
+  "version": "1.0.0",
+  "description": "> AI 版的 Slack：把多个 AI Agent 拉到同一个项目群聊里，由 Orchestrator 自动拆解任务、分派角色、执行工作，并把代码、网页、文档、部署等产物回流到聊天流中。",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "test"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Calmer2024/AgentHub.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Calmer2024/AgentHub/issues"
+  },
+  "homepage": "https://github.com/Calmer2024/AgentHub#readme"
+}

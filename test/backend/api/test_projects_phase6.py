@@ -143,6 +143,96 @@ class TestProjectRuntimeApi:
         assert resp.json()["path"] == "src/app.ts"
         assert (workspace / "src" / "app.ts").read_text(encoding="utf-8") == "export const ok = true;\n"
 
+    async def test_project_file_workspace_crud_search_and_trash(self, test_client):
+        project = (await test_client.post("/api/projects", json={"name": "file-workspace"})).json()
+        workspace = Path(project["workspacePath"])
+
+        directory = await test_client.post(
+            f"/api/projects/{project['id']}/directories",
+            json={"path": "src/components"},
+        )
+        created = await test_client.post(
+            f"/api/projects/{project['id']}/files",
+            json={"path": "src/components/Button.tsx", "content": "export const Button = () => null;\n"},
+        )
+        tree = await test_client.get(f"/api/projects/{project['id']}/tree")
+        search = await test_client.get(
+            f"/api/projects/{project['id']}/search-files",
+            params={"q": "Button", "includeContent": "true"},
+        )
+        moved = await test_client.patch(
+            f"/api/projects/{project['id']}/paths",
+            json={"sourcePath": "src/components/Button.tsx", "targetPath": "src/Button.tsx"},
+        )
+        deleted = await test_client.request(
+            "DELETE",
+            f"/api/projects/{project['id']}/paths",
+            json={"paths": ["src/Button.tsx"], "useTrash": True},
+        )
+
+        assert directory.status_code == 201
+        assert created.status_code == 201
+        assert created.json()["editable"] is True
+        assert created.json()["etag"]
+        assert any(item["path"] == "src/components/Button.tsx" for item in tree.json()["tree"])
+        assert any(item["path"] == "src/components/Button.tsx" for item in search.json()["items"])
+        assert moved.status_code == 200
+        assert moved.json()["path"] == "src/Button.tsx"
+        assert deleted.status_code == 200
+        assert deleted.json()["items"][0]["status"] == "trashed"
+        assert not (workspace / "src" / "Button.tsx").exists()
+        assert any((workspace / ".agenthub" / "trash").rglob("Button.tsx"))
+
+    async def test_write_file_detects_editor_conflict_and_allows_force(self, test_client):
+        project = (await test_client.post("/api/projects", json={"name": "conflict-file"})).json()
+        initial = await test_client.put(
+            f"/api/projects/{project['id']}/files",
+            json={"path": "app.js", "content": "const value = 1;\n"},
+        )
+        etag = initial.json()["etag"]
+
+        external = await test_client.put(
+            f"/api/projects/{project['id']}/files",
+            json={"path": "app.js", "content": "const value = 2;\n"},
+        )
+        conflict = await test_client.put(
+            f"/api/projects/{project['id']}/files",
+            json={"path": "app.js", "content": "const value = 3;\n", "baseEtag": etag},
+        )
+        forced = await test_client.put(
+            f"/api/projects/{project['id']}/files",
+            json={
+                "path": "app.js",
+                "content": "const value = 3;\n",
+                "baseEtag": etag,
+                "force": True,
+            },
+        )
+
+        assert external.status_code == 200
+        assert conflict.status_code == 409
+        assert conflict.json()["code"] == "workspace_file_conflict"
+        assert conflict.json()["currentEtag"] == external.json()["etag"]
+        assert "const value = 2" in conflict.json()["currentContent"]
+        assert forced.status_code == 200
+        assert forced.json()["content"] == "const value = 3;\n"
+
+    async def test_project_download_serves_single_file_inline(self, test_client):
+        project = (await test_client.post("/api/projects", json={"name": "download-file"})).json()
+        await test_client.put(
+            f"/api/projects/{project['id']}/files",
+            json={"path": "README.md", "content": "# AgentHub\n"},
+        )
+
+        resp = await test_client.get(
+            f"/api/projects/{project['id']}/download",
+            params={"path": "README.md"},
+        )
+
+        assert resp.status_code == 200
+        assert "text/markdown" in resp.headers["content-type"]
+        assert resp.content.replace(b"\r\n", b"\n") == b"# AgentHub\n"
+
     async def test_snapshot_diff_detects_file_changes(self, test_client):
         project = (await test_client.post("/api/projects", json={"name": "diffable"})).json()
         workspace = Path(project["workspacePath"])

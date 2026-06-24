@@ -43,6 +43,7 @@ export function HealthCheckCard({ health, loading, compact, onRefresh }: Props) 
       : "agenthub-status-warning";
   const items = health && health.overall !== "ok" ? detailItems(health) : [];
   const canExpand = items.length > 0;
+  const statusText = textFor(health);
 
   useLayoutEffect(() => {
     if (!compact || !expanded || !canExpand) return;
@@ -116,11 +117,34 @@ export function HealthCheckCard({ health, loading, compact, onRefresh }: Props) 
     </div>
   ) : null;
 
+  if (compact) {
+    return (
+      <div ref={cardRef} className="relative inline-flex">
+        <button
+          type="button"
+          onClick={() => {
+            if (canExpand) setExpanded((value) => !value);
+            else onRefresh();
+          }}
+          className={`agenthub-health-dot inline-flex h-9 w-9 items-center justify-center rounded-full border ${tone}`}
+          aria-label={canExpand ? `${expanded ? "收起" : "展开"}环境体检详情：${statusText}` : `刷新环境体检：${statusText}`}
+          title={canExpand ? `${statusText}，点击查看详情` : `${statusText}，点击刷新`}
+          aria-expanded={canExpand ? expanded : undefined}
+        >
+          {loading ? <Loader2 size={15} className="animate-spin" /> : iconFor(health?.overall)}
+        </button>
+        {detailPanel && typeof document !== "undefined"
+          ? createPortal(detailPanel, document.body)
+          : detailPanel}
+      </div>
+    );
+  }
+
   return (
     <div ref={cardRef} className={`relative rounded-lg border ${tone}`}>
       <div className="flex items-center gap-2 px-3 py-2 text-xs font-medium">
         {loading ? <Loader2 size={15} className="animate-spin" /> : iconFor(health?.overall)}
-        <span className="min-w-[5rem] flex-1 whitespace-nowrap">{textFor(health)}</span>
+        <span className="min-w-[5rem] flex-1 whitespace-nowrap">{statusText}</span>
         {canExpand && (
           <button
             type="button"

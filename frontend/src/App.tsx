@@ -6,6 +6,7 @@ import { AgentPanel } from "./components/AgentPanel";
 import { GroupChatCreator } from "./components/GroupChatCreator";
 import { ToastViewport } from "./components/ToastViewport";
 import { OrchestratorDebugPanel } from "./components/OrchestratorDebugPanel";
+import { ProjectFileWorkspaceModal } from "./components/ProjectFileWorkspaceModal";
 import { useCapabilities } from "./app/ShellProvider";
 import { LocalProjectSidebar } from "./shells/local/LocalProjectSidebar";
 import { SaasProjectSidebar } from "./shells/saas/SaasProjectSidebar";
@@ -91,6 +92,8 @@ export function AgentHubWorkbench() {
   const [showGroupCreator, setShowGroupCreator] = useState(false);
   const [agentModal, setAgentModal] = useState<{ mode: "create" | "edit"; agentId?: string } | null>(null);
   const [appRoute, setAppRoute] = useState(() => window.location.hash || "#/");
+  const [fileWorkspaceOpen, setFileWorkspaceOpen] = useState(false);
+  const [fileWorkspaceInitialPath, setFileWorkspaceInitialPath] = useState<string | null>(null);
   const effectiveSidebarTab = edition === "local" && sidebarTab === "workspace" ? "sessions" : sidebarTab;
   const handleSend = useSendMessage();
   const pushToast = useToastStore((state) => state.pushToast);
@@ -108,6 +111,29 @@ export function AgentHubWorkbench() {
       description: error instanceof Error ? error.message : "请稍后重试",
     });
   }, [pushToast]);
+
+  const openProjectFiles = useCallback((path?: string | null) => {
+    setFileWorkspaceInitialPath(path ?? null);
+    setFileWorkspaceOpen(true);
+  }, []);
+
+  const toggleProjectFiles = useCallback(() => {
+    if (!currentProjectId) return;
+    setFileWorkspaceInitialPath(null);
+    setFileWorkspaceOpen((value) => !value);
+  }, [currentProjectId]);
+
+  useEffect(() => {
+    const onOpenProjectFile = (event: Event) => {
+      const detail = (event as CustomEvent<{ projectId?: string | null; path?: string | null }>).detail;
+      if (detail?.projectId && detail.projectId !== currentProjectId) {
+        void handleSelectProject(detail.projectId);
+      }
+      openProjectFiles(detail?.path ?? null);
+    };
+    window.addEventListener("agenthub:open-project-file", onOpenProjectFile);
+    return () => window.removeEventListener("agenthub:open-project-file", onOpenProjectFile);
+  }, [currentProjectId, handleSelectProject, openProjectFiles]);
 
   const runCrudAction = useCallback(async (
     action: () => Promise<void>,
@@ -407,6 +433,8 @@ export function AgentHubWorkbench() {
           onRegenerate={handleRegenerate}
           onTogglePin={handleTogglePin}
           onArtifactsChanged={handleArtifactsChanged}
+          onToggleProjectFiles={toggleProjectFiles}
+          projectFilesOpen={fileWorkspaceOpen}
           onRenameSession={(sessionId, title) => runCrudAction(
             () => handleRenameSession(sessionId, title),
             "群聊已重命名",
@@ -430,6 +458,17 @@ export function AgentHubWorkbench() {
           </span>
         </div>
       )}
+
+      <ProjectFileWorkspaceModal
+        open={fileWorkspaceOpen}
+        project={currentProject}
+        initialPath={fileWorkspaceInitialPath}
+        onClose={() => {
+          setFileWorkspaceOpen(false);
+          setFileWorkspaceInitialPath(null);
+        }}
+        onChanged={handleArtifactsChanged}
+      />
 
       {showGroupCreator && (
         <GroupChatCreator

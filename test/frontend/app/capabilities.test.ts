@@ -28,4 +28,9 @@ describe("Phase 13 capabilities", () => {
     expect(fallback.features.cloudWorkspace).toBe(false);
     expect(validateCapabilities(env, saasDesktopCapabilities())).toContain("启动配置不一致");
   });
+
+  it("SaaS Web 构建必须接受 SaaS 后端能力矩阵", () => {
+    const env = parseShellEnv({ MODE: "saas" });
+    expect(validateCapabilities(env, saasDesktopCapabilities())).toBeNull();
+  });
 });

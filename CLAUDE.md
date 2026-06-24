@@ -21,7 +21,7 @@ IM 式聊天平台，用户可与 AI Agent（Claude Code、Codex、OpenCode 等�
 | **Skill** (技能文件) | 中文 | 可复用的 AI 工作流 |
 | **代码注释** | 中文 | 所有 `.py` / `.ts` / `.tsx` 中的注释 |
 
-> 以上规则取代此前"AI-facing docs in English, human-facing docs in Chinese"的旧约定。全项目统一中文，降低维护负担，消除中英混杂导致的表述不一致。
+> 全项目统一中文，降低维护负担，消除中英混杂导致的表述不一致。
 
 ---
 
@@ -38,10 +38,7 @@ IM 式聊天平台，用户可与 AI Agent（Claude Code、Codex、OpenCode 等�
 - 模块只能依赖下层，绝不依赖上层。
 - 同层模块通过接口或 EventBus 通信，禁止直接导入。
 - Domain 层是纯逻辑：不依赖 FastAPI、SQLAlchemy 等框架。
-- 架构按需增长：Phase 1 仅 3 层，复杂度达到触发条件时才引入新层（见 ADR-0004）。
-- 接口契约（ADR-0005）稳定不变，实现可自由迭代。
-- PRD-01 是底层 Agent 架构的唯一权威：AgentHub 是 CLI-Wrapper 调度壳，通过 PTY/subprocess 封装真实物理工具（Anthropic `claude` CLI、OpenAI `codex` CLI、开源 `opencode`）。AgentHub 绝不裸调 HTTP LLM API 作为 Agent——那是 PRD-00/01 明确否决的"伪 Agent"反模式。
-- 消息操作必须是真实的 Agent 上下文，不能只是 UI 状态。Reply 保存引用消息快照并注入 `[Reply context]` 到 prompt；Pin 通过 `ContextManager` 注入 `[Pinned message]`。
+- 架构按需增长：复杂度达到触发条件时才引入新层。
 
 ---
 
@@ -65,12 +62,11 @@ IM 式聊天平台，用户可与 AI Agent（Claude Code、Codex、OpenCode 等�
 - 所有代码注释用中文。
 - 避免单个源文件臃肿：行数是代码气味提示，不是硬性上限。只有当文件承担多个职责、难以测试或难以局部理解时才拆分；职责清晰的长文件不为追数字而硬拆。
 - 每个模块完成后立即写单元测试。
-- 小步提交：每个可运行函数 = 一次 commit。
-- **自动化优先**：任何功能设计在前端上的体现是让任务尽量自动化处理，不要让用户做太多配置。复杂决策（链式触发、角色分配、Agent 选择）由后端自动完成。
+- **自动化优先**：任何功能设计在前端上的体现是让任务尽量自动化处理，不要让用户做太多配置。复杂决策由后端自动完成。
 
 ### 真实服务验收
 
-涉及 API、前端交互、运行时、部署、代理或端到端用户路径的改动，必须在当前代码上执行真实服务验收；纯文档、纯类型、纯单元逻辑或不影响服务行为的小修，不要求每轮固定启动本地前后端。
+涉及 API、前端交互、运行时、部署、代理或端到端用户路径的改动，必须在当前代码上执行真实服务验收；
 
 需要真实服务验收时：
 
@@ -117,7 +113,7 @@ IM 式聊天平台，用户可与 AI Agent（Claude Code、Codex、OpenCode 等�
 - 跳过验收标准就标记 Phase 完成。
 - 添加当前需求、PRD/ADR 或用户明确授权范围之外的功能。
 - 需要真实服务验收的改动，却只跑单元测试或临时 ASGI 客户端就声称完成。
-- **执行任何 Git 操作（add/commit/push）前，必须先获得用户明确的"人工验收"确认。** 任何自动化开发、审查或发布流程都不能替代人工验收；必须等待用户说"人工验收认可"/"验收通过"/"批准提交"等确认口令。未获确认前，Git 操作等同于 Spec 之外的功能——禁止执行。
+- **执行任何 Git 操作（add/commit/push）前，必须先获得用户明确的"人工验收"确认。** 任何自动化开发、审查或发布流程都不能替代人工验收；必须等待用户说"人工验收认可"/"验收通过"/"批准提交"等确认口令。
 
 ---
 
@@ -169,7 +165,3 @@ Debug 不是"让 bug 消失"，而是"让系统更正确"：
 |--------|---------|------|---------|
 | **P1（当前）** | **桌面版**：桌面端（Tauri/Node.js）= 本地无头服务器 + 本地特权执行引擎；Web 端（浏览器）= 主力 UI | 浏览器 → localhost 后端 → 本机文件系统 + 本机 CLI Agent | ❌ |
 | **P2（云端协作切片已启动，产品壳已拆分）** | **SaaS 云版**：Web 浏览器 + 云端后端 + 云端容器沙箱 | 浏览器 → 云端后端 → 云端沙箱 + 云端 CLI Agent → 云端 URL | ✅ |
-
-**Project-first 工作流**：用户必须先创建 Project，然后在 Project 下创建私聊或群聊。P1 本地 Project 使用新建空白 workspace 目录或系统原生目录选择器绑定已有目录，Project 内所有本地 Agent 共享 `Project.workspace_path` 作为 `cwd`；P2 云端 Project 使用 `workspaceId` 和 `cloud://agenthub/workspaces/{id}` 逻辑 URI，前端不应看到服务器或用户本机物理路径，云端 runner 将其映射到隔离 cloud workspace 目录。Project 不再暴露“静态网页 / Vite React / 已有项目”等用户可选属性。详见 [ADR-0009](docs/archive/adr/0009-project-workspace-model.md)；Phase 9/10/13 的实现规格已归档到 [docs/archive/phases/specs/](docs/archive/phases/specs/)。
-
-> 完整的 P1/P2 定义、Workspace 位置、运行环境、安全边界见 [CONTEXT.md §产品交付阶段](CONTEXT.md)。

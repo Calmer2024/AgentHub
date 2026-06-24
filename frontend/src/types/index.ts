@@ -766,6 +766,49 @@ export interface WorkspaceFile {
   path: string;
   content: string;
   size: number;
+  name?: string | null;
+  type?: "file" | "dir" | string | null;
+  mtime?: number | null;
+  etag?: string | null;
+  mediaType?: string | null;
+  extension?: string | null;
+  editable?: boolean;
+  previewable?: boolean;
+  previewKind?: "directory" | "markdown" | "html" | "json" | "image" | "pdf" | "binary" | "code" | "text" | string;
+  readonlyReason?: "too_large" | "binary" | string | null;
+  encoding?: string | null;
+}
+
+export interface WorkspaceTreeNode {
+  path: string;
+  name: string;
+  type: "file" | "dir" | string;
+  size: number;
+  mtime?: number | null;
+  etag?: string | null;
+  mediaType?: string | null;
+  extension?: string | null;
+  editable?: boolean;
+  previewable?: boolean;
+  previewKind?: string;
+  readonlyReason?: string | null;
+  hasChildren?: boolean;
+}
+
+export interface WorkspaceSearchItem {
+  path: string;
+  type: "file" | "dir" | string;
+  matchType: "path" | "content" | string;
+  line?: number | null;
+  snippet: string;
+}
+
+export interface WorkspacePathOperationResult {
+  items: Array<{
+    path: string;
+    status: string;
+    trashPath?: string | null;
+  }>;
 }
 
 export interface ArtifactCandidate {

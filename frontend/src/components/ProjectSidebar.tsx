@@ -1386,20 +1386,23 @@ function NavButton({
   icon: Icon,
   label,
   active = false,
+  disabled = false,
   onClick,
 }: {
   icon?: LucideIcon;
   label: string;
   active?: boolean;
+  disabled?: boolean;
   onClick: () => void;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       className={`flex w-full items-center gap-2 rounded-2xl px-2.5 py-2 text-left text-sm transition-all duration-200 ${
         active ? "agenthub-nav-active" : "agenthub-nav-idle"
-      }`}
+      } disabled:cursor-not-allowed disabled:opacity-45`}
     >
       {Icon && <Icon size={15} className="agenthub-muted shrink-0" />}
       {label}
