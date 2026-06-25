@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CheckSquare, Files, FolderOpen, Forward, Search, Users, X } from "lucide-react";
+import { CheckSquare, Files, Forward, PanelLeftClose, Search, Users, X } from "lucide-react";
 import type {
   Message, AgentConfig, CollabTask, ChainStep, DAGPhase, Artifact,
   ApprovalCheckpoint, TaskRead, DraftOrchestratorPlan, Session, OrchestratorExecution,
@@ -665,7 +665,7 @@ export function ChatWindow({
               aria-label={projectFilesOpen ? "关闭项目资源管理器" : "打开项目资源管理器"}
               title={currentSession?.projectId ? "项目资源管理器" : "当前对话未绑定项目"}
             >
-              <FolderOpen size={16} />
+              <PanelLeftClose size={16} />
             </button>
           )}
           <button
@@ -890,6 +890,12 @@ export function ChatWindow({
             })
           )}
         </div>
+        <SessionArtifactManager
+          open={artifactManagerOpen}
+          artifacts={artifacts}
+          onClose={() => setArtifactManagerOpen(false)}
+          onChanged={onArtifactsChanged}
+        />
       </div>
 
       {detachedPrompts.length > 0 && (
@@ -916,12 +922,6 @@ export function ChatWindow({
         open={searchOpen}
         onClose={() => setSearchOpen(false)}
         onJump={(_, messageId) => jumpToMessage(messageId)}
-      />
-      <SessionArtifactManager
-        open={artifactManagerOpen}
-        artifacts={artifacts}
-        onClose={() => setArtifactManagerOpen(false)}
-        onChanged={onArtifactsChanged}
       />
       <ArtifactReviewModal
         artifact={reviewArtifact}

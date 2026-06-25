@@ -1,5 +1,6 @@
 import { ChevronDown, Check } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { FloatingMenu } from "./FloatingMenu";
 
 export interface MenuSelectOption<T extends string> {
   value: T;
@@ -26,12 +27,14 @@ export function MenuSelect<T extends string>({
 }: Props<T>) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const selected = options.find((option) => option.value === value) ?? options[0];
 
   useEffect(() => {
     if (!open) return;
     const close = (event: MouseEvent) => {
-      if (!ref.current?.contains(event.target as Node)) setOpen(false);
+      const target = event.target as Node;
+      if (!ref.current?.contains(target) && !menuRef.current?.contains(target)) setOpen(false);
     };
     window.addEventListener("mousedown", close);
     return () => window.removeEventListener("mousedown", close);
@@ -51,11 +54,16 @@ export function MenuSelect<T extends string>({
         <span className="min-w-0 truncate">{selected?.label ?? ""}</span>
         <ChevronDown size={14} className="agenthub-muted shrink-0" />
       </button>
-      {open && (
-        <div
-          role="listbox"
-          className="agenthub-menu absolute left-0 right-0 top-[calc(100%+6px)] z-[80] max-h-56 overflow-y-auto rounded-xl border p-1"
-        >
+      <FloatingMenu
+        open={open}
+        anchorRef={ref}
+        menuRef={menuRef}
+        placement="bottom-start"
+        className="max-h-56 overflow-y-auto"
+        ariaLabel={ariaLabel}
+        role="presentation"
+      >
+        <div role="listbox">
           {options.map((option) => (
             <button
               key={option.value}
@@ -75,7 +83,7 @@ export function MenuSelect<T extends string>({
             </button>
           ))}
         </div>
-      )}
+      </FloatingMenu>
     </div>
   );
 }

@@ -14,6 +14,21 @@ from .system_llm import SystemLLMUnavailableError, system_llm
 
 DEFAULT_TITLES = {"新对话", "群聊"}
 MAX_TITLE_CHARS = 24
+FALLBACK_TITLE_PREFIXES = (
+    "请帮我",
+    "麻烦你",
+    "帮我写",
+    "请实现",
+    "我们要",
+    "请你",
+    "帮我",
+    "帮忙",
+    "麻烦",
+    "我想",
+    "我要",
+    "给我",
+    "实现",
+)
 
 
 class SessionTitleService:
@@ -83,8 +98,24 @@ class SessionTitleService:
 
 
 def fallback_title(content: str) -> str:
-    clean = clean_title(content)
+    clean = clean_title(extract_title_candidate(content))
     return clean or "新任务"
+
+
+def extract_title_candidate(content: str) -> str:
+    text = str(content or "").strip()
+    if not text:
+        return ""
+
+    first_line = next((line.strip() for line in text.splitlines() if line.strip()), "")
+    candidate = re.split(r"[。.!！?？;；]", first_line, maxsplit=1)[0]
+    candidate = re.sub(r"^(@\S+\s*)+", "", candidate).strip()
+    candidate = re.sub(r"^[#\-\*\d\.\s、]+", "", candidate).strip()
+    for prefix in FALLBACK_TITLE_PREFIXES:
+        if candidate.startswith(prefix):
+            candidate = candidate[len(prefix):].strip(" ，,：:。")
+            break
+    return candidate or first_line
 
 
 def clean_title(value: str) -> str:

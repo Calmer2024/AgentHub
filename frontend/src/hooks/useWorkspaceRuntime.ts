@@ -554,17 +554,17 @@ export function useWorkspaceRuntime(options: WorkspaceRuntimeOptions = {}) {
 
   const handleSelectSession = async (id: string) => {
     if (id === useChatStore.getState().currentSessionId) return;
+    const selectedSession = sessions.find((s) => s.id === id);
     setCurrentSessionId(id);
     setStreamingError(null, id);
     void hydrateSession(id);
     void markSessionRead(id)
       .then((updated) => {
-        replaceSessionEverywhere(updated);
+        replaceSessionEverywhere(selectedSession ? { ...updated, updatedAt: selectedSession.updatedAt } : updated);
       })
       .catch(() => {});
 
-    const sess = sessions.find((s) => s.id === id);
-    void loadMembersForSession(id, sess?.mode ?? null);
+    void loadMembersForSession(id, selectedSession?.mode ?? null);
   };
 
   const handleSelectProject = (id: string) => {

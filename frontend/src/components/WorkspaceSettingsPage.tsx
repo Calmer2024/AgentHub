@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Cloud, FileArchive, GitBranch, HardDrive, Plus, RotateCcw, Shield, Trash2, Users, type LucideIcon } from "lucide-react";
+import { CirclePlus, Cloud, FileArchive, GitBranch, HardDrive, RotateCcw, Shield, Trash2, Users, type LucideIcon } from "lucide-react";
 import {
   addTeamMember,
   createSecret,
@@ -336,7 +336,7 @@ export function WorkspaceSettingsPage({
               <IconAction
                 title="创建快照"
                 disabled={Boolean(busy) || !project.workspaceId}
-                icon={Plus}
+                icon={CirclePlus}
                 onClick={() => void runAction(
                   "snapshot",
                   async () => { await createWorkspaceSnapshot(project.workspaceId as string, snapshotLabel); },
@@ -394,7 +394,7 @@ export function WorkspaceSettingsPage({
                   <IconAction
                     title="添加成员"
                     disabled={Boolean(busy) || !memberEmail.trim()}
-                    icon={Plus}
+                    icon={CirclePlus}
                     onClick={() => void runAction(
                       "member",
                       async () => {

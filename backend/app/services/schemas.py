@@ -63,6 +63,9 @@ class SessionRead(BaseModel):
     unread_count: int = Field(default=0, alias="unreadCount")
     last_read_at: datetime | None = Field(default=None, alias="lastReadAt")
     is_muted: bool = Field(default=False, alias="isMuted")
+    latest_message_preview: str | None = Field(default=None, alias="latestMessagePreview")
+    latest_message_role: str | None = Field(default=None, alias="latestMessageRole")
+    latest_message_at: datetime | None = Field(default=None, alias="latestMessageAt")
     created_at: datetime = Field(alias="createdAt")
     updated_at: datetime = Field(alias="updatedAt")
 

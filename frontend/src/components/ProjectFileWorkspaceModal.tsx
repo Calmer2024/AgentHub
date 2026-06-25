@@ -16,6 +16,7 @@ import remarkGfm from "remark-gfm";
 import {
   Check,
   ChevronRight,
+  CirclePlus,
   Code2,
   Download,
   File,
@@ -24,7 +25,6 @@ import {
   Folder,
   FolderOpen,
   Pencil,
-  Plus,
   Quote,
   RefreshCw,
   Save,
@@ -746,19 +746,22 @@ export function ProjectFileWorkspaceModal({
         aria-orientation="vertical"
         onPointerDown={startResize}
       />
-      <div className="agenthub-file-dock-header flex flex-wrap items-center justify-between gap-3 border-b px-3 py-2.5">
-        <div className="min-w-0">
-          <div className="agenthub-muted flex items-center gap-2 text-[11px]">
-            <FolderOpen size={15} aria-hidden="true" />
-            <span>项目资源管理器</span>
-            <span className="agenthub-faint font-mono">{tree.filter((entry) => entry.type === "file").length} 个文件</span>
-            {dirtyCount > 0 && <span className="text-[color:var(--ah-warning)]">{dirtyCount} 个未保存</span>}
+      <div className="agenthub-file-dock-header flex items-center justify-between gap-3 px-4 py-3 md:px-6">
+        <div className="agenthub-file-dock-title min-w-0">
+          <span className="agenthub-file-dock-project-icon">
+            <FolderOpen size={18} aria-hidden="true" />
+          </span>
+          <div className="min-w-0">
+            <h3 className="agenthub-strong truncate text-base font-semibold">
+              {project?.name ?? "未选择项目"}
+            </h3>
+            <div className="agenthub-muted mt-0.5 flex items-center gap-2 text-xs">
+              <span>{tree.filter((entry) => entry.type === "file").length} 个文件</span>
+              {dirtyCount > 0 && <span className="text-[color:var(--ah-warning)]">{dirtyCount} 个未保存</span>}
+            </div>
           </div>
-          <h3 className="agenthub-strong mt-1 truncate text-sm font-semibold">
-            {project?.name ?? "未选择项目"}
-          </h3>
         </div>
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex shrink-0 items-center gap-1.5">
           <button
             type="button"
             onClick={() => void loadTree()}
@@ -799,7 +802,7 @@ export function ProjectFileWorkspaceModal({
                     title="新建文件"
                     aria-label="新建文件"
                   >
-                    <Plus size={13} aria-hidden="true" />
+                    <CirclePlus size={13} aria-hidden="true" />
                   </button>
                   <button
                     type="button"
@@ -1374,7 +1377,7 @@ function WorkspaceEmptyState({
               className="agenthub-primary-button inline-flex h-9 items-center gap-1.5 rounded-full px-3 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-45"
               aria-label="在工作台中新建文件"
             >
-              <Plus size={14} aria-hidden="true" />
+              <CirclePlus size={14} aria-hidden="true" />
               新建文件
             </button>
             <button

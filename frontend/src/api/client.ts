@@ -2111,6 +2111,9 @@ function normalizeSession(raw: unknown): Session | null {
     unreadCount: typeof data.unreadCount === "number" ? data.unreadCount : 0,
     lastReadAt: typeof data.lastReadAt === "string" ? data.lastReadAt : null,
     isMuted: Boolean(data.isMuted),
+    latestMessagePreview: typeof data.latestMessagePreview === "string" ? data.latestMessagePreview : null,
+    latestMessageRole: typeof data.latestMessageRole === "string" ? data.latestMessageRole : null,
+    latestMessageAt: typeof data.latestMessageAt === "string" ? data.latestMessageAt : null,
     createdAt: typeof data.createdAt === "string" ? data.createdAt : chinaNowIso(),
     updatedAt: typeof data.updatedAt === "string" ? data.updatedAt : chinaNowIso(),
   };

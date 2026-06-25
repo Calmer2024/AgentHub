@@ -1373,8 +1373,8 @@ function formatRelativeTime(value?: string | null): string {
   if (!Number.isFinite(time)) return "刚刚";
   const diff = Date.now() - time;
   if (diff < 60_000) return "刚刚";
-  if (diff < 3_600_000) return `${Math.max(1, Math.floor(diff / 60_000))} 分钟前`;
-  if (diff < 86_400_000) return `${Math.max(1, Math.floor(diff / 3_600_000))} 小时前`;
-  if (diff < 604_800_000) return `${Math.max(1, Math.floor(diff / 86_400_000))} 天前`;
+  if (diff < 3_600_000) return `${Math.max(1, Math.floor(diff / 60_000))}分钟前`;
+  if (diff < 86_400_000) return `${Math.max(1, Math.floor(diff / 3_600_000))}小时前`;
+  if (diff < 604_800_000) return `${Math.max(1, Math.floor(diff / 86_400_000))}天前`;
   return new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric" }).format(new Date(value));
 }

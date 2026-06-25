@@ -5,6 +5,7 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
+  CirclePlus,
   Cloud,
   Copy,
   Moon,
@@ -14,12 +15,12 @@ import {
   MessageCircle,
   MoreHorizontal,
   Pencil,
-  Plus,
   Settings,
   Sun,
   Trash2,
   UserPlus,
   Users,
+  X,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -33,6 +34,7 @@ import type { AgentConfig, CurrentUser, ProductEdition, Project, Team, TeamMembe
 import { AgentAvatar } from "./AgentAvatar";
 import type { SidebarTab } from "../stores/sessionStore";
 import { useThemeStore, type ThemeMode } from "../stores/themeStore";
+import { FloatingMenu } from "./FloatingMenu";
 import { GlobalModal } from "./GlobalModal";
 import { MenuSelect } from "./MenuSelect";
 import { UserAccountMenu } from "./UserAccountMenu";
@@ -43,6 +45,7 @@ interface Props {
   currentProjectId: string | null;
   agents: AgentConfig[];
   activePanel: SidebarTab;
+  panel?: "all" | "space" | "agents" | "projects";
   currentUser: CurrentUser | null;
   teams: Team[];
   currentTeamId: string | null;
@@ -94,6 +97,7 @@ export function ProjectSidebar({
   currentProjectId,
   agents,
   activePanel,
+  panel = "all",
   currentUser,
   teams,
   currentTeamId,
@@ -143,6 +147,10 @@ export function ProjectSidebar({
   const agentMenuRef = useRef<HTMLDivElement>(null);
   const projectMenuRef = useRef<HTMLDivElement>(null);
   const teamMenuRef = useRef<HTMLDivElement>(null);
+  const createMenuButtonRef = useRef<HTMLButtonElement>(null);
+  const teamMenuButtonRef = useRef<HTMLButtonElement>(null);
+  const agentMenuButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const projectMenuButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const activeAgents = agents.filter((agent) => agent.isActive);
   const isLocalShell = productEdition === "local";
   const isSaasShell = productEdition === "saas";
@@ -164,18 +172,29 @@ export function ProjectSidebar({
   const visibleProjects = projectsExpanded ? visibleProjectItems : visibleProjectItems.slice(0, 3);
   const theme = useThemeStore((state) => state.theme);
   const setTheme = useThemeStore((state) => state.setTheme);
+  const currentProject = visibleProjectItems.find((project) => project.id === currentProjectId)
+    ?? visibleProjectItems[0]
+    ?? null;
+  const showSpacePanel = panel === "all" || panel === "space";
+  const showAgentsPanel = panel === "all" || panel === "agents";
+  const showProjectsPanel = panel === "all" || panel === "projects";
 
   useEffect(() => {
     if (!menuOpen && !agentMenuOpen && !projectMenuOpen) return;
     const close = (event: MouseEvent) => {
       const target = event.target as Node;
-      if (!menuRef.current?.contains(target)) setMenuOpen(false);
-      if (!agentMenuRef.current?.contains(target)) setAgentMenuOpen(null);
-      if (!projectMenuRef.current?.contains(target)) setProjectMenuOpen(null);
+      const inCreateMenu = menuRef.current?.contains(target) || createMenuButtonRef.current?.contains(target);
+      const inAgentMenu = agentMenuRef.current?.contains(target)
+        || (agentMenuOpen ? agentMenuButtonRefs.current[agentMenuOpen]?.contains(target) : false);
+      const inProjectMenu = projectMenuRef.current?.contains(target)
+        || (projectMenuOpen ? projectMenuButtonRefs.current[projectMenuOpen]?.contains(target) : false);
+      if (!inCreateMenu) setMenuOpen(false);
+      if (!inAgentMenu) setAgentMenuOpen(null);
+      if (!inProjectMenu) setProjectMenuOpen(null);
       if (
-        !menuRef.current?.contains(target) &&
-        !agentMenuRef.current?.contains(target) &&
-        !projectMenuRef.current?.contains(target)
+        !inCreateMenu &&
+        !inAgentMenu &&
+        !inProjectMenu
       ) {
         setDeleteConfirmTarget(null);
       }
@@ -191,7 +210,10 @@ export function ProjectSidebar({
   useEffect(() => {
     if (!teamMenuOpen) return;
     const close = (event: MouseEvent) => {
-      if (!teamMenuRef.current?.contains(event.target as Node)) setTeamMenuOpen(false);
+      const target = event.target as Node;
+      if (!teamMenuRef.current?.contains(target) && !teamMenuButtonRef.current?.contains(target)) {
+        setTeamMenuOpen(false);
+      }
     };
     window.addEventListener("mousedown", close);
     return () => window.removeEventListener("mousedown", close);
@@ -301,47 +323,58 @@ export function ProjectSidebar({
     }
   };
 
-  const renderAgentItem = (agent: AgentConfig) => (
-    <div
-      key={agent.id}
-      className={`group relative animate-[agenthub-slide-in_160ms_ease-out_both] ${agentMenuOpen === agent.id ? "z-40" : ""}`}
-      ref={agentMenuOpen === agent.id ? agentMenuRef : undefined}
-    >
-      <div className="agenthub-nav-idle w-full rounded-2xl px-2 py-2 text-left transition">
-        <div className="flex items-center gap-3">
-          <AgentAvatar agent={agent} size="sm" />
-          <button
-            type="button"
-            onClick={() => {
-              if (currentProjectId) void onStartAgentChat(agent.id);
-            }}
-            disabled={!currentProjectId}
-            className="min-w-0 flex-1 text-left disabled:cursor-not-allowed disabled:opacity-45"
-            title={currentProjectId ? "发起对话" : "请先选择项目"}
-          >
-            <span className="block truncate text-sm font-medium">{agent.name}</span>
-            <span className="agenthub-faint mt-0.5 block truncate text-xs">
-              {agent.version || agentStatusText(agent, isSaasShell)}
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setDeleteConfirmTarget(null);
-              setAgentMenuOpen((value) => (value === agent.id ? null : agent.id));
-            }}
-            className={`agenthub-icon-button inline-flex h-7 w-7 items-center justify-center rounded-full transition-opacity group-hover:opacity-100 ${
-              agentMenuOpen === agent.id ? "opacity-100" : "opacity-0"
-            }`}
-            title="智能体操作"
-            aria-label="智能体操作"
-          >
-            <MoreHorizontal size={15} />
-          </button>
+  const renderAgentItem = (agent: AgentConfig) => {
+    const menuIsOpen = agentMenuOpen === agent.id;
+    const anchorRef = { current: agentMenuButtonRefs.current[agent.id] };
+    return (
+      <div
+        key={agent.id}
+        className="group relative animate-[agenthub-slide-in_160ms_ease-out_both]"
+      >
+        <div className="agenthub-nav-idle w-full rounded-2xl px-2 py-2 text-left transition">
+          <div className="flex items-center gap-3">
+            <AgentAvatar agent={agent} size="sm" />
+            <button
+              type="button"
+              onClick={() => {
+                if (currentProjectId) void onStartAgentChat(agent.id);
+              }}
+              disabled={!currentProjectId}
+              className="min-w-0 flex-1 text-left disabled:cursor-not-allowed disabled:opacity-45"
+              title={currentProjectId ? "发起对话" : "请先选择项目"}
+            >
+              <span className="block truncate text-sm font-medium">{agent.name}</span>
+              <span className="agenthub-faint mt-0.5 block truncate text-xs">
+                {agent.version || agentStatusText(agent, isSaasShell)}
+              </span>
+            </button>
+            <button
+              ref={(node) => {
+                agentMenuButtonRefs.current[agent.id] = node;
+              }}
+              type="button"
+              onClick={() => {
+                setDeleteConfirmTarget(null);
+                setAgentMenuOpen((value) => (value === agent.id ? null : agent.id));
+              }}
+              className={`agenthub-icon-button inline-flex h-7 w-7 items-center justify-center rounded-full transition-opacity group-hover:opacity-100 ${
+                menuIsOpen ? "opacity-100" : "opacity-0"
+              }`}
+              title="智能体操作"
+              aria-label="智能体操作"
+            >
+              <MoreHorizontal size={15} />
+            </button>
+          </div>
         </div>
-      </div>
-      {agentMenuOpen === agent.id && (
-        <div className="agenthub-menu absolute right-1 top-10 z-50 w-38 rounded-2xl border p-1">
+        <FloatingMenu
+          open={menuIsOpen}
+          anchorRef={anchorRef}
+          menuRef={agentMenuRef}
+          width={152}
+          placement="bottom-end"
+          ariaLabel="智能体操作"
+        >
           <MenuItem
             icon={MessageCircle}
             label="发起对话"
@@ -370,58 +403,79 @@ export function ProjectSidebar({
               () => onDeleteAgent(agent.id),
             )}
           />
-        </div>
-      )}
-    </div>
-  );
+        </FloatingMenu>
+      </div>
+    );
+  };
 
   return (
-    <aside className="agenthub-rail w-full lg:w-[min(22vw,260px)] xl:w-[260px] h-[30dvh] sm:h-[28dvh] lg:h-full flex flex-col shrink-0 border-r transition-colors duration-200">
-      <div className="px-3 py-3 space-y-3">
-        <UserAccountMenu currentUser={currentUser} teams={teams} onUserUpdated={onUserUpdated} />
-        <ThemeToggle theme={theme} onChange={setTheme} />
-        {canUseTeamSpaces && (
-          <TeamSwitcher
-            currentUser={currentUser}
-            teams={teams}
-            currentTeamId={currentTeamId}
-            menuOpen={teamMenuOpen}
-            menuRef={teamMenuRef}
-            onToggle={() => setTeamMenuOpen((value) => !value)}
-            onSelectTeam={selectTeamSpace}
-            onOpenCreateTeam={() => {
-              setTeamMenuOpen(false);
-              setTeamName("");
-              setTeamCreateOpen(true);
-            }}
-            onOpenJoinTeam={() => {
-              setTeamMenuOpen(false);
-              setTeamJoinCode("");
-              setTeamJoinOpen(true);
-            }}
-            onOpenManageTeam={(team) => {
-              setTeamMenuOpen(false);
-              setTeamManagementTarget(team);
-            }}
+    <aside className={`agenthub-rail agenthub-panel-surface w-full lg:w-[min(22vw,260px)] xl:w-[260px] h-[30dvh] sm:h-[28dvh] lg:h-full flex flex-col shrink-0 border-r transition-colors duration-200 ${
+      panel !== "all" ? "agenthub-panel-surface-split" : ""
+    }`}>
+      {showSpacePanel && (
+        <div className="agenthub-space-panel px-3 py-3 space-y-3">
+          <UserAccountMenu currentUser={currentUser} teams={teams} onUserUpdated={onUserUpdated} />
+          <ThemeToggle theme={theme} onChange={setTheme} />
+          {canUseTeamSpaces && (
+            <TeamSwitcher
+              currentUser={currentUser}
+              teams={teams}
+              currentTeamId={currentTeamId}
+              menuOpen={teamMenuOpen}
+              menuRef={teamMenuRef}
+              buttonRef={teamMenuButtonRef}
+              onToggle={() => setTeamMenuOpen((value) => !value)}
+              onSelectTeam={selectTeamSpace}
+              onOpenCreateTeam={() => {
+                setTeamMenuOpen(false);
+                setTeamName("");
+                setTeamCreateOpen(true);
+              }}
+              onOpenJoinTeam={() => {
+                setTeamMenuOpen(false);
+                setTeamJoinCode("");
+                setTeamJoinOpen(true);
+              }}
+              onOpenManageTeam={(team) => {
+                setTeamMenuOpen(false);
+                setTeamManagementTarget(team);
+              }}
+            />
+          )}
+          {panel !== "all" && currentProject && (
+            <div className="agenthub-current-project rounded-2xl border px-3 py-3">
+              <div className="flex items-center gap-2">
+                <span className="agenthub-project-icon agenthub-soft flex h-9 w-9 shrink-0 items-center justify-center rounded-full border agenthub-muted">
+                  {currentProject.workspaceMode === "cloud" ? <Cloud size={16} /> : <Folder size={16} />}
+                </span>
+                <span className="min-w-0">
+                  <span className="agenthub-strong block truncate text-sm font-medium">{currentProject.name}</span>
+                  <span className="agenthub-faint mt-0.5 block truncate text-xs">
+                    {projectSpaceLabel(currentProject, teams)} · {projectStatusLabel(currentProject.status)}
+                  </span>
+                </span>
+              </div>
+            </div>
+          )}
+          <NavButton
+            icon={MessageCircle}
+            label="对话"
+            active={activePanel === "sessions"}
+            onClick={() => onOpenPanel("sessions")}
           />
-        )}
-        <NavButton
-          icon={MessageCircle}
-          label="对话"
-          active={activePanel === "sessions"}
-          onClick={() => onOpenPanel("sessions")}
-        />
-        <NavButton icon={Bot} label="添加 Agent" onClick={onCreateAgent} />
-      </div>
+          <NavButton icon={Bot} label="添加 Agent" onClick={onCreateAgent} />
+        </div>
+      )}
 
-      <div className="border-t px-3 py-3" style={{ borderColor: "var(--ah-border)" }}>
+      {showAgentsPanel && (
+        <div className={`${panel === "all" ? "border-t" : ""} px-3 py-3`} style={{ borderColor: "var(--ah-border)" }}>
         <div className="agenthub-muted mb-2 flex items-center justify-between text-sm">
           <span className="inline-flex items-center gap-2">
             <Users size={15} />
             好友
           </span>
           <IconButton
-            icon={Plus}
+            icon={CirclePlus}
             title={isSaasShell ? "添加云端智能体" : "添加命令行智能体"}
             disabled={false}
             onClick={onCreateAgent}
@@ -454,46 +508,55 @@ export function ProjectSidebar({
             </>
           )}
         </div>
-      </div>
+        </div>
+      )}
 
-      <div className="px-3 pt-2 pb-1">
+      {showProjectsPanel && (
+        <>
+      <div className={`${panel === "all" ? "" : "border-t"} px-3 pt-3 pb-1`} style={{ borderColor: "var(--ah-border)" }}>
         <div className="agenthub-muted mb-2 flex items-center justify-between text-sm">
           <span className="inline-flex items-center gap-2">
             <FolderOpen size={15} />
             {isLocalShell ? "本机项目" : isSaasShell ? "云端项目" : "项目"}
           </span>
-          <div className="relative" ref={menuRef}>
+          <div className="relative">
             <IconButton
-              icon={Plus}
+              buttonRef={createMenuButtonRef}
+              icon={CirclePlus}
               title="创建项目"
               disabled={creating}
               onClick={() => setMenuOpen((value) => !value)}
             />
-            {menuOpen && (
-              <div className="agenthub-menu absolute right-0 top-9 z-30 w-56 rounded-2xl border p-1.5">
-                {canCreateLocalProject && (
-                  <MenuItem
-                    icon={Plus}
-                    label="新建空白项目"
-                    onClick={() => openCreateProjectDialog("local")}
-                  />
-                )}
-                {canCreateCloudProject && (
-                  <MenuItem
-                    icon={Cloud}
-                    label="新建云端项目"
-                    onClick={() => openCreateProjectDialog("cloud")}
-                  />
-                )}
-                {canCreateLocalProject && (
-                  <MenuItem
-                    icon={Folder}
-                    label="选择现有文件夹"
-                    onClick={() => runCreateAction(onPickExistingFolder)}
-                  />
-                )}
-              </div>
-            )}
+            <FloatingMenu
+              open={menuOpen}
+              anchorRef={createMenuButtonRef}
+              menuRef={menuRef}
+              width={224}
+              placement="bottom-end"
+              ariaLabel="创建项目"
+            >
+              {canCreateLocalProject && (
+                <MenuItem
+                  icon={CirclePlus}
+                  label="新建空白项目"
+                  onClick={() => openCreateProjectDialog("local")}
+                />
+              )}
+              {canCreateCloudProject && (
+                <MenuItem
+                  icon={Cloud}
+                  label="新建云端项目"
+                  onClick={() => openCreateProjectDialog("cloud")}
+                />
+              )}
+              {canCreateLocalProject && (
+                <MenuItem
+                  icon={Folder}
+                  label="选择现有文件夹"
+                  onClick={() => runCreateAction(onPickExistingFolder)}
+                />
+              )}
+            </FloatingMenu>
           </div>
         </div>
       </div>
@@ -509,91 +572,149 @@ export function ProjectSidebar({
             <div className="agenthub-faint px-2 py-8 text-sm">暂无项目</div>
           ) : visibleProjects.map((project) => {
             const selected = currentProjectId === project.id && activePanel === "sessions";
+            const renamingProject = renameTarget?.id === project.id;
+            const menuIsOpen = projectMenuOpen === project.id;
+            const anchorRef = { current: projectMenuButtonRefs.current[project.id] };
             return (
               <div
                 key={project.id}
-                className={`group relative animate-[agenthub-slide-in_160ms_ease-out_both] ${projectMenuOpen === project.id ? "z-40" : ""}`}
-                ref={projectMenuOpen === project.id ? projectMenuRef : undefined}
+                className="group relative animate-[agenthub-slide-in_160ms_ease-out_both]"
               >
-                <button
-                  type="button"
-                  onClick={() => { onSelectProject(project.id); onOpenPanel("sessions"); }}
-                  className={`w-full rounded-2xl px-2.5 py-2.5 text-left transition-all duration-200 ${
-                    selected ? "agenthub-nav-active" : "agenthub-nav-idle"
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
+                {renamingProject ? (
+                  <form
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void submitProjectRename();
+                    }}
+                    className={`agenthub-inline-edit-row flex w-full items-center gap-2 rounded-2xl px-2.5 py-2.5 ${
+                      selected ? "agenthub-nav-active" : "agenthub-nav-idle"
+                    }`}
+                  >
                     <span className="agenthub-project-icon agenthub-soft flex h-8 w-8 shrink-0 items-center justify-center rounded-full border agenthub-muted">
                       {project.workspaceMode === "cloud" ? <Cloud size={15} /> : <Folder size={15} />}
                     </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium">{project.name}</span>
-                      <span className="agenthub-faint mt-0.5 block truncate text-xs">
-                        {projectSpaceLabel(project, teams)} · {projectStatusLabel(project.status)}
-                      </span>
-                    </span>
-                  </div>
-                </button>
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setDeleteConfirmTarget(null);
-                    setProjectMenuOpen((value) => (value === project.id ? null : project.id));
-                  }}
-                  className="agenthub-icon-button absolute right-2 top-3 inline-flex h-7 w-7 items-center justify-center rounded-full opacity-0 group-hover:opacity-100"
-                  title="项目操作"
-                  aria-label="项目操作"
-                >
-                  <MoreHorizontal size={15} />
-                </button>
-                {projectMenuOpen === project.id && (
-                  <div className="agenthub-menu absolute right-1 top-10 z-50 w-44 rounded-2xl border p-1">
-                    {!isLocalShell && (
+                    <input
+                      value={renameValue}
+                      onChange={(event) => setRenameValue(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Escape") setRenameTarget(null);
+                      }}
+                      className="agenthub-inline-input min-w-0 flex-1 rounded-lg border px-2 py-1.5 text-sm outline-none"
+                      aria-label="项目名称"
+                      autoFocus
+                    />
+                    <button
+                      type="submit"
+                      disabled={!renameValue.trim() || renameValue.trim() === project.name}
+                      className="agenthub-icon-button inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full disabled:cursor-not-allowed disabled:opacity-45"
+                      title="保存名称"
+                      aria-label="保存名称"
+                    >
+                      <Check size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRenameTarget(null)}
+                      className="agenthub-icon-button inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
+                      title="取消"
+                      aria-label="取消"
+                    >
+                      <X size={14} />
+                    </button>
+                  </form>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => { onSelectProject(project.id); onOpenPanel("sessions"); }}
+                      className={`w-full rounded-2xl px-2.5 py-2.5 text-left transition-all duration-200 ${
+                        selected ? "agenthub-nav-active" : "agenthub-nav-idle"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="agenthub-project-icon agenthub-soft flex h-8 w-8 shrink-0 items-center justify-center rounded-full border agenthub-muted">
+                          {project.workspaceMode === "cloud" ? <Cloud size={15} /> : <Folder size={15} />}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-medium">{project.name}</span>
+                          <span className="agenthub-faint mt-0.5 block truncate text-xs">
+                            {projectSpaceLabel(project, teams)} · {projectStatusLabel(project.status)}
+                          </span>
+                        </span>
+                      </div>
+                    </button>
+                    <button
+                      ref={(node) => {
+                        projectMenuButtonRefs.current[project.id] = node;
+                      }}
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setDeleteConfirmTarget(null);
+                        setProjectMenuOpen((value) => (value === project.id ? null : project.id));
+                      }}
+                      className={`agenthub-icon-button absolute right-2 top-3 inline-flex h-7 w-7 items-center justify-center rounded-full transition-opacity group-hover:opacity-100 ${
+                        menuIsOpen ? "opacity-100" : "opacity-0"
+                      }`}
+                      title="项目操作"
+                      aria-label="项目操作"
+                    >
+                      <MoreHorizontal size={15} />
+                    </button>
+                    <FloatingMenu
+                      open={menuIsOpen}
+                      anchorRef={anchorRef}
+                      menuRef={projectMenuRef}
+                      width={176}
+                      placement="bottom-end"
+                      ariaLabel="项目操作"
+                    >
+                      {!isLocalShell && (
+                        <MenuItem
+                          icon={Settings}
+                          label="工作区设置"
+                          onClick={() => {
+                            setWorkspaceSettingsProject(project);
+                            setProjectMenuOpen(null);
+                            setDeleteConfirmTarget(null);
+                          }}
+                        />
+                      )}
                       <MenuItem
-                        icon={Settings}
-                        label="工作区设置"
+                        icon={Pencil}
+                        label="重命名"
                         onClick={() => {
-                          setWorkspaceSettingsProject(project);
+                          setRenameValue(project.name);
+                          setRenameTarget(project);
                           setProjectMenuOpen(null);
                           setDeleteConfirmTarget(null);
                         }}
                       />
-                    )}
-                    <MenuItem
-                      icon={Pencil}
-                      label="重命名"
-                      onClick={() => {
-                        setRenameValue(project.name);
-                        setRenameTarget(project);
-                        setProjectMenuOpen(null);
-                        setDeleteConfirmTarget(null);
-                      }}
-                    />
-                    <MenuItem
-                      icon={Archive}
-                      label="归档"
-                      onClick={() => {
-                        setProjectMenuOpen(null);
-                        setDeleteConfirmTarget(null);
-                        void onArchiveProject(project.id);
-                      }}
-                    />
-                    <MenuItem
-                      icon={isConfirmingDelete("project", project.id) && !deleteBusy ? Check : Trash2}
-                      label={deleteBusy && isConfirmingDelete("project", project.id)
-                        ? "删除中"
-                        : isConfirmingDelete("project", project.id)
-                          ? "确认"
-                          : project.workspaceMode === "cloud" ? "删除项目" : "删除目录"}
-                      danger={isConfirmingDelete("project", project.id)}
-                      disabled={deleteBusy}
-                      onClick={() => void requestDelete(
-                        { kind: "project", id: project.id },
-                        () => onDeleteProject(project.id, true),
-                      )}
-                    />
-                  </div>
+                      <MenuItem
+                        icon={Archive}
+                        label="归档"
+                        onClick={() => {
+                          setProjectMenuOpen(null);
+                          setDeleteConfirmTarget(null);
+                          void onArchiveProject(project.id);
+                        }}
+                      />
+                      <MenuItem
+                        icon={isConfirmingDelete("project", project.id) && !deleteBusy ? Check : Trash2}
+                        label={deleteBusy && isConfirmingDelete("project", project.id)
+                          ? "删除中"
+                          : isConfirmingDelete("project", project.id)
+                            ? "确认"
+                            : project.workspaceMode === "cloud" ? "删除项目" : "删除目录"}
+                        danger={isConfirmingDelete("project", project.id)}
+                        disabled={deleteBusy}
+                        onClick={() => void requestDelete(
+                          { kind: "project", id: project.id },
+                          () => onDeleteProject(project.id, true),
+                        )}
+                      />
+                    </FloatingMenu>
+                  </>
                 )}
               </div>
             );
@@ -609,6 +730,8 @@ export function ProjectSidebar({
           />
         )}
       </div>
+        </>
+      )}
 
       {createModalOpen && (
         <ProjectCreateDialog
@@ -664,15 +787,6 @@ export function ProjectSidebar({
           teams={teams}
           onRefreshProjects={refreshWorkspaceProjects}
           onClose={() => setWorkspaceSettingsProject(null)}
-        />
-      )}
-      {renameTarget && (
-        <ProjectRenameDialog
-          project={renameTarget}
-          value={renameValue}
-          onValueChange={setRenameValue}
-          onCancel={() => setRenameTarget(null)}
-          onSubmit={() => void submitProjectRename()}
         />
       )}
     </aside>
@@ -1067,7 +1181,7 @@ function TeamManagementDialog({
               <IconAction
                 title="添加团队成员"
                 disabled={Boolean(busy) || !memberEmail.trim()}
-                icon={Plus}
+                icon={CirclePlus}
                 onClick={() => void run("add-member", async () => {
                   await addTeamMember(team.id, memberEmail, memberRole);
                   setMemberEmail("");
@@ -1114,64 +1228,6 @@ function TeamManagementDialog({
           </div>
         </section>
       </div>
-    </GlobalModal>
-  );
-}
-
-function ProjectRenameDialog({
-  project,
-  value,
-  onValueChange,
-  onCancel,
-  onSubmit,
-}: {
-  project: Project;
-  value: string;
-  onValueChange: (value: string) => void;
-  onCancel: () => void;
-  onSubmit: () => void;
-}) {
-  return (
-    <GlobalModal
-      title="重命名项目"
-      subtitle={project.workspaceMode === "cloud" ? "更新云端项目显示名称" : "更新本机项目显示名称"}
-      icon={<Pencil size={18} />}
-      zIndexClass="z-[1200]"
-      panelClassName="max-w-sm"
-      onClose={onCancel}
-      footer={(
-        <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="agenthub-icon-button h-10 rounded-full px-4 text-sm"
-          >
-            取消
-          </button>
-          <button
-            type="button"
-            onClick={onSubmit}
-            disabled={!value.trim() || value.trim() === project.name}
-            className="agenthub-primary-button h-10 rounded-full px-5 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            保存名称
-          </button>
-        </div>
-      )}
-    >
-      <label className="block space-y-2" htmlFor="project-rename-input">
-        <span className="agenthub-muted text-xs font-medium">项目名称</span>
-        <input
-          id="project-rename-input"
-          value={value}
-          onChange={(event) => onValueChange(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") onSubmit();
-          }}
-          className="agenthub-composer agenthub-textarea h-11 w-full rounded-2xl border px-3 text-sm outline-none"
-          autoFocus
-        />
-      </label>
     </GlobalModal>
   );
 }
@@ -1239,6 +1295,7 @@ function TeamSwitcher({
   currentTeamId,
   menuOpen,
   menuRef,
+  buttonRef,
   onToggle,
   onSelectTeam,
   onOpenCreateTeam,
@@ -1249,7 +1306,8 @@ function TeamSwitcher({
   teams: Team[];
   currentTeamId: string | null;
   menuOpen: boolean;
-  menuRef: RefObject<HTMLDivElement>;
+  menuRef: RefObject<HTMLDivElement | null>;
+  buttonRef: RefObject<HTMLButtonElement | null>;
   onToggle: () => void;
   onSelectTeam: (id: string | null) => void;
   onOpenCreateTeam: () => void;
@@ -1259,8 +1317,11 @@ function TeamSwitcher({
   const activeTeam = teams.find((team) => team.id === currentTeamId) ?? null;
   const label = activeTeam?.name ?? "个人空间";
   return (
-    <div className="relative" ref={menuRef}>
+    <div className="relative">
       <button
+        ref={(node) => {
+          (buttonRef as { current: HTMLButtonElement | null }).current = node;
+        }}
         type="button"
         onClick={onToggle}
         className="agenthub-nav-idle flex w-full items-center gap-2 rounded-2xl px-2.5 py-2 text-left text-sm transition"
@@ -1277,8 +1338,15 @@ function TeamSwitcher({
         </span>
         <ChevronDown size={14} className="agenthub-muted" />
       </button>
-      {menuOpen && (
-        <div className="agenthub-menu absolute left-0 top-12 z-50 w-60 rounded-2xl border p-2">
+      <FloatingMenu
+        open={menuOpen}
+        anchorRef={buttonRef}
+        menuRef={menuRef}
+        width={240}
+        placement="bottom-start"
+        className="p-2"
+        ariaLabel="团队空间"
+      >
           <button
             type="button"
             onClick={() => onSelectTeam(null)}
@@ -1332,11 +1400,10 @@ function TeamSwitcher({
             className="agenthub-nav-idle mt-2 flex w-full items-center gap-2 rounded-xl border px-2.5 py-2 text-left text-sm transition"
             style={{ borderColor: "var(--ah-border)" }}
           >
-            <Plus size={14} className="agenthub-muted" />
+            <CirclePlus size={14} className="agenthub-muted" />
             创建团队
           </button>
-        </div>
-      )}
+      </FloatingMenu>
     </div>
   );
 }
@@ -1415,14 +1482,21 @@ function IconButton({
   title,
   disabled,
   onClick,
+  buttonRef,
 }: {
   icon: LucideIcon;
   title: string;
   disabled: boolean;
   onClick: () => void;
+  buttonRef?: RefObject<HTMLButtonElement | null>;
 }) {
   return (
     <button
+      ref={(node) => {
+        if (buttonRef) {
+          (buttonRef as { current: HTMLButtonElement | null }).current = node;
+        }
+      }}
       type="button"
       onClick={onClick}
       disabled={disabled}

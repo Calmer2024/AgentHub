@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Check, ChevronDown } from "lucide-react";
+import { FloatingMenu } from "./FloatingMenu";
 
 export interface UiSelectOption {
   value: string;
@@ -30,6 +31,7 @@ export function UiSelect({
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const listboxId = useId();
   const enabledOptions = useMemo(() => options.filter((option) => !option.disabled), [options]);
   const selected = options.find((option) => option.value === value) ?? null;
@@ -37,7 +39,8 @@ export function UiSelect({
   useEffect(() => {
     if (!open) return undefined;
     const close = (event: MouseEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+      const target = event.target as Node;
+      if (!rootRef.current?.contains(target) && !menuRef.current?.contains(target)) setOpen(false);
     };
     window.addEventListener("mousedown", close);
     return () => window.removeEventListener("mousedown", close);
@@ -112,49 +115,58 @@ export function UiSelect({
       </button>
 
       {open && (
-        <div
-          id={listboxId}
-          role="listbox"
-          aria-label={ariaLabel}
-          className="agenthub-select-menu agenthub-menu agenthub-popover absolute left-0 top-[calc(100%+6px)] z-[90] max-h-64 w-full overflow-y-auto rounded-2xl border p-1.5"
+        <FloatingMenu
+          open={open}
+          anchorRef={rootRef}
+          menuRef={menuRef}
+          placement="bottom-start"
+          className="agenthub-select-menu max-h-64 overflow-y-auto"
+          ariaLabel={ariaLabel}
+          role="presentation"
         >
-          {options.length === 0 ? (
-            <div className="agenthub-muted px-3 py-2 text-sm">暂无选项</div>
-          ) : options.map((option, index) => {
-            const selectedOption = option.value === value;
-            const activeOption = index === activeIndex;
-            return (
-              <button
-                key={option.value}
-                type="button"
-                role="option"
-                aria-selected={selectedOption}
-                disabled={option.disabled}
-                onMouseEnter={() => {
-                  if (!option.disabled) setActiveIndex(index);
-                }}
-                onClick={() => choose(option)}
-                className={`agenthub-select-option flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm disabled:cursor-not-allowed disabled:opacity-45 ${
-                  activeOption ? "agenthub-select-option-active" : ""
-                } ${
-                  selectedOption ? "agenthub-select-option-selected" : ""
-                }`}
-              >
-                <span className="min-w-0 flex-1">
-                  <span className="agenthub-select-option-label block truncate">{option.label}</span>
-                  {option.description && (
-                    <span className="agenthub-muted mt-0.5 block truncate text-xs">{option.description}</span>
-                  )}
-                </span>
-                {selectedOption && (
-                  <span className="agenthub-select-check inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full">
-                    <Check size={12} aria-hidden="true" />
+          <div
+            id={listboxId}
+            role="listbox"
+            aria-label={ariaLabel}
+          >
+            {options.length === 0 ? (
+              <div className="agenthub-muted px-3 py-2 text-sm">暂无选项</div>
+            ) : options.map((option, index) => {
+              const selectedOption = option.value === value;
+              const activeOption = index === activeIndex;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="option"
+                  aria-selected={selectedOption}
+                  disabled={option.disabled}
+                  onMouseEnter={() => {
+                    if (!option.disabled) setActiveIndex(index);
+                  }}
+                  onClick={() => choose(option)}
+                  className={`agenthub-select-option flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm disabled:cursor-not-allowed disabled:opacity-45 ${
+                    activeOption ? "agenthub-select-option-active" : ""
+                  } ${
+                    selectedOption ? "agenthub-select-option-selected" : ""
+                  }`}
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="agenthub-select-option-label block truncate">{option.label}</span>
+                    {option.description && (
+                      <span className="agenthub-muted mt-0.5 block truncate text-xs">{option.description}</span>
+                    )}
                   </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
+                  {selectedOption && (
+                    <span className="agenthub-select-check inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full">
+                      <Check size={12} aria-hidden="true" />
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </FloatingMenu>
       )}
     </div>
   );

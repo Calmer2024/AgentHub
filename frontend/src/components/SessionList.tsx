@@ -4,6 +4,8 @@ import {
   Archive,
   Bell,
   BellOff,
+  ChevronDown,
+  CirclePlus,
   Check,
   FolderOpen,
   Inbox,
@@ -20,6 +22,7 @@ import type { Session, AgentConfig, Project, RunStatus } from "../types";
 import { AgentAvatar } from "./AgentAvatar";
 import { formatChinaDateTime } from "../utils/time";
 import { useChatStore } from "../stores/chatStore";
+import { FloatingMenu } from "./FloatingMenu";
 
 interface Props {
   project: Project | null;
@@ -59,10 +62,13 @@ export function SessionList({
   const [renameTitle, setRenameTitle] = useState("");
   const [query, setQuery] = useState("");
   const [view, setView] = useState<"active" | "archive">("active");
+  const [pinnedCollapsed, setPinnedCollapsed] = useState(false);
+  const [recentCollapsed, setRecentCollapsed] = useState(false);
   const [deleteConfirmSessionId, setDeleteConfirmSessionId] = useState<string | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const previousProjectIdRef = useRef(project?.id);
   const menuRef = useRef<HTMLDivElement>(null);
+  const menuButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const runtimeBySession = useChatStore((state) => state.runtimeBySession);
   const runsBySession = useChatStore((state) => state.runsBySession);
   const agentById = useMemo(() => new Map(agents.map((agent) => [agent.id, agent])), [agents]);
@@ -74,6 +80,8 @@ export function SessionList({
     setMenuOpen(null);
     setDeleteConfirmSessionId(null);
     setQuery("");
+    setPinnedCollapsed(false);
+    setRecentCollapsed(false);
   }, [project?.id]);
 
   useEffect(() => {
@@ -185,6 +193,7 @@ export function SessionList({
       : variant === "archived"
         ? "agenthub-session-archived"
         : "";
+    const anchorRef = { current: menuButtonRefs.current[session.id] };
 
     return (
       <div
@@ -194,10 +203,7 @@ export function SessionList({
           setMenuOpen(session.id);
           setDeleteConfirmSessionId(null);
         }}
-        className={`group relative mb-1 animate-[agenthub-slide-in_180ms_ease-out_both] ${
-          menuIsOpen ? "z-40" : "z-0"
-        }`}
-        ref={menuIsOpen ? menuRef : undefined}
+        className="group relative mb-1 animate-[agenthub-slide-in_180ms_ease-out_both]"
       >
         <button
           onClick={() => onSelectSession(session.id)}
@@ -260,6 +266,9 @@ export function SessionList({
           )}
         </button>
         <button
+          ref={(node) => {
+            menuButtonRefs.current[session.id] = node;
+          }}
           onClick={(e) => {
             e.stopPropagation();
             setDeleteConfirmSessionId(null);
@@ -271,8 +280,14 @@ export function SessionList({
         >
           <MoreHorizontal size={16} />
         </button>
-        {menuIsOpen && (
-          <div className="agenthub-menu agenthub-popover absolute right-0 top-8 z-50 w-44 rounded-2xl border p-1">
+        <FloatingMenu
+          open={menuIsOpen}
+          anchorRef={anchorRef}
+          menuRef={menuRef}
+          width={176}
+          placement="bottom-end"
+          ariaLabel="会话操作"
+        >
             {variant === "archived" ? (
               <button
                 onClick={() => { onArchiveSession(session.id, false); setMenuOpen(null); setDeleteConfirmSessionId(null); }}
@@ -325,9 +340,43 @@ export function SessionList({
                 ? "删除中"
                 : deleteConfirmSessionId === session.id ? "确认" : "删除"}
             </button>
-          </div>
-        )}
+        </FloatingMenu>
       </div>
+    );
+  };
+
+  const renderCollapsibleSection = (
+    label: string,
+    sectionSessions: Session[],
+    collapsed: boolean,
+    onToggle: () => void,
+    variant: "pinned" | "regular",
+  ) => {
+    if (sectionSessions.length === 0) return null;
+    return (
+      <section className="agenthub-session-section" aria-label={label}>
+        <button
+          type="button"
+          onClick={onToggle}
+          className="agenthub-collapse-header flex w-full items-center gap-2 rounded-xl px-2 py-1.5 text-[11px] transition"
+          aria-expanded={!collapsed}
+        >
+          <ChevronDown
+            size={13}
+            className={`agenthub-muted shrink-0 transition-transform ${collapsed ? "-rotate-90" : ""}`}
+            aria-hidden="true"
+          />
+          <span className="min-w-0 flex-1 truncate text-left">{label}</span>
+          <span className="agenthub-faint shrink-0">{sectionSessions.length}</span>
+        </button>
+        <div className={`agenthub-collapse-body ${
+          collapsed ? "agenthub-collapse-body-closed" : "agenthub-collapse-body-open"
+        }`}>
+          <div className="agenthub-collapse-body-inner">
+            {sectionSessions.map((session) => renderSessionRow(session, variant))}
+          </div>
+        </div>
+      </section>
     );
   };
 
@@ -362,19 +411,20 @@ export function SessionList({
 
         {project && (
           <>
-            <div className="mt-4 grid grid-cols-2 gap-2">
+            <div className="mt-4 flex items-center gap-2">
               <div className="relative">
                 <button
                   onClick={() => setAgentPickerOpen((open) => !open)}
                   disabled={creating || agents.length === 0}
-                  className="agenthub-primary-button flex h-10 w-full items-center justify-center gap-2 rounded-full text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50"
+                  className="agenthub-primary-button flex h-10 w-10 items-center justify-center rounded-full text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50"
+                  aria-label="新建私聊"
+                  title="新建私聊"
                 >
                   {creating ? (
                     <span className="h-4 w-4 animate-spin rounded-full border-2 border-current/30 border-t-current" />
                   ) : (
-                    <MessageCircle size={15} />
+                    <CirclePlus size={17} />
                   )}
-                  私聊
                 </button>
                 {agentPickerOpen && (
                   <div className="agenthub-menu agenthub-popover absolute left-0 top-12 z-20 w-72 rounded-2xl border p-1.5">
@@ -397,21 +447,22 @@ export function SessionList({
               </div>
               <button
                 onClick={onNewGroupSession}
-                className="agenthub-icon-button flex h-10 items-center justify-center gap-2 rounded-full text-sm font-medium"
+                className="agenthub-icon-button flex h-10 w-10 items-center justify-center rounded-full text-sm font-medium"
+                aria-label="新建群聊"
+                title="新建群聊"
               >
-                <Users size={15} />
-                群聊
+                <Users size={16} />
               </button>
+              <label className="agenthub-composer flex h-10 min-w-0 flex-1 items-center gap-2 rounded-full border px-3">
+                <Search size={14} className="agenthub-faint shrink-0" aria-hidden="true" />
+                <input
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="搜索对话"
+                  className="agenthub-textarea min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-[color:var(--ah-faint)]"
+                />
+              </label>
             </div>
-            <label className="agenthub-composer mt-3 flex h-10 items-center gap-2 rounded-full border px-3">
-              <Search size={14} className="agenthub-faint shrink-0" aria-hidden="true" />
-              <input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="搜索对话"
-                className="agenthub-textarea min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-[color:var(--ah-faint)]"
-              />
-            </label>
           </>
         )}
       </div>
@@ -469,18 +520,20 @@ export function SessionList({
         ) : (
           <>
             {sessionGroups.archivedTotal > 0 && renderArchiveFolderButton()}
-            {sessionGroups.pinned.length > 0 && (
-              <div className="agenthub-session-section-label px-2 pb-1 pt-1 text-[11px] font-normal">
-                置顶
-              </div>
+            {renderCollapsibleSection(
+              "置顶",
+              sessionGroups.pinned,
+              pinnedCollapsed,
+              () => setPinnedCollapsed((value) => !value),
+              "pinned",
             )}
-            {sessionGroups.pinned.map((session) => renderSessionRow(session, "pinned"))}
-            {sessionGroups.pinned.length > 0 && sessionGroups.regular.length > 0 && (
-              <div className="agenthub-session-section-label px-2 pb-1 pt-2 text-[11px] font-normal">
-                最近对话
-              </div>
+            {renderCollapsibleSection(
+              "最近对话",
+              sessionGroups.regular,
+              recentCollapsed,
+              () => setRecentCollapsed((value) => !value),
+              "regular",
             )}
-            {sessionGroups.regular.map((session) => renderSessionRow(session, "regular"))}
           </>
         )}
       </div>

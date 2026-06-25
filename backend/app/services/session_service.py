@@ -4,9 +4,10 @@
 """
 
 import json
+import re
 import uuid
 from datetime import timedelta
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Session as DBSession, AgentConfig, SessionMember, Project, Message as DBMessage
@@ -54,6 +55,7 @@ class GroupMemberNotFoundError(Exception):
 MAX_GROUP_AGENTS = 12
 MAX_GROUP_MEMBERS = MAX_GROUP_AGENTS
 MIN_GROUP_MEMBERS = 2
+MESSAGE_PREVIEW_LIMIT = 72
 
 
 class SessionService:
@@ -115,13 +117,13 @@ class SessionService:
         stmt = stmt.order_by(desc(DBSession.is_pinned), DBSession.updated_at.desc())
         result = await self.db.execute(stmt)
         sessions = result.scalars().all()
-        return [SessionRead.model_validate(s) for s in sessions]
+        return await self._sessions_to_read(sessions)
 
     async def get_session(self, session_id: str) -> SessionRead | None:
         session = await self.db.get(DBSession, session_id)
         if not session:
             return None
-        return SessionRead.model_validate(session)
+        return (await self._sessions_to_read([session]))[0]
 
     async def update_session(self, session_id: str, data: SessionUpdate) -> SessionRead:
         session = await self.db.get(DBSession, session_id)
@@ -142,17 +144,19 @@ class SessionService:
 
         await self.db.commit()
         await self.db.refresh(session)
-        return SessionRead.model_validate(session)
+        return (await self._sessions_to_read([session]))[0]
 
     async def mark_read(self, session_id: str) -> SessionRead:
         session = await self.db.get(DBSession, session_id)
         if not session:
             raise SessionNotFoundError(session_id)
+        original_updated_at = session.updated_at
         session.unread_count = 0
         session.last_read_at = china_now()
+        session.updated_at = original_updated_at
         await self.db.commit()
         await self.db.refresh(session)
-        return SessionRead.model_validate(session)
+        return (await self._sessions_to_read([session]))[0]
 
     async def forward_messages(self, data: ForwardMessagesRequest) -> ForwardMessagesResult:
         source_messages = await self._load_forward_source_messages(data.message_ids)
@@ -236,6 +240,48 @@ class SessionService:
 
     async def get_workspace_path(self, session_id: str) -> str:
         return await ProjectService(self.db).get_workspace_path_for_session(session_id)
+
+    async def _sessions_to_read(self, sessions: list[DBSession]) -> list[SessionRead]:
+        if not sessions:
+            return []
+        latest_messages = await self._latest_messages_for_sessions([session.id for session in sessions])
+        reads: list[SessionRead] = []
+        for session in sessions:
+            item = SessionRead.model_validate(session)
+            latest = latest_messages.get(session.id)
+            if latest:
+                item.latest_message_preview = _message_preview(latest)
+                item.latest_message_role = latest.role
+                item.latest_message_at = latest.created_at
+            reads.append(item)
+        return reads
+
+    async def _latest_messages_for_sessions(self, session_ids: list[str]) -> dict[str, DBMessage]:
+        unique_ids = list(dict.fromkeys(session_ids))
+        if not unique_ids:
+            return {}
+        latest_created = (
+            select(
+                DBMessage.session_id.label("session_id"),
+                func.max(DBMessage.created_at).label("created_at"),
+            )
+            .where(DBMessage.session_id.in_(unique_ids))
+            .group_by(DBMessage.session_id)
+            .subquery()
+        )
+        result = await self.db.execute(
+            select(DBMessage)
+            .join(
+                latest_created,
+                (DBMessage.session_id == latest_created.c.session_id)
+                & (DBMessage.created_at == latest_created.c.created_at),
+            )
+            .order_by(DBMessage.session_id.asc(), DBMessage.id.desc())
+        )
+        latest: dict[str, DBMessage] = {}
+        for message in result.scalars().all():
+            latest.setdefault(message.session_id, message)
+        return latest
 
     @staticmethod
     def increment_unread(session: DBSession, amount: int = 1) -> None:
@@ -350,3 +396,13 @@ class SessionService:
         if self.agent_owner_user_id is None:
             return AgentConfig.owner_user_id.is_(None)
         return AgentConfig.owner_user_id == self.agent_owner_user_id
+
+
+def _message_preview(message: DBMessage) -> str:
+    content = message.content or ""
+    if message.content_type and message.content_type != "text" and not content.strip():
+        content = f"[{message.content_type}]"
+    preview = re.sub(r"\s+", " ", content).strip()
+    if len(preview) > MESSAGE_PREVIEW_LIMIT:
+        return f"{preview[:MESSAGE_PREVIEW_LIMIT - 1]}..."
+    return preview

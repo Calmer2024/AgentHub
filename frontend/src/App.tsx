@@ -1,29 +1,56 @@
-import { useCallback, useEffect, useState } from "react";
+import { forwardRef, useCallback, useEffect, useRef, useState } from "react";
+import {
+  Building2,
+  Check,
+  Copy,
+  FolderOpen,
+  HardDrive,
+  LogOut,
+  MessageCircle,
+  Moon,
+  PanelLeftClose,
+  Plus,
+  Settings,
+  Sparkles,
+  Sun,
+  Trash2,
+  UserRound,
+  Users,
+  type LucideIcon,
+} from "lucide-react";
 import { useChatStore, type CollabSnapshot } from "./stores/chatStore";
-import { SessionList } from "./components/SessionList";
+import { ActivityPanelContent, type ActivityPanel } from "./components/ActivityPanelContent";
 import { MemoChatWindow as ChatWindow } from "./components/ChatWindow";
 import { AgentPanel } from "./components/AgentPanel";
+import { FloatingMenu } from "./components/FloatingMenu";
 import { GroupChatCreator } from "./components/GroupChatCreator";
 import { ToastViewport } from "./components/ToastViewport";
 import { OrchestratorDebugPanel } from "./components/OrchestratorDebugPanel";
 import { ProjectFileWorkspaceModal } from "./components/ProjectFileWorkspaceModal";
 import { useCapabilities } from "./app/ShellProvider";
-import { LocalProjectSidebar } from "./shells/local/LocalProjectSidebar";
-import { SaasProjectSidebar } from "./shells/saas/SaasProjectSidebar";
 import { CloudWorkspaceSettings } from "./shells/saas/CloudWorkspaceSettings";
 import {
   deleteAgent,
+  addTeamMember,
+  fetchTeamMembers,
+  fetchTeamJoinCode,
   fetchArtifacts,
   fetchMessages,
+  logoutCurrentUser,
   markSessionRead,
+  removeTeamMember,
   pinMessage,
   regenerateMessageStream,
+  updateTeamMemberRole,
   unpinMessage,
 } from "./api/client";
 import { useSendMessage } from "./hooks/useSendMessage";
 import { useWorkspaceRuntime } from "./hooks/useWorkspaceRuntime";
+import { useThemeStore } from "./stores/themeStore";
 import { useToastStore } from "./stores/toastStore";
-import type { AgentConfig, Message } from "./types";
+import type { AgentConfig, CurrentUser, Message, Project, Team, TeamMember, TeamRole } from "./types";
+
+type RailFloatingMenu = "workspace" | "teams" | "user";
 
 /** 从 store 读取当前会话的协作状态（零值 = 空快照）。 */
 function emptyCollab(): CollabSnapshot {
@@ -64,7 +91,8 @@ export function AgentHubWorkbench() {
     setSidebarTab, loadData,
     handleSelectProject, handleArchiveProject,
     handleRenameProject, handleDeleteProject,
-    handleCreateBlankProject, handleCreateCloudProject, handleCreateTeam, handleJoinTeam, handlePickExistingFolder,
+    handleCreateTeam, handleJoinTeam,
+    handleCreateBlankProject, handleCreateCloudProject, handlePickExistingFolder,
     handleSelectSession, handleNewSession, handleCreateGroup,
     handleAddGroupMember, handleRemoveGroupMember,
     handleDeleteSession, handleRenameSession, handlePinSession, handleArchiveSession,
@@ -95,6 +123,8 @@ export function AgentHubWorkbench() {
   const [fileWorkspaceOpen, setFileWorkspaceOpen] = useState(false);
   const [fileWorkspaceInitialPath, setFileWorkspaceInitialPath] = useState<string | null>(null);
   const effectiveSidebarTab = edition === "local" && sidebarTab === "workspace" ? "sessions" : sidebarTab;
+  const [activityPanel, setActivityPanel] = useState<ActivityPanel | null>("sessions");
+  const [pendingProjectSessionId, setPendingProjectSessionId] = useState<string | null>(null);
   const handleSend = useSendMessage();
   const pushToast = useToastStore((state) => state.pushToast);
 
@@ -104,6 +134,12 @@ export function AgentHubWorkbench() {
     return () => window.removeEventListener("hashchange", syncRoute);
   }, []);
 
+  useEffect(() => {
+    if (effectiveSidebarTab === "sessions" || effectiveSidebarTab === "agents") {
+      setActivityPanel(effectiveSidebarTab);
+    }
+  }, [effectiveSidebarTab]);
+
   const notifyError = useCallback((title: string, error: unknown) => {
     pushToast({
       kind: "error",
@@ -111,6 +147,14 @@ export function AgentHubWorkbench() {
       description: error instanceof Error ? error.message : "请稍后重试",
     });
   }, [pushToast]);
+
+  const handleLogout = useCallback(async () => {
+    try {
+      await logoutCurrentUser();
+    } finally {
+      window.location.reload();
+    }
+  }, []);
 
   const openProjectFiles = useCallback((path?: string | null) => {
     setFileWorkspaceInitialPath(path ?? null);
@@ -122,6 +166,39 @@ export function AgentHubWorkbench() {
     setFileWorkspaceInitialPath(null);
     setFileWorkspaceOpen((value) => !value);
   }, [currentProjectId]);
+
+  const toggleActivityPanel = useCallback((panel: ActivityPanel) => {
+    setActivityPanel((current) => (current === panel ? null : panel));
+    if (panel === "sessions" || panel === "agents") setSidebarTab(panel);
+  }, [setSidebarTab]);
+
+  const handleSelectProjectSession = useCallback((projectId: string, sessionId: string) => {
+    if (projectId !== currentProjectId) {
+      void handleSelectProject(projectId);
+    }
+    void handleSelectSession(sessionId);
+    setSidebarTab("sessions");
+  }, [currentProjectId, handleSelectProject, handleSelectSession, setSidebarTab]);
+
+  const handleNewProjectSession = useCallback(async (projectId: string) => {
+    if (projectId !== currentProjectId) {
+      setPendingProjectSessionId(projectId);
+      handleSelectProject(projectId);
+      return;
+    }
+    await handleNewSession();
+    setSidebarTab("sessions");
+    setActivityPanel("sessions");
+  }, [currentProjectId, handleNewSession, handleSelectProject, setSidebarTab]);
+
+  useEffect(() => {
+    if (!pendingProjectSessionId || pendingProjectSessionId !== currentProjectId) return;
+    setPendingProjectSessionId(null);
+    void handleNewSession().then(() => {
+      setSidebarTab("sessions");
+      setActivityPanel("sessions");
+    });
+  }, [currentProjectId, handleNewSession, pendingProjectSessionId, setSidebarTab]);
 
   useEffect(() => {
     const onOpenProjectFile = (event: Event) => {
@@ -212,6 +289,66 @@ export function AgentHubWorkbench() {
     } catch { /* */ }
   }, [currentSessionId, setArtifactsForSession]);
 
+  const mainContent = effectiveSidebarTab === "workspace" ? (
+    <CloudWorkspaceSettings
+      project={currentProject}
+      currentUser={currentUser}
+      teams={teams}
+      onRefreshProjects={loadData}
+    />
+  ) : currentSessionId ? (
+    <ChatWindow
+      messages={messages} isStreaming={isStreaming}
+      artifacts={artifacts}
+      hydrating={sessionHydrating}
+      streamingError={streamingError}
+      currentAgent={currentAgent} currentSessionId={currentSessionId}
+      sessions={sessions}
+      agents={agents} mode={currentMode}
+      routeAgents={routeAgents} orchestratorIntent={orchestratorIntent}
+      planSummary={planSummary}
+      mentionableAgents={currentMode === "group" ? sessionMembers : agents}
+      mentionLoading={currentMode === "group" ? sessionMembersLoading : false}
+      groupMembers={sessionMembers}
+      groupMembersLoading={sessionMembersLoading}
+      collabTasks={collabTasks}
+      dagPhases={dagPhases}
+      chainSteps={chainSteps}
+      collabCompleted={collabCompleted}
+      collabSummary={collabSummary}
+      draftPlan={draftPlan}
+      onSend={handleSend}
+      onDismissError={() => setStreamingError(null, currentSessionId)}
+      onReply={setReplyTarget}
+      onRegenerate={handleRegenerate}
+      onTogglePin={handleTogglePin}
+      onArtifactsChanged={handleArtifactsChanged}
+      onToggleProjectFiles={toggleProjectFiles}
+      projectFilesOpen={fileWorkspaceOpen}
+      onRenameSession={(sessionId, title) => runCrudAction(
+        () => handleRenameSession(sessionId, title),
+        "群聊已重命名",
+        "重命名群聊失败",
+      )}
+      onAddGroupMember={(sessionId, agentId) => runCrudAction(
+        () => handleAddGroupMember(sessionId, agentId),
+        "成员已加入群聊",
+        "添加成员失败",
+      )}
+      onRemoveGroupMember={(sessionId, agentId) => runCrudAction(
+        () => handleRemoveGroupMember(sessionId, agentId),
+        "成员已移出群聊",
+        "移除成员失败",
+      )}
+    />
+  ) : (
+    <div className="agenthub-chat flex min-h-0 min-w-0 flex-1 items-center justify-center px-6 text-center text-lg">
+      <span className="agenthub-muted">
+        {currentProject ? "在当前项目中新建私聊或群聊" : "创建项目后开始"}
+      </span>
+    </div>
+  );
+
   if (appRoute === "#/dev/orchestrator") {
     return (
       <>
@@ -222,253 +359,147 @@ export function AgentHubWorkbench() {
   }
 
   return (
-    <div className="agenthub-shell flex h-[100dvh] min-w-0 w-full max-w-full flex-col overflow-hidden lg:flex-row">
-      <div className="agenthub-left-cluster flex min-h-0 min-w-0 w-full shrink-0 flex-col lg:h-full lg:w-[min(46vw,584px)] lg:flex-row xl:w-[584px]">
-        {edition === "local" ? (
-        <LocalProjectSidebar
-          projects={projects}
-          currentProjectId={currentProjectId}
-          agents={agents}
-          activePanel={effectiveSidebarTab}
+    <div className="agenthub-shell agenthub-workbench-shell flex h-[100dvh] min-w-0 w-full max-w-full overflow-hidden">
+      <aside className={`agenthub-activity-zone ${activityPanel ? "agenthub-activity-zone-open" : "agenthub-activity-zone-closed"}`}>
+        <ActivityRail
+          activePanel={activityPanel}
           currentUser={currentUser}
+          currentProject={currentProject}
           teams={teams}
           currentTeamId={currentTeamId}
-          creating={creatingProject}
-          loading={initialLoading}
-          onSelectProject={handleSelectProject}
           onSelectTeam={setCurrentTeamId}
-          onCreateTeam={(name) => runCrudAction(
-            () => handleCreateTeam(name),
-            "团队已创建",
-            "创建团队失败",
-          )}
-          onJoinTeam={(code) => runCrudAction(
-            () => handleJoinTeam(code),
-            "已加入团队",
-            "加入团队失败",
-          )}
-          onUserUpdated={loadData}
-          onRefreshProjects={loadData}
-          onCreateBlankProject={(name) => runCrudAction(
-            () => handleCreateBlankProject(name),
-            "项目已创建",
-            "创建项目失败",
-          )}
-          onCreateCloudProject={(name, teamId) => runCrudAction(
-            () => handleCreateCloudProject(name, teamId),
-            "云端项目已创建",
-            "创建云端项目失败",
-          )}
-          onPickExistingFolder={() => runCrudAction(
-            handlePickExistingFolder,
-            "项目已绑定",
-            "选择文件夹失败",
-          )}
-          onArchiveProject={(projectId) => runCrudAction(
-            () => handleArchiveProject(projectId),
-            "项目已归档",
-            "归档项目失败",
-          )}
-          onRenameProject={(projectId, name) => runCrudAction(
-            () => handleRenameProject(projectId, name),
-            "项目已重命名",
-            "重命名项目失败",
-          )}
-          onDeleteProject={(projectId, deleteFiles) => runCrudAction(
-            () => handleDeleteProject(projectId, deleteFiles),
-            "项目已删除",
-            "删除项目失败",
-          )}
-          onOpenPanel={setSidebarTab}
-          onStartAgentChat={handleNewSession}
-          onCreateAgent={() => setAgentModal({ mode: "create" })}
-          onEditAgent={(agentId) => setAgentModal({ mode: "edit", agentId })}
-          onDeleteAgent={async (agentId) => {
-            await runCrudAction(async () => {
-              await deleteAgent(agentId);
-              await loadData();
-            }, "Agent 已删除", "删除 Agent 失败");
+          onCreateTeam={handleCreateTeam}
+          onJoinTeam={handleJoinTeam}
+          onOpenSettings={() => {
+            setSidebarTab("workspace");
+            setActivityPanel(null);
           }}
+          onLogout={handleLogout}
+          onTogglePanel={toggleActivityPanel}
+          onOpenProjectFiles={toggleProjectFiles}
+          projectFilesDisabled={!currentProjectId}
         />
-        ) : (
-        <SaasProjectSidebar
-          projects={projects}
-          currentProjectId={currentProjectId}
-          agents={agents}
-          activePanel={effectiveSidebarTab}
-          currentUser={currentUser}
-          teams={teams}
-          currentTeamId={currentTeamId}
-          creating={creatingProject}
-          loading={initialLoading}
-          onSelectProject={handleSelectProject}
-          onSelectTeam={setCurrentTeamId}
-          onCreateTeam={(name) => runCrudAction(
-            () => handleCreateTeam(name),
-            "团队已创建",
-            "创建团队失败",
-          )}
-          onJoinTeam={(code) => runCrudAction(
-            () => handleJoinTeam(code),
-            "已加入团队",
-            "加入团队失败",
-          )}
-          onUserUpdated={loadData}
-          onRefreshProjects={loadData}
-          onCreateBlankProject={(name) => runCrudAction(
-            () => handleCreateBlankProject(name),
-            "项目已创建",
-            "创建项目失败",
-          )}
-          onCreateCloudProject={(name, teamId) => runCrudAction(
-            () => handleCreateCloudProject(name, teamId),
-            "云端项目已创建",
-            "创建云端项目失败",
-          )}
-          onPickExistingFolder={() => runCrudAction(
-            handlePickExistingFolder,
-            "项目已绑定",
-            "选择文件夹失败",
-          )}
-          onArchiveProject={(projectId) => runCrudAction(
-            () => handleArchiveProject(projectId),
-            "项目已归档",
-            "归档项目失败",
-          )}
-          onRenameProject={(projectId, name) => runCrudAction(
-            () => handleRenameProject(projectId, name),
-            "项目已重命名",
-            "重命名项目失败",
-          )}
-          onDeleteProject={(projectId, deleteFiles) => runCrudAction(
-            () => handleDeleteProject(projectId, deleteFiles),
-            "项目已删除",
-            "删除项目失败",
-          )}
-          onOpenPanel={setSidebarTab}
-          onStartAgentChat={handleNewSession}
-          onCreateAgent={() => setAgentModal({ mode: "create" })}
-          onEditAgent={(agentId) => setAgentModal({ mode: "edit", agentId })}
-          onDeleteAgent={async (agentId) => {
-            await runCrudAction(async () => {
-              await deleteAgent(agentId);
-              await loadData();
-            }, "Agent 已删除", "删除 Agent 失败");
-          }}
-        />
-        )}
 
-        <div className="agenthub-session-nest flex h-[30dvh] min-w-0 w-full shrink-0 flex-col transition-colors duration-200 sm:h-[28dvh] lg:h-full lg:w-[min(24vw,300px)] xl:w-[300px]">
-          <SessionList
+        <div className={`agenthub-activity-panel min-h-0 shrink-0 transition-all duration-200 ${
+          activityPanel ? "agenthub-activity-panel-open" : "agenthub-activity-panel-closed"
+        }`}>
+          {activityPanel && (
+            <ActivityPanelContent
+              panel={activityPanel}
+              project={currentProject}
+              projects={projects}
+              currentProjectId={currentProjectId}
+              currentTeamId={currentTeamId}
+              sessions={sessions}
+              currentSessionId={currentSessionId}
+              sessionsLoading={sessionsLoading}
+              projectsLoading={initialLoading}
+              creatingProject={creatingProject}
+              agents={agents}
+              canCreateLocalProject={edition !== "saas"}
+              canCreateCloudProject={edition !== "local"}
+              onSelectSession={handleSelectSession}
+              onNewSession={(agentId) => runCrudAction(
+                () => handleNewSession(agentId),
+                "私聊已创建",
+                "创建私聊失败",
+              )}
+              onNewGroupSession={() => setShowGroupCreator(true)}
+              onDeleteSession={(sessionId) => runCrudAction(
+                () => handleDeleteSession(sessionId),
+                "对话已删除",
+                "删除对话失败",
+              )}
+              onRenameSession={(sessionId, title) => runCrudAction(
+                () => handleRenameSession(sessionId, title),
+                "对话已重命名",
+                "重命名对话失败",
+              )}
+              onPinSession={(sessionId, pinned) => runCrudAction(
+                () => handlePinSession(sessionId, pinned),
+                pinned ? "对话已置顶" : "已取消置顶",
+                "更新置顶失败",
+              )}
+              onArchiveSession={(sessionId, archived) => runCrudAction(
+                () => handleArchiveSession(sessionId, archived),
+                archived === false ? "对话已恢复" : "对话已归档",
+                "更新归档失败",
+              )}
+              onMuteSession={(sessionId, muted) => runCrudAction(
+                () => handleMuteSession(sessionId, muted),
+                muted ? "已开启免打扰" : "已关闭免打扰",
+                "更新免打扰失败",
+              )}
+              onSelectProject={handleSelectProject}
+              onSelectProjectSession={handleSelectProjectSession}
+              onCreateBlankProject={() => runCrudAction(
+                () => handleCreateBlankProject(),
+                "项目已创建",
+                "创建项目失败",
+              )}
+              onCreateCloudProject={() => runCrudAction(
+                () => handleCreateCloudProject("云端项目"),
+                "云端项目已创建",
+                "创建云端项目失败",
+              )}
+              onPickExistingFolder={() => runCrudAction(
+                handlePickExistingFolder,
+                "项目已绑定",
+                "选择文件夹失败",
+              )}
+              onArchiveProject={(projectId) => runCrudAction(
+                () => handleArchiveProject(projectId),
+                "项目已归档",
+                "归档项目失败",
+              )}
+              onRenameProject={(projectId, name) => runCrudAction(
+                () => handleRenameProject(projectId, name),
+                "项目已重命名",
+                "重命名项目失败",
+              )}
+              onDeleteProject={(projectId, deleteFiles) => runCrudAction(
+                () => handleDeleteProject(projectId, deleteFiles),
+                "项目已删除",
+                "删除项目失败",
+              )}
+              onNewProjectSession={(projectId) => runCrudAction(
+                () => handleNewProjectSession(projectId),
+                "私聊已创建",
+                "创建私聊失败",
+              )}
+              onStartAgentChat={(agentId) => runCrudAction(
+                () => handleNewSession(agentId),
+                "私聊已创建",
+                "创建私聊失败",
+              )}
+              onCreateAgent={() => setAgentModal({ mode: "create" })}
+              onEditAgent={(agentId) => setAgentModal({ mode: "edit", agentId })}
+              onDeleteAgent={(agentId) => runCrudAction(async () => {
+                await deleteAgent(agentId);
+                await loadData();
+              }, "Agent 已删除", "删除 Agent 失败")}
+            />
+          )}
+        </div>
+      </aside>
+
+      <main className="agenthub-main-workspace min-h-0 min-w-0 flex-1 overflow-hidden">
+        <div className={`agenthub-workspace-frame ${fileWorkspaceOpen ? "agenthub-workspace-frame-split" : ""}`}>
+          <div className="agenthub-workspace-primary min-h-0 min-w-0 flex-1">
+            {mainContent}
+          </div>
+          <ProjectFileWorkspaceModal
+            open={fileWorkspaceOpen}
             project={currentProject}
-            sessions={sessions} currentSessionId={currentSessionId}
-            loading={sessionsLoading}
-            agents={agents} onSelectSession={handleSelectSession}
-            onNewSession={(agentId) => runCrudAction(
-              () => handleNewSession(agentId),
-              "私聊已创建",
-              "创建私聊失败",
-            )}
-            onNewGroupSession={() => setShowGroupCreator(true)}
-            onDeleteSession={(sessionId) => runCrudAction(
-              () => handleDeleteSession(sessionId),
-              "对话已删除",
-              "删除对话失败",
-            )}
-            onRenameSession={(sessionId, title) => runCrudAction(
-              () => handleRenameSession(sessionId, title),
-              "对话已重命名",
-              "重命名对话失败",
-            )}
-            onPinSession={(sessionId, pinned) => runCrudAction(
-              () => handlePinSession(sessionId, pinned),
-              pinned ? "对话已置顶" : "已取消置顶",
-              "更新置顶失败",
-            )}
-            onArchiveSession={(sessionId, archived) => runCrudAction(
-              () => handleArchiveSession(sessionId, archived),
-              archived === false ? "对话已恢复" : "对话已归档",
-              "更新归档失败",
-            )}
-            onMuteSession={(sessionId, muted) => runCrudAction(
-              () => handleMuteSession(sessionId, muted),
-              muted ? "已开启免打扰" : "已关闭免打扰",
-              "更新免打扰失败",
-            )}
+            initialPath={fileWorkspaceInitialPath}
+            onClose={() => {
+              setFileWorkspaceOpen(false);
+              setFileWorkspaceInitialPath(null);
+            }}
+            onChanged={handleArtifactsChanged}
           />
         </div>
-      </div>
-
-      {effectiveSidebarTab === "workspace" ? (
-        <CloudWorkspaceSettings
-          project={currentProject}
-          currentUser={currentUser}
-          teams={teams}
-          onRefreshProjects={loadData}
-        />
-      ) : currentSessionId ? (
-        <ChatWindow
-          messages={messages} isStreaming={isStreaming}
-          artifacts={artifacts}
-          hydrating={sessionHydrating}
-          streamingError={streamingError}
-          currentAgent={currentAgent} currentSessionId={currentSessionId}
-          sessions={sessions}
-          agents={agents} mode={currentMode}
-          routeAgents={routeAgents} orchestratorIntent={orchestratorIntent}
-          planSummary={planSummary}
-          mentionableAgents={currentMode === "group" ? sessionMembers : agents}
-          mentionLoading={currentMode === "group" ? sessionMembersLoading : false}
-          groupMembers={sessionMembers}
-          groupMembersLoading={sessionMembersLoading}
-          collabTasks={collabTasks}
-          dagPhases={dagPhases}
-          chainSteps={chainSteps}
-          collabCompleted={collabCompleted}
-          collabSummary={collabSummary}
-          draftPlan={draftPlan}
-          onSend={handleSend}
-          onDismissError={() => setStreamingError(null, currentSessionId)}
-          onReply={setReplyTarget}
-          onRegenerate={handleRegenerate}
-          onTogglePin={handleTogglePin}
-          onArtifactsChanged={handleArtifactsChanged}
-          onToggleProjectFiles={toggleProjectFiles}
-          projectFilesOpen={fileWorkspaceOpen}
-          onRenameSession={(sessionId, title) => runCrudAction(
-            () => handleRenameSession(sessionId, title),
-            "群聊已重命名",
-            "重命名群聊失败",
-          )}
-          onAddGroupMember={(sessionId, agentId) => runCrudAction(
-            () => handleAddGroupMember(sessionId, agentId),
-            "成员已加入群聊",
-            "添加成员失败",
-          )}
-          onRemoveGroupMember={(sessionId, agentId) => runCrudAction(
-            () => handleRemoveGroupMember(sessionId, agentId),
-            "成员已移出群聊",
-            "移除成员失败",
-          )}
-        />
-      ) : (
-        <div className="agenthub-chat flex min-h-0 min-w-0 flex-1 items-center justify-center px-6 text-center text-lg">
-          <span className="agenthub-muted">
-          {currentProject ? "在当前项目中新建私聊或群聊" : "创建项目后开始"}
-          </span>
-        </div>
-      )}
-
-      <ProjectFileWorkspaceModal
-        open={fileWorkspaceOpen}
-        project={currentProject}
-        initialPath={fileWorkspaceInitialPath}
-        onClose={() => {
-          setFileWorkspaceOpen(false);
-          setFileWorkspaceInitialPath(null);
-        }}
-        onChanged={handleArtifactsChanged}
-      />
+      </main>
 
       {showGroupCreator && (
         <GroupChatCreator
@@ -498,6 +529,617 @@ export function AgentHubWorkbench() {
 }
 
 export default AgentHubWorkbench;
+
+function ActivityRail({
+  activePanel,
+  currentUser,
+  currentProject,
+  teams,
+  currentTeamId,
+  onSelectTeam,
+  onCreateTeam,
+  onJoinTeam,
+  onOpenSettings,
+  onLogout,
+  onTogglePanel,
+  onOpenProjectFiles,
+  projectFilesDisabled,
+}: {
+  activePanel: ActivityPanel | null;
+  currentUser: CurrentUser | null;
+  currentProject: Project | null;
+  teams: Team[];
+  currentTeamId: string | null;
+  onSelectTeam: (teamId: string | null) => void;
+  onCreateTeam: (name: string) => Promise<void> | void;
+  onJoinTeam: (code: string) => Promise<void> | void;
+  onOpenSettings: () => void;
+  onLogout: () => Promise<void> | void;
+  onTogglePanel: (panel: ActivityPanel) => void;
+  onOpenProjectFiles: () => void;
+  projectFilesDisabled: boolean;
+}) {
+  const [menuOpen, setMenuOpen] = useState<RailFloatingMenu | null>(null);
+  const workspaceButtonRef = useRef<HTMLButtonElement | null>(null);
+  const teamButtonRef = useRef<HTMLButtonElement | null>(null);
+  const userButtonRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const theme = useThemeStore((state) => state.theme);
+  const setTheme = useThemeStore((state) => state.setTheme);
+  const initials = getUserInitials(currentUser);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (menuRef.current?.contains(target)) return;
+      const anchors = [workspaceButtonRef.current, teamButtonRef.current, userButtonRef.current];
+      if (anchors.some((anchor) => anchor?.contains(target))) return;
+      setMenuOpen(null);
+    };
+    window.addEventListener("pointerdown", close, true);
+    return () => window.removeEventListener("pointerdown", close, true);
+  }, [menuOpen]);
+
+  const currentMenuAnchor = menuOpen === "workspace"
+    ? workspaceButtonRef
+    : menuOpen === "teams"
+      ? teamButtonRef
+      : userButtonRef;
+
+  return (
+    <nav className="agenthub-activity-rail flex shrink-0 flex-col items-center" aria-label="主导航">
+      <div className="agenthub-rail-logo-wrap">
+        <div className="agenthub-product-logo" aria-label="AgentHub">
+          <Sparkles size={17} aria-hidden="true" />
+        </div>
+      </div>
+
+      <div className="agenthub-rail-main">
+        <ActivityRailButton
+          icon={MessageCircle}
+          label="对话"
+          active={activePanel === "sessions"}
+          onClick={() => onTogglePanel("sessions")}
+        />
+        <ActivityRailButton
+          icon={Users}
+          label="好友"
+          active={activePanel === "agents"}
+          onClick={() => onTogglePanel("agents")}
+        />
+        <ActivityRailButton
+          icon={FolderOpen}
+          label="项目"
+          active={activePanel === "projects"}
+          onClick={() => onTogglePanel("projects")}
+        />
+        <ActivityRailButton
+          icon={PanelLeftClose}
+          label={currentProject ? `资源管理器：${currentProject.name}` : "资源管理器"}
+          disabled={projectFilesDisabled}
+          onClick={onOpenProjectFiles}
+        />
+      </div>
+
+      <div className="agenthub-rail-bottom">
+        <ActivityRailButton
+          ref={workspaceButtonRef}
+          icon={HardDrive}
+          label="工作空间"
+          active={menuOpen === "workspace"}
+          onClick={() => setMenuOpen((value) => value === "workspace" ? null : "workspace")}
+        />
+        <ActivityRailButton
+          ref={teamButtonRef}
+          icon={Building2}
+          label="团队"
+          active={menuOpen === "teams"}
+          onClick={() => setMenuOpen((value) => value === "teams" ? null : "teams")}
+        />
+        <ActivityRailButton
+          icon={theme === "dark" ? Moon : Sun}
+          label={theme === "dark" ? "切换浅色主题" : "切换深色主题"}
+          onClick={() => {
+            setMenuOpen(null);
+            setTheme(theme === "dark" ? "light" : "dark");
+          }}
+        />
+        <button
+          ref={userButtonRef}
+          type="button"
+          onClick={() => setMenuOpen((value) => value === "user" ? null : "user")}
+          className={`agenthub-rail-avatar agenthub-focus-ring ${menuOpen === "user" ? "agenthub-activity-active" : ""}`}
+          aria-label="个人菜单"
+          title={currentUser?.displayName ?? currentUser?.email ?? "个人菜单"}
+          data-active={menuOpen === "user"}
+        >
+          {currentUser?.avatarUrl ? (
+            <img src={currentUser.avatarUrl} alt="" />
+          ) : (
+            <span>{initials}</span>
+          )}
+          <span className="agenthub-rail-avatar-status" aria-hidden="true" />
+        </button>
+      </div>
+
+      <FloatingMenu
+        open={Boolean(menuOpen)}
+        anchorRef={currentMenuAnchor}
+        menuRef={menuRef}
+        width={256}
+        placement="top-start"
+        ariaLabel="活动栏菜单"
+      >
+        {menuOpen === "workspace" && (
+          <WorkspaceFloatingMenu
+            currentProject={currentProject}
+            teams={teams}
+            currentTeamId={currentTeamId}
+            onSelectTeam={(teamId) => {
+              onSelectTeam(teamId);
+              setMenuOpen(null);
+            }}
+          />
+        )}
+        {menuOpen === "teams" && (
+          <TeamFloatingMenu
+            teams={teams}
+            currentTeamId={currentTeamId}
+            onSelectTeam={(teamId) => {
+              onSelectTeam(teamId);
+              setMenuOpen(null);
+            }}
+            onCreateTeam={onCreateTeam}
+            onJoinTeam={onJoinTeam}
+          />
+        )}
+        {menuOpen === "user" && (
+          <UserFloatingMenu
+            currentUser={currentUser}
+            onOpenSettings={() => {
+              onOpenSettings();
+              setMenuOpen(null);
+            }}
+            onLogout={() => {
+              setMenuOpen(null);
+              void onLogout();
+            }}
+          />
+        )}
+      </FloatingMenu>
+    </nav>
+  );
+}
+
+const ActivityRailButton = forwardRef<HTMLButtonElement, {
+  icon: LucideIcon;
+  label: string;
+  active?: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+}>(function ActivityRailButton({
+  icon: Icon,
+  label,
+  active = false,
+  disabled = false,
+  onClick,
+}, ref) {
+  return (
+    <button
+      ref={ref}
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={`agenthub-activity-button agenthub-focus-ring ${active ? "agenthub-activity-active" : ""}`}
+      aria-label={label}
+      title={label}
+      data-active={active}
+    >
+      <Icon size={18} strokeWidth={active ? 2.35 : 1.85} aria-hidden="true" />
+    </button>
+  );
+});
+
+function WorkspaceFloatingMenu({
+  currentProject,
+  teams,
+  currentTeamId,
+  onSelectTeam,
+}: {
+  currentProject: Project | null;
+  teams: Team[];
+  currentTeamId: string | null;
+  onSelectTeam: (teamId: string | null) => void;
+}) {
+  return (
+    <div className="agenthub-rail-menu">
+      <div className="agenthub-rail-menu-profile">
+        <span className="agenthub-rail-menu-mark">
+          <HardDrive size={16} aria-hidden="true" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="agenthub-strong block truncate text-sm font-semibold">
+            {currentProject?.name ?? "未选择项目"}
+          </span>
+          <span className="agenthub-muted block truncate text-xs">
+            {currentProject ? currentProject.workspaceMode === "cloud" ? "云端工作区" : currentProject.workspacePath ?? "本机工作区" : "选择空间后载入项目"}
+          </span>
+        </span>
+      </div>
+      <div className="agenthub-floating-section-title">空间</div>
+      <button type="button" onClick={() => onSelectTeam(null)} className="agenthub-floating-row">
+        <UserRound size={14} aria-hidden="true" />
+        <span className="min-w-0 flex-1 truncate">个人空间</span>
+        {!currentTeamId && <Check size={14} aria-hidden="true" />}
+      </button>
+      {teams.map((team) => (
+        <button
+          key={team.id}
+          type="button"
+          onClick={() => onSelectTeam(team.id)}
+          className="agenthub-floating-row"
+        >
+          <Users size={14} aria-hidden="true" />
+          <span className="min-w-0 flex-1 truncate">{team.name}</span>
+          {currentTeamId === team.id && <Check size={14} aria-hidden="true" />}
+        </button>
+      ))}
+      {teams.length === 0 && (
+        <div className="agenthub-rail-menu-empty">当前只有个人空间</div>
+      )}
+    </div>
+  );
+}
+
+const TEAM_ROLE_LABELS: Record<Team["role"], string> = {
+  owner: "所有者",
+  admin: "管理员",
+  member: "成员",
+  viewer: "访客",
+};
+
+function TeamFloatingMenu({
+  teams,
+  currentTeamId,
+  onSelectTeam,
+  onCreateTeam,
+  onJoinTeam,
+}: {
+  teams: Team[];
+  currentTeamId: string | null;
+  onSelectTeam: (teamId: string | null) => void;
+  onCreateTeam: (name: string) => Promise<void> | void;
+  onJoinTeam: (code: string) => Promise<void> | void;
+}) {
+  const [teamName, setTeamName] = useState("");
+  const [joinCode, setJoinCode] = useState("");
+  const [expandedTeamId, setExpandedTeamId] = useState<string | null>(currentTeamId);
+  const [membersByTeam, setMembersByTeam] = useState<Record<string, TeamMember[]>>({});
+  const [memberEmail, setMemberEmail] = useState("");
+  const [memberRole, setMemberRole] = useState<TeamRole>("member");
+  const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const pushToast = useToastStore((state) => state.pushToast);
+
+  const runAction = async (action: string, task: () => Promise<void>) => {
+    if (busyAction) return;
+    setBusyAction(action);
+    setError(null);
+    try {
+      await task();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "操作失败，请稍后重试");
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const submitCreate = () => {
+    const name = teamName.trim();
+    if (!name) return;
+    void runAction("create", async () => {
+      await onCreateTeam(name);
+      setTeamName("");
+      pushToast({ kind: "success", title: "团队已创建" });
+    });
+  };
+
+  const submitJoin = () => {
+    const code = joinCode.trim();
+    if (!code) return;
+    void runAction("join", async () => {
+      await onJoinTeam(code);
+      setJoinCode("");
+      pushToast({ kind: "success", title: "已加入团队" });
+    });
+  };
+
+  const copyJoinCode = (team: Team) => {
+    void runAction(`copy-${team.id}`, async () => {
+      const result = await fetchTeamJoinCode(team.id);
+      if (!navigator.clipboard?.writeText) {
+        throw new Error("当前浏览器不支持自动复制");
+      }
+      await navigator.clipboard.writeText(result.code);
+      pushToast({ kind: "success", title: "邀请码已复制", description: team.name });
+    });
+  };
+
+  const loadMembers = (teamId: string) => {
+    void runAction(`members-${teamId}`, async () => {
+      const members = await fetchTeamMembers(teamId);
+      setMembersByTeam((value) => ({ ...value, [teamId]: members }));
+    });
+  };
+
+  const toggleTeamManagement = (teamId: string) => {
+    setExpandedTeamId((value) => value === teamId ? null : teamId);
+    if (!membersByTeam[teamId]) loadMembers(teamId);
+  };
+
+  const submitAddMember = (teamId: string) => {
+    const email = memberEmail.trim();
+    if (!email) return;
+    void runAction(`add-member-${teamId}`, async () => {
+      await addTeamMember(teamId, email, memberRole);
+      setMemberEmail("");
+      const members = await fetchTeamMembers(teamId);
+      setMembersByTeam((value) => ({ ...value, [teamId]: members }));
+      pushToast({ kind: "success", title: "成员已加入" });
+    });
+  };
+
+  const changeMemberRole = (teamId: string, member: TeamMember, role: TeamRole) => {
+    void runAction(`role-${member.id}`, async () => {
+      const updated = await updateTeamMemberRole(teamId, member.id, role);
+      setMembersByTeam((value) => ({
+        ...value,
+        [teamId]: (value[teamId] ?? []).map((item) => item.id === member.id ? updated : item),
+      }));
+    });
+  };
+
+  const removeMember = (teamId: string, member: TeamMember) => {
+    void runAction(`remove-${member.id}`, async () => {
+      await removeTeamMember(teamId, member.id);
+      setMembersByTeam((value) => ({
+        ...value,
+        [teamId]: (value[teamId] ?? []).filter((item) => item.id !== member.id),
+      }));
+      pushToast({ kind: "success", title: "成员已移除" });
+    });
+  };
+
+  return (
+    <div className="agenthub-rail-menu agenthub-team-menu">
+      <div className="agenthub-rail-menu-profile">
+        <span className="agenthub-rail-menu-mark">
+          <Users size={16} aria-hidden="true" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="agenthub-strong block truncate text-sm font-semibold">团队</span>
+          <span className="agenthub-muted block truncate text-xs">{teams.length} 个团队空间</span>
+        </span>
+      </div>
+
+      <div className="agenthub-floating-section-title">当前空间</div>
+      <button type="button" onClick={() => onSelectTeam(null)} className="agenthub-floating-row">
+        <UserRound size={14} aria-hidden="true" />
+        <span className="min-w-0 flex-1 truncate">个人空间</span>
+        {!currentTeamId && <Check size={14} aria-hidden="true" />}
+      </button>
+      {teams.map((team) => (
+        <button
+          key={team.id}
+          type="button"
+          onClick={() => onSelectTeam(team.id)}
+          className="agenthub-floating-row"
+        >
+          <Users size={14} aria-hidden="true" />
+          <span className="min-w-0 flex-1 truncate">{team.name}</span>
+          {currentTeamId === team.id && <Check size={14} aria-hidden="true" />}
+        </button>
+      ))}
+
+      <div className="agenthub-floating-section-title">加入团队</div>
+      <div className="agenthub-floating-form">
+        <input
+          value={joinCode}
+          onChange={(event) => setJoinCode(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") submitJoin();
+          }}
+          className="agenthub-inline-input"
+          placeholder="输入邀请码"
+        />
+        <button
+          type="button"
+          onClick={submitJoin}
+          disabled={!joinCode.trim() || Boolean(busyAction)}
+          className="agenthub-floating-action-button"
+        >
+          加入
+        </button>
+      </div>
+
+      <div className="agenthub-floating-section-title">创建团队</div>
+      <div className="agenthub-floating-form">
+        <input
+          value={teamName}
+          onChange={(event) => setTeamName(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") submitCreate();
+          }}
+          className="agenthub-inline-input"
+          placeholder="团队名称"
+        />
+        <button
+          type="button"
+          onClick={submitCreate}
+          disabled={!teamName.trim() || Boolean(busyAction)}
+          className="agenthub-floating-action-button"
+        >
+          <Plus size={13} aria-hidden="true" />
+          创建
+        </button>
+      </div>
+
+      <div className="agenthub-floating-section-title">团队管理</div>
+      {teams.length === 0 ? (
+        <div className="agenthub-rail-menu-empty">创建或加入团队后会显示管理入口</div>
+      ) : (
+        <div className="agenthub-team-card-list">
+          {teams.map((team) => {
+            const canManage = team.role === "owner" || team.role === "admin";
+            const actionBusy = busyAction === `copy-${team.id}`;
+            return (
+              <div key={team.id} className="agenthub-team-card">
+                <div className="min-w-0">
+                  <div className="agenthub-strong truncate text-sm font-semibold">{team.name}</div>
+                  <div className="agenthub-muted mt-1 text-xs">
+                    {TEAM_ROLE_LABELS[team.role]} · {team.memberCount} 人
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => copyJoinCode(team)}
+                  disabled={!canManage || Boolean(busyAction)}
+                  className="agenthub-team-code-button"
+                  title={canManage ? "复制团队邀请码" : "需要管理员权限"}
+                >
+                  <Copy size={13} aria-hidden="true" />
+                  {actionBusy ? "复制中" : "邀请码"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => toggleTeamManagement(team.id)}
+                  className="agenthub-team-code-button"
+                  title="成员管理"
+                >
+                  <Users size={13} aria-hidden="true" />
+                  管理
+                </button>
+                {expandedTeamId === team.id && (
+                  <div className="agenthub-team-member-panel">
+                    <div className="agenthub-team-member-form">
+                      <input
+                        value={memberEmail}
+                        onChange={(event) => setMemberEmail(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") submitAddMember(team.id);
+                        }}
+                        disabled={!canManage || Boolean(busyAction)}
+                        className="agenthub-inline-input"
+                        placeholder="成员邮箱"
+                      />
+                      <select
+                        value={memberRole}
+                        onChange={(event) => setMemberRole(event.target.value as TeamRole)}
+                        disabled={!canManage || Boolean(busyAction)}
+                        className="agenthub-team-role-select"
+                      >
+                        <option value="admin">管理员</option>
+                        <option value="member">成员</option>
+                        <option value="viewer">访客</option>
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => submitAddMember(team.id)}
+                        disabled={!canManage || !memberEmail.trim() || Boolean(busyAction)}
+                        className="agenthub-floating-action-button"
+                      >
+                        添加
+                      </button>
+                    </div>
+                    {(membersByTeam[team.id] ?? []).length === 0 ? (
+                      <div className="agenthub-rail-menu-empty">
+                        {busyAction === `members-${team.id}` ? "正在加载成员" : "暂无成员数据"}
+                      </div>
+                    ) : (
+                      <div className="agenthub-team-member-list">
+                        {(membersByTeam[team.id] ?? []).map((member) => (
+                          <div key={member.id} className="agenthub-team-member-row">
+                            <span className="min-w-0 flex-1">
+                              <span className="agenthub-strong block truncate text-xs font-semibold">{member.displayName || member.email}</span>
+                              <span className="agenthub-muted block truncate text-[11px]">{member.email}</span>
+                            </span>
+                            <select
+                              value={member.role}
+                              onChange={(event) => changeMemberRole(team.id, member, event.target.value as TeamRole)}
+                              disabled={!canManage || member.role === "owner" || Boolean(busyAction)}
+                              className="agenthub-team-role-select"
+                            >
+                              <option value="owner">所有者</option>
+                              <option value="admin">管理员</option>
+                              <option value="member">成员</option>
+                              <option value="viewer">访客</option>
+                            </select>
+                            <button
+                              type="button"
+                              onClick={() => removeMember(team.id, member)}
+                              disabled={!canManage || member.role === "owner" || Boolean(busyAction)}
+                              className="agenthub-team-member-danger"
+                              aria-label={`移除 ${member.displayName || member.email}`}
+                              title="移除成员"
+                            >
+                              <Trash2 size={13} aria-hidden="true" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {error && <div className="agenthub-floating-error">{error}</div>}
+    </div>
+  );
+}
+
+function UserFloatingMenu({
+  currentUser,
+  onOpenSettings,
+  onLogout,
+}: {
+  currentUser: CurrentUser | null;
+  onOpenSettings: () => void;
+  onLogout: () => void;
+}) {
+  return (
+    <div className="agenthub-rail-menu">
+      <div className="agenthub-rail-menu-profile">
+        <span className="agenthub-rail-menu-avatar">
+          {currentUser?.avatarUrl ? <img src={currentUser.avatarUrl} alt="" /> : getUserInitials(currentUser)}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="agenthub-strong block truncate text-sm font-semibold">
+            {currentUser?.displayName ?? currentUser?.username ?? "AgentHub 用户"}
+          </span>
+          <span className="agenthub-muted block truncate text-xs">{currentUser?.email ?? "本机模式"}</span>
+        </span>
+      </div>
+      <button type="button" onClick={onOpenSettings} className="agenthub-floating-row">
+        <Settings size={14} aria-hidden="true" />
+        系统设置
+      </button>
+      <button type="button" onClick={onLogout} className="agenthub-floating-row agenthub-floating-row-danger">
+        <LogOut size={14} aria-hidden="true" />
+        退出登录
+      </button>
+    </div>
+  );
+}
+
+function getUserInitials(currentUser: CurrentUser | null) {
+  const source = currentUser?.displayName || currentUser?.username || currentUser?.email || "AH";
+  return source.trim().slice(0, 2).toUpperCase();
+}
 
 function DeveloperToolsPage({
   agents,

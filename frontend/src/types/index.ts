@@ -73,6 +73,9 @@ export interface Session {
   unreadCount?: number;
   lastReadAt?: string | null;
   isMuted?: boolean;
+  latestMessagePreview?: string | null;
+  latestMessageRole?: string | null;
+  latestMessageAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }
