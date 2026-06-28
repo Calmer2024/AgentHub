@@ -1,18 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
 import { Loader2, Search, X } from "lucide-react";
 import { searchMessages } from "../api/client";
-import type { Message } from "../types";
+import type { CurrentUser, Message } from "../types";
 import { AgentAvatar } from "./AgentAvatar";
 import { formatChinaDateTime } from "../utils/time";
 
 interface Props {
   sessionId: string;
   open: boolean;
+  currentUser?: CurrentUser | null;
   onClose: () => void;
   onJump: (sessionId: string, messageId: string) => void;
 }
 
-export function SearchPanel({ sessionId, open, onClose, onJump }: Props) {
+export function SearchPanel({ sessionId, open, currentUser, onClose, onJump }: Props) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
@@ -42,6 +43,7 @@ export function SearchPanel({ sessionId, open, onClose, onJump }: Props) {
 
   const visible = open ? "translate-x-0 opacity-100" : "translate-x-full opacity-0 pointer-events-none";
   const showEmpty = query.trim() && !loading && !error && results.length === 0;
+  const currentUserName = currentUser?.displayName || currentUser?.username || currentUser?.email || "你";
 
   return (
     <div className={`agenthub-modal absolute inset-y-0 right-0 z-30 w-full max-w-md border-l transition-all duration-200 ${visible}`}>
@@ -99,12 +101,12 @@ export function SearchPanel({ sessionId, open, onClose, onJump }: Props) {
               >
                 <AgentAvatar
                   kind={message.role === "user" ? "user" : "agent"}
-                  name={message.role === "user" ? "用户" : message.agentName ?? message.sourceName ?? "AI"}
+                  name={messageLabel(message, currentUserName)}
                   size="sm"
                 />
                 <span className="min-w-0 flex-1">
                   <span className="agenthub-muted mb-1 flex items-center gap-2 text-xs">
-                    <span className="truncate">{message.role === "user" ? "用户" : message.agentName ?? message.sourceName ?? "AI"}</span>
+                    <span className="truncate">{messageLabel(message, currentUserName)}</span>
                     <span className="shrink-0">{formatTime(message.createdAt)}</span>
                   </span>
                   <Highlight text={message.highlight || message.content} />
@@ -116,6 +118,12 @@ export function SearchPanel({ sessionId, open, onClose, onJump }: Props) {
       </div>
     </div>
   );
+}
+
+function messageLabel(message: Message, currentUserName: string) {
+  return message.role === "user"
+    ? message.sourceName || currentUserName
+    : message.agentName ?? message.sourceName ?? "AI";
 }
 
 function Highlight({ text }: { text: string }) {

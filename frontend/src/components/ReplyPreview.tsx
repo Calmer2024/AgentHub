@@ -6,16 +6,17 @@ import remarkGfm from "remark-gfm";
 interface Props {
   message: Message | ReplyReference | null;
   compact?: boolean;
+  currentUserName?: string;
   onClear?: () => void;
   onJump?: (messageId: string) => void;
 }
 
-export function ReplyPreview({ message, compact = false, onClear, onJump }: Props) {
+export function ReplyPreview({ message, compact = false, currentUserName = "你", onClear, onJump }: Props) {
   const missing = !message;
   const label = missing
     ? "原消息已删除"
     : message.role === "user"
-      ? "用户"
+      ? message.sourceName || currentUserName
       : message.agentName ?? message.sourceName ?? "AI";
   const content = missing ? "原消息已删除" : message.content;
   const messageId = message?.id;

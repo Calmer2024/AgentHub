@@ -227,7 +227,7 @@ export function ChatInput({
   return (
     <form onSubmit={handleSubmit} className="agenthub-inputbar relative px-4 pb-4 pt-2">
       {showMentions && (
-        <div ref={listRef} className="agenthub-menu absolute bottom-full left-4 z-40 mb-2 max-h-56 w-72 overflow-y-auto rounded-2xl border p-1.5">
+        <div ref={listRef} className="agenthub-menu absolute bottom-full left-4 z-40 mb-2 max-h-56 overflow-y-auto rounded-2xl border p-1.5">
           {mentionableAgents.length === 0 ? (
             <div className="agenthub-muted px-3 py-2 text-xs">
               {mentionLoading ? "正在加载可提及智能体..." : "暂无可提及智能体"}

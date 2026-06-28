@@ -3,7 +3,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Info, Pin } from "lucide-react";
 import type {
-  AgentConfig, ApprovalCheckpoint, Artifact, Message, ReplyReference, RunRead, TaskRead,
+  AgentConfig, ApprovalCheckpoint, Artifact, CurrentUser, Message, ReplyReference, RunRead, TaskRead,
 } from "../types";
 import { MessageActions } from "./MessageActions";
 import { ReplyPreview } from "./ReplyPreview";
@@ -14,7 +14,6 @@ import { OrchestratorExecutionPanel } from "./OrchestratorExecutionPanel";
 import { MessageArtifactStrip } from "./MessageArtifactStrip";
 import { RuntimeControlStrip } from "./RuntimeControlStrip";
 import { ApprovalCard } from "./ApprovalCard";
-import { formatChinaFullDateTime } from "../utils/time";
 
 interface Props {
   message: Message;
@@ -27,6 +26,7 @@ interface Props {
   relatedApprovals?: ApprovalCheckpoint[];
   artifactById?: Map<string, Artifact>;
   agent?: AgentConfig | null;
+  currentUser?: CurrentUser | null;
   parentMessage?: Message | null;
   highlighted?: boolean;
   selectionMode?: boolean;
@@ -47,26 +47,6 @@ interface Props {
   onOpenApprovalArtifact?: (artifact: Artifact) => void;
   busyApprovalId?: string | null;
 }
-
-const ROLE_LABELS: Record<string, string> = {
-  planner: "规划者",
-  executor: "执行者",
-  reviewer: "审查者",
-  researcher: "研究员",
-  synthesizer: "综合者",
-  critic: "批判者",
-  interviewer: "访谈者",
-};
-
-const ROLE_STYLES: Record<string, string> = {
-  planner: "border-[color:var(--ah-info)] bg-[color:var(--ah-info-soft)] text-[color:var(--ah-text-strong)]",
-  executor: "border-[color:var(--ah-border-strong)] bg-[color:var(--ah-card-soft)] text-[color:var(--ah-text-strong)]",
-  reviewer: "border-[color:var(--ah-warning)] bg-[color:var(--ah-warning-soft)] text-[color:var(--ah-text-strong)]",
-  researcher: "border-[color:var(--ah-success)] bg-[color:var(--ah-success-soft)] text-[color:var(--ah-text-strong)]",
-  synthesizer: "border-[color:var(--ah-info)] bg-[color:var(--ah-info-soft)] text-[color:var(--ah-text-strong)]",
-  critic: "border-[color:var(--ah-danger)] bg-[color:var(--ah-danger-soft)] text-[color:var(--ah-danger)]",
-  interviewer: "border-[color:var(--ah-border-strong)] bg-[color:var(--ah-panel-muted)] text-[color:var(--ah-text-strong)]",
-};
 
 function replyReference(message: Message): ReplyReference | null {
   const ref = message.metadata?.replyReference;
@@ -124,11 +104,21 @@ function MarkdownContent({ content }: { content: string }) {
   );
 }
 
+function messageDisplayTime(value: string) {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "";
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  const hour = `${date.getHours()}`.padStart(2, "0");
+  const minute = `${date.getMinutes()}`.padStart(2, "0");
+  return `${month}-${day} ${hour}:${minute}`;
+}
+
 function MessageBubbleBase({
   message, artifacts = [], relatedArtifacts, run = null, tasks = [],
   approvals = [], relatedApprovals, artifactById,
   isStreaming = false,
-  agent, parentMessage, highlighted = false, selectionMode = false, selected = false,
+  agent, currentUser, parentMessage, highlighted = false, selectionMode = false, selected = false,
   onReply, onRegenerate, onTogglePin, onForward, onMultiSelect, onToggleSelect,
   onCopy, onJumpToMessage, onArtifactsChanged,
   onCancelRun, cancellingRunId, onApprove, onReject, onOpenApprovalArtifact, busyApprovalId,
@@ -145,19 +135,14 @@ function MessageBubbleBase({
   const suppressEmptyAssistant = !isUser && isEmpty && !traceFinished && (isStreaming || runActive);
   const showEmptyAssistant = !isUser && isEmpty && !suppressEmptyAssistant;
   const isSummary = message.sourceType === "orchestrator" || message.contentType === "orchestrator_summary";
-  const isCollaborating = Boolean(message.isCollaborating || message.agentRole);
-  const roleStyle = message.agentRole
-    ? ROLE_STYLES[message.agentRole] ?? ROLE_STYLES.executor
-    : ROLE_STYLES.executor;
-
   const bgClass = isUser
     ? "agenthub-bubble-user"
     : "agenthub-bubble-agent border";
-  const roundClass = isUser ? "rounded-[22px] rounded-br-lg" : "rounded-[22px] rounded-bl-lg";
+  const roundClass = "rounded-[22px]";
   const summaryClass = "agenthub-card border";
   const bubbleClass = isSummary
     ? summaryClass
-    : isCollaborating && !isUser ? `border-l-4 ${roleStyle}` : bgClass;
+    : bgClass;
 
   const hasPreviousVersion = Array.isArray(message.metadata?.versions)
     && message.metadata.versions.length > 0;
@@ -171,9 +156,13 @@ function MessageBubbleBase({
     : isSummary
       ? "system"
       : "agent";
+  const currentUserName = currentUser?.displayName || currentUser?.username || currentUser?.email || "你";
+  const userDisplayName = message.sourceName || currentUserName;
   const avatarName = isUser
-    ? "用户"
+    ? userDisplayName
     : message.agentName ?? message.sourceName ?? "AI";
+  const displayName = isUser ? userDisplayName : message.agentName ?? message.sourceName ?? "AI";
+  const displayTime = messageDisplayTime(message.createdAt);
   const messageApprovals = relatedApprovals ?? approvals.filter((approval) => approval.messageId === message.id);
   const artifactsById = artifactById ?? new Map(artifacts.map((artifact) => [artifact.id, artifact]));
 
@@ -192,7 +181,7 @@ function MessageBubbleBase({
 
   const openContextMenu = (event: React.MouseEvent<HTMLDivElement>) => {
     event.preventDefault();
-    const menuWidth = 176;
+    const menuWidth = 132;
     const menuHeight = 184;
     setContextMenuPosition({
       x: Math.min(event.clientX, window.innerWidth - menuWidth - 8),
@@ -201,7 +190,7 @@ function MessageBubbleBase({
   };
 
   return (
-    <div className={`group relative mb-4 flex min-w-0 scroll-mt-6 items-end gap-2.5 transition ${
+    <div className={`group relative mb-6 flex min-w-0 scroll-mt-6 items-start gap-4 transition ${
       isUser ? "flex-row-reverse justify-start" : "justify-start"
     } ${highlighted ? "rounded-2xl bg-[color:var(--ah-highlight-bg)] ring-2 ring-[color:var(--ah-border-strong)]" : ""}`}>
       {selectionMode && (
@@ -221,13 +210,18 @@ function MessageBubbleBase({
         name={avatarName}
         kind={avatarKind}
         size="md"
-        className="mb-0.5"
+        className="mt-0.5"
       />
-      <div className={`${isSummary || orchestratorPlan || orchestratorExecution ? "max-w-[min(92%,1080px)]" : "max-w-[min(78%,860px)]"} min-w-0 flex flex-col ${
+      <div className={`${isSummary || orchestratorPlan || orchestratorExecution ? "max-w-[min(92%,1080px)]" : isUser ? "max-w-[min(68%,720px)]" : "max-w-[min(88%,1120px)]"} min-w-0 flex flex-col ${
         isUser ? "items-end" : "items-start"
       }`}>
+        <div className={`agenthub-message-head mb-1.5 flex min-w-0 items-center gap-2 px-0.5 text-xs ${isUser ? "flex-row-reverse text-right" : ""}`}>
+          <span className="agenthub-message-author truncate">{displayName}</span>
+          {!isUser && <span className="agenthub-message-ai-badge">AI</span>}
+          <time className="agenthub-message-time">{displayTime}</time>
+        </div>
         <div
-          className={`relative min-w-0 max-w-full overflow-hidden ${
+          className={`agenthub-message-bubble relative min-w-0 max-w-full overflow-hidden ${
           isSummary ? `${summaryClass} w-full` : bubbleClass
         } ${roundClass}`}
           onContextMenu={openContextMenu}
@@ -250,27 +244,7 @@ function MessageBubbleBase({
               <span className="agenthub-muted ml-2">{message.sourceName ?? "编排器中枢"}</span>
             </div>
           )}
-          {!isUser && !isSummary && message.agentName && (
-            <div className="agenthub-agent-namebar flex items-center gap-2 rounded-t-[20px] px-3 pb-1.5 pt-2.5 text-xs font-medium">
-              <span className="agenthub-agent-name inline-flex min-w-0 items-center rounded-full px-2.5 py-0.5">
-                <span className="truncate">@{message.agentName}</span>
-              </span>
-              {message.agentRole && (
-                <span className={`rounded border px-1.5 py-0.5 ${roleStyle}`}>
-                  {ROLE_LABELS[message.agentRole] ?? message.agentRole}
-                </span>
-              )}
-              {typeof message.phase === "number" && (
-                <span className="agenthub-muted">阶段 {message.phase}</span>
-              )}
-              {message.taskName && (
-                <span className="agenthub-muted inline-block max-w-full truncate align-bottom">
-                  {message.taskName}
-                </span>
-              )}
-            </div>
-          )}
-          <div className={isUser ? "min-w-0 max-w-full px-5 py-3.5" : "min-w-0 max-w-full px-4 py-3.5"}>
+          <div className={isUser ? "min-w-0 max-w-full px-4 py-3" : "min-w-0 max-w-full px-5 py-4 md:px-6"}>
           {message.isPinned && (
             <div className={`mb-2 text-xs font-medium ${isUser ? "text-current/80" : "agenthub-accent"}`}>
               <Pin size={13} aria-label="已 Pin" />
@@ -280,6 +254,7 @@ function MessageBubbleBase({
             <ReplyPreview
               message={referencedMessage}
               compact
+              currentUserName={currentUserName}
               onJump={onJumpToMessage}
             />
           )}
@@ -346,9 +321,6 @@ function MessageBubbleBase({
           ))}
           </div>
         </div>
-        <time className={`agenthub-message-meta mt-1.5 block px-1 text-[11px] ${isUser ? "text-right" : "text-left"}`}>
-          {formatChinaFullDateTime(message.createdAt)}
-        </time>
       </div>
     </div>
   );

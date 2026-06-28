@@ -18,25 +18,32 @@ function initialTheme(): ThemeMode {
   return saved === "light" ? "light" : "dark";
 }
 
-function applyTheme(theme: ThemeMode) {
+function applyTheme(theme: ThemeMode, animated = true) {
   if (typeof document === "undefined") return;
   const root = document.documentElement;
-  root.classList.add(TRANSITION_CLASS);
-  root.dataset.theme = theme;
   if (transitionTimer !== null) window.clearTimeout(transitionTimer);
+  if (!animated) {
+    root.classList.remove(TRANSITION_CLASS);
+    root.dataset.theme = theme;
+    transitionTimer = null;
+    return;
+  }
+  root.classList.add(TRANSITION_CLASS);
+  root.getBoundingClientRect();
+  root.dataset.theme = theme;
   transitionTimer = window.setTimeout(() => {
     root.classList.remove(TRANSITION_CLASS);
     transitionTimer = null;
-  }, 180);
+  }, 140);
 }
 
 export const useThemeStore = create<ThemeState>((set, get) => {
   const theme = initialTheme();
-  applyTheme(theme);
+  applyTheme(theme, false);
   return {
     theme,
     setTheme: (nextTheme) => {
-      applyTheme(nextTheme);
+      applyTheme(nextTheme, true);
       if (typeof window !== "undefined") window.localStorage.setItem(STORAGE_KEY, nextTheme);
       set({ theme: nextTheme });
     },

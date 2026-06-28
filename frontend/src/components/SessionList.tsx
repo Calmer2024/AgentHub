@@ -427,7 +427,7 @@ export function SessionList({
                   )}
                 </button>
                 {agentPickerOpen && (
-                  <div className="agenthub-menu agenthub-popover absolute left-0 top-12 z-20 w-72 rounded-2xl border p-1.5">
+                  <div className="agenthub-menu agenthub-popover absolute left-0 top-12 z-20 rounded-2xl border p-1.5">
                     {agents.map((agent) => (
                       <button
                         key={agent.id}

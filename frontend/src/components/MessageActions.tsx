@@ -30,7 +30,7 @@ export function MessageActions({
 
   const menu = (
     <div
-      className="agenthub-menu agenthub-popover fixed z-[1200] w-44 rounded-2xl border p-1.5"
+      className="agenthub-menu agenthub-popover fixed z-[1200] rounded-2xl border p-1.5"
       style={{ left: position.x, top: position.y }}
       role="menu"
       onContextMenu={(event) => event.preventDefault()}
@@ -68,7 +68,7 @@ function MenuAction({
       type="button"
       role="menuitem"
       onClick={onClick}
-      className="agenthub-nav-idle flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition active:translate-y-px"
+      className="agenthub-nav-idle flex w-full items-center gap-2 whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm transition active:translate-y-px"
     >
       <span className="agenthub-muted inline-flex h-5 w-5 items-center justify-center">{icon}</span>
       <span>{label}</span>

@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CheckSquare, Files, Forward, PanelLeftClose, Search, Users, X } from "lucide-react";
 import type {
   Message, AgentConfig, CollabTask, ChainStep, DAGPhase, Artifact,
-  ApprovalCheckpoint, TaskRead, DraftOrchestratorPlan, Session, OrchestratorExecution,
+  ApprovalCheckpoint, TaskRead, DraftOrchestratorPlan, Session, OrchestratorExecution, CurrentUser,
 } from "../types";
 import { MessageBubble } from "./MessageBubble";
 import { ChatInput } from "./ChatInput";
@@ -42,6 +42,7 @@ interface Props {
   streamingError: string | null;
   hydrating?: boolean;
   currentAgent: AgentConfig | null;
+  currentUser: CurrentUser | null;
   currentSessionId: string;
   sessions: Session[];
   agents: AgentConfig[];
@@ -121,7 +122,7 @@ export async function copyTextToClipboard(content: string): Promise<void> {
 export function ChatWindow({
   messages, artifacts, isStreaming, streamingError,
   hydrating = false,
-  currentAgent, currentSessionId, sessions, agents, mode, routeAgents, orchestratorIntent, planSummary, mentionableAgents,
+  currentAgent, currentUser, currentSessionId, sessions, agents, mode, routeAgents, orchestratorIntent, planSummary, mentionableAgents,
   mentionLoading = false,
   groupMembers,
   groupMembersLoading = false,
@@ -259,10 +260,20 @@ export function ChatWindow({
   const showCollabPanel = collabTasks.length > 0 || Boolean(draftPlan);
   const showRouteBanner = !showCollabPanel && !isPlanOnly && routeAgents && routeAgents.length > 0;
   const activeGroupDialog = useMemo(() => findActiveGroupDialog(messages), [messages]);
-  const headerStatus = isStreaming || hasActiveRun
+  const friendOnline = !isGroup && currentAgent?.status === "ready";
+  const headerPresence = isGroup
+    ? groupMembersFull.length > 0
+      ? `${groupMembersFull.length} 位成员在线`
+      : "群聊在线"
+    : friendOnline
+      ? "在线"
+      : currentAgent
+        ? "离线"
+        : "未选择智能体";
+  const headerActivity = isStreaming || hasActiveRun
     ? "对方正在输入"
     : activeGroupDialog ? `等待你回复 @${activeGroupDialog.activeAgentName}`
-    : isGroup ? "多智能体协作" : currentAgent?.name ?? currentAgent?.cliTool ?? "命令行智能体";
+    : "";
 
   const refreshRuntime = useCallback(async () => {
     try {
@@ -607,7 +618,7 @@ export function ChatWindow({
   }, [isGroup]);
 
   return (
-    <div className="agenthub-chat relative flex h-full min-h-0 min-w-0 max-w-full flex-1 flex-col overflow-hidden transition-colors duration-300">
+    <div className="agenthub-chat relative flex h-full min-h-0 min-w-0 max-w-full flex-1 flex-col overflow-hidden">
       {/* Header */}
       <div className="agenthub-header flex items-center justify-between border-b px-4 py-3 md:px-6">
         <div className="flex min-w-0 items-center gap-3">
@@ -621,8 +632,10 @@ export function ChatWindow({
             <h1 className="agenthub-strong truncate text-base font-semibold">
               {currentSession?.title ?? (isGroup ? "群聊" : currentAgent?.name ?? "未选择智能体")}
             </h1>
-            <p className="agenthub-muted mt-0.5 truncate text-xs">
-              {headerStatus}
+            <p className="agenthub-chat-presence mt-0.5 truncate text-xs">
+              <span className={`agenthub-presence-dot ${friendOnline || isGroup ? "agenthub-presence-dot-online" : ""}`} aria-hidden="true" />
+              <span>{headerPresence}</span>
+              {headerActivity && <span className="agenthub-presence-activity"> · {headerActivity}</span>}
             </p>
           </div>
         </div>
@@ -847,6 +860,7 @@ export function ChatWindow({
                     relatedApprovals={relatedApprovals}
                     artifactById={relatedApprovals.length > 0 ? artifactById : undefined}
                     agent={msg.agentName ? agentByName.get(msg.agentName) ?? null : null}
+                    currentUser={currentUser}
                     parentMessage={msg.parentMessageId ? messageById.get(msg.parentMessageId) ?? null : null}
                     highlighted={highlightedMessageId === msg.id}
                     selectionMode={selectionMode}
@@ -920,6 +934,7 @@ export function ChatWindow({
       <SearchPanel
         sessionId={currentSessionId}
         open={searchOpen}
+        currentUser={currentUser}
         onClose={() => setSearchOpen(false)}
         onJump={(_, messageId) => jumpToMessage(messageId)}
       />

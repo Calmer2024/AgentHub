@@ -1258,7 +1258,7 @@ export function ProjectFileWorkspaceModal({
 
       {fileContextMenu && (
         <div
-          className="agenthub-file-context-menu fixed z-[1600] w-52 rounded-xl border p-1.5 text-sm shadow-xl"
+          className="agenthub-menu agenthub-file-context-menu fixed z-[1600] rounded-xl border p-1.5 text-sm shadow-xl"
           role="menu"
           aria-label={`${fileContextMenu.path} 文件操作`}
           style={contextMenuStyle}

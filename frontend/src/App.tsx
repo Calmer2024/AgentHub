@@ -303,6 +303,7 @@ export function AgentHubWorkbench() {
       hydrating={sessionHydrating}
       streamingError={streamingError}
       currentAgent={currentAgent} currentSessionId={currentSessionId}
+      currentUser={currentUser}
       sessions={sessions}
       agents={agents} mode={currentMode}
       routeAgents={routeAgents} orchestratorIntent={orchestratorIntent}

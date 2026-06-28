@@ -53,7 +53,7 @@ export function FloatingMenu({
         return;
       }
       const measuredWidth = internalMenuRef.current?.offsetWidth;
-      const menuWidth = width ?? Math.max(104, Math.min(240, measuredWidth || rect.width));
+      const menuWidth = width ?? Math.max(88, Math.min(220, measuredWidth || rect.width));
       const menuHeight = internalMenuRef.current?.offsetHeight ?? 0;
       const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
       const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
@@ -102,8 +102,8 @@ export function FloatingMenu({
         left: position.left,
         top: position.top,
         width: position.width,
-        minWidth: width ? undefined : 104,
-        maxWidth: width ? undefined : 240,
+        minWidth: width ? undefined : 88,
+        maxWidth: width ? undefined : 220,
         maxHeight: "calc(100dvh - 16px)",
         overflowY: "auto",
       }}
