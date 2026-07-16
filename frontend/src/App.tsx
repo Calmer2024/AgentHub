@@ -1,17 +1,16 @@
-import { forwardRef, useCallback, useEffect, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import {
   Building2,
   Check,
   Copy,
   FolderOpen,
   HardDrive,
-  LogOut,
   MessageCircle,
+  Monitor,
   Moon,
   PanelLeftClose,
   Plus,
   Settings,
-  Sparkles,
   Sun,
   Trash2,
   UserRound,
@@ -27,8 +26,11 @@ import { GroupChatCreator } from "./components/GroupChatCreator";
 import { ToastViewport } from "./components/ToastViewport";
 import { OrchestratorDebugPanel } from "./components/OrchestratorDebugPanel";
 import { ProjectFileWorkspaceModal } from "./components/ProjectFileWorkspaceModal";
+import { BrandLogo } from "./components/BrandLogo";
+import { DesktopTitleBar } from "./components/DesktopTitleBar";
 import { useCapabilities } from "./app/ShellProvider";
 import { CloudWorkspaceSettings } from "./shells/saas/CloudWorkspaceSettings";
+import { AppSettingsPage } from "./components/AppSettingsPage";
 import {
   deleteAgent,
   addTeamMember,
@@ -36,7 +38,6 @@ import {
   fetchTeamJoinCode,
   fetchArtifacts,
   fetchMessages,
-  logoutCurrentUser,
   markSessionRead,
   removeTeamMember,
   pinMessage,
@@ -48,9 +49,23 @@ import { useSendMessage } from "./hooks/useSendMessage";
 import { useWorkspaceRuntime } from "./hooks/useWorkspaceRuntime";
 import { useThemeStore } from "./stores/themeStore";
 import { useToastStore } from "./stores/toastStore";
-import type { AgentConfig, CurrentUser, Message, Project, Team, TeamMember, TeamRole } from "./types";
+import type { AgentConfig, Message, Project, Team, TeamMember, TeamRole } from "./types";
 
-type RailFloatingMenu = "workspace" | "teams" | "user";
+type RailFloatingMenu = "workspace" | "teams";
+
+const ACTIVITY_PANEL_WIDTH_STORAGE_KEY = "agenthub.activityPanelWidth";
+const ACTIVITY_PANEL_MIN_WIDTH = 248;
+const ACTIVITY_PANEL_MAX_WIDTH = 480;
+
+function clampActivityPanelWidth(width: number) {
+  return Math.min(ACTIVITY_PANEL_MAX_WIDTH, Math.max(ACTIVITY_PANEL_MIN_WIDTH, width));
+}
+
+function readActivityPanelWidth() {
+  if (typeof window === "undefined") return 306;
+  const stored = Number(window.localStorage.getItem(ACTIVITY_PANEL_WIDTH_STORAGE_KEY));
+  return Number.isFinite(stored) && stored > 0 ? clampActivityPanelWidth(stored) : 306;
+}
 
 /** 从 store 读取当前会话的协作状态（零值 = 空快照）。 */
 function emptyCollab(): CollabSnapshot {
@@ -122,9 +137,11 @@ export function AgentHubWorkbench() {
   const [appRoute, setAppRoute] = useState(() => window.location.hash || "#/");
   const [fileWorkspaceOpen, setFileWorkspaceOpen] = useState(false);
   const [fileWorkspaceInitialPath, setFileWorkspaceInitialPath] = useState<string | null>(null);
-  const effectiveSidebarTab = edition === "local" && sidebarTab === "workspace" ? "sessions" : sidebarTab;
+  const effectiveSidebarTab = sidebarTab;
   const [activityPanel, setActivityPanel] = useState<ActivityPanel | null>("sessions");
-  const [pendingProjectSessionId, setPendingProjectSessionId] = useState<string | null>(null);
+  const [activityPanelWidth, setActivityPanelWidth] = useState(readActivityPanelWidth);
+  const [resizingActivityPanel, setResizingActivityPanel] = useState(false);
+  const [pendingProjectSession, setPendingProjectSession] = useState<{ projectId: string; agentId: string } | null>(null);
   const handleSend = useSendMessage();
   const pushToast = useToastStore((state) => state.pushToast);
 
@@ -148,14 +165,6 @@ export function AgentHubWorkbench() {
     });
   }, [pushToast]);
 
-  const handleLogout = useCallback(async () => {
-    try {
-      await logoutCurrentUser();
-    } finally {
-      window.location.reload();
-    }
-  }, []);
-
   const openProjectFiles = useCallback((path?: string | null) => {
     setFileWorkspaceInitialPath(path ?? null);
     setFileWorkspaceOpen(true);
@@ -172,6 +181,37 @@ export function AgentHubWorkbench() {
     if (panel === "sessions" || panel === "agents") setSidebarTab(panel);
   }, [setSidebarTab]);
 
+  useEffect(() => {
+    window.localStorage.setItem(ACTIVITY_PANEL_WIDTH_STORAGE_KEY, String(activityPanelWidth));
+  }, [activityPanelWidth]);
+
+  const beginActivityPanelResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = activityPanelWidth;
+    setResizingActivityPanel(true);
+    document.body.classList.add("agenthub-resizing-panel");
+
+    const resize = (moveEvent: PointerEvent) => {
+      setActivityPanelWidth(clampActivityPanelWidth(startWidth + moveEvent.clientX - startX));
+    };
+    const finish = () => {
+      window.removeEventListener("pointermove", resize);
+      window.removeEventListener("pointerup", finish);
+      document.body.classList.remove("agenthub-resizing-panel");
+      setResizingActivityPanel(false);
+    };
+
+    window.addEventListener("pointermove", resize);
+    window.addEventListener("pointerup", finish, { once: true });
+  }, [activityPanelWidth]);
+
+  const resizeActivityPanelWithKeyboard = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    setActivityPanelWidth((width) => clampActivityPanelWidth(width + (event.key === "ArrowRight" ? 16 : -16)));
+  }, []);
+
   const handleSelectProjectSession = useCallback((projectId: string, sessionId: string) => {
     if (projectId !== currentProjectId) {
       void handleSelectProject(projectId);
@@ -180,25 +220,25 @@ export function AgentHubWorkbench() {
     setSidebarTab("sessions");
   }, [currentProjectId, handleSelectProject, handleSelectSession, setSidebarTab]);
 
-  const handleNewProjectSession = useCallback(async (projectId: string) => {
+  const handleNewProjectSession = useCallback(async (projectId: string, agentId: string) => {
     if (projectId !== currentProjectId) {
-      setPendingProjectSessionId(projectId);
+      setPendingProjectSession({ projectId, agentId });
       handleSelectProject(projectId);
       return;
     }
-    await handleNewSession();
+    await handleNewSession(agentId);
     setSidebarTab("sessions");
     setActivityPanel("sessions");
   }, [currentProjectId, handleNewSession, handleSelectProject, setSidebarTab]);
 
   useEffect(() => {
-    if (!pendingProjectSessionId || pendingProjectSessionId !== currentProjectId) return;
-    setPendingProjectSessionId(null);
-    void handleNewSession().then(() => {
+    if (!pendingProjectSession || pendingProjectSession.projectId !== currentProjectId) return;
+    setPendingProjectSession(null);
+    void handleNewSession(pendingProjectSession.agentId).then(() => {
       setSidebarTab("sessions");
       setActivityPanel("sessions");
     });
-  }, [currentProjectId, handleNewSession, pendingProjectSessionId, setSidebarTab]);
+  }, [currentProjectId, handleNewSession, pendingProjectSession, setSidebarTab]);
 
   useEffect(() => {
     const onOpenProjectFile = (event: Event) => {
@@ -289,7 +329,9 @@ export function AgentHubWorkbench() {
     } catch { /* */ }
   }, [currentSessionId, setArtifactsForSession]);
 
-  const mainContent = effectiveSidebarTab === "workspace" ? (
+  const mainContent = effectiveSidebarTab === "settings" ? (
+    <AppSettingsPage />
+  ) : effectiveSidebarTab === "workspace" ? (
     <CloudWorkspaceSettings
       project={currentProject}
       currentUser={currentUser}
@@ -341,6 +383,7 @@ export function AgentHubWorkbench() {
         "成员已移出群聊",
         "移除成员失败",
       )}
+      onOpenAgentSettings={(agentId) => setAgentModal({ mode: "edit", agentId })}
     />
   ) : (
     <div className="agenthub-chat flex min-h-0 min-w-0 flex-1 items-center justify-center px-6 text-center text-lg">
@@ -359,12 +402,33 @@ export function AgentHubWorkbench() {
     );
   }
 
+  const desktopSurface = capabilities.surface === "desktop";
+
+  if (agentModal?.mode === "edit") {
+    return (
+      <div className={desktopSurface ? "agenthub-desktop-root agenthub-agent-settings-shell" : "contents"}>
+        {desktopSurface && <DesktopTitleBar />}
+        <div className={`agenthub-shell min-w-0 w-full max-w-full overflow-hidden ${desktopSurface ? "agenthub-workbench-shell-desktop" : "h-[100dvh]"}`}>
+          <AgentPanel
+            mode="edit"
+            agentId={agentModal.agentId ?? null}
+            runtimeScope={capabilities.features.localCliRuntime ? "local" : "cloud"}
+            onChanged={loadData}
+            onClose={() => setAgentModal(null)}
+          />
+          <ToastViewport />
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="agenthub-shell agenthub-workbench-shell flex h-[100dvh] min-w-0 w-full max-w-full overflow-hidden">
+    <div className={desktopSurface ? "agenthub-desktop-root" : "contents"}>
+      {desktopSurface && <DesktopTitleBar />}
+      <div className={`agenthub-shell agenthub-workbench-shell flex min-w-0 w-full max-w-full overflow-hidden ${desktopSurface ? "agenthub-workbench-shell-desktop" : "h-[100dvh]"}`}>
       <aside className={`agenthub-activity-zone ${activityPanel ? "agenthub-activity-zone-open" : "agenthub-activity-zone-closed"}`}>
         <ActivityRail
           activePanel={activityPanel}
-          currentUser={currentUser}
           currentProject={currentProject}
           teams={teams}
           currentTeamId={currentTeamId}
@@ -372,18 +436,18 @@ export function AgentHubWorkbench() {
           onCreateTeam={handleCreateTeam}
           onJoinTeam={handleJoinTeam}
           onOpenSettings={() => {
-            setSidebarTab("workspace");
+            setSidebarTab("settings");
             setActivityPanel(null);
           }}
-          onLogout={handleLogout}
           onTogglePanel={toggleActivityPanel}
           onOpenProjectFiles={toggleProjectFiles}
           projectFilesDisabled={!currentProjectId}
+          showCloudNavigation={edition !== "local"}
         />
 
         <div className={`agenthub-activity-panel min-h-0 shrink-0 transition-all duration-200 ${
           activityPanel ? "agenthub-activity-panel-open" : "agenthub-activity-panel-closed"
-        }`}>
+        } ${resizingActivityPanel ? "agenthub-activity-panel-resizing" : ""}`} style={activityPanel ? { width: activityPanelWidth } : undefined}>
           {activityPanel && (
             <ActivityPanelContent
               panel={activityPanel}
@@ -463,8 +527,8 @@ export function AgentHubWorkbench() {
                 "项目已删除",
                 "删除项目失败",
               )}
-              onNewProjectSession={(projectId) => runCrudAction(
-                () => handleNewProjectSession(projectId),
+              onNewProjectSession={(projectId, agentId) => runCrudAction(
+                () => handleNewProjectSession(projectId, agentId),
                 "私聊已创建",
                 "创建私聊失败",
               )}
@@ -482,6 +546,20 @@ export function AgentHubWorkbench() {
             />
           )}
         </div>
+        {activityPanel && (
+          <div
+            className="agenthub-activity-resizer"
+            role="separator"
+            aria-label="调整侧边面板宽度"
+            aria-orientation="vertical"
+            aria-valuemin={ACTIVITY_PANEL_MIN_WIDTH}
+            aria-valuemax={ACTIVITY_PANEL_MAX_WIDTH}
+            aria-valuenow={activityPanelWidth}
+            tabIndex={0}
+            onPointerDown={beginActivityPanelResize}
+            onKeyDown={resizeActivityPanelWithKeyboard}
+          />
+        )}
       </aside>
 
       <main className="agenthub-main-workspace min-h-0 min-w-0 flex-1 overflow-hidden">
@@ -517,14 +595,17 @@ export function AgentHubWorkbench() {
         />
       )}
 
-      <AgentPanel
-        mode={agentModal?.mode ?? "hidden"}
-        agentId={agentModal?.agentId ?? null}
-        runtimeScope={capabilities.features.localCliRuntime ? "local" : "cloud"}
-        onChanged={loadData}
-        onClose={() => setAgentModal(null)}
-      />
+      {agentModal?.mode === "create" && (
+        <AgentPanel
+          mode="create"
+          runtimeScope={capabilities.features.localCliRuntime ? "local" : "cloud"}
+          onChanged={loadData}
+          onClose={() => setAgentModal(null)}
+        />
+      )}
+
       <ToastViewport />
+      </div>
     </div>
   );
 }
@@ -533,7 +614,6 @@ export default AgentHubWorkbench;
 
 function ActivityRail({
   activePanel,
-  currentUser,
   currentProject,
   teams,
   currentTeamId,
@@ -541,13 +621,12 @@ function ActivityRail({
   onCreateTeam,
   onJoinTeam,
   onOpenSettings,
-  onLogout,
   onTogglePanel,
   onOpenProjectFiles,
   projectFilesDisabled,
+  showCloudNavigation,
 }: {
   activePanel: ActivityPanel | null;
-  currentUser: CurrentUser | null;
   currentProject: Project | null;
   teams: Team[];
   currentTeamId: string | null;
@@ -555,19 +634,18 @@ function ActivityRail({
   onCreateTeam: (name: string) => Promise<void> | void;
   onJoinTeam: (code: string) => Promise<void> | void;
   onOpenSettings: () => void;
-  onLogout: () => Promise<void> | void;
   onTogglePanel: (panel: ActivityPanel) => void;
   onOpenProjectFiles: () => void;
   projectFilesDisabled: boolean;
+  showCloudNavigation: boolean;
 }) {
   const [menuOpen, setMenuOpen] = useState<RailFloatingMenu | null>(null);
   const workspaceButtonRef = useRef<HTMLButtonElement | null>(null);
   const teamButtonRef = useRef<HTMLButtonElement | null>(null);
-  const userButtonRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const theme = useThemeStore((state) => state.theme);
-  const setTheme = useThemeStore((state) => state.setTheme);
-  const initials = getUserInitials(currentUser);
+  const themePreference = useThemeStore((state) => state.preference);
+  const toggleTheme = useThemeStore((state) => state.toggleTheme);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -575,7 +653,7 @@ function ActivityRail({
       const target = event.target;
       if (!(target instanceof Node)) return;
       if (menuRef.current?.contains(target)) return;
-      const anchors = [workspaceButtonRef.current, teamButtonRef.current, userButtonRef.current];
+      const anchors = [workspaceButtonRef.current, teamButtonRef.current];
       if (anchors.some((anchor) => anchor?.contains(target))) return;
       setMenuOpen(null);
     };
@@ -583,18 +661,12 @@ function ActivityRail({
     return () => window.removeEventListener("pointerdown", close, true);
   }, [menuOpen]);
 
-  const currentMenuAnchor = menuOpen === "workspace"
-    ? workspaceButtonRef
-    : menuOpen === "teams"
-      ? teamButtonRef
-      : userButtonRef;
+  const currentMenuAnchor = menuOpen === "workspace" ? workspaceButtonRef : teamButtonRef;
 
   return (
     <nav className="agenthub-activity-rail flex shrink-0 flex-col items-center" aria-label="主导航">
       <div className="agenthub-rail-logo-wrap">
-        <div className="agenthub-product-logo" aria-label="AgentHub">
-          <Sparkles size={17} aria-hidden="true" />
-        </div>
+        <BrandLogo size="rail" className="agenthub-product-logo" />
       </div>
 
       <div className="agenthub-rail-main">
@@ -625,44 +697,33 @@ function ActivityRail({
       </div>
 
       <div className="agenthub-rail-bottom">
+        {showCloudNavigation && (
+          <>
+            <ActivityRailButton
+              ref={workspaceButtonRef}
+              icon={HardDrive}
+              label="工作空间"
+              active={menuOpen === "workspace"}
+              onClick={() => setMenuOpen((value) => value === "workspace" ? null : "workspace")}
+            />
+            <ActivityRailButton
+              ref={teamButtonRef}
+              icon={Building2}
+              label="团队"
+              active={menuOpen === "teams"}
+              onClick={() => setMenuOpen((value) => value === "teams" ? null : "teams")}
+            />
+          </>
+        )}
         <ActivityRailButton
-          ref={workspaceButtonRef}
-          icon={HardDrive}
-          label="工作空间"
-          active={menuOpen === "workspace"}
-          onClick={() => setMenuOpen((value) => value === "workspace" ? null : "workspace")}
-        />
-        <ActivityRailButton
-          ref={teamButtonRef}
-          icon={Building2}
-          label="团队"
-          active={menuOpen === "teams"}
-          onClick={() => setMenuOpen((value) => value === "teams" ? null : "teams")}
-        />
-        <ActivityRailButton
-          icon={theme === "dark" ? Moon : Sun}
-          label={theme === "dark" ? "切换浅色主题" : "切换深色主题"}
+          icon={themePreference === "system" ? Monitor : theme === "dark" ? Moon : Sun}
+          label={themePreference === "system" ? `跟随系统（当前${theme === "dark" ? "暗黑" : "明亮"}）` : theme === "dark" ? "切换明亮主题" : "切换跟随系统"}
           onClick={() => {
             setMenuOpen(null);
-            setTheme(theme === "dark" ? "light" : "dark");
+            toggleTheme();
           }}
         />
-        <button
-          ref={userButtonRef}
-          type="button"
-          onClick={() => setMenuOpen((value) => value === "user" ? null : "user")}
-          className={`agenthub-rail-avatar agenthub-focus-ring ${menuOpen === "user" ? "agenthub-activity-active" : ""}`}
-          aria-label="个人菜单"
-          title={currentUser?.displayName ?? currentUser?.email ?? "个人菜单"}
-          data-active={menuOpen === "user"}
-        >
-          {currentUser?.avatarUrl ? (
-            <img src={currentUser.avatarUrl} alt="" />
-          ) : (
-            <span>{initials}</span>
-          )}
-          <span className="agenthub-rail-avatar-status" aria-hidden="true" />
-        </button>
+        <ActivityRailButton icon={Settings} label="设置" onClick={() => { setMenuOpen(null); onOpenSettings(); }} />
       </div>
 
       <FloatingMenu
@@ -673,7 +734,7 @@ function ActivityRail({
         placement="top-start"
         ariaLabel="活动栏菜单"
       >
-        {menuOpen === "workspace" && (
+        {showCloudNavigation && menuOpen === "workspace" && (
           <WorkspaceFloatingMenu
             currentProject={currentProject}
             teams={teams}
@@ -684,7 +745,7 @@ function ActivityRail({
             }}
           />
         )}
-        {menuOpen === "teams" && (
+        {showCloudNavigation && menuOpen === "teams" && (
           <TeamFloatingMenu
             teams={teams}
             currentTeamId={currentTeamId}
@@ -694,19 +755,6 @@ function ActivityRail({
             }}
             onCreateTeam={onCreateTeam}
             onJoinTeam={onJoinTeam}
-          />
-        )}
-        {menuOpen === "user" && (
-          <UserFloatingMenu
-            currentUser={currentUser}
-            onOpenSettings={() => {
-              onOpenSettings();
-              setMenuOpen(null);
-            }}
-            onLogout={() => {
-              setMenuOpen(null);
-              void onLogout();
-            }}
           />
         )}
       </FloatingMenu>
@@ -1103,45 +1151,6 @@ function TeamFloatingMenu({
   );
 }
 
-function UserFloatingMenu({
-  currentUser,
-  onOpenSettings,
-  onLogout,
-}: {
-  currentUser: CurrentUser | null;
-  onOpenSettings: () => void;
-  onLogout: () => void;
-}) {
-  return (
-    <div className="agenthub-rail-menu">
-      <div className="agenthub-rail-menu-profile">
-        <span className="agenthub-rail-menu-avatar">
-          {currentUser?.avatarUrl ? <img src={currentUser.avatarUrl} alt="" /> : getUserInitials(currentUser)}
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="agenthub-strong block truncate text-sm font-semibold">
-            {currentUser?.displayName ?? currentUser?.username ?? "AgentHub 用户"}
-          </span>
-          <span className="agenthub-muted block truncate text-xs">{currentUser?.email ?? "本机模式"}</span>
-        </span>
-      </div>
-      <button type="button" onClick={onOpenSettings} className="agenthub-floating-row">
-        <Settings size={14} aria-hidden="true" />
-        系统设置
-      </button>
-      <button type="button" onClick={onLogout} className="agenthub-floating-row agenthub-floating-row-danger">
-        <LogOut size={14} aria-hidden="true" />
-        退出登录
-      </button>
-    </div>
-  );
-}
-
-function getUserInitials(currentUser: CurrentUser | null) {
-  const source = currentUser?.displayName || currentUser?.username || currentUser?.email || "AH";
-  return source.trim().slice(0, 2).toUpperCase();
-}
-
 function DeveloperToolsPage({
   agents,
   onAgentsChanged,
@@ -1166,4 +1175,3 @@ function DeveloperToolsPage({
     </div>
   );
 }
-

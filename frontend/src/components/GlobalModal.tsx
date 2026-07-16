@@ -33,6 +33,7 @@ export function GlobalModal({
   closeLabel = "关闭",
   closeDisabled = false,
 }: Props) {
+  void icon;
   useEffect(() => {
     if (typeof document === "undefined") return;
     const previousOverflow = document.body.style.overflow;
@@ -60,16 +61,11 @@ export function GlobalModal({
       }}
     >
       <section
-        className={`agenthub-modal agenthub-modal-pop flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-3xl border ${panelClassName}`}
+        className={`agenthub-global-modal agenthub-modal agenthub-modal-pop flex w-full flex-col overflow-hidden rounded-2xl border ${panelClassName}`}
         onClick={(event) => event.stopPropagation()}
       >
-        <header className="agenthub-header flex shrink-0 items-center justify-between gap-3 border-b px-4 py-3 md:px-5">
+        <header className="agenthub-header flex shrink-0 items-center justify-between gap-3 border-b px-4 py-2.5">
           <div className="flex min-w-0 items-center gap-3">
-            {icon && (
-              <span className="agenthub-soft agenthub-muted flex h-10 w-10 shrink-0 items-center justify-center rounded-full border">
-                {icon}
-              </span>
-            )}
             <div className="min-w-0">
               <h2 className="agenthub-strong truncate text-base font-semibold">{title}</h2>
               {subtitle && <p className="agenthub-muted mt-0.5 truncate text-xs">{subtitle}</p>}
@@ -81,7 +77,7 @@ export function GlobalModal({
               type="button"
               onClick={onClose}
               disabled={closeDisabled}
-              className="agenthub-icon-button inline-flex h-9 w-9 items-center justify-center rounded-full disabled:cursor-not-allowed disabled:opacity-50"
+              className="agenthub-icon-button inline-flex h-9 w-9 items-center justify-center rounded-[10px] disabled:cursor-not-allowed disabled:opacity-50"
               aria-label={closeLabel}
               title={closeLabel}
             >
@@ -93,7 +89,7 @@ export function GlobalModal({
           {children}
         </div>
         {footer && (
-          <footer className="agenthub-header shrink-0 border-t px-4 py-3 md:px-5">
+          <footer className="agenthub-header shrink-0 border-t px-4 py-2.5">
             {footer}
           </footer>
         )}

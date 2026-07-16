@@ -13,6 +13,7 @@ import {
   FolderOpen,
   HardDrive,
   MessageCircle,
+  Monitor,
   MoreHorizontal,
   Pencil,
   Settings,
@@ -33,7 +34,7 @@ import {
 import type { AgentConfig, CurrentUser, ProductEdition, Project, Team, TeamMember, TeamRole } from "../types";
 import { AgentAvatar } from "./AgentAvatar";
 import type { SidebarTab } from "../stores/sessionStore";
-import { useThemeStore, type ThemeMode } from "../stores/themeStore";
+import { useThemeStore, type ThemePreference } from "../stores/themeStore";
 import { FloatingMenu } from "./FloatingMenu";
 import { GlobalModal } from "./GlobalModal";
 import { MenuSelect } from "./MenuSelect";
@@ -170,7 +171,7 @@ export function ProjectSidebar({
     .sort((left, right) => nativeCliAgentRank(left) - nativeCliAgentRank(right));
   const customAgents = activeAgents.filter((agent) => !isNativeCliAgent(agent));
   const visibleProjects = projectsExpanded ? visibleProjectItems : visibleProjectItems.slice(0, 3);
-  const theme = useThemeStore((state) => state.theme);
+  const theme = useThemeStore((state) => state.preference);
   const setTheme = useThemeStore((state) => state.setTheme);
   const currentProject = visibleProjectItems.find((project) => project.id === currentProjectId)
     ?? visibleProjectItems[0]
@@ -1412,11 +1413,20 @@ function ThemeToggle({
   theme,
   onChange,
 }: {
-  theme: ThemeMode;
-  onChange: (theme: ThemeMode) => void;
+  theme: ThemePreference;
+  onChange: (theme: ThemePreference) => void;
 }) {
   return (
-    <div className="agenthub-theme-segment grid grid-cols-2 rounded-full p-1">
+    <div className="agenthub-theme-segment grid grid-cols-3 rounded-full p-1" aria-label="主题设置">
+      <button
+        type="button"
+        data-active={theme === "system"}
+        onClick={() => onChange("system")}
+        className="agenthub-theme-choice inline-flex h-8 items-center justify-center gap-1.5 rounded-full text-xs font-medium transition"
+      >
+        <Monitor size={13} aria-hidden="true" />
+        系统
+      </button>
       <button
         type="button"
         data-active={theme === "dark"}

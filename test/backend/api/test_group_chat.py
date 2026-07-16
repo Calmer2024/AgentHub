@@ -82,7 +82,7 @@ class TestGroupSession:
         members = res2.json()
         assert len(members) == 3
         names = {member["agentName"] for member in members}
-        assert {"A2", test_agent.name, "Orchestrator 调度器"}.issubset(names)
+        assert {"A2", test_agent.name, "项目Leader"}.issubset(names)
 
     async def test_create_group_session_keeps_twelve_members(self, test_client, db_session):
         agents = [make_test_cli_agent(f"A{index}") for index in range(11)]
@@ -100,7 +100,7 @@ class TestGroupSession:
         assert len(members) == 12
         names = {member["agentName"] for member in members}
         assert {f"A{index}" for index in range(11)}.issubset(names)
-        assert "Orchestrator 调度器" in names
+        assert "项目Leader" in names
 
     async def test_single_mode_still_works(self, test_client, test_agent):
         res = await test_client.post("/api/sessions", json={
@@ -696,7 +696,7 @@ class TestGroupSession:
         messages = (await test_client.get(f"/api/sessions/{sid}/messages")).json()
         assert len(messages) == 2
         steward = messages[-1]
-        assert steward["agentName"] == "Orchestrator 调度器"
+        assert steward["agentName"] == "项目Leader"
         assert steward["content"] == "已记录到群聊上下文，我不会启动执行。"
         assert steward["metadata"]["stewardDecision"]["routeType"] == "context_only"
 

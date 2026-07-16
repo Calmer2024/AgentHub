@@ -211,7 +211,8 @@ async def _ensure_orchestrator_agent(
     )
     existing = result.scalars().first()
     if existing:
-        existing.name = existing.name or "Orchestrator 调度器"
+        if not existing.name or existing.name == "Orchestrator 调度器":
+            existing.name = "项目Leader"
         existing.description = existing.description or "负责需求拆解、DAG 计划和 Agent 分配建议。"
         existing.system_prompt = _orchestrator_system_prompt()
         existing.rules = _orchestrator_rules()
@@ -230,7 +231,7 @@ async def _ensure_orchestrator_agent(
     db.add(AgentConfig(
         id=str(uuid.uuid4()),
         owner_user_id=owner_user_id,
-        name="Orchestrator 调度器",
+        name="项目Leader",
         description="负责需求拆解、DAG 计划和 Agent 分配建议；只输出计划，不直接执行子任务。",
         system_prompt=_orchestrator_system_prompt(),
         rules=_orchestrator_rules(),
@@ -381,7 +382,7 @@ LIFECYCLE_AGENT_SPECS = [
 RETIRED_BUILTIN_ROLE_AGENT_NAMES = ["需求分析师", "文档专家"]
 
 BUILTIN_ROLE_AGENT_NAMES = [
-    "Orchestrator 调度器",
+    "项目Leader",
     *[str(spec["name"]) for spec in LIFECYCLE_AGENT_SPECS],
 ]
 
@@ -504,7 +505,7 @@ def _fallback_engine() -> AgentConfig:
 
 def _orchestrator_system_prompt() -> str:
     return (
-        "你是 AgentHub 群聊中的 Orchestrator 调度器。用户没有 @ 任何成员时，"
+        "你是 AgentHub 群聊中的项目Leader。用户没有 @ 任何成员时，"
         "这条消息默认先交给你判断。你负责计划、分流和调度建议，不直接执行子任务。"
     )
 

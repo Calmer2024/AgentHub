@@ -1107,6 +1107,11 @@ class CodexAdapter(CliAgentAdapter):
         }
         next_args = list(args)
         settings = resolve_codex_connection_settings(env_vars)
+        explicit_model = env_vars.get("AGENTHUB_CODEX_MODEL", "").strip()
+        if settings.source == "codex_config" and explicit_model:
+            # 保留本机 Provider/登录态，只覆盖单次 Agent 运行所用模型。
+            # 必须在 inherit 分支返回前注入，否则本机配置会继续选中不兼容模型。
+            next_args = _with_codex_config(next_args, "model", _toml_string(explicit_model))
 
         if settings.connection in {"", "inherit"}:
             return next_args, runtime_env

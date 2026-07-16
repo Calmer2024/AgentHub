@@ -47,13 +47,6 @@ const ACTION_LABELS: Record<string, string> = {
   result: "结果",
 };
 
-const LEVEL_STYLE: Record<string, string> = {
-  info: "agenthub-status-info",
-  success: "agenthub-status-success",
-  warning: "agenthub-status-warning",
-  error: "agenthub-status-error",
-};
-
 export function ExecutionTracePanel({ trace, className = "" }: Props) {
   const items = useMemo(() => compactTraceItems(trace?.items ?? []), [trace?.items]);
   const traceScrollRef = useRef<HTMLDivElement | null>(null);
@@ -63,9 +56,7 @@ export function ExecutionTracePanel({ trace, className = "" }: Props) {
   const isError = trace?.status === "error";
   const isCancelled = trace?.status === "cancelled";
   const isInterrupted = trace?.status === "interrupted";
-  const open = manualOpen ?? isRunning;
-  const latest = items[items.length - 1];
-  const current = isRunning ? activeTraceItem(items) ?? latest : latest;
+  const open = manualOpen ?? false;
 
   useEffect(() => {
     if (trace?.status === "running") setManualOpen(null);
@@ -100,14 +91,20 @@ export function ExecutionTracePanel({ trace, className = "" }: Props) {
   }, [fullscreenOpen]);
 
   const stats = useMemo(() => traceStats(items), [items]);
+  const elapsed = useMemo(() => traceDuration(trace, items), [items, trace]);
   const summary = useMemo(() => {
     if (!trace) return "";
-    if (isRunning) return itemTitle(current) || "正在执行";
-    if (isInterrupted) return "本次运行已中断";
-    if (isCancelled) return "本次运行已中止";
-    if (isError) return itemTitle(latest) || "执行遇到错误";
-    return `${traceItemSummary(trace, items.length)}，${stats.toolCount} 次工具调用，${stats.commandCount} 条命令`;
-  }, [current, isCancelled, isError, isInterrupted, isRunning, items.length, latest, stats.commandCount, stats.toolCount, trace]);
+    const status = isRunning
+      ? "执行中"
+      : isInterrupted
+        ? "已中断"
+        : isCancelled
+          ? "已中止"
+          : isError
+            ? "执行失败"
+            : "已完成";
+    return `${status}，${traceItemSummary(trace, items.length)}，${stats.toolCount} 次工具调用，用时 ${elapsed}`;
+  }, [elapsed, isCancelled, isError, isInterrupted, isRunning, items.length, stats.toolCount, trace]);
 
   if (!trace || items.length === 0) return null;
 
@@ -153,38 +150,27 @@ export function ExecutionTracePanel({ trace, className = "" }: Props) {
     : null;
 
   return (
-    <section className={`agenthub-card mt-3 min-w-0 max-w-full overflow-hidden rounded-2xl border ${className}`}>
-      <div className="flex w-full min-w-0 items-center gap-3 px-3 py-2.5">
+    <section className={`agenthub-execution-panel mt-2 min-w-0 max-w-full ${className}`}>
+      <div className="flex w-full min-w-0 items-center gap-2 border-t px-1 pt-2" style={{ borderColor: "var(--ah-border)" }}>
         <button
           type="button"
           onClick={() => setManualOpen(!open)}
-          className="flex min-w-0 flex-1 items-center gap-3 rounded-xl text-left transition hover:bg-[color:var(--ah-accent-soft)]"
+          className="agenthub-execution-summary flex min-h-9 min-w-0 flex-1 items-center gap-2 rounded-lg px-2 text-left"
+          aria-expanded={open}
         >
-        <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border ${statusFrame(trace.status)}`}>
+        <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${statusFrame(trace.status)}`}>
           {statusIcon(trace.status)}
         </span>
-        <span className="min-w-0 flex-1">
-          <span className="agenthub-strong flex items-center gap-2 text-xs font-semibold">
-            <span>执行过程</span>
-            {trace.agentName && <span className="agenthub-faint font-normal">{trace.agentName}</span>}
-            {isRunning && (
-            <span className="agenthub-status-info inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px]">
-                <SquareActivity size={10} className="animate-pulse" aria-hidden="true" />
-                运行中
-              </span>
-            )}
-          </span>
-          <span className="agenthub-muted mt-0.5 block truncate text-[11px] leading-5">{summary}</span>
-        </span>
-        <TraceBadges items={items} />
-        <span className="agenthub-icon-button rounded-full p-1" aria-hidden="true">
+        <span className="agenthub-faint shrink-0 text-xs">执行过程</span>
+        <span className="agenthub-muted min-w-0 flex-1 truncate text-xs leading-5">{summary}</span>
+        <span className="agenthub-faint shrink-0 rounded-full p-1" aria-hidden="true">
           {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         </span>
         </button>
         <button
           type="button"
           onClick={() => setFullscreenOpen(true)}
-          className="agenthub-icon-button inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
+        className="agenthub-icon-button inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
           aria-label="全屏查看执行过程"
           title="全屏查看执行过程"
         >
@@ -193,7 +179,7 @@ export function ExecutionTracePanel({ trace, className = "" }: Props) {
       </div>
 
       {open && (
-        <div className="border-t px-3 py-3" style={{ borderColor: "var(--ah-border)" }}>
+        <div className="agenthub-execution-details agenthub-soft mt-2 rounded-xl px-3 py-2">
           <div ref={traceScrollRef} className="max-h-96 min-w-0 overflow-y-auto overflow-x-hidden overscroll-contain pr-1">
             <TraceTimeline items={items} isRunning={isRunning} />
           </div>
@@ -207,12 +193,11 @@ export function ExecutionTracePanel({ trace, className = "" }: Props) {
 
 function TraceTimeline({ items, isRunning }: { items: ExecutionTraceItem[]; isRunning: boolean }) {
   return (
-    <ol className="relative min-w-0 space-y-2 before:absolute before:left-[14px] before:top-2 before:h-[calc(100%-1rem)] before:w-px before:bg-[color:var(--ah-border)]">
+    <ol className="min-w-0 divide-y" style={{ borderColor: "var(--ah-border)" }}>
       {items.map((item, index) => (
         <TraceRow
           key={item.id}
           item={item}
-          isLast={index === items.length - 1}
           isRunning={isRunning && index === items.length - 1}
         />
       ))}
@@ -246,11 +231,9 @@ function Badge({ icon, text, tone = "default" }: { icon: ReactNode; text: string
 
 function TraceRow({
   item,
-  isLast,
   isRunning,
 }: {
   item: ExecutionTraceItem;
-  isLast: boolean;
   isRunning: boolean;
 }) {
   const level = normalizeLevel(item);
@@ -261,26 +244,26 @@ function TraceRow({
   const output = item.output || item.stderr || null;
 
   return (
-    <li className="relative min-w-0 pl-8">
-      <span className={`agenthub-card absolute left-0 top-1 flex h-7 w-7 items-center justify-center rounded-full border ${dotStyle(item, level)} ${
-        isRunning ? "shadow-[0_0_0_4px_var(--ah-accent-soft)]" : ""
+    <li className="flex min-w-0 gap-2.5 py-2.5 first:pt-1 last:pb-1">
+      <span className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${dotStyle(item, level)} ${
+        isRunning ? "agenthub-status-info" : ""
       }`}>
         {kindIcon(item)}
       </span>
-      <article className={`min-w-0 max-w-full rounded-[10px] border px-3 py-2.5 ${LEVEL_STYLE[level] ?? LEVEL_STYLE.info} ${isLast ? "shadow-[0_0_0_1px_rgba(255,255,255,0.02)]" : ""}`}>
+      <article className="min-w-0 max-w-full flex-1">
         <header className="flex min-w-0 items-start gap-2">
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-1.5">
-              <span className="agenthub-status rounded-md px-1.5 py-0.5 text-[10px] font-medium">
+              <span className="agenthub-muted text-[10px] font-medium">
                 {actionLabel(item)}
               </span>
               {item.status && (
-                <span className={`rounded-md border px-1.5 py-0.5 text-[10px] ${statusBadgeStyle(item.status, level)}`}>
+                <span className={`text-[10px] ${statusBadgeStyle(item.status, level)}`}>
                   {statusLabel(item.status)}
                 </span>
               )}
               {typeof item.exitCode === "number" && (
-                <span className={`rounded-md border px-1.5 py-0.5 text-[10px] ${
+                <span className={`text-[10px] ${
                   item.exitCode === 0
                     ? "agenthub-status-success"
                     : "agenthub-status-error"
@@ -291,12 +274,12 @@ function TraceRow({
               {item.provider && <span className="agenthub-faint text-[10px]">{item.provider}</span>}
               <time className="agenthub-faint text-[10px]">{formatTime(item.timestamp)}</time>
             </div>
-            <h4 className="agenthub-strong mt-1 break-words text-[12px] font-semibold leading-5">{title}</h4>
+            <h4 className="agenthub-strong mt-1 break-words text-xs font-medium leading-5">{title}</h4>
           </div>
         </header>
 
         {item.target && (
-          <div className="agenthub-status mt-2 flex min-w-0 items-center gap-1.5 rounded-md px-2 py-1 text-[11px]">
+          <div className="agenthub-muted mt-1.5 flex min-w-0 items-center gap-1.5 text-[11px]">
             <FolderOpen size={12} className="agenthub-faint shrink-0" aria-hidden="true" />
             <span className="truncate font-mono">{item.target}</span>
           </div>
@@ -309,11 +292,11 @@ function TraceRow({
         )}
 
         {showDetail && (
-          <p className="mt-2 whitespace-pre-wrap break-words text-[11px] leading-5">{detail}</p>
+          <p className="agenthub-muted mt-1.5 whitespace-pre-wrap break-words text-[11px] leading-5">{detail}</p>
         )}
 
         {output && (
-          <div className={`mt-2 rounded-md border px-2.5 py-2 ${
+          <div className={`agenthub-code-surface mt-2 rounded-md px-2.5 py-2 ${
             item.stderr
               ? "agenthub-status-error"
               : "agenthub-status"
@@ -375,18 +358,22 @@ function traceItemSummary(trace: ExecutionTrace, visibleCount: number) {
     ? trace.totalItemCount
     : visibleCount;
   if (trace.truncated || total > visibleCount) {
-    return `最近 ${visibleCount}/共 ${total} 条过程记录`;
+    return `最近 ${visibleCount}/共 ${total} 个步骤`;
   }
-  return `${visibleCount} 条过程记录`;
+  return `${visibleCount} 个步骤`;
 }
 
-function activeTraceItem(items: ExecutionTraceItem[]) {
-  for (let index = items.length - 1; index >= 0; index -= 1) {
-    const item = items[index];
-    if (item.kind === "process" && item.action === "complete") continue;
-    return item;
-  }
-  return null;
+function traceDuration(trace: ExecutionTrace | null | undefined, items: ExecutionTraceItem[]) {
+  const firstItem = items[0]?.timestamp;
+  const lastItem = items[items.length - 1]?.timestamp;
+  const start = Date.parse(trace?.startedAt || firstItem || "");
+  const end = Date.parse(trace?.completedAt || lastItem || "");
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return "少于 1 秒";
+  const totalSeconds = Math.max(0, Math.round((end - start) / 1000));
+  if (totalSeconds < 60) return `${totalSeconds} 秒`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return seconds ? `${minutes} 分 ${seconds} 秒` : `${minutes} 分`;
 }
 
 function itemTitle(item?: ExecutionTraceItem) {

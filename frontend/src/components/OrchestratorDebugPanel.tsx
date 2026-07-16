@@ -23,7 +23,7 @@ interface Props {
 
 const SAMPLE = "我们要给公司开发一个基础的员工报销单管理系统，员工可以增删改查自己的报销单，财务可以进行批量审批和查看。";
 const DEFAULT_AGENT_NAMES = [
-  "Orchestrator 调度器",
+  "项目Leader",
   "产品经理",
   "UX/UI设计师",
   "测试工程师",
@@ -322,7 +322,7 @@ export function OrchestratorDebugPanel({ agents, onAgentsChanged }: Props) {
               {loading === "build" ? "生成中..." : "仅生成调度器输入"}
             </button>
             <div className="border border-[#d8d8cc] bg-[#fbfbf7] px-3 py-2 text-xs leading-5 text-[#697166]">
-              一步生成已迁移到群聊：创建群聊后 @Orchestrator 调度器即可直接生成 draft plan。
+              一步生成已迁移到群聊：创建群聊后 @项目Leader 即可直接生成 draft plan。
               本调试台保留手动桥接，方便复制 Prompt 给本机 ClaudeCode 并解析回填结果。
             </div>
           </div>

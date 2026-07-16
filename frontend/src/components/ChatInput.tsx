@@ -315,7 +315,7 @@ export function ChatInput({
           </div>
         </div>
       )}
-      <div className="agenthub-chat-composer agenthub-focus-ring mx-auto flex max-w-4xl items-end gap-2 rounded-[24px] border p-2">
+      <div className="agenthub-chat-composer agenthub-focus-ring mx-auto flex min-h-[148px] w-full flex-col rounded-[24px] border-0 px-4 py-3">
         <input
           ref={fileInputRef}
           type="file"
@@ -323,16 +323,6 @@ export function ChatInput({
           className="hidden"
           onChange={handleFilesSelected}
         />
-        <button
-          type="button"
-          disabled={disabled || uploadingAttachment || !canAttach}
-          onClick={() => fileInputRef.current?.click()}
-          aria-label="添加附件"
-          title={canAttach ? "添加附件" : "当前会话无法添加附件"}
-          className="agenthub-icon-button inline-flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-full transition disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {uploadingAttachment ? <Loader2 size={17} className="animate-spin" aria-hidden="true" /> : <Paperclip size={17} aria-hidden="true" />}
-        </button>
         <textarea
           ref={inputRef}
           value={content}
@@ -341,17 +331,29 @@ export function ChatInput({
           disabled={disabled}
           placeholder={busy ? "当前对话正在输出..." : disabled ? "请选择可用智能体" : "输入消息，@ 提及智能体"}
           rows={1}
-          className="agenthub-textarea max-h-44 min-h-[42px] flex-1 resize-none overflow-y-auto bg-transparent px-3 py-2.5 text-sm leading-6 focus:outline-none"
+          className="agenthub-composer-editor agenthub-textarea max-h-44 min-h-[72px] w-full flex-1 resize-none overflow-y-auto bg-transparent px-3 py-2.5 text-sm leading-6 focus:outline-none"
         />
-        <button
-          type="submit"
-          disabled={disabled || uploadingAttachment || !content.trim()}
-          aria-label="发送"
-          title="发送"
-          className="agenthub-primary-button inline-flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-full transition disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          <SendHorizontal size={18} />
-        </button>
+        <div className="agenthub-composer-actions mt-auto flex w-full items-center justify-between">
+          <button
+            type="button"
+            disabled={disabled || uploadingAttachment || !canAttach}
+            onClick={() => fileInputRef.current?.click()}
+            aria-label="添加附件"
+            title={canAttach ? "添加附件" : "当前会话无法添加附件"}
+            className="agenthub-icon-button inline-flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-full transition disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {uploadingAttachment ? <Loader2 size={17} className="animate-spin" aria-hidden="true" /> : <Paperclip size={19} aria-hidden="true" />}
+          </button>
+          <button
+            type="submit"
+            disabled={disabled || uploadingAttachment || !content.trim()}
+            aria-label="发送"
+            title="发送"
+            className="agenthub-primary-button inline-flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-full transition disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <SendHorizontal size={18} />
+          </button>
+        </div>
       </div>
     </form>
   );

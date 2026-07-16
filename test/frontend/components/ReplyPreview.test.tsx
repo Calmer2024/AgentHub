@@ -17,7 +17,7 @@ describe("ReplyPreview", () => {
     const onJump = vi.fn();
     const { container } = render(<ReplyPreview message={message} onJump={onJump} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "用户" }));
+    fireEvent.click(screen.getByRole("button", { name: "你" }));
     expect(screen.getByText("这是一条需要引用的消息")).toBeInTheDocument();
     expect(container.querySelector(".agenthub-reference-card")).toBeInTheDocument();
     expect(onJump).toHaveBeenCalledWith("m-parent");

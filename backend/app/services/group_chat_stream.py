@@ -129,17 +129,17 @@ class GroupChatStream:
                 message_id = await self._persist_system_notice(
                     session,
                     session_id,
-                    "群聊缺少 Orchestrator 调度器，无法处理无 @ 消息。请在群聊中加入调度器后重试。",
+                    "群聊缺少项目Leader，无法处理无 @ 消息。请在群聊中加入项目Leader后重试。",
                 )
                 if run_id:
                     run = await RunService(self.db, event_bus=self.event_bus).mark_run_status(
                         run_id,
                         "failed",
                         current_message_id=message_id,
-                        reason="群聊缺少 Orchestrator 调度器",
+                        reason="群聊缺少项目Leader",
                     )
                     yield self._run_status_changed(run)
-                yield self._err("群聊缺少 Orchestrator 调度器，无法处理无 @ 消息")
+                yield self._err("群聊缺少项目Leader，无法处理无 @ 消息")
                 return
             if await self._plan_chat.has_latest_orchestrator_plan(session_id):
                 async for item in self._plan_chat.send(
@@ -211,10 +211,10 @@ class GroupChatStream:
                         run = await RunService(self.db, event_bus=self.event_bus).mark_run_status(
                             run_id,
                             "failed",
-                            reason="Orchestrator 调度器没有为直接对话选择 Agent",
+                            reason="项目Leader没有为直接对话选择 Agent",
                         )
                         yield self._run_status_changed(run)
-                    yield self._err("Orchestrator 调度器没有为直接对话选择 Agent，请尝试 @ 指定 Agent")
+                    yield self._err("项目Leader没有为直接对话选择 Agent，请尝试 @ 指定 Agent")
                     return
                 async for item in self._direct_dialog.send(
                     session=session,
@@ -252,10 +252,10 @@ class GroupChatStream:
                     run = await RunService(self.db, event_bus=self.event_bus).mark_run_status(
                         run_id,
                         "failed",
-                        reason="Orchestrator 调度器没有找到合适的 Agent",
+                        reason="项目Leader没有找到合适的 Agent",
                     )
                     yield self._run_status_changed(run)
-                yield self._err("Orchestrator 调度器没有找到合适的 Agent，请尝试 @ 指定 Agent")
+                yield self._err("项目Leader没有找到合适的 Agent，请尝试 @ 指定 Agent")
                 return
             mentions = [agent.id for agent in steward_decision.selected_agents]
 

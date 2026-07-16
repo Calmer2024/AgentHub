@@ -36,22 +36,33 @@ const ICON_SIZE: Record<AvatarSize, number> = {
   lg: 21,
 };
 
-const BRAND_LOGOS: Record<string, { label: string; className: string; src: string }> = {
+const BRAND_LOGOS: Record<string, { label: string; src: string; darkSrc?: string }> = {
   claude_code: {
     label: "Claude Code",
-    className: "border-amber-300/25 bg-amber-400/15 text-amber-100",
-    src: simpleIconDataUri(siClaudecode.path, "#D97757", "#191714"),
+    src: simpleIconDataUri(siClaudecode.path, "#D97757"),
   },
   codex: {
     label: "OpenAI Codex",
-    className: "border-sky-300/25 bg-sky-400/15 text-sky-100",
-    src: svgDataUri(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="18" fill="#0b1220"/><path fill="none" stroke="#38bdf8" stroke-linecap="round" stroke-linejoin="round" stroke-width="4" d="m24 20-9 12 9 12M40 20l9 12-9 12"/><path fill="none" stroke="#f8fafc" stroke-linecap="round" stroke-width="4" d="m36 16-8 32"/></svg>`),
+    src: "/brands/openai.svg",
   },
   opencode: {
     label: "OpenCode",
-    className: "border-emerald-300/25 bg-emerald-400/15 text-emerald-100",
-    src: svgDataUri(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="18" fill="#071b14"/><circle cx="32" cy="32" r="18" fill="none" stroke="#34d399" stroke-width="4"/><path fill="none" stroke="#d1fae5" stroke-linecap="round" stroke-linejoin="round" stroke-width="4" d="M27 23 18 32l9 9M37 23l9 9-9 9"/></svg>`),
+    src: "/brands/opencode-light.svg",
+    darkSrc: "/brands/opencode-dark.svg",
   },
+};
+
+const ROLE_AVATAR_FILES: Record<string, string> = {
+  产品经理: "产品经理.png",
+  项目经理: "产品经理.png",
+  uxui设计师: "UI-UX工程师.png",
+  uiux工程师: "UI-UX工程师.png",
+  测试工程师: "测试工程师.png",
+  前端工程师: "前端工程师.png",
+  后端工程师: "后端工程师.png",
+  数据库工程师: "数据库工程师.png",
+  系统架构师: "系统架构师.png",
+  项目leader: "项目Leader.png",
 };
 
 export const AGENT_AVATAR_PRESETS: Array<{
@@ -64,43 +75,43 @@ export const AGENT_AVATAR_PRESETS: Array<{
     id: "preset:custom",
     label: "自定义",
     icon: Sparkles,
-    className: "border-teal-100/35 bg-[linear-gradient(135deg,#0f766e,#334155,#f59e0b)] text-white",
+    className: "border-teal-100/35 bg-teal-700 text-white",
   },
   {
     id: "preset:blue",
     label: "蓝图",
     icon: Code2,
-    className: "border-sky-200/35 bg-[linear-gradient(135deg,#0ea5e9,#2563eb)] text-white",
+    className: "border-sky-200/35 bg-blue-600 text-white",
   },
   {
     id: "preset:violet",
     label: "灵感",
     icon: Palette,
-    className: "border-violet-200/35 bg-[linear-gradient(135deg,#8b5cf6,#d946ef)] text-white",
+    className: "border-violet-200/35 bg-violet-600 text-white",
   },
   {
     id: "preset:amber",
     label: "终端",
     icon: Terminal,
-    className: "border-amber-200/35 bg-[linear-gradient(135deg,#f59e0b,#ef4444)] text-white",
+    className: "border-amber-200/35 bg-amber-600 text-white",
   },
   {
     id: "preset:green",
     label: "数据",
     icon: Database,
-    className: "border-emerald-200/35 bg-[linear-gradient(135deg,#10b981,#0f766e)] text-white",
+    className: "border-emerald-200/35 bg-emerald-700 text-white",
   },
   {
     id: "preset:rose",
     label: "目标",
     icon: Target,
-    className: "border-rose-200/35 bg-[linear-gradient(135deg,#f43f5e,#fb7185)] text-white",
+    className: "border-rose-200/35 bg-rose-600 text-white",
   },
   {
     id: "preset:slate",
     label: "系统",
     icon: Cpu,
-    className: "border-slate-200/35 bg-[linear-gradient(135deg,#475569,#111827)] text-white",
+    className: "border-slate-200/35 bg-slate-700 text-white",
   },
 ];
 
@@ -116,7 +127,7 @@ type ResolvedCustomAvatar = {
 const TOOL_LOOK: Record<string, { icon: LucideIcon; className: string }> = {
   custom: {
     icon: Sparkles,
-    className: "border-teal-100/35 bg-[linear-gradient(135deg,#0f766e,#334155,#f59e0b)] text-white",
+    className: "border-teal-100/35 bg-teal-700 text-white",
   },
 };
 
@@ -125,18 +136,57 @@ export function AgentAvatar({
   name,
   kind = "agent",
   size = "md",
-  active,
   className = "",
 }: Props) {
   const displayName = agent?.name ?? name ?? "";
-  const customAvatar = kind === "agent" ? resolveCustomAvatar(agent?.avatar) : null;
   const brand = resolveBrand(agent?.cliTool, displayName, kind);
+  const uploadedAvatar = kind === "agent" && agent?.avatar?.startsWith("data:image/")
+    ? resolveCustomAvatar(agent.avatar)
+    : null;
+  const roleAvatar = kind === "agent" && !uploadedAvatar ? resolveRoleAvatar(displayName) : null;
+  const customAvatar = uploadedAvatar ?? (kind === "agent" && !brand && !roleAvatar ? resolveCustomAvatar(agent?.avatar) : null);
   const look = resolveLook(agent?.cliTool, displayName, kind);
   const Icon = customAvatar?.icon ?? look.icon;
-  const showActive = active ?? agent?.status === "ready";
+
+  if (kind === "user") {
+    return (
+      <span
+        className={`agenthub-user-avatar inline-flex shrink-0 items-center justify-center ${SIZE_CLASS[size]} ${className}`}
+        title={displayName || "用户"}
+        aria-label={displayName || "用户"}
+      >
+        <UserRound size={ICON_SIZE[size] + 2} strokeWidth={1.8} aria-hidden="true" />
+      </span>
+    );
+  }
+
+  if (brand && !uploadedAvatar) {
+    return (
+      <span
+        className={`agenthub-cli-avatar inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full ${SIZE_CLASS[size]} ${className}`}
+        title={displayName || brand.label}
+        aria-label={displayName || brand.label}
+      >
+        <img src={brand.src} alt="" className={`agenthub-cli-logo ${brand.darkSrc ? "agenthub-cli-logo-light" : ""}`} />
+        {brand.darkSrc && <img src={brand.darkSrc} alt="" className="agenthub-cli-logo agenthub-cli-logo-dark" />}
+      </span>
+    );
+  }
+
+  if (roleAvatar) {
+    return (
+      <span
+        className={`agenthub-role-avatar inline-flex shrink-0 overflow-hidden rounded-full ${SIZE_CLASS[size]} ${className}`}
+        title={displayName}
+        aria-label={displayName}
+      >
+        <img src={roleAvatar} alt="" className="h-full w-full object-cover" />
+      </span>
+    );
+  }
 
   return (
-    <span className={`relative inline-flex shrink-0 ${SIZE_CLASS[size]} ${className}`}>
+    <span className={`inline-flex shrink-0 ${SIZE_CLASS[size]} ${className}`}>
       <span
         className={`flex h-full w-full items-center justify-center overflow-hidden rounded-full border shadow-[inset_0_1px_0_rgba(255,255,255,0.12)] ${customAvatar?.className ?? look.className}`}
         title={displayName || customAvatar?.label || look.label}
@@ -144,21 +194,10 @@ export function AgentAvatar({
       >
         {customAvatar?.src ? (
           <img src={customAvatar.src} alt="" className="h-full w-full object-cover" />
-        ) : brand && !customAvatar ? (
-          <img src={brand.src} alt="" className="h-[72%] w-[72%] rounded-[35%] object-cover" />
         ) : (
           <Icon size={ICON_SIZE[size]} strokeWidth={1.9} aria-hidden="true" />
         )}
       </span>
-      {kind === "agent" && (
-        <span
-          className={`absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 ${
-            showActive ? "bg-emerald-300" : "bg-zinc-500"
-          }`}
-          style={{ borderColor: "var(--ah-sidebar-bg)" }}
-          aria-hidden="true"
-        />
-      )}
     </span>
   );
 }
@@ -177,17 +216,21 @@ function resolveCustomAvatar(value: string | undefined): ResolvedCustomAvatar | 
   return AGENT_AVATAR_PRESETS.find((preset) => preset.id === avatar) ?? null;
 }
 
+function resolveRoleAvatar(name: string) {
+  const normalizedName = name.toLowerCase().replace(/[\s/_-]+/g, "");
+  const filename = normalizedName.includes("调度器") || normalizedName.includes("orchestrator")
+    ? "项目Leader.png"
+    : ROLE_AVATAR_FILES[normalizedName];
+  return filename ? `/agent-avatars/${encodeURIComponent(filename)}` : null;
+}
+
 function svgDataUri(svg: string) {
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 }
 
-function simpleIconDataUri(path: string, fill: string, background: string) {
+function simpleIconDataUri(path: string, fill: string) {
   return svgDataUri(
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">` +
-    `<rect width="64" height="64" rx="18" fill="${background}"/>` +
-    `<svg x="14" y="14" width="36" height="36" viewBox="0 0 24 24">` +
-    `<path fill="${fill}" d="${path}"/>` +
-    `</svg></svg>`,
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="${fill}" d="${path}"/></svg>`,
   );
 }
 
@@ -198,10 +241,9 @@ function resolveBrand(
 ) {
   if (kind !== "agent") return null;
   const normalizedName = name.toLowerCase();
-  if (cliTool && BRAND_LOGOS[cliTool]) return BRAND_LOGOS[cliTool];
-  if (normalizedName.includes("claude")) return BRAND_LOGOS.claude_code;
-  if (normalizedName.includes("codex")) return BRAND_LOGOS.codex;
-  if (normalizedName.includes("open")) return BRAND_LOGOS.opencode;
+  if (cliTool === "claude_code" && normalizedName === "claude code") return BRAND_LOGOS.claude_code;
+  if (cliTool === "codex" && (normalizedName === "codex" || normalizedName === "openai codex")) return BRAND_LOGOS.codex;
+  if (cliTool === "opencode" && normalizedName === "opencode") return BRAND_LOGOS.opencode;
   return null;
 }
 
@@ -232,19 +274,6 @@ function resolveLook(
     };
   }
 
-  const normalizedName = name.toLowerCase();
-  if (cliTool && BRAND_LOGOS[cliTool]) {
-    return { icon: Code2, className: BRAND_LOGOS[cliTool].className, label: BRAND_LOGOS[cliTool].label };
-  }
-  if (normalizedName.includes("claude")) {
-    return { icon: Code2, className: BRAND_LOGOS.claude_code.className, label: name || BRAND_LOGOS.claude_code.label };
-  }
-  if (normalizedName.includes("codex")) {
-    return { icon: Code2, className: BRAND_LOGOS.codex.className, label: name || BRAND_LOGOS.codex.label };
-  }
-  if (normalizedName.includes("open")) {
-    return { icon: Code2, className: BRAND_LOGOS.opencode.className, label: name || BRAND_LOGOS.opencode.label };
-  }
   if (cliTool && TOOL_LOOK[cliTool]) {
     return { ...TOOL_LOOK[cliTool], label: name || cliTool };
   }

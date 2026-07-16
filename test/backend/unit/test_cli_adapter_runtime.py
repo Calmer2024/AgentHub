@@ -1084,6 +1084,40 @@ def test_codex_auto_detects_proxy_provider_from_codex_home(tmp_path, monkeypatch
     assert env == {"OPENAI_API_KEY": "proxy-key"}
 
 
+def test_codex_auto_detected_provider_allows_per_agent_model_override(tmp_path, monkeypatch):
+    codex_home = tmp_path / ".codex"
+    codex_home.mkdir()
+    (codex_home / "config.toml").write_text(
+        'model = "future-model"\n'
+        'openai_base_url = "https://api.openai.com/v1"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+
+    args, env = CodexAdapter()._apply_connection_settings(
+        ["exec", "--json", "-"],
+        {"AGENTHUB_CODEX_MODEL": "gpt-5.5"},
+    )
+
+    assert 'model="gpt-5.5"' in args
+    assert env == {}
+
+
+def test_codex_inherited_local_config_allows_per_agent_model_override(tmp_path, monkeypatch):
+    codex_home = tmp_path / ".codex"
+    codex_home.mkdir()
+    (codex_home / "config.toml").write_text('model = "future-model"\n', encoding="utf-8")
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+
+    args, env = CodexAdapter()._apply_connection_settings(
+        ["exec", "--json", "-"],
+        {"AGENTHUB_CODEX_MODEL": "gpt-5.5"},
+    )
+
+    assert 'model="gpt-5.5"' in args
+    assert env == {}
+
+
 def test_codex_auto_detects_command_backed_proxy_auth(tmp_path, monkeypatch):
     codex_home = tmp_path / ".codex"
     codex_home.mkdir()

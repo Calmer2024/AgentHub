@@ -5,6 +5,7 @@ import type {
   ApprovalCheckpoint, TaskRead, DraftOrchestratorPlan, Session, OrchestratorExecution, CurrentUser,
 } from "../types";
 import { MessageBubble } from "./MessageBubble";
+import { ArtifactMessage } from "./MessageArtifactStrip";
 import { ChatInput } from "./ChatInput";
 import { CollaborationPanel } from "./CollaborationPanel";
 import { SearchPanel } from "./SearchPanel";
@@ -72,6 +73,7 @@ interface Props {
   onRenameSession: (sessionId: string, title: string) => Promise<void>;
   onAddGroupMember: (sessionId: string, agentId: string) => Promise<void>;
   onRemoveGroupMember: (sessionId: string, agentId: string) => Promise<void>;
+  onOpenAgentSettings?: (agentId: string) => void;
 }
 
 const INTENT_LABELS: Record<string, string> = {
@@ -130,6 +132,7 @@ export function ChatWindow({
   onSend, onDismissError, onReply, onRegenerate, onTogglePin, onArtifactsChanged,
   onToggleProjectFiles, projectFilesOpen = false,
   onRenameSession, onAddGroupMember, onRemoveGroupMember,
+  onOpenAgentSettings,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -622,12 +625,13 @@ export function ChatWindow({
       {/* Header */}
       <div className="agenthub-header flex items-center justify-between border-b px-4 py-3 md:px-6">
         <div className="flex min-w-0 items-center gap-3">
-          <AgentAvatar
-            agent={!isGroup ? currentAgent : undefined}
-            name={isGroup ? currentSession?.title ?? "群聊" : currentAgent?.name ?? "未选择智能体"}
-            kind={isGroup ? "group" : "agent"}
-            size="md"
-          />
+          {!isGroup && currentAgent ? (
+            <button type="button" onClick={() => onOpenAgentSettings?.(currentAgent.id)} className="shrink-0 rounded-full" aria-label={`配置 ${currentAgent.name}`} title="打开智能体配置">
+              <AgentAvatar agent={currentAgent} name={currentAgent.name} kind="agent" size="md" />
+            </button>
+          ) : (
+            <AgentAvatar name={currentSession?.title ?? "群聊"} kind="group" size="md" />
+          )}
           <div className="min-w-0">
             <h1 className="agenthub-strong truncate text-base font-semibold">
               {currentSession?.title ?? (isGroup ? "群聊" : currentAgent?.name ?? "未选择智能体")}
@@ -827,7 +831,7 @@ export function ChatWindow({
         {/* Messages area (scrollable) */}
         <div
           ref={scrollRef}
-          className="agenthub-message-area relative min-h-0 min-w-0 w-full overflow-y-auto p-4 pb-28 md:p-6 md:pb-28"
+          className="agenthub-message-area relative min-h-0 min-w-0 w-full overflow-y-auto p-4 pb-40 md:p-6 md:pb-40"
         >
           {messages.length === 0 && collabTasks.length === 0 && hydrating ? (
             <MessageListSkeleton />
@@ -849,17 +853,19 @@ export function ChatWindow({
               const relatedApprovals = approvalsByMessageId.get(msg.id) ?? EMPTY_APPROVALS;
               const messageRunActive = messageRun ? ACTIVE_RUN_STATUSES.has(messageRun.status) : false;
               const isPendingAssistant = msg.role === "assistant" && msg.content === "" && (isStreaming || messageRunActive);
+              const relatedArtifacts = artifactsByMessageId.get(msg.id) ?? EMPTY_ARTIFACTS;
+              const messageAgent = msg.agentName ? agentByName.get(msg.agentName) ?? null : null;
               return (
                 <div key={msg.id} ref={(el) => { messageRefs.current[msg.id] = el; }}>
                   <MessageBubble
                     message={msg}
                     isStreaming={isPendingAssistant}
-                    relatedArtifacts={artifactsByMessageId.get(msg.id) ?? EMPTY_ARTIFACTS}
+                    relatedArtifacts={EMPTY_ARTIFACTS}
                     run={messageRun}
                     tasks={messageRun ? tasksByRun[messageRun.id] ?? EMPTY_TASKS : EMPTY_TASKS}
                     relatedApprovals={relatedApprovals}
                     artifactById={relatedApprovals.length > 0 ? artifactById : undefined}
-                    agent={msg.agentName ? agentByName.get(msg.agentName) ?? null : null}
+                    agent={messageAgent}
                     currentUser={currentUser}
                     parentMessage={msg.parentMessageId ? messageById.get(msg.parentMessageId) ?? null : null}
                     highlighted={highlightedMessageId === msg.id}
@@ -880,7 +886,17 @@ export function ChatWindow({
                     onReject={rejectMessageCheckpoint}
                     onOpenApprovalArtifact={setReviewArtifact}
                     busyApprovalId={busyApprovalId}
+                    onOpenAgentSettings={onOpenAgentSettings}
                   />
+                  {relatedArtifacts.map((artifact) => (
+                    <ArtifactMessage
+                      key={artifact.id}
+                      artifact={artifact}
+                      agent={messageAgent}
+                      agentName={msg.agentName}
+                      onChanged={onArtifactsChanged}
+                    />
+                  ))}
                   {prompts.length > 0 && (
                     <div className="mb-4 ml-3 max-w-[min(82%,860px)] space-y-2">
                       {prompts.map((prompt) => (

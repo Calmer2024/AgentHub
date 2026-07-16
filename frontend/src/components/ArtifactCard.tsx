@@ -758,7 +758,7 @@ export function ArtifactCard({ artifact, onChanged }: Props) {
             type="button"
             onClick={() => setFullscreen(true)}
             aria-label={`打开产物预览：${artifact.title || artifact.filePath || "产物"}`}
-            className="min-w-0 flex-1 text-left transition active:translate-y-px"
+            className="min-w-0 flex-1 text-left transition"
           >
             <div className="agenthub-muted flex items-center gap-2 text-[11px]">
               {artifactIcon(artifact)}

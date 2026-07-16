@@ -97,7 +97,7 @@ export function SearchPanel({ sessionId, open, currentUser, onClose, onJump }: P
                   onJump(message.sessionId, message.id);
                   onClose();
                 }}
-                className="agenthub-soft flex w-full gap-3 rounded-2xl border p-3 text-left transition hover:border-[color:var(--ah-border-hover)] active:translate-y-px"
+                className="agenthub-soft flex w-full gap-3 rounded-2xl p-3 text-left transition"
               >
                 <AgentAvatar
                   kind={message.role === "user" ? "user" : "agent"}

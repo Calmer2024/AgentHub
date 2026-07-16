@@ -163,7 +163,7 @@ class TestListAgents:
         agents = res.json()
         names = {agent["name"] for agent in agents}
         assert {"Claude Code", "Codex", "OpenCode"}.issubset(names)
-        assert "Orchestrator 调度器" in names
+        assert "项目Leader" in names
         assert {
             "产品经理",
             "UX/UI设计师",
@@ -180,7 +180,7 @@ class TestListAgents:
         assert claude["envVars"] == {}
         assert claude["toolset"] == []
         assert claude["avatar"] == ""
-        orchestrator = next(agent for agent in agents if agent["name"] == "Orchestrator 调度器")
+        orchestrator = next(agent for agent in agents if agent["name"] == "项目Leader")
         assert orchestrator["primarySkill"] == "orchestrator_planner"
         codex = next(agent for agent in agents if agent["name"] == "Codex")
         assert "--ignore-user-config" not in codex["initArgs"]
@@ -195,10 +195,10 @@ class TestListAgents:
 
         agents = second.json()
         names = [agent["name"] for agent in agents]
-        assert names.count("Orchestrator 调度器") == 1
+        assert names.count("项目Leader") == 1
         assert names.count("产品经理") == 0
         assert names.count("UX/UI设计师") == 0
-        orchestrator = next(agent for agent in agents if agent["name"] == "Orchestrator 调度器")
+        orchestrator = next(agent for agent in agents if agent["name"] == "项目Leader")
         assert orchestrator["primarySkill"] == "orchestrator_planner"
         assert orchestrator["contextPolicy"] == "planning_only"
 
@@ -256,7 +256,7 @@ class TestListAgents:
         assert res.status_code == 200
 
         agents = res.json()
-        role_names = {"Orchestrator 调度器"}
+        role_names = {"项目Leader"}
         role_agents = [agent for agent in agents if agent["name"] in role_names]
 
         assert {agent["name"] for agent in role_agents} == role_names
@@ -264,7 +264,7 @@ class TestListAgents:
         assert all(agent["executable"] == "codex" for agent in role_agents)
         assert all(agent["initArgs"][:2] == ["exec", "--skip-git-repo-check"] for agent in role_agents)
 
-        orchestrator = next(agent for agent in role_agents if agent["name"] == "Orchestrator 调度器")
+        orchestrator = next(agent for agent in role_agents if agent["name"] == "项目Leader")
         assert orchestrator["primarySkill"] == "orchestrator_planner"
         assert orchestrator["contextPolicy"] == "planning_only"
         names = {agent["name"] for agent in agents}
@@ -320,7 +320,7 @@ class TestListAgents:
             "Claude Code",
             "Codex",
             "OpenCode",
-            "Orchestrator 调度器",
+            "项目Leader",
         }
         assert all(agent["name"] != "全局脏数据 Agent" for agent in owner_agents)
 
@@ -331,7 +331,7 @@ class TestListAgents:
             "Claude Code",
             "Codex",
             "OpenCode",
-            "Orchestrator 调度器",
+            "项目Leader",
         }
         assert {agent["id"] for agent in owner_agents}.isdisjoint({agent["id"] for agent in other_agents})
 

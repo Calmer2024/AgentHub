@@ -9,6 +9,9 @@
   },
   "devDependencies": {},
   "scripts": {
+    "dev": "node scripts/dev-desktop.mjs",
+    "dev:desktop": "node scripts/dev-desktop.mjs",
+    "dev:check": "node scripts/dev-desktop.mjs --check",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {

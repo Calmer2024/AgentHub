@@ -1,22 +1,24 @@
 import {
   AlertCircle,
+  ArrowLeft,
+  BookOpenText,
   CheckCircle2,
   CircleDot,
+  IdCard,
   KeyRound,
+  LayoutTemplate,
   Loader2,
-  Network,
   Play,
-  Save,
+  ScrollText,
   ServerCog,
-  Settings2,
   ShieldCheck,
-  Sparkles,
-  SlidersHorizontal,
   Terminal,
   Upload,
+  Wrench,
+  X,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type {
   AgentConfig,
   AgentConfigCreate,
@@ -41,9 +43,8 @@ import {
   type CliTool,
 } from "./AgentCliPresets";
 import { UiSelect, type UiSelectOption } from "./UiSelect";
-import { AgentAvatar, AGENT_AVATAR_PRESETS, CUSTOM_AGENT_DEFAULT_AVATAR } from "./AgentAvatar";
+import { AgentAvatar, CUSTOM_AGENT_DEFAULT_AVATAR } from "./AgentAvatar";
 import { AGENT_TEMPLATE_PRESETS, type AgentTemplatePreset } from "./AgentTemplatePresets";
-import { GlobalModal } from "./GlobalModal";
 
 const CLI_TOOL_OPTIONS: UiSelectOption[] = [
   { value: "claude_code", label: "Claude Code" },
@@ -53,9 +54,9 @@ const CLI_TOOL_OPTIONS: UiSelectOption[] = [
 ];
 
 const CONTEXT_POLICY_OPTIONS: UiSelectOption[] = [
-  { value: "workspace_coding", label: "Workspace Coding", description: "读取项目上下文并允许工作区编辑" },
-  { value: "planning_only", label: "Planning Only", description: "仅用于计划、拆解和调度" },
-  { value: "review_only", label: "Review Only", description: "侧重审查、测试和验收" },
+  { value: "workspace_coding", label: "工作区编码", description: "读取项目上下文并允许工作区编辑" },
+  { value: "planning_only", label: "仅规划", description: "仅用于计划、拆解和调度" },
+  { value: "review_only", label: "仅审查", description: "侧重审查、测试和验收" },
 ];
 
 const CODEX_CONNECTION_OPTIONS: UiSelectOption[] = [
@@ -81,7 +82,7 @@ const CLOUD_CLI_CREDENTIAL_META: Record<CliCredentialTool, {
     defaultBaseUrl: "",
     defaultAuthEnvKey: "ANTHROPIC_API_KEY",
     apiKeyLabel: "Anthropic / 中转密钥",
-    apiKeyPlaceholder: "填写 Anthropic 或中转服务 API Key",
+    apiKeyPlaceholder: "填写 Anthropic 或中转服务 API 密钥",
   },
   codex: {
     label: "Codex",
@@ -91,7 +92,7 @@ const CLOUD_CLI_CREDENTIAL_META: Record<CliCredentialTool, {
     defaultBaseUrl: "https://api.openai.com/v1",
     defaultAuthEnvKey: "OPENAI_API_KEY",
     apiKeyLabel: "OpenAI / 中转密钥",
-    apiKeyPlaceholder: "填写 OpenAI 或中转服务 API Key",
+    apiKeyPlaceholder: "填写 OpenAI 或中转服务 API 密钥",
   },
   opencode: {
     label: "OpenCode",
@@ -100,8 +101,8 @@ const CLOUD_CLI_CREDENTIAL_META: Record<CliCredentialTool, {
     defaultProviderName: "OpenAI",
     defaultBaseUrl: "https://api.openai.com/v1",
     defaultAuthEnvKey: "OPENAI_API_KEY",
-    apiKeyLabel: "OpenCode Provider 密钥",
-    apiKeyPlaceholder: "填写官方、兼容中转或自定义 Provider API Key",
+    apiKeyLabel: "OpenCode 提供方密钥",
+    apiKeyPlaceholder: "填写官方、兼容中转或自定义提供方 API 密钥",
   },
 };
 
@@ -208,19 +209,21 @@ const CLOUD_CLI_PROVIDER_PRESETS: Record<CliCredentialTool, CloudCliProviderPres
 export function AgentCliForm({
   initial,
   runtimeScope = "local",
+  presentation = "page",
   onSave,
   onCancel,
 }: {
   initial?: AgentConfig;
   runtimeScope?: "local" | "cloud";
+  presentation?: "page" | "dialog";
   onSave: (data: AgentConfigCreate) => Promise<void>;
   onCancel: () => void;
 }) {
   const defaultCliTool = initial?.cliTool ?? (runtimeScope === "cloud" ? "codex" : "claude_code");
   const [cliTool, setCliTool] = useState<CliTool>(defaultCliTool);
   const preset = CLI_PRESETS[cliTool];
-  const [name, setName] = useState(initial?.name ?? (runtimeScope === "cloud" ? "自定义 Agent" : preset.name));
-  const [note, setNote] = useState(initial?.description ?? (runtimeScope === "cloud" ? "使用云端 Engine 的自定义智能体" : preset.description));
+  const [name, setName] = useState(initial?.name ?? (runtimeScope === "cloud" ? "自定义智能体" : preset.name));
+  const [note, setNote] = useState(initial?.description ?? (runtimeScope === "cloud" ? "使用云端 CLI 的自定义智能体" : preset.description));
   const [systemPrompt, setSystemPrompt] = useState(initial?.systemPrompt ?? "");
   const [rules, setRules] = useState(initial?.rules ?? "");
   const [avatar, setAvatar] = useState(
@@ -264,6 +267,7 @@ export function AgentCliForm({
   const [cloudModelSource, setCloudModelSource] = useState<string | null>(null);
   const [cloudModelLoading, setCloudModelLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [formDirty, setFormDirty] = useState(false);
   const [checking, setChecking] = useState(false);
   const [checkResult, setCheckResult] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
@@ -280,9 +284,7 @@ export function AgentCliForm({
     label: provider.label,
   }));
   const codexCustomProvider = cliTool === "codex" && cloudProviderKey === "custom_codex";
-  const formGridClass = isBuiltinCloudEngine
-    ? "grid items-start gap-4"
-    : "grid items-start gap-4 lg:grid-cols-2";
+  const formGridClass = "grid items-start gap-0";
   const cloudModelSelectOptions: UiSelectOption[] = cloudModelOptions.map((model) => ({
     value: model.id,
     label: model.label,
@@ -406,8 +408,8 @@ export function AgentCliForm({
       setToolset([]);
       setContextPolicy("workspace_coding");
     } else {
-      setName((current) => current.trim() || "自定义 Agent");
-      setNote((current) => current.trim() || `使用 ${nextPreset.name} Engine 的自定义智能体`);
+      setName((current) => current.trim() || "自定义智能体");
+      setNote((current) => current.trim() || `使用 ${nextPreset.name} CLI 的自定义智能体`);
       setAvatar((current) => current || CUSTOM_AGENT_DEFAULT_AVATAR);
     }
     setExecutable(nextPreset.executable);
@@ -503,20 +505,19 @@ export function AgentCliForm({
     }
   };
 
-  const handleSubmit = async (event: React.FormEvent) => {
-    event.preventDefault();
+  const handleSave = async () => {
     if (!name.trim()) return;
     setSaving(true);
     setFormError(null);
     try {
       if (runtimeScope === "cloud" && cloudCredentialMeta && isCliCredentialTool(cliTool)) {
         if (!cloudApiKey.trim() && !cloudCredentialConfigured) {
-          setFormError(`请先填写 ${cloudCredentialMeta.label} API Key`);
+          setFormError(`请先填写 ${cloudCredentialMeta.label} API 密钥`);
           setSaving(false);
           return;
         }
         if (/^https?:\/\//i.test(cloudApiKey.trim())) {
-          setFormError("API Key 不能填写 URL，请填写供应商控制台生成的密钥");
+          setFormError("API 密钥不能填写网址，请填写供应商控制台生成的密钥");
           setSaving(false);
           return;
         }
@@ -576,6 +577,7 @@ export function AgentCliForm({
         contextPolicy,
         avatar: isBuiltinCloudEngine ? "" : avatar,
       });
+      setFormDirty(false);
     } catch (error) {
       setFormError(error instanceof Error ? error.message : "保存失败");
     } finally {
@@ -583,56 +585,92 @@ export function AgentCliForm({
     }
   };
 
+  const autosaveSignature = JSON.stringify({
+    name, note, systemPrompt, rules, avatar, toolset, contextPolicy, cliTool,
+    executable, argsText, envText, codexConnection, codexBaseUrl, codexModel,
+    codexApiKey, codexProviderId, codexProviderName, codexUseChatgptAuth,
+    cloudProviderKey, cloudProviderType, cloudProviderId, cloudProviderName,
+    cloudBaseUrl, cloudModel, cloudAuthEnvKey, cloudApiKey, cloudCodexReviewModel,
+    cloudCodexReasoningEffort, cloudCodexWireApi, cloudCodexNetworkAccess,
+    cloudCodexRequiresOpenaiAuth,
+  });
+  const initialAutosaveSignature = useRef(autosaveSignature);
+
+  useEffect(() => {
+    if (!initial || !formDirty || autosaveSignature === initialAutosaveSignature.current || !name.trim()) return;
+    const timer = window.setTimeout(() => { void handleSave(); }, 700);
+    return () => window.clearTimeout(timer);
+    // The serialized signature intentionally owns the debounce boundary.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autosaveSignature, formDirty]);
+
+  const sectionLinks: { id: string; label: string; icon: LucideIcon }[] = [
+    ...(!initial && !isBuiltinCloudEngine ? [{ id: "agent-template", label: "模板", icon: LayoutTemplate }] : []),
+    { id: "agent-profile", label: "智能体", icon: IdCard },
+    ...(!isBuiltinCloudEngine ? [
+      { id: "agent-rules", label: "身份与规则", icon: BookOpenText },
+      { id: "agent-capabilities", label: "能力配置", icon: Wrench },
+    ] : []),
+    ...(runtimeScope === "cloud" && cloudCredentialMeta ? [{ id: "agent-credentials", label: "CLI 凭据", icon: KeyRound }] : []),
+    ...(runtimeScope === "local" ? [{ id: "agent-command", label: "启动命令", icon: Terminal }] : []),
+    ...(runtimeScope === "local" && cliTool === "codex" ? [{ id: "agent-codex", label: "Codex 模型连接", icon: ServerCog }] : []),
+    ...(runtimeScope === "local" ? [{ id: "agent-env", label: "高级环境变量", icon: ScrollText }] : []),
+  ];
+  const [activeSectionId, setActiveSectionId] = useState("agent-profile");
+
   return (
-    <GlobalModal
-      title={initial ? "智能体设置" : runtimeScope === "local" ? "添加命令行智能体" : "添加云端智能体"}
-      subtitle={isBuiltinCloudEngine ? "配置当前用户的云端 CLI 凭据" : runtimeScope === "local" ? "身份 + 工具集 + 本机运行参数" : "身份 + 工具集 + 云端运行策略"}
-      icon={(
-        <AgentAvatar
-          agent={{ name: name || "Agent", cliTool, status: "ready", avatar }}
-          size="md"
-        />
-      )}
-      zIndexClass="z-[1200]"
-      onClose={onCancel}
-      footer={(
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          {formError ? (
-            <div className="flex items-center gap-2 text-xs leading-5 text-[color:var(--ah-danger)]">
-              <AlertCircle size={15} />
-              {formError}
-            </div>
-          ) : (
-            <div className="agenthub-faint text-xs">
-              {runtimeScope === "local" ? "更改会在下次启动 CLI 进程时生效" : "更改会在下次云端运行时调度时生效"}
+    <div className={`agenthub-agent-settings agenthub-agent-settings-${presentation} flex h-full min-h-0 w-full`}>
+      <aside className="agenthub-agent-settings-nav flex w-56 shrink-0 flex-col px-4 py-5">
+        <div className="mb-5">
+          <button type="button" onClick={onCancel} className="agenthub-agent-settings-back flex min-h-10 w-full items-center gap-2 rounded-[10px] px-2 text-left text-sm" aria-label={presentation === "dialog" ? "关闭配置" : "返回"} title={presentation === "dialog" ? "关闭配置" : "返回"}>
+            {presentation === "dialog" ? <X size={17} aria-hidden="true" /> : <ArrowLeft size={17} aria-hidden="true" />}
+            <span>{presentation === "dialog" ? "关闭" : "返回"}</span>
+          </button>
+        </div>
+        <nav className="space-y-1" aria-label="配置分区">
+          {sectionLinks.map((item) => {
+            const Icon = item.icon;
+            return (
+              <a
+                key={item.id}
+                href={`#${item.id}`}
+                data-active={activeSectionId === item.id}
+                onClick={() => setActiveSectionId(item.id)}
+                className="agenthub-agent-settings-link flex items-center gap-2.5 rounded-[10px] px-3 py-2.5 text-sm"
+              >
+                <Icon size={16} strokeWidth={1.8} aria-hidden="true" />
+                <span>{item.label}</span>
+              </a>
+            );
+          })}
+        </nav>
+        {presentation === "page" && (
+          <div className="agenthub-faint mt-auto px-3 pt-4 text-xs" aria-live="polite">
+            {saving ? "正在同步" : formError ? "同步失败" : "提示：修改自动生效"}
+          </div>
+        )}
+      </aside>
+      <div className="agenthub-agent-settings-content flex min-h-0 min-w-0 flex-1 flex-col">
+        <div className="min-h-0 flex-1 overflow-y-auto">
+      <form
+        id="agent-cli-form"
+        onSubmit={(event) => { event.preventDefault(); void handleSave(); }}
+        onChangeCapture={() => setFormDirty(true)}
+        onClickCapture={(event) => {
+          const target = event.target;
+          if (target instanceof Element && target.closest(".agenthub-select-option")) setFormDirty(true);
+        }}
+        className="mx-auto w-full max-w-5xl px-10 py-6"
+      >
+          {formError && (
+            <div className="agenthub-status-error mb-3 flex items-center gap-2 rounded-[10px] px-3 py-2 text-xs leading-5">
+              <AlertCircle size={15} aria-hidden="true" />{formError}
             </div>
           )}
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={onCancel}
-              className="agenthub-icon-button rounded-full px-4 py-2 text-sm"
-            >
-              取消
-            </button>
-            <button
-              type="submit"
-              form="agent-cli-form"
-              disabled={saving || !name.trim()}
-              className="agenthub-primary-button inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium disabled:opacity-50"
-            >
-              {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
-              保存
-            </button>
-          </div>
-        </div>
-      )}
-    >
-      <form id="agent-cli-form" onSubmit={handleSubmit} className="w-full">
           <div data-testid="agent-cli-form-grid" className={formGridClass}>
             {!initial && !isBuiltinCloudEngine && (
               <div className="lg:col-span-2">
-                <ConfigSection icon={Sparkles} title="模板" description="选择后会预填身份、规则和工具集">
+                <ConfigSection id="agent-template" title="模板" description="选择后会预填身份、规则和工具集">
                   <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                     {AGENT_TEMPLATE_PRESETS.map((template) => {
                       const selected = selectedTemplateName === template.name;
@@ -641,12 +679,15 @@ export function AgentCliForm({
                           key={template.name}
                           type="button"
                           onClick={() => applyTemplate(template)}
-                          className={`agenthub-soft flex min-h-[76px] flex-col items-start justify-between rounded-2xl border px-3 py-2.5 text-left transition hover:border-[color:var(--ah-border-hover)] hover:bg-[color:var(--ah-card-soft)] ${
-                            selected ? "ring-2 ring-[color:var(--ah-accent-strong)] ring-offset-2 ring-offset-[color:var(--ah-card)]" : ""
+                          className={`agenthub-template-card agenthub-soft flex min-h-[82px] items-center gap-3 rounded-[12px] px-3 py-2.5 text-left transition ${
+                            selected ? "agenthub-template-card-selected" : ""
                           }`}
                         >
-                          <span className="agenthub-strong text-sm font-medium">{template.name}</span>
-                          <span className="agenthub-muted mt-1 line-clamp-2 text-xs leading-5">{template.description}</span>
+                          <AgentAvatar agent={{ name: template.name, cliTool: "codex", status: "ready", avatar: template.avatar }} size="md" />
+                          <span className="min-w-0">
+                            <span className="agenthub-strong block text-sm font-medium">{template.name}</span>
+                            <span className="agenthub-muted mt-1 line-clamp-2 text-xs leading-5">{template.description}</span>
+                          </span>
                         </button>
                       );
                     })}
@@ -656,48 +697,21 @@ export function AgentCliForm({
             )}
 
             <div className={isBuiltinCloudEngine ? "" : "lg:col-span-2"}>
-            <ConfigSection icon={Settings2} title="基础信息" description="设置用户可见的智能体身份">
-              <FieldLabel label="头像">
+            <ConfigSection id="agent-profile" title="智能体" description="设置在对话和好友列表中展示的信息">
+              <div className="agenthub-agent-profile-editor">
                 {isBuiltinCloudEngine ? (
-                  <div className="agenthub-soft flex items-center gap-2 rounded-2xl border px-3 py-2 text-xs">
+                  <div className="agenthub-agent-profile-avatar">
                     <AgentAvatar
-                      agent={{ name: name || "Agent", cliTool, status: "ready", avatar: "" }}
-                      size="sm"
+                      agent={{ name: name || "智能体", cliTool, status: "ready", avatar: "" }}
+                      size="lg"
                     />
-                    <span className="agenthub-muted">内置 Engine 使用厂商图标</span>
                   </div>
                 ) : (
-                <div className="flex flex-wrap items-center gap-2">
-                  {AGENT_AVATAR_PRESETS.map((presetAvatar) => {
-                    const Icon = presetAvatar.icon;
-                    const selected = avatar === presetAvatar.id;
-                    return (
-                      <button
-                        key={presetAvatar.id}
-                        type="button"
-                        onClick={() => setAvatar(presetAvatar.id)}
-                        className={`flex h-10 w-10 items-center justify-center rounded-full border transition ${
-                          selected ? "ring-2 ring-[color:var(--ah-accent-strong)] ring-offset-2 ring-offset-[color:var(--ah-card)]" : "hover:-translate-y-0.5"
-                        } ${presetAvatar.className}`}
-                        title={presetAvatar.label}
-                        aria-label={`选择${presetAvatar.label}头像`}
-                      >
-                        <Icon size={18} strokeWidth={1.9} />
-                      </button>
-                    );
-                  })}
-                  {avatar.startsWith("data:image/") && (
-                    <span
-                      className="agenthub-icon-button flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border"
-                      title="当前上传头像"
-                      aria-label="当前上传头像"
-                    >
-                      <img src={avatar} alt="" className="h-full w-full object-cover" />
+                  <label className="agenthub-agent-profile-avatar group/avatar cursor-pointer">
+                    <AgentAvatar agent={{ name: name || "智能体", cliTool, status: "ready", avatar }} size="lg" className="agenthub-agent-profile-avatar-image" />
+                    <span className="agenthub-agent-profile-upload absolute inset-0 hidden items-center justify-center rounded-full text-xs group-hover/avatar:flex">
+                      <Upload size={14} aria-hidden="true" />
                     </span>
-                  )}
-                  <label className="agenthub-icon-button inline-flex h-10 cursor-pointer items-center gap-1.5 rounded-full border px-3 text-xs">
-                    <Upload size={14} />
-                    上传
                     <input
                       type="file"
                       accept="image/png,image/jpeg,image/webp,image/gif"
@@ -712,10 +726,9 @@ export function AgentCliForm({
                       }}
                     />
                   </label>
-                </div>
                 )}
-              </FieldLabel>
-              <FieldLabel label="显示名称">
+                <div className="min-w-0 flex-1 space-y-3">
+              <FieldLabel label="名称">
                 <input
                   value={name}
                   onChange={(event) => setName(event.target.value)}
@@ -732,13 +745,15 @@ export function AgentCliForm({
                   className={inputClass}
                 />
               </FieldLabel>
+                </div>
+              </div>
             </ConfigSection>
             </div>
 
             {!isBuiltinCloudEngine && (
             <div className="lg:col-span-2">
-              <ConfigSection icon={ShieldCheck} title="身份与规则" description="System Prompt 定义身份/业务边界，Rules 定义长期行为原则">
-                <FieldLabel label="System Prompt">
+                <ConfigSection id="agent-rules" title="身份与规则" description="系统提示词定义身份和业务边界，行为规则定义长期原则">
+                <FieldLabel label="系统提示词">
                   <textarea
                     value={systemPrompt}
                     onChange={(event) => setSystemPrompt(event.target.value)}
@@ -747,7 +762,7 @@ export function AgentCliForm({
                     className={`${inputClass} min-h-[140px] resize-y leading-5`}
                   />
                 </FieldLabel>
-                <FieldLabel label="Rules">
+                <FieldLabel label="行为规则">
                   <textarea
                     value={rules}
                     onChange={(event) => setRules(event.target.value)}
@@ -761,14 +776,14 @@ export function AgentCliForm({
             )}
 
             {!isBuiltinCloudEngine && (
-            <ConfigSection
-              icon={Sparkles}
+            <div className="lg:col-span-2">
+            <ConfigSection id="agent-capabilities"
               title="能力配置"
-              description={runtimeScope === "local" ? "工具集来自本机 Skill，Engine 负责真实执行" : "工具集由云端工作区加载，Engine 由云端运行时调度"}
+              description={runtimeScope === "local" ? "工具集来自本机技能，CLI 负责实际执行" : "工具集由云端工作区加载，CLI 由云端运行时调度"}
             >
-              <FieldLabel label={runtimeScope === "local" ? "命令行类型" : "Engine"}>
+              <FieldLabel label="CLI 类型">
                 <UiSelect
-                  ariaLabel={runtimeScope === "local" ? "命令行类型" : "Engine"}
+                  ariaLabel="CLI 类型"
                   value={cliTool}
                   options={CLI_TOOL_OPTIONS}
                   disabled={isBuiltinCloudEngine}
@@ -778,7 +793,7 @@ export function AgentCliForm({
               <FieldLabel label="工具集">
                 {skills.length === 0 ? (
                   <div className="agenthub-soft rounded-2xl border px-3 py-3 text-xs leading-5">
-                    {runtimeScope === "local" ? "未发现本机 Skill。" : "未发现可用 Skill。"}可以先留空，Agent 会仅按 System Prompt、Rules 和当前任务工作。
+                    {runtimeScope === "local" ? "未发现本机技能。" : "未发现可用技能。"}可以先留空，智能体会仅按系统提示词、行为规则和当前任务工作。
                   </div>
                 ) : (
                   <div className="grid gap-2 sm:grid-cols-2">
@@ -810,18 +825,18 @@ export function AgentCliForm({
                 />
               </FieldLabel>
             </ConfigSection>
+            </div>
             )}
 
             {runtimeScope === "cloud" && cloudCredentialMeta && (
-              <ConfigSection
-                icon={KeyRound}
-                title="Engine 凭据"
-                description={`${cloudCredentialMeta.label} 的 API Key、Provider 和中转配置会作为当前用户配置保存`}
+              <ConfigSection id="agent-credentials"
+                title="CLI 凭据"
+                description={`${cloudCredentialMeta.label} 的 API 密钥、提供方和中转配置会保存到当前用户`}
               >
                 <div className="flex flex-wrap items-center gap-2">
                   <StatusBadge
                     ready={cloudCredentialConfigured}
-                    label={cloudCredentialConfigured ? "已配置" : "需要 API Key"}
+                    label={cloudCredentialConfigured ? "已配置" : "需要 API 密钥"}
                   />
                   {cloudCredentialLoading && <SmallBadge icon={Loader2} label="加载中" />}
                 </div>
@@ -831,9 +846,9 @@ export function AgentCliForm({
                   </div>
                 )}
                 <div className="grid gap-3">
-                  <FieldLabel label="Provider">
+                  <FieldLabel label="提供方">
                     <UiSelect
-                      ariaLabel={`${cloudCredentialMeta.label} Provider`}
+                      ariaLabel={`${cloudCredentialMeta.label} 提供方`}
                       value={cloudProviderKey}
                       options={cloudProviderOptions}
                       onValueChange={updateCloudProvider}
@@ -859,7 +874,7 @@ export function AgentCliForm({
                         <div className="agenthub-faint flex flex-wrap items-center gap-2 text-[11px]">
                           {cloudModelLoading && <span>模型目录同步中</span>}
                           {cloudModelSource && <span>模型目录：{cloudModelSource}</span>}
-                          <span>找不到模型时可直接填写 Provider 文档中的 model id。</span>
+                          <span>找不到模型时可直接填写提供方文档中的模型标识。</span>
                         </div>
                       )}
                     </div>
@@ -868,7 +883,7 @@ export function AgentCliForm({
                     <div className="grid gap-3 rounded-2xl border border-[color:var(--ah-border)] p-3">
                       <div className="agenthub-muted text-xs font-medium">Codex config.toml 关键配置</div>
                       <div className="grid gap-3 lg:grid-cols-2">
-                        <FieldLabel label="Provider ID">
+                        <FieldLabel label="提供方标识">
                           <input
                             value={cloudProviderId}
                             onChange={(event) => setCloudProviderId(event.target.value)}
@@ -876,7 +891,7 @@ export function AgentCliForm({
                             className={inputClass}
                           />
                         </FieldLabel>
-                        <FieldLabel label="Provider 名称">
+                        <FieldLabel label="提供方名称">
                           <input
                             value={cloudProviderName}
                             onChange={(event) => setCloudProviderName(event.target.value)}
@@ -884,7 +899,7 @@ export function AgentCliForm({
                             className={inputClass}
                           />
                         </FieldLabel>
-                        <FieldLabel label="Base URL">
+                        <FieldLabel label="服务地址">
                           <input
                             value={cloudBaseUrl}
                             onChange={(event) => setCloudBaseUrl(event.target.value)}
@@ -892,7 +907,7 @@ export function AgentCliForm({
                             className={inputClass}
                           />
                         </FieldLabel>
-                        <FieldLabel label="Env Key">
+                        <FieldLabel label="环境变量名">
                           <input
                             value={cloudAuthEnvKey}
                             onChange={(event) => setCloudAuthEnvKey(event.target.value)}
@@ -900,15 +915,15 @@ export function AgentCliForm({
                             className={inputClass}
                           />
                         </FieldLabel>
-                        <FieldLabel label="wire_api">
+                        <FieldLabel label="响应接口">
                           <UiSelect
-                            ariaLabel="Codex wire_api"
+                            ariaLabel="Codex 响应接口"
                             value={cloudCodexWireApi}
                             options={[{ value: "responses", label: "responses" }]}
                             onValueChange={setCloudCodexWireApi}
                           />
                         </FieldLabel>
-                        <FieldLabel label="review_model">
+                        <FieldLabel label="审查模型">
                           <input
                             value={cloudCodexReviewModel}
                             onChange={(event) => setCloudCodexReviewModel(event.target.value)}
@@ -916,9 +931,9 @@ export function AgentCliForm({
                             className={inputClass}
                           />
                         </FieldLabel>
-                        <FieldLabel label="reasoning effort">
+                        <FieldLabel label="推理强度">
                           <UiSelect
-                            ariaLabel="Codex reasoning effort"
+                            ariaLabel="Codex 推理强度"
                             value={cloudCodexReasoningEffort}
                             options={[
                               { value: "xhigh", label: "xhigh" },
@@ -930,7 +945,7 @@ export function AgentCliForm({
                             onValueChange={setCloudCodexReasoningEffort}
                           />
                         </FieldLabel>
-                        <FieldLabel label="network_access">
+                        <FieldLabel label="网络访问">
                           <UiSelect
                             ariaLabel="Codex network access"
                             value={cloudCodexNetworkAccess}
@@ -949,7 +964,7 @@ export function AgentCliForm({
                             className="h-4 w-4 shrink-0 accent-[color:var(--ah-accent-strong)]"
                             aria-label="Codex requires_openai_auth"
                           />
-                          <span className="min-w-0 flex-1">requires_openai_auth</span>
+                          <span className="min-w-0 flex-1">需要 OpenAI 身份验证</span>
                         </label>
                       </div>
                     </div>
@@ -971,14 +986,15 @@ export function AgentCliForm({
                 <div className="agenthub-status-info flex items-start gap-2 rounded-2xl border px-3 py-2 text-xs leading-5">
                   <ServerCog size={15} className="mt-0.5 shrink-0" />
                   <span>
-                    保存后密钥进入云端 Secret，运行时会按当前用户和项目注入对应 CLI；AgentConfig 不保存明文密钥。
+                    保存后密钥进入云端密钥库，运行时会按当前用户和项目注入对应 CLI，智能体配置不会保存明文密钥。
                   </span>
                 </div>
               </ConfigSection>
             )}
 
             {runtimeScope === "local" && (
-            <ConfigSection icon={Terminal} title="启动命令" description="AgentHub 会在项目工作区里启动这个命令行工具">
+            <div className="lg:col-span-2">
+            <ConfigSection id="agent-command" title="启动命令" description="AgentHub 会在项目工作区里启动这个命令行工具">
               <FieldLabel label="可执行命令">
                 <div className="flex gap-2">
                   <input
@@ -1011,11 +1027,12 @@ export function AgentCliForm({
                 />
               </FieldLabel>
             </ConfigSection>
+            </div>
             )}
 
             {runtimeScope === "local" && cliTool === "codex" && (
               <div className="lg:col-span-2">
-                <ConfigSection icon={Network} title="Codex 模型连接" description="支持官方 OpenAI API 与 OpenAI 兼容中转服务">
+                <ConfigSection id="agent-codex" title="Codex 模型连接" description="支持官方 OpenAI API 与 OpenAI 兼容中转服务">
                   <div className="flex flex-wrap items-center gap-2">
                     <StatusBadge ready={Boolean(codexReady)} label={codexReady ? "连接可用" : "需要配置"} />
                     {codexApiKeySet && <SmallBadge icon={ShieldCheck} label="密钥已保存" />}
@@ -1065,7 +1082,7 @@ export function AgentCliForm({
                     <FieldLabel label="提供方标识">
                       <input value={codexProviderId} onChange={(event) => setCodexProviderId(event.target.value)} className={inputClass} />
                     </FieldLabel>
-                    <FieldLabel label="Provider 名称">
+                    <FieldLabel label="提供方名称">
                       <input value={codexProviderName} onChange={(event) => setCodexProviderName(event.target.value)} className={inputClass} />
                     </FieldLabel>
                   </div>
@@ -1083,7 +1100,7 @@ export function AgentCliForm({
                   <div className="agenthub-status-info flex items-start gap-2 rounded-2xl border px-3 py-2 text-xs leading-5">
                     <ServerCog size={15} className="mt-0.5 shrink-0" />
                     <span>
-                      保存后 AgentHub 会把凭据写入本机 Codex .env，并让 Codex 通过本机凭据读取器按需读取；不会存进 Agent 配置。
+                      保存后 AgentHub 会把凭据写入本机 Codex .env，并让 Codex 通过本机凭据读取器按需读取，不会存进智能体配置。
                     </span>
                   </div>
                 </ConfigSection>
@@ -1092,7 +1109,7 @@ export function AgentCliForm({
 
             {runtimeScope === "local" && (
             <div className="lg:col-span-2">
-              <ConfigSection icon={SlidersHorizontal} title="高级环境变量" description="仅用于非密钥类命令行覆盖，密钥会被过滤">
+              <ConfigSection id="agent-env" title="高级环境变量" description="仅用于非密钥类命令行覆盖，密钥会被过滤">
                 <textarea
                   value={envText}
                   onChange={(event) => setEnvText(event.target.value)}
@@ -1105,7 +1122,19 @@ export function AgentCliForm({
             )}
           </div>
       </form>
-    </GlobalModal>
+        </div>
+        {presentation === "dialog" && (
+          <footer className="flex shrink-0 items-center justify-end gap-2 px-6 py-4">
+            <button type="button" onClick={onCancel} disabled={saving} className="agenthub-icon-button min-h-10 rounded-[10px] px-5 text-sm disabled:opacity-50">
+              取消
+            </button>
+            <button type="submit" form="agent-cli-form" disabled={saving || !name.trim()} className="agenthub-primary-button min-h-10 rounded-[10px] px-5 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50">
+              {saving ? "正在添加" : "确定添加"}
+            </button>
+          </footer>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -1212,29 +1241,24 @@ function isNativeCloudEngine(agent: AgentConfig) {
   return agent.avatar === "" && CLI_PRESETS[agent.cliTool].executable === agent.executable;
 }
 
-const inputClass = "agenthub-composer agenthub-textarea agenthub-focus-ring w-full rounded-2xl border px-3 py-2 text-sm placeholder:text-[color:var(--ah-faint)]";
+const inputClass = "agenthub-composer agenthub-textarea agenthub-focus-ring w-full rounded-[10px] px-3 py-2 text-sm leading-5 placeholder:text-[color:var(--ah-faint)]";
 
 function ConfigSection({
-  icon: Icon,
+  id,
   title,
   description,
   children,
 }: {
-  icon: LucideIcon;
+  id: string;
   title: string;
   description: string;
   children: ReactNode;
 }) {
   return (
-    <section className="agenthub-card space-y-3 rounded-3xl border p-4">
-      <div className="flex items-start gap-3">
-        <div className="agenthub-soft flex h-8 w-8 shrink-0 items-center justify-center rounded-full border">
-          <Icon size={17} />
-        </div>
-        <div>
-          <h3 className="agenthub-strong text-sm font-semibold">{title}</h3>
+    <section id={id} className="agenthub-config-section scroll-mt-4 space-y-4 py-6">
+      <div>
+          <h3 className="agenthub-strong text-base font-semibold leading-6">{title}</h3>
           <p className="agenthub-muted mt-0.5 text-xs leading-5">{description}</p>
-        </div>
       </div>
       <div className="space-y-3">{children}</div>
     </section>
@@ -1243,9 +1267,9 @@ function ConfigSection({
 
 function FieldLabel({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <label className="block space-y-1.5">
-      <span className="agenthub-muted text-xs font-medium">{label}</span>
-      {children}
+    <label className="agenthub-setting-field grid items-start gap-2">
+      <span className="agenthub-muted text-sm font-medium leading-5">{label}</span>
+      <span className="min-w-0">{children}</span>
     </label>
   );
 }

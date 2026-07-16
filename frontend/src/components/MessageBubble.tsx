@@ -46,6 +46,7 @@ interface Props {
   onReject?: (approval: ApprovalCheckpoint) => void;
   onOpenApprovalArtifact?: (artifact: Artifact) => void;
   busyApprovalId?: string | null;
+  onOpenAgentSettings?: (agentId: string) => void;
 }
 
 function replyReference(message: Message): ReplyReference | null {
@@ -122,6 +123,7 @@ function MessageBubbleBase({
   onReply, onRegenerate, onTogglePin, onForward, onMultiSelect, onToggleSelect,
   onCopy, onJumpToMessage, onArtifactsChanged,
   onCancelRun, cancellingRunId, onApprove, onReject, onOpenApprovalArtifact, busyApprovalId,
+  onOpenAgentSettings,
 }: Props) {
   const [contextMenuPosition, setContextMenuPosition] = useState<{ x: number; y: number } | null>(null);
   const isUser = message.role === "user";
@@ -137,9 +139,9 @@ function MessageBubbleBase({
   const isSummary = message.sourceType === "orchestrator" || message.contentType === "orchestrator_summary";
   const bgClass = isUser
     ? "agenthub-bubble-user"
-    : "agenthub-bubble-agent border";
-  const roundClass = "rounded-[22px]";
-  const summaryClass = "agenthub-card border";
+    : "agenthub-bubble-agent";
+  const roundClass = "rounded-[14px]";
+  const summaryClass = "agenthub-card";
   const bubbleClass = isSummary
     ? summaryClass
     : bgClass;
@@ -190,7 +192,7 @@ function MessageBubbleBase({
   };
 
   return (
-    <div className={`group relative mb-6 flex min-w-0 scroll-mt-6 items-start gap-4 transition ${
+    <div className={`agenthub-message-row group relative mb-6 flex min-w-0 scroll-mt-6 items-start gap-4 transition ${
       isUser ? "flex-row-reverse justify-start" : "justify-start"
     } ${highlighted ? "rounded-2xl bg-[color:var(--ah-highlight-bg)] ring-2 ring-[color:var(--ah-border-strong)]" : ""}`}>
       {selectionMode && (
@@ -205,18 +207,18 @@ function MessageBubbleBase({
           {selected && <span className="h-2.5 w-2.5 rounded-full bg-current" />}
         </button>
       )}
-      <AgentAvatar
-        agent={avatarKind === "agent" ? agent : null}
-        name={avatarName}
-        kind={avatarKind}
-        size="md"
-        className="mt-0.5"
-      />
+      {!isUser && avatarKind === "agent" && agent ? (
+        <button type="button" onClick={() => onOpenAgentSettings?.(agent.id)} className="shrink-0 rounded-full" aria-label={`配置 ${agent.name}`} title="打开智能体配置">
+          <AgentAvatar agent={agent} name={avatarName} kind="agent" size="md" className="mt-0.5" />
+        </button>
+      ) : !isUser ? (
+        <AgentAvatar agent={null} name={avatarName} kind={avatarKind} size="md" className="mt-0.5" />
+      ) : null}
       <div className={`${isSummary || orchestratorPlan || orchestratorExecution ? "max-w-[min(92%,1080px)]" : isUser ? "max-w-[min(68%,720px)]" : "max-w-[min(88%,1120px)]"} min-w-0 flex flex-col ${
         isUser ? "items-end" : "items-start"
       }`}>
         <div className={`agenthub-message-head mb-1.5 flex min-w-0 items-center gap-2 px-0.5 text-xs ${isUser ? "flex-row-reverse text-right" : ""}`}>
-          <span className="agenthub-message-author truncate">{displayName}</span>
+          {!isUser && <span className="agenthub-message-author truncate">{displayName}</span>}
           {!isUser && <span className="agenthub-message-ai-badge">AI</span>}
           <time className="agenthub-message-time">{displayTime}</time>
         </div>
@@ -239,12 +241,12 @@ function MessageBubbleBase({
             onClose={() => setContextMenuPosition(null)}
           />
           {!isUser && isSummary && (
-            <div className="agenthub-agent-namebar sticky top-0 z-10 rounded-t-[20px] px-3 pb-1.5 pt-2.5 text-xs font-semibold">
+            <div className="agenthub-agent-namebar sticky top-0 z-10 rounded-t-[12px] px-3 pb-1.5 pt-2.5 text-xs font-semibold">
               <span>系统整理</span>
               <span className="agenthub-muted ml-2">{message.sourceName ?? "编排器中枢"}</span>
             </div>
           )}
-          <div className={isUser ? "min-w-0 max-w-full px-4 py-3" : "min-w-0 max-w-full px-5 py-4 md:px-6"}>
+          <div className={isUser ? "min-w-0 max-w-full px-4 py-3" : "min-w-0 max-w-full px-4 py-3.5 md:px-5"}>
           {message.isPinned && (
             <div className={`mb-2 text-xs font-medium ${isUser ? "text-current/80" : "agenthub-accent"}`}>
               <Pin size={13} aria-label="已 Pin" />
@@ -290,17 +292,6 @@ function MessageBubbleBase({
             </details>
           )}
           {!isUser && (
-            <RuntimeControlStrip
-              run={run}
-              tasks={tasks}
-              onCancel={(runId) => onCancelRun?.(runId)}
-              cancelling={cancellingRunId === run?.id}
-            />
-          )}
-          {!isUser && (
-            <ExecutionTracePanel trace={message.metadata?.executionTrace} />
-          )}
-          {!isUser && (
             <MessageArtifactStrip
               message={message}
               artifacts={artifacts}
@@ -321,6 +312,17 @@ function MessageBubbleBase({
           ))}
           </div>
         </div>
+        {!isUser && (
+          <div className="agenthub-message-execution w-full">
+            <RuntimeControlStrip
+              run={run}
+              tasks={tasks}
+              onCancel={(runId) => onCancelRun?.(runId)}
+              cancelling={cancellingRunId === run?.id}
+            />
+            <ExecutionTracePanel trace={message.metadata?.executionTrace} />
+          </div>
+        )}
       </div>
     </div>
   );

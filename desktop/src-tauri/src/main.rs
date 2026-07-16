@@ -1,7 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::{
-    fs,
+    env,
     net::{TcpStream, ToSocketAddrs},
     process::{Child, Command, Stdio},
     sync::Mutex,
@@ -9,7 +9,12 @@ use std::{
     time::Duration,
 };
 
-use tauri::{path::BaseDirectory, Manager, WindowEvent};
+#[cfg(not(debug_assertions))]
+use std::fs;
+
+#[cfg(not(debug_assertions))]
+use tauri::path::BaseDirectory;
+use tauri::{Manager, WindowEvent};
 
 const BACKEND_PORT: u16 = 8188;
 #[cfg(windows)]
@@ -20,17 +25,16 @@ struct BackendState(Mutex<Option<Child>>);
 fn main() {
     tauri::Builder::default()
         .manage(BackendState(Mutex::new(None)))
-        .setup(|app| {
-            let state = app.state::<BackendState>();
-            match spawn_backend(app) {
-                Ok(child) => {
-                    *state.0.lock().expect("backend state poisoned") = Some(child);
-                }
-                Err(error) => {
-                    eprintln!("failed to start AgentHub backend: {error}");
-                }
+        .setup(|_app| {
+            #[cfg(not(debug_assertions))]
+            {
+                let state = _app.state::<BackendState>();
+                let child = spawn_backend(_app)?;
+                *state.0.lock().expect("backend state poisoned") = Some(child);
             }
-            wait_for_backend(BACKEND_PORT);
+
+            let backend_port = development_backend_port();
+            wait_for_backend(backend_port)?;
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -49,6 +53,7 @@ fn main() {
         .expect("failed to run AgentHub local desktop shell");
 }
 
+#[cfg(not(debug_assertions))]
 fn spawn_backend(app: &tauri::App) -> Result<Child, Box<dyn std::error::Error>> {
     let backend = app
         .path()
@@ -75,6 +80,16 @@ fn spawn_backend(app: &tauri::App) -> Result<Child, Box<dyn std::error::Error>> 
     Ok(child)
 }
 
+fn development_backend_port() -> u16 {
+    if cfg!(debug_assertions) {
+        return env::var("AGENTHUB_DEV_BACKEND_PORT")
+            .ok()
+            .and_then(|value| value.parse::<u16>().ok())
+            .unwrap_or(BACKEND_PORT);
+    }
+    BACKEND_PORT
+}
+
 #[cfg(windows)]
 fn terminate_backend(child: Child) {
     use std::os::windows::process::CommandExt;
@@ -94,19 +109,20 @@ fn terminate_backend(mut child: Child) {
     let _ = child.kill();
 }
 
-fn wait_for_backend(port: u16) {
+fn wait_for_backend(port: u16) -> Result<(), Box<dyn std::error::Error>> {
     let address = format!("127.0.0.1:{port}");
     let Ok(mut addrs) = address.to_socket_addrs() else {
-        return;
+        return Err(format!("cannot resolve backend address: {address}").into());
     };
     let Some(addr) = addrs.next() else {
-        return;
+        return Err(format!("backend address has no socket target: {address}").into());
     };
 
     for _ in 0..40 {
         if TcpStream::connect_timeout(&addr, Duration::from_millis(200)).is_ok() {
-            return;
+            return Ok(());
         }
         thread::sleep(Duration::from_millis(250));
     }
+    Err(format!("timed out waiting for AgentHub backend at {address}").into())
 }

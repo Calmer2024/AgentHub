@@ -80,10 +80,10 @@ export function HealthCheckCard({ health, loading, compact, onRefresh }: Props) 
 
   const detailPanel = expanded && canExpand ? (
     <div
-      className={`space-y-2 px-3 py-2 text-current ${
+      className={`agenthub-health-details agenthub-solid-surface space-y-2 px-3 py-2 text-current ${
         compact
-          ? `fixed z-[1600] overflow-y-auto rounded-lg border shadow-xl ${tone}`
-          : "border-t"
+          ? `fixed z-[1600] overflow-y-auto rounded-lg ${tone}`
+          : "mt-1"
       }`}
       style={{ borderColor: "var(--ah-border)", ...(compact ? floatingStyle : {}) }}
       data-testid="health-check-details"
@@ -91,7 +91,7 @@ export function HealthCheckCard({ health, loading, compact, onRefresh }: Props) 
       {items.map((item) => {
         const metadata = metadataLines(item);
         return (
-          <div key={item.key} className="rounded-md border border-current/10 px-2.5 py-2">
+          <div key={item.key} className="agenthub-health-detail-item rounded-md px-2.5 py-2">
             <div className="flex min-w-0 items-center justify-between gap-2 text-[11px] font-medium">
               <span className="truncate">{item.label}</span>
               <span className="shrink-0 uppercase text-current/65">{item.status}</span>
@@ -100,7 +100,7 @@ export function HealthCheckCard({ health, loading, compact, onRefresh }: Props) 
               {item.detail}
             </div>
             {metadata.length > 0 && (
-              <div className="mt-2 space-y-0.5 rounded bg-black/5 px-2 py-1 text-[10px] leading-4 text-current/70 dark:bg-white/10">
+              <div className="agenthub-health-metadata mt-2 space-y-0.5 rounded px-2 py-1 text-[10px] leading-4 text-current/70">
                 {metadata.map((line) => (
                   <div key={line} className="break-words">{line}</div>
                 ))}
@@ -126,7 +126,7 @@ export function HealthCheckCard({ health, loading, compact, onRefresh }: Props) 
             if (canExpand) setExpanded((value) => !value);
             else onRefresh();
           }}
-          className={`agenthub-health-dot inline-flex h-9 w-9 items-center justify-center rounded-full border ${tone}`}
+          className={`agenthub-health-dot inline-flex h-9 w-9 items-center justify-center rounded-full ${tone}`}
           aria-label={canExpand ? `${expanded ? "收起" : "展开"}环境体检详情：${statusText}` : `刷新环境体检：${statusText}`}
           title={canExpand ? `${statusText}，点击查看详情` : `${statusText}，点击刷新`}
           aria-expanded={canExpand ? expanded : undefined}
@@ -141,7 +141,7 @@ export function HealthCheckCard({ health, loading, compact, onRefresh }: Props) 
   }
 
   return (
-    <div ref={cardRef} className={`relative rounded-lg border ${tone}`}>
+    <div ref={cardRef} className={`agenthub-solid-surface relative rounded-lg ${tone}`}>
       <div className="flex items-center gap-2 px-3 py-2 text-xs font-medium">
         {loading ? <Loader2 size={15} className="animate-spin" /> : iconFor(health?.overall)}
         <span className="min-w-[5rem] flex-1 whitespace-nowrap">{statusText}</span>

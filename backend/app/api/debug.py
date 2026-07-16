@@ -61,7 +61,7 @@ async def generate_orchestrator_plan(
         raise HTTPException(status_code=400, detail="content 不能为空")
     raise HTTPException(
         status_code=501,
-        detail="当前 CLI 基线不再使用旧 Provider 调试链路；请使用手动桥接，或在群聊中 @Orchestrator 调度器生成 draft plan。",
+        detail="当前 CLI 基线不再使用旧 Provider 调试链路；请使用手动桥接，或在群聊中 @项目Leader 生成 draft plan。",
     )
 
 

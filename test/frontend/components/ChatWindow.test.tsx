@@ -240,7 +240,7 @@ describe("ChatWindow runtime cancel", () => {
 
     render(<Harness />);
 
-    expect(screen.getByText("对方正在输入")).toBeInTheDocument();
+    expect(screen.getByText(/对方正在输入/)).toBeInTheDocument();
     expect(screen.getByPlaceholderText("当前对话正在输出...")).toBeDisabled();
 
     fireEvent.click(screen.getByRole("button", { name: "停止本次运行" }));

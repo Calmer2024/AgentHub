@@ -47,6 +47,9 @@ describe("HealthCheckCard", () => {
     const details = screen.getByTestId("health-check-details");
     expect(details).toHaveClass("fixed");
     expect(details).toHaveClass("z-[1600]");
+    expect(details).toHaveClass("agenthub-health-details");
+    expect(details).toHaveClass("agenthub-solid-surface");
+    expect(screen.getByText("node runtime").closest(".agenthub-health-detail-item")).toBeInTheDocument();
     expect(details.parentElement).toBe(document.body);
   });
 });

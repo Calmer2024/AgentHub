@@ -57,6 +57,7 @@ import type {
 import { chinaNowIso } from "../../utils/time";
 import { getArtifactPreviewInfo } from "../../utils/artifactPreview";
 import { ProjectFileWorkspaceModal } from "../../components/ProjectFileWorkspaceModal";
+import { BrandLogo } from "../../components/BrandLogo";
 
 type MobilePane = "inbox" | "chat" | "artifacts" | "approvals" | "notifications";
 type SessionsByProject = Record<string, Session[]>;
@@ -556,6 +557,7 @@ function MobileTopBar({
   return (
     <header className="shrink-0 border-b bg-[color:var(--ah-header-bg)] px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] backdrop-blur" style={{ borderColor: "var(--ah-border)" }}>
       <div className="flex min-w-0 items-center gap-3">
+        <BrandLogo size="mobile" className="agenthub-mobile-header-logo" />
         <button
           type="button"
           onClick={onProfile}
@@ -731,7 +733,7 @@ function SessionRow({
     <button
       type="button"
       onClick={() => onSelect(session)}
-      className={`flex w-full min-w-0 items-center gap-3 rounded-lg border px-3 py-3 text-left transition active:translate-y-px ${
+      className={`flex w-full min-w-0 items-center gap-3 rounded-lg border px-3 py-3 text-left transition ${
         active ? "bg-[color:var(--ah-highlight-bg)]" : "bg-[color:var(--ah-card-bg)]"
       }`}
       style={{ borderColor: active ? "var(--ah-border-strong)" : "var(--ah-border)" }}
@@ -1277,7 +1279,7 @@ function IconButton({
       onClick={onClick}
       aria-label={label}
       disabled={busy}
-      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border text-[color:var(--ah-text-strong)] transition active:scale-95 disabled:opacity-50"
+      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border text-[color:var(--ah-text-strong)] transition disabled:opacity-50"
       style={{ borderColor: "var(--ah-border)" }}
     >
       {busy ? <Loader2 size={16} className="animate-spin" /> : <Icon size={16} />}

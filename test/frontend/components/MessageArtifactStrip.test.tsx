@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { MessageArtifactStrip } from "../../../frontend/src/components/MessageArtifactStrip";
+import { ArtifactMessage, MessageArtifactStrip } from "../../../frontend/src/components/MessageArtifactStrip";
 import type { Artifact, Message } from "../../../frontend/src/types";
 
 vi.mock("../../../frontend/src/components/ArtifactCard", () => ({
@@ -31,7 +31,7 @@ const artifact = (id: string, messageId: string, type: Artifact["type"]): Artifa
 });
 
 describe("MessageArtifactStrip", () => {
-  it("只展示当前消息绑定的产物卡片", () => {
+  it("产物不再嵌入普通消息气泡", () => {
     render(
       <MessageArtifactStrip
         message={message}
@@ -42,9 +42,7 @@ describe("MessageArtifactStrip", () => {
       />,
     );
 
-    expect(screen.getByText("本次文件变更")).toBeInTheDocument();
-    expect(screen.queryByText("页面")).not.toBeInTheDocument();
-    expect(screen.getAllByTestId("artifact-card")).toHaveLength(1);
+    expect(screen.queryByTestId("artifact-card")).not.toBeInTheDocument();
   });
 
   it("扫描中显示局部状态", () => {
@@ -78,20 +76,16 @@ describe("MessageArtifactStrip", () => {
     expect(screen.getByText("有 1 个低置信产物候选")).toBeInTheDocument();
   });
 
-  it("多个产物都直接在消息下方展示为卡片", () => {
+  it("每个产物渲染为一条独立 IM 文件消息", () => {
     render(
-      <MessageArtifactStrip
-        message={message}
-        artifacts={[
-          artifact("a1", "m1", "web_preview"),
-          artifact("a2", "m1", "code_diff"),
-          artifact("a3", "m1", "document"),
-          artifact("a4", "m1", "file_tree"),
-        ]}
-      />,
+      <>
+        <ArtifactMessage artifact={artifact("a1", "m1", "web_preview")} agentName="Codex" />
+        <ArtifactMessage artifact={artifact("a2", "m1", "code_diff")} agentName="Codex" />
+      </>,
     );
 
-    expect(screen.getAllByTestId("artifact-card")).toHaveLength(4);
-    expect(screen.getByText("4 个")).toBeInTheDocument();
+    expect(screen.getAllByRole("article", { name: /产物消息/ })).toHaveLength(2);
+    expect(screen.getAllByTestId("artifact-card")).toHaveLength(2);
+    expect(screen.queryByText("本轮产物")).not.toBeInTheDocument();
   });
 });

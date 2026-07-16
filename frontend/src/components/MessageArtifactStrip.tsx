@@ -1,23 +1,14 @@
-import { AlertTriangle, FileCode2, FileImage, FileText, Files, Globe2, Loader2 } from "lucide-react";
-import type { Artifact, Message } from "../types";
+import { AlertTriangle, Loader2 } from "lucide-react";
+import type { AgentConfig, Artifact, Message } from "../types";
 import { ArtifactCard } from "./ArtifactCard";
-import { getArtifactPreviewInfo } from "../utils/artifactPreview";
+import { AgentAvatar } from "./AgentAvatar";
+import { formatChinaDateTime } from "../utils/time";
 
 interface Props {
   message: Message;
   artifacts: Artifact[];
   relatedArtifacts?: Artifact[];
   onChanged?: () => void;
-}
-
-function iconForArtifact(artifact: Artifact) {
-  const props = { size: 14, "aria-hidden": true };
-  const preview = getArtifactPreviewInfo(artifact);
-  if (preview.kind === "html") return <Globe2 {...props} />;
-  if (preview.kind === "diff") return <FileCode2 {...props} />;
-  if (preview.kind === "file_tree") return <Files {...props} />;
-  if (preview.kind === "image") return <FileImage {...props} />;
-  return <FileText {...props} />;
 }
 
 function bridgeStatus(message: Message): string | null {
@@ -32,7 +23,7 @@ function candidateCount(message: Message): number {
   return Array.isArray(candidates) ? candidates.length : 0;
 }
 
-export function MessageArtifactStrip({ message, artifacts, relatedArtifacts, onChanged }: Props) {
+export function MessageArtifactStrip({ message, artifacts, relatedArtifacts }: Props) {
   const related = relatedArtifacts ?? artifacts.filter((artifact) => artifact.messageId === message.id);
   const status = bridgeStatus(message);
   const lowConfidenceCount = candidateCount(message);
@@ -63,27 +54,36 @@ export function MessageArtifactStrip({ message, artifacts, relatedArtifacts, onC
     );
   }
 
-  if (related.length === 0) return null;
+  return null;
+}
 
+export function ArtifactMessage({
+  artifact,
+  agent,
+  agentName,
+  onChanged,
+}: {
+  artifact: Artifact;
+  agent?: AgentConfig | null;
+  agentName?: string | null;
+  onChanged?: () => void;
+}) {
+  const author = agentName || agent?.name || "Agent";
   return (
-    <div className="mt-3 min-w-0 max-w-full space-y-2">
-      <div className="agenthub-muted flex min-w-0 items-center gap-2 text-[11px] font-medium">
-        <span className="inline-flex items-center gap-1.5">
-          {iconForArtifact(related[0])}
-          本轮产物
-        </span>
-        <span className="h-px flex-1 bg-[color:var(--ah-border)]" />
-        <span>{related.length} 个</span>
+    <article className="agenthub-message-row agenthub-message-enter" aria-label={`产物消息：${artifact.title}`}>
+      <AgentAvatar agent={agent} name={author} kind="agent" size="md" />
+      <div className="min-w-0 max-w-[min(82%,860px)] flex-1">
+        <div className="agenthub-message-head mb-1.5 flex items-center gap-2 px-1 text-xs">
+          <span className="agenthub-message-author font-semibold">{author}</span>
+          <span className="agenthub-ai-badge">AI</span>
+          <time className="agenthub-message-time ml-auto" dateTime={artifact.createdAt}>
+            {formatChinaDateTime(artifact.createdAt)}
+          </time>
+        </div>
+        <div className="agenthub-artifact-message-bubble min-w-0 overflow-hidden rounded-[20px] p-1.5">
+          <ArtifactCard artifact={artifact} onChanged={onChanged} />
+        </div>
       </div>
-      <div className="grid min-w-0 gap-2">
-        {related.map((artifact) => (
-          <ArtifactCard
-            key={artifact.id}
-            artifact={artifact}
-            onChanged={onChanged}
-          />
-        ))}
-      </div>
-    </div>
+    </article>
   );
 }

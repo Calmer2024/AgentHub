@@ -122,7 +122,7 @@ class GroupDialogStateService:
             id=str(uuid.uuid4()),
             session_id=session.id,
             role="system",
-            content=f"已结束与 @{state.agent_name} 的直接对齐，后续无 @ 消息将回到 Orchestrator 调度器。",
+            content=f"已结束与 @{state.agent_name} 的直接对齐，后续无 @ 消息将回到项目Leader。",
             content_type="text",
             source_type="system",
             source_name="群聊控制",

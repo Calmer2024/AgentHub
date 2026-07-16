@@ -9,7 +9,7 @@ describe("ChatInput", () => {
     useChatStore.setState({ codeReference: null, replyTarget: null });
   });
 
-  it("输入栏外层只作为透明悬浮层，内部聊天框保留半透明背景", () => {
+  it("输入栏恢复宽幅纵向布局，附件与发送操作固定在底部", () => {
     const { container } = render(<ChatInput onSubmit={vi.fn()} mentionableAgents={[]} />);
 
     const inputbar = container.querySelector("form.agenthub-inputbar");
@@ -21,6 +21,15 @@ describe("ChatInput", () => {
     expect(inputbar).not.toHaveClass("agenthub-soft");
     expect(composer).toBeInTheDocument();
     expect(composer).toHaveClass("agenthub-chat-composer");
+    expect(composer).toHaveClass("flex-col");
+    expect(composer).toHaveClass("min-h-[148px]");
+    expect(composer).toHaveClass("w-full");
+    expect(composer).toHaveClass("rounded-[24px]");
+    expect(composer).toHaveClass("border-0");
+    expect(composer?.querySelector(".agenthub-composer-editor")).toBeInTheDocument();
+    expect(composer?.querySelector(".agenthub-composer-editor")).toHaveClass("min-h-[72px]");
+    expect(composer?.querySelector(".agenthub-composer-actions")).toBeInTheDocument();
+    expect(composer?.querySelectorAll(".agenthub-composer-actions > button")).toHaveLength(2);
   });
 
   it("发送时携带代码片段引用块并清空引用", () => {

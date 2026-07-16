@@ -23,6 +23,9 @@ docs/architecture/
 docs/documentation-governance.md
   -> 文档权威边界、索引规则和归档规则
 
+docs/UI-UX设计标准.md
+  -> 当前界面视觉、组件状态和交互体验约束
+
 docs/archive/phases/
   -> 历史 Phase 规格和开发日志
 
@@ -42,6 +45,7 @@ docs/submission/
 | 关键架构决策、核心设计和开发约束是什么 | `docs/adr/` |
 | 当前代码架构、数据模型、事件契约是什么 | `docs/architecture/` |
 | 文档放在哪里、怎么索引、何时归档或删除 | `docs/documentation-governance.md` |
+| 当前 UI/UX 设计语言和组件规则是什么 | `docs/UI-UX设计标准.md` |
 | 已淘汰、陈旧的文档放在哪里 | `docs/archive` |
 | 用户怎么配置和使用 | `docs/user-guides/` |
 | 答辩怎么讲 | `docs/submission/` |
@@ -98,6 +102,7 @@ ADR 不应该长期保存完整当前实现细节；当前实现事实应收敛�
 4. 改当前数据模型、运行链路、事件契约：更新 `docs/architecture/`。
 5. 改用户操作方式：更新 `docs/user-guides/`。
 6. 改答辩材料：更新 `docs/submission/`。
+7. 改全局视觉语言、组件状态或交互规则：同步更新 `docs/UI-UX设计标准.md`。
 
 ## 陈旧文档处理
 

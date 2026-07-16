@@ -73,27 +73,45 @@ AgentHub 是一个以 IM 聊天为核心交互范式的多 Agent 协作平台。
 
 ### 5.2 源码开发模式
 
-后端：
+首次安装依赖：
 
 ```powershell
 cd backend
 python -m venv .venv
 .\.venv\Scripts\pip install -r requirements.txt
-.\.venv\Scripts\uvicorn.exe app.main:app --host 127.0.0.1 --port 8188 --reload
+cd ..\frontend
+npm install
+cd ..\desktop
+npm install
+cd ..
 ```
 
-前端：
+之后在仓库根目录使用统一开发命令：
 
 ```powershell
-cd frontend
-npm install
 npm run dev
 ```
 
-浏览器打开：
+该命令会启动 FastAPI 源码热重载、Vite React HMR 和 Tauri 调试窗口；关闭窗口或按 `Ctrl+C` 会停止整套开发进程。开发阶段不会构建 Python sidecar，也不会生成安装包。
+
+默认地址：
 
 ```text
-http://127.0.0.1:5173
+后端：http://127.0.0.1:8188
+OpenAPI：http://127.0.0.1:8188/docs
+前端：http://127.0.0.1:5173
+```
+
+如果默认端口已被其他项目占用，启动器会自动选择后续空闲端口并在终端打印实际地址，不会连接或终止未知服务。也可以显式指定端口：
+
+```powershell
+npm run dev -- --backend-port 8190 --frontend-port 5176
+```
+
+仅检查 Python、前后端依赖并显示本次会采用的端口：
+
+```powershell
+npm run dev:check
 ```
 
 ### 5.3 桌面端构建

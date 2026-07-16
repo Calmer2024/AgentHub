@@ -15,8 +15,8 @@ import {
   Pencil,
   Pin,
   PinOff,
-  PlusCircle,
   Search,
+  SquarePen,
   Trash2,
   Users,
   X,
@@ -43,6 +43,7 @@ const BUILT_IN_CLI_AGENT_ORDER: Partial<Record<AgentConfig["cliTool"], number>> 
 };
 
 const PINNED_PROJECTS_STORAGE_KEY = "agenthub.pinnedProjects";
+const PROJECT_ORDER_STORAGE_KEY = "agenthub.projectOrder";
 
 interface ActivityPanelContentProps {
   panel: ActivityPanel;
@@ -74,7 +75,7 @@ interface ActivityPanelContentProps {
   onArchiveProject: (id: string) => Promise<void> | void;
   onRenameProject: (id: string, name: string) => Promise<void> | void;
   onDeleteProject: (id: string, deleteFiles: boolean) => Promise<void> | void;
-  onNewProjectSession: (projectId: string) => Promise<void> | void;
+  onNewProjectSession: (projectId: string, agentId: string) => Promise<void> | void;
   onStartAgentChat: (agentId: string) => Promise<void> | void;
   onCreateAgent: () => void;
   onEditAgent: (agentId: string) => void;
@@ -132,6 +133,7 @@ export function ActivityPanelContent({
   if (panel === "projects") {
     return (
       <ProjectsActivityPanel
+        agents={agents}
         projects={projects}
         currentProjectId={currentProjectId}
         currentTeamId={currentTeamId}
@@ -150,6 +152,8 @@ export function ActivityPanelContent({
         onRenameProject={onRenameProject}
         onDeleteProject={onDeleteProject}
         onNewProjectSession={onNewProjectSession}
+        onDeleteSession={onDeleteSession}
+        onRenameSession={onRenameSession}
       />
     );
   }
@@ -236,7 +240,6 @@ function SessionsActivityPanel({
     return {
       active,
       archived,
-      activeCount: sessions.filter((session) => !session.archivedAt).length,
       archivedCount: sessions.filter((session) => Boolean(session.archivedAt)).length,
     };
   }, [agentById, query, sessions]);
@@ -253,14 +256,10 @@ function SessionsActivityPanel({
 
   return (
     <div className="agenthub-activity-content">
-      <PanelHeader
-        eyebrow={project ? project.workspaceMode === "cloud" ? "云端工作区" : "本机工作区" : "未选择项目"}
-        title={project?.name ?? "对话"}
-        description={project ? `${grouped.activeCount} 个活跃对话` : "创建或选择项目后开始"}
-        icon={MessageCircle}
-        actions={(
-          <>
-            <button
+      <div className="agenthub-panel-actions agenthub-panel-actions-search">
+        <SearchInput value={query} onChange={setQuery} placeholder="搜索对话" />
+        <span className="agenthub-panel-inline-actions">
+          <button
               ref={agentButtonRef}
               type="button"
               onClick={() => setAgentPickerOpen((open) => !open)}
@@ -270,8 +269,8 @@ function SessionsActivityPanel({
               title="新建私聊"
             >
               {creating ? <span className="agenthub-mini-spinner" /> : <CirclePlus size={21} aria-hidden="true" />}
-            </button>
-            <button
+          </button>
+          <button
               type="button"
               onClick={onNewGroupSession}
               disabled={!project}
@@ -280,10 +279,9 @@ function SessionsActivityPanel({
               title="新建群聊"
             >
               <Users size={20} aria-hidden="true" />
-            </button>
-          </>
-        )}
-      />
+          </button>
+        </span>
+      </div>
 
       <FloatingMenu
         open={agentPickerOpen}
@@ -309,10 +307,6 @@ function SessionsActivityPanel({
           </button>
         ))}
       </FloatingMenu>
-      <div className="agenthub-panel-actions agenthub-panel-actions-search">
-        <SearchInput value={query} onChange={setQuery} placeholder="搜索对话" />
-      </div>
-
       <div className="agenthub-activity-scroll">
         {!project ? (
           <EmptyPanel icon={FolderOpen} title="选择项目" description="所有对话都会归属到项目工作区。" />
@@ -429,7 +423,9 @@ function AgentsActivityPanel({
           <AgentAvatar agent={agent} size="md" />
           <span className="min-w-0 flex-1">
             <span className="agenthub-strong block truncate text-sm font-semibold">{agent.name}</span>
-            <span className="agenthub-muted block truncate text-xs">{agent.executable || agent.cliTool}</span>
+            <span className="agenthub-muted block truncate text-xs">
+              {isBuiltInCliAgent(agent) ? agent.executable || agent.cliTool : agent.description || "未填写备注"}
+            </span>
           </span>
         </button>
         <button
@@ -452,12 +448,9 @@ function AgentsActivityPanel({
 
   return (
     <div className="agenthub-activity-content">
-      <PanelHeader
-        eyebrow="Agent 联系人"
-        title="好友"
-        description={`${visibleAgents.length} 个可调度 Agent`}
-        icon={Users}
-        actions={(
+      <div className="agenthub-panel-actions agenthub-panel-actions-search">
+        <SearchInput value={query} onChange={setQuery} placeholder="搜索 Agent" />
+        <span className="agenthub-panel-inline-actions">
           <button
             type="button"
             onClick={onCreateAgent}
@@ -467,10 +460,7 @@ function AgentsActivityPanel({
           >
             <CirclePlus size={21} aria-hidden="true" />
           </button>
-        )}
-      />
-      <div className="agenthub-panel-actions agenthub-panel-actions-search">
-        <SearchInput value={query} onChange={setQuery} placeholder="搜索 Agent" />
+        </span>
       </div>
       <FloatingMenu
         open={Boolean(activeMenuAgent)}
@@ -504,7 +494,7 @@ function AgentsActivityPanel({
           </>
         )}
       </FloatingMenu>
-      <div className="agenthub-activity-scroll">
+      <div className="agenthub-activity-scroll agenthub-activity-scroll-no-bar">
         {visibleAgents.length === 0 ? (
           <EmptyPanel icon={Bot} title="暂无匹配 Agent" description="添加或启用 Agent 后会显示在这里。" />
         ) : (
@@ -523,6 +513,7 @@ function AgentsActivityPanel({
 }
 
 function ProjectsActivityPanel({
+  agents,
   projects,
   currentProjectId,
   currentTeamId,
@@ -541,7 +532,10 @@ function ProjectsActivityPanel({
   onRenameProject,
   onDeleteProject,
   onNewProjectSession,
+  onDeleteSession,
+  onRenameSession,
 }: {
+  agents: AgentConfig[];
   projects: Project[];
   currentProjectId: string | null;
   currentTeamId: string | null;
@@ -559,39 +553,38 @@ function ProjectsActivityPanel({
   onArchiveProject: (id: string) => Promise<void> | void;
   onRenameProject: (id: string, name: string) => Promise<void> | void;
   onDeleteProject: (id: string, deleteFiles: boolean) => Promise<void> | void;
-  onNewProjectSession: (projectId: string) => Promise<void> | void;
+  onNewProjectSession: (projectId: string, agentId: string) => Promise<void> | void;
+  onDeleteSession: (id: string) => Promise<void> | void;
+  onRenameSession: (id: string, title: string) => Promise<void> | void;
 }) {
   const [query, setQuery] = useState("");
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
   const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(() => new Set(currentProjectId ? [currentProjectId] : []));
-  const [renderedProjectSessionIds, setRenderedProjectSessionIds] = useState<Set<string>>(() => new Set(currentProjectId ? [currentProjectId] : []));
   const [expandedSessionListIds, setExpandedSessionListIds] = useState<Set<string>>(() => new Set());
   const [sessionsByProject, setSessionsByProject] = useState<Record<string, Session[]>>({});
   const [loadingProjectIds, setLoadingProjectIds] = useState<Set<string>>(() => new Set());
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
+  const [newSessionProjectId, setNewSessionProjectId] = useState<string | null>(null);
   const [renamingProjectId, setRenamingProjectId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [pinnedProjectIds, setPinnedProjectIds] = useState<Set<string>>(() => readPinnedProjectIds());
+  const [projectOrder, setProjectOrder] = useState<string[]>(() => readProjectOrder());
+  const [draggingProjectId, setDraggingProjectId] = useState<string | null>(null);
+  const [dragOverProjectId, setDragOverProjectId] = useState<string | null>(null);
   const createButtonRef = useRef<HTMLButtonElement | null>(null);
   const createMenuRef = useRef<HTMLDivElement | null>(null);
   const projectMenuRef = useRef<HTMLDivElement | null>(null);
+  const agentPickerMenuRef = useRef<HTMLDivElement | null>(null);
   const projectMenuButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const newSessionButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const sessionsByProjectRef = useRef<Record<string, Session[]>>({});
+  const requestedProjectSessionIds = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!currentProjectId) return;
-    setExpandedProjectIds((value) => {
-      const next = new Set(value);
-      next.add(currentProjectId);
-      return next;
-    });
-    setRenderedProjectSessionIds((value) => {
-      const next = new Set(value);
-      next.add(currentProjectId);
-      return next;
-    });
     setSessionsByProject((value) => ({ ...value, [currentProjectId]: currentProjectSessions }));
+    setExpandedProjectIds((value) => new Set(value).add(currentProjectId));
   }, [currentProjectId, currentProjectSessions]);
 
   useEffect(() => {
@@ -599,47 +592,37 @@ function ProjectsActivityPanel({
   }, [pinnedProjectIds]);
 
   useEffect(() => {
+    writeProjectOrder(projectOrder);
+  }, [projectOrder]);
+
+  useEffect(() => {
     sessionsByProjectRef.current = sessionsByProject;
   }, [sessionsByProject]);
 
   useEffect(() => {
-    setRenderedProjectSessionIds((value) => {
-      const next = new Set(value);
-      expandedProjectIds.forEach((projectId) => next.add(projectId));
-      return next;
-    });
-    const timeout = window.setTimeout(() => {
-      setRenderedProjectSessionIds((value) => {
-        const next = new Set(value);
-        next.forEach((projectId) => {
-          if (!expandedProjectIds.has(projectId)) next.delete(projectId);
-        });
-        return next;
-      });
-    }, 230);
-    return () => window.clearTimeout(timeout);
-  }, [expandedProjectIds]);
-
-  useEffect(() => {
-    if (!createMenuOpen && !menuOpen) return;
+    if (!createMenuOpen && !menuOpen && !newSessionProjectId) return;
     const close = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) return;
       const inCreate = createMenuRef.current?.contains(target) || createButtonRef.current?.contains(target);
       const inProjectMenu = projectMenuRef.current?.contains(target)
         || (menuOpen ? projectMenuButtonRefs.current[menuOpen]?.contains(target) : false);
+      const inAgentPicker = agentPickerMenuRef.current?.contains(target)
+        || (newSessionProjectId ? newSessionButtonRefs.current[newSessionProjectId]?.contains(target) : false);
       if (!inCreate) setCreateMenuOpen(false);
       if (!inProjectMenu) {
         setMenuOpen(null);
         setDeleteConfirm(null);
       }
+      if (!inAgentPicker) setNewSessionProjectId(null);
     };
     window.addEventListener("pointerdown", close, true);
     return () => window.removeEventListener("pointerdown", close, true);
-  }, [createMenuOpen, menuOpen]);
+  }, [createMenuOpen, menuOpen, newSessionProjectId]);
 
   const visibleProjects = useMemo(() => {
     const needle = query.trim().toLowerCase();
+    const orderIndex = new Map(projectOrder.map((id, index) => [id, index]));
     return projects
       .filter((project) => project.status !== "archived")
       .filter((project) => projectInCurrentSpace(project, currentTeamId))
@@ -648,16 +631,46 @@ function ProjectsActivityPanel({
         return `${project.name} ${project.workspacePath ?? ""}`.toLowerCase().includes(needle);
       })
       .sort((left, right) => {
+        const leftOrder = orderIndex.get(left.id);
+        const rightOrder = orderIndex.get(right.id);
+        if (leftOrder !== undefined || rightOrder !== undefined) {
+          if (leftOrder === undefined) return 1;
+          if (rightOrder === undefined) return -1;
+          if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+        }
         const pinnedDelta = Number(pinnedProjectIds.has(right.id)) - Number(pinnedProjectIds.has(left.id));
         if (pinnedDelta) return pinnedDelta;
         return Date.parse(right.createdAt || "") - Date.parse(left.createdAt || "");
       });
-  }, [currentTeamId, pinnedProjectIds, projects, query]);
+  }, [currentTeamId, pinnedProjectIds, projectOrder, projects, query]);
+
+  const moveProject = useCallback((sourceId: string, targetId: string) => {
+    if (sourceId === targetId) return;
+    const visibleIds = visibleProjects.map((project) => project.id);
+    const sourceIndex = visibleIds.indexOf(sourceId);
+    const targetIndex = visibleIds.indexOf(targetId);
+    if (sourceIndex < 0 || targetIndex < 0) return;
+    const reordered = reorderProjectIds(visibleIds, sourceIndex, targetIndex);
+    const visibleSet = new Set(visibleIds);
+    setProjectOrder((current) => [...reordered, ...current.filter((id) => !visibleSet.has(id))]);
+  }, [visibleProjects]);
+
+  const moveProjectByOffset = useCallback((projectId: string, offset: -1 | 1) => {
+    const currentIndex = visibleProjects.findIndex((project) => project.id === projectId);
+    const target = visibleProjects[currentIndex + offset];
+    if (currentIndex < 0 || !target) return;
+    moveProject(projectId, target.id);
+  }, [moveProject, visibleProjects]);
 
   const activeMenuProject = useMemo(
     () => visibleProjects.find((project) => project.id === menuOpen) ?? null,
     [menuOpen, visibleProjects],
   );
+  const newSessionProject = useMemo(
+    () => visibleProjects.find((project) => project.id === newSessionProjectId) ?? null,
+    [newSessionProjectId, visibleProjects],
+  );
+  const availableAgents = useMemo(() => agents.filter((agent) => agent.isActive), [agents]);
 
   const loadProjectSessions = useCallback(async (projectId: string) => {
     setLoadingProjectIds((value) => new Set(value).add(projectId));
@@ -675,18 +688,14 @@ function ProjectsActivityPanel({
     }
   }, []);
 
-  const toggleProject = useCallback((projectId: string) => {
-    setExpandedProjectIds((value) => {
-      const next = new Set(value);
-      if (next.has(projectId)) {
-        next.delete(projectId);
-      } else {
-        next.add(projectId);
-        if (!sessionsByProjectRef.current[projectId]) void loadProjectSessions(projectId);
-      }
-      return next;
+  useEffect(() => {
+    visibleProjects.forEach((project) => {
+      if (project.id === currentProjectId || sessionsByProjectRef.current[project.id]) return;
+      if (requestedProjectSessionIds.current.has(project.id)) return;
+      requestedProjectSessionIds.current.add(project.id);
+      void loadProjectSessions(project.id);
     });
-  }, [loadProjectSessions]);
+  }, [currentProjectId, loadProjectSessions, visibleProjects]);
 
   const commitRename = useCallback((projectId: string) => {
     const name = renameValue.trim();
@@ -694,14 +703,31 @@ function ProjectsActivityPanel({
     setRenamingProjectId(null);
   }, [onRenameProject, renameValue]);
 
+  const updateProjectSession = useCallback((projectId: string, sessionId: string, update: (session: Session) => Session) => {
+    setSessionsByProject((current) => ({
+      ...current,
+      [projectId]: (current[projectId] ?? []).map((session) => session.id === sessionId ? update(session) : session),
+    }));
+  }, []);
+
+  const renameProjectSession = useCallback(async (projectId: string, sessionId: string, title: string) => {
+    await onRenameSession(sessionId, title);
+    updateProjectSession(projectId, sessionId, (session) => ({ ...session, title }));
+  }, [onRenameSession, updateProjectSession]);
+
+  const deleteProjectSession = useCallback(async (projectId: string, sessionId: string) => {
+    await onDeleteSession(sessionId);
+    setSessionsByProject((current) => ({
+      ...current,
+      [projectId]: (current[projectId] ?? []).filter((session) => session.id !== sessionId),
+    }));
+  }, [onDeleteSession]);
+
   return (
     <div className="agenthub-activity-content">
-      <PanelHeader
-        eyebrow="工作区资产"
-        title="项目"
-        description={`${visibleProjects.length} 个项目`}
-        icon={FolderOpen}
-        actions={(
+      <div className="agenthub-panel-actions agenthub-panel-actions-search">
+        <SearchInput value={query} onChange={setQuery} placeholder="搜索项目" />
+        <span className="agenthub-panel-inline-actions">
           <button
             ref={createButtonRef}
             type="button"
@@ -713,8 +739,8 @@ function ProjectsActivityPanel({
           >
             {creating ? <span className="agenthub-mini-spinner" /> : <CirclePlus size={21} aria-hidden="true" />}
           </button>
-        )}
-      />
+        </span>
+      </div>
       <FloatingMenu
         open={createMenuOpen}
         anchorRef={createButtonRef}
@@ -802,10 +828,39 @@ function ProjectsActivityPanel({
           </>
         )}
       </FloatingMenu>
-      <div className="agenthub-panel-actions agenthub-panel-actions-search">
-        <SearchInput value={query} onChange={setQuery} placeholder="搜索项目" />
-      </div>
-
+      <FloatingMenu
+        open={Boolean(newSessionProject)}
+        anchorElement={newSessionProject ? newSessionButtonRefs.current[newSessionProject.id] : null}
+        menuRef={agentPickerMenuRef}
+        width={264}
+        placement="bottom-end"
+        ariaLabel={newSessionProject ? `为 ${newSessionProject.name} 选择 Agent` : "选择 Agent"}
+      >
+        {newSessionProject && (
+          <div className="agenthub-agent-picker-menu">
+            <div className="agenthub-floating-section-label px-3 pb-1.5 pt-2 text-[11px] font-medium">选择 Agent 后新建对话</div>
+            {availableAgents.length === 0 ? (
+              <div className="agenthub-muted px-3 py-4 text-center text-xs">暂无可用 Agent</div>
+            ) : availableAgents.map((agent) => (
+              <button
+                key={agent.id}
+                type="button"
+                className="agenthub-floating-row min-h-12"
+                onClick={() => {
+                  void onNewProjectSession(newSessionProject.id, agent.id);
+                  setNewSessionProjectId(null);
+                }}
+              >
+                <AgentAvatar agent={agent} size="sm" />
+                <span className="min-w-0 flex-1 text-left">
+                  <span className="agenthub-strong block truncate text-sm">{agent.name}</span>
+                  <span className="agenthub-muted block truncate text-[11px]">{agent.description || "未填写备注"}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </FloatingMenu>
       <div className="agenthub-activity-scroll">
         {loading && projects.length === 0 ? (
           <PanelSkeleton />
@@ -814,24 +869,77 @@ function ProjectsActivityPanel({
         ) : (
           <div className="agenthub-project-list">
             {visibleProjects.map((project) => {
-              const expanded = expandedProjectIds.has(project.id);
-              const shouldRenderSessions = renderedProjectSessionIds.has(project.id);
-              const projectSessions = shouldRenderSessions ? sortSessionsByUpdatedAt(sessionsByProject[project.id] ?? []) : [];
+              const projectSessions = sortSessionsByUpdatedAt(sessionsByProject[project.id] ?? []);
+              const projectExpanded = expandedProjectIds.has(project.id);
               const showAllSessions = expandedSessionListIds.has(project.id);
               const visibleSessions = showAllSessions ? projectSessions : projectSessions.slice(0, 8);
               const hiddenSessionCount = Math.max(0, projectSessions.length - visibleSessions.length);
               const projectLoading = loadingProjectIds.has(project.id);
-              const active = currentProjectId === project.id;
               const menuIsOpen = menuOpen === project.id;
               const pinned = pinnedProjectIds.has(project.id);
               return (
-                <div key={project.id} className={`agenthub-project-group ${active ? "agenthub-project-group-active" : ""} ${pinned ? "agenthub-project-group-pinned" : ""}`}>
-                  <div className="agenthub-project-row">
+                <div
+                  key={project.id}
+                  className={`agenthub-project-group ${pinned ? "agenthub-project-group-pinned" : ""} ${draggingProjectId === project.id ? "agenthub-project-group-dragging" : ""} ${dragOverProjectId === project.id ? "agenthub-project-group-drop-target" : ""}`}
+                  onDragEnter={(event) => {
+                    event.preventDefault();
+                    if (draggingProjectId && draggingProjectId !== project.id) setDragOverProjectId(project.id);
+                  }}
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = "move";
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    const sourceId = event.dataTransfer.getData("text/plain") || draggingProjectId;
+                    if (sourceId) moveProject(sourceId, project.id);
+                    setDraggingProjectId(null);
+                    setDragOverProjectId(null);
+                  }}
+                >
+                  <div
+                    className="agenthub-project-row"
+                    draggable={renamingProjectId !== project.id}
+                    aria-label={`拖动 ${project.name} 调整顺序`}
+                    aria-grabbed={draggingProjectId === project.id}
+                    title="拖动项目条目调整顺序（Alt + ↑/↓）"
+                    tabIndex={0}
+                    onDragStart={(event) => {
+                      event.dataTransfer.effectAllowed = "move";
+                      event.dataTransfer.setData("text/plain", project.id);
+                      setDraggingProjectId(project.id);
+                    }}
+                    onDragEnd={() => {
+                      setDraggingProjectId(null);
+                      setDragOverProjectId(null);
+                    }}
+                    onKeyDown={(event) => {
+                      if (!event.altKey || (event.key !== "ArrowUp" && event.key !== "ArrowDown")) return;
+                      event.preventDefault();
+                      moveProjectByOffset(project.id, event.key === "ArrowUp" ? -1 : 1);
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setExpandedProjectIds((value) => {
+                          const next = new Set(value);
+                          if (next.has(project.id)) next.delete(project.id);
+                          else next.add(project.id);
+                          return next;
+                        });
+                      }}
+                      className="agenthub-project-toggle"
+                      aria-label={`${projectExpanded ? "收起" : "展开"} ${project.name} 的对话`}
+                      aria-expanded={projectExpanded}
+                    >
+                      <ChevronDown className={projectExpanded ? "" : "-rotate-90"} aria-hidden="true" />
+                    </button>
                     <button
                       type="button"
                       onClick={() => {
                         void onSelectProject(project.id);
-                        if (!expanded && !sessionsByProject[project.id]) void loadProjectSessions(project.id);
                       }}
                       className="agenthub-project-title-button"
                     >
@@ -858,18 +966,6 @@ function ProjectsActivityPanel({
                       </span>
                     </button>
                     <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        toggleProject(project.id);
-                      }}
-                      className="agenthub-project-toggle"
-                      aria-label={expanded ? "折叠项目对话" : "展开项目对话"}
-                      title={expanded ? "折叠" : "展开"}
-                    >
-                      <ChevronDown size={14} className={expanded ? "" : "-rotate-90"} aria-hidden="true" />
-                    </button>
-                    <button
                       ref={(node) => { projectMenuButtonRefs.current[project.id] = node; }}
                       type="button"
                       onClick={(event) => {
@@ -884,39 +980,37 @@ function ProjectsActivityPanel({
                       <MoreHorizontal size={15} aria-hidden="true" />
                     </button>
                     <button
+                      ref={(node) => { newSessionButtonRefs.current[project.id] = node; }}
                       type="button"
                       onClick={(event) => {
                         event.stopPropagation();
-                        void onNewProjectSession(project.id);
+                        setNewSessionProjectId((current) => current === project.id ? null : project.id);
                       }}
                       className="agenthub-project-inline-action"
                       aria-label={`在 ${project.name} 新建对话`}
                       title="新建对话"
                     >
-                      <PlusCircle size={14} aria-hidden="true" />
+                      <SquarePen size={14} aria-hidden="true" />
                     </button>
                   </div>
-                  <div className={`agenthub-project-sessions ${expanded ? "agenthub-project-sessions-open" : "agenthub-project-sessions-closed"}`}>
-                    <div className="agenthub-project-sessions-inner">
-                      {shouldRenderSessions && (projectLoading ? (
+                  <div className={`agenthub-project-sessions ${projectExpanded ? "agenthub-project-sessions-open" : "agenthub-project-sessions-closed"}`}>
+                    {projectExpanded && <div className="agenthub-project-sessions-inner">
+                      {projectLoading ? (
                         <PanelSkeleton rows={3} compact />
                       ) : projectSessions.length === 0 ? (
                         <div className="agenthub-project-empty">暂无对话</div>
                       ) : (
                         <>
                           {visibleSessions.map((session) => (
-                            <button
+                            <ProjectSessionRow
                               key={session.id}
-                              type="button"
-                              onClick={() => void onSelectProjectSession(project.id, session.id)}
-                              className={`agenthub-project-session-row ${
-                                currentSessionId === session.id ? "agenthub-project-session-row-active" : ""
-                              }`}
-                            >
-                              <span className="agenthub-project-session-title">{session.title}</span>
-                              {session.mode === "group" && <Users size={12} className="agenthub-project-session-kind" aria-hidden="true" />}
-                              <span className="agenthub-project-session-time">{formatRelativeTime(session.updatedAt)}</span>
-                            </button>
+                              project={project}
+                              session={session}
+                              active={currentSessionId === session.id}
+                              onSelect={onSelectProjectSession}
+                              onRename={renameProjectSession}
+                              onDelete={deleteProjectSession}
+                            />
                           ))}
                           {hiddenSessionCount > 0 && (
                             <button
@@ -934,8 +1028,8 @@ function ProjectsActivityPanel({
                             </button>
                           )}
                         </>
-                      ))}
-                    </div>
+                      )}
+                    </div>}
                   </div>
                 </div>
               );
@@ -943,6 +1037,83 @@ function ProjectsActivityPanel({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function ProjectSessionRow({
+  project,
+  session,
+  active,
+  onSelect,
+  onRename,
+  onDelete,
+}: {
+  project: Project;
+  session: Session;
+  active: boolean;
+  onSelect: (projectId: string, sessionId: string) => Promise<void> | void;
+  onRename: (projectId: string, sessionId: string, title: string) => Promise<void> | void;
+  onDelete: (projectId: string, sessionId: string) => Promise<void> | void;
+}) {
+  const [renaming, setRenaming] = useState(false);
+  const [title, setTitle] = useState(session.title);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  useEffect(() => setTitle(session.title), [session.title]);
+
+  const commitRename = () => {
+    const nextTitle = title.trim();
+    if (nextTitle && nextTitle !== session.title) void onRename(project.id, session.id, nextTitle);
+    else setTitle(session.title);
+    setRenaming(false);
+  };
+
+  return (
+    <div className={`agenthub-project-session-row ${active ? "agenthub-project-session-row-active" : ""}`}>
+      {renaming ? (
+        <input
+          value={title}
+          onChange={(event) => setTitle(event.target.value)}
+          onBlur={commitRename}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") commitRename();
+            if (event.key === "Escape") { setTitle(session.title); setRenaming(false); }
+          }}
+          className="agenthub-project-session-input"
+          aria-label={`重命名对话 ${session.title}`}
+          autoFocus
+        />
+      ) : (
+        <button
+          type="button"
+          onClick={() => void onSelect(project.id, session.id)}
+          className="agenthub-project-session-main"
+          title={`${session.title} · ${project.name}`}
+        >
+          <span className="agenthub-project-session-title">{session.title}</span>
+          {session.mode === "group" && <Users size={12} className="agenthub-project-session-kind" aria-hidden="true" />}
+          <span className="agenthub-project-session-time">{formatRelativeTime(session.updatedAt)}</span>
+        </button>
+      )}
+      <span className="agenthub-project-session-actions">
+        <button type="button" onClick={() => setRenaming(true)} aria-label={`重命名 ${session.title}`} title="重命名">
+          <Pencil size={12} aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            if (!confirmDelete) { setConfirmDelete(true); return; }
+            void onDelete(project.id, session.id);
+          }}
+          onBlur={() => setConfirmDelete(false)}
+          className={confirmDelete ? "agenthub-project-session-delete-confirm" : ""}
+          aria-label={`${confirmDelete ? "确认删除" : "删除"} ${session.title}`}
+          title={confirmDelete ? "再次点击确认删除" : "删除"}
+        >
+          {confirmDelete ? <Check size={12} aria-hidden="true" /> : <Trash2 size={12} aria-hidden="true" />}
+        </button>
+      </span>
     </div>
   );
 }
@@ -1165,38 +1336,6 @@ function SessionActivityRow({
   );
 }
 
-function PanelHeader({
-  eyebrow,
-  title,
-  description,
-  icon: Icon,
-  actions,
-}: {
-  eyebrow: string;
-  title: string;
-  description: string;
-  icon: LucideIcon;
-  actions?: ReactNode;
-}) {
-  return (
-    <header className="agenthub-panel-header">
-      <span className="agenthub-panel-icon">
-        <Icon size={17} aria-hidden="true" />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="agenthub-faint block truncate text-[11px]">{eyebrow}</span>
-        <span className="agenthub-strong block truncate text-sm font-semibold">{title}</span>
-        <span className="agenthub-muted mt-0.5 block truncate text-xs">{description}</span>
-      </span>
-      {actions && (
-        <span className="agenthub-panel-header-actions">
-          {actions}
-        </span>
-      )}
-    </header>
-  );
-}
-
 function AgentGroup({
   title,
   count,
@@ -1277,6 +1416,34 @@ function writePinnedProjectIds(ids: Set<string>) {
   } catch {
     // Best-effort preference persistence.
   }
+}
+
+function readProjectOrder() {
+  if (typeof window === "undefined") return [];
+  try {
+    const value = window.localStorage.getItem(PROJECT_ORDER_STORAGE_KEY);
+    const parsed = value ? JSON.parse(value) : [];
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeProjectOrder(ids: string[]) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(PROJECT_ORDER_STORAGE_KEY, JSON.stringify(ids));
+  } catch {
+    // Best-effort preference persistence.
+  }
+}
+
+function reorderProjectIds(ids: string[], sourceIndex: number, targetIndex: number) {
+  const next = [...ids];
+  const [moved] = next.splice(sourceIndex, 1);
+  if (!moved) return ids;
+  next.splice(targetIndex, 0, moved);
+  return next;
 }
 
 function projectInCurrentSpace(project: Project, teamId: string | null) {

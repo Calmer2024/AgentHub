@@ -152,11 +152,11 @@ describe("AgentCliForm", () => {
 
   it("添加 Agent 时可从内置模板预填并保存", async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
-    render(<AgentCliForm onSave={onSave} onCancel={vi.fn()} />);
+    render(<AgentCliForm presentation="dialog" onSave={onSave} onCancel={vi.fn()} />);
 
     fireEvent.click(screen.getByRole("button", { name: /前端工程师/ }));
-    fireEvent.click(screen.getByRole("button", { name: "保存" }));
-
+    expect(onSave).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "确定添加" }));
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
       name: "前端工程师",
@@ -173,16 +173,27 @@ describe("AgentCliForm", () => {
     render(<AgentCliForm initial={existingAgent} onSave={vi.fn()} onCancel={vi.fn()} />);
 
     expect(screen.queryByRole("button", { name: /产品经理/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "配置分区" })).toBeInTheDocument();
+    expect(screen.queryByText("智能体设置")).not.toBeInTheDocument();
+    expect(screen.queryByText("修改 Agent 配置")).not.toBeInTheDocument();
+    expect(screen.getByText("提示：修改自动生效")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "返回" })).toHaveTextContent("返回");
+    expect(screen.queryByText("返回好友")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "保存" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "取消" })).not.toBeInTheDocument();
   });
 
   it("切换到自定义 CLI 时默认使用自定义头像", async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
-    render(<AgentCliForm onSave={onSave} onCancel={vi.fn()} />);
+    render(<AgentCliForm presentation="dialog" onSave={onSave} onCancel={vi.fn()} />);
 
-    fireEvent.click(screen.getByLabelText("命令行类型"));
+    expect(screen.queryByText("添加 Agent")).not.toBeInTheDocument();
+    expect(screen.getByRole("contentinfo")).not.toHaveClass("border-t");
+
+    fireEvent.click(screen.getByLabelText("CLI 类型"));
     fireEvent.click(screen.getByRole("option", { name: "自定义" }));
-    fireEvent.click(screen.getByRole("button", { name: "保存" }));
-
+    expect(onSave).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "确定添加" }));
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
       cliTool: "custom",
@@ -204,16 +215,14 @@ describe("AgentCliForm", () => {
     };
     render(<AgentCliForm initial={codexEngine} runtimeScope="cloud" onSave={onSave} onCancel={vi.fn()} />);
 
-    await screen.findByText("Engine 凭据");
+    await screen.findByRole("heading", { name: "CLI 凭据" });
     expect(screen.getByTestId("agent-cli-form-grid")).toHaveClass("grid");
     expect(screen.getByTestId("agent-cli-form-grid")).not.toHaveClass("lg:grid-cols-2");
     expect(screen.getByTestId("agent-cli-form-grid").children).toHaveLength(2);
-    expect(screen.getAllByRole("heading", { level: 3 }).map((item) => item.textContent)).toEqual(["基础信息", "Engine 凭据"]);
+    expect(screen.getAllByRole("heading", { level: 3 }).map((item) => item.textContent)).toEqual(["智能体", "CLI 凭据"]);
     expect(screen.queryByText("身份与规则")).not.toBeInTheDocument();
     expect(screen.queryByText("能力配置")).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("codex-api-key"), { target: { value: "codex-key" } });
-    fireEvent.click(screen.getByRole("button", { name: "保存" }));
-
     await waitFor(() => expect(apiMocks.saveCliCredential).toHaveBeenCalledWith("codex", expect.objectContaining({
       scope: "user",
       providerType: "official",
@@ -222,7 +231,7 @@ describe("AgentCliForm", () => {
       baseUrl: "https://api.openai.com/v1",
       authEnvKey: "OPENAI_API_KEY",
       apiKey: "codex-key",
-    })));
+    })), { timeout: 2500 });
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
       name: "Codex",
       cliTool: "codex",
@@ -245,10 +254,10 @@ describe("AgentCliForm", () => {
     };
     render(<AgentCliForm initial={codexEngine} runtimeScope="cloud" onSave={vi.fn()} onCancel={vi.fn()} />);
 
-    await screen.findByText("Engine 凭据");
+    await screen.findByRole("heading", { name: "CLI 凭据" });
     expect(screen.getByTestId("agent-cli-form-grid")).not.toHaveClass("lg:grid-cols-2");
     expect(screen.getByTestId("agent-cli-form-grid").children).toHaveLength(2);
-    expect(screen.getAllByRole("heading", { level: 3 }).map((item) => item.textContent)).toEqual(["基础信息", "Engine 凭据"]);
+    expect(screen.getAllByRole("heading", { level: 3 }).map((item) => item.textContent)).toEqual(["智能体", "CLI 凭据"]);
   });
 
   it("云端内置 Engine 旧数据带 executable 时仍保持上下排列", async () => {
@@ -263,10 +272,10 @@ describe("AgentCliForm", () => {
     };
     render(<AgentCliForm initial={claudeEngine} runtimeScope="cloud" onSave={vi.fn()} onCancel={vi.fn()} />);
 
-    await screen.findByText("Engine 凭据");
+    await screen.findByRole("heading", { name: "CLI 凭据" });
     expect(screen.getByTestId("agent-cli-form-grid")).not.toHaveClass("lg:grid-cols-2");
     expect(screen.getByTestId("agent-cli-form-grid").children).toHaveLength(2);
-    expect(screen.getAllByRole("heading", { level: 3 }).map((item) => item.textContent)).toEqual(["基础信息", "Engine 凭据"]);
+    expect(screen.getAllByRole("heading", { level: 3 }).map((item) => item.textContent)).toEqual(["智能体", "CLI 凭据"]);
     expect(screen.queryByText("身份与规则")).not.toBeInTheDocument();
     expect(screen.queryByText("能力配置")).not.toBeInTheDocument();
   });
@@ -284,15 +293,13 @@ describe("AgentCliForm", () => {
     };
     render(<AgentCliForm initial={codexEngine} runtimeScope="cloud" onSave={onSave} onCancel={vi.fn()} />);
 
-    await screen.findByText("Engine 凭据");
-    fireEvent.click(screen.getByLabelText("Codex Provider"));
+    await screen.findByRole("heading", { name: "CLI 凭据" });
+    fireEvent.click(screen.getByLabelText("Codex 提供方"));
     expect(screen.queryByRole("option", { name: "聪明 AI 中转" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("option", { name: "自定义 OpenAI 兼容中转" }));
-    fireEvent.change(screen.getByLabelText("Base URL"), { target: { value: "https://relay.example.com/v1" } });
+    fireEvent.change(screen.getByLabelText("服务地址"), { target: { value: "https://relay.example.com/v1" } });
     fireEvent.change(screen.getByLabelText("模型"), { target: { value: "relay-codex" } });
     fireEvent.change(screen.getByLabelText("codex-api-key"), { target: { value: "relay-key" } });
-    fireEvent.click(screen.getByRole("button", { name: "保存" }));
-
     await waitFor(() => expect(apiMocks.saveCliCredential).toHaveBeenCalledWith("codex", expect.objectContaining({
       scope: "user",
       providerType: "proxy",
@@ -307,7 +314,7 @@ describe("AgentCliForm", () => {
         modelReasoningEffort: "xhigh",
         networkAccess: "enabled",
       }),
-    })));
+    })), { timeout: 2500 });
   });
 
   it("云端 Codex 自定义中转保存 config.toml 关键配置", async () => {
@@ -323,15 +330,13 @@ describe("AgentCliForm", () => {
     };
     render(<AgentCliForm initial={codexEngine} runtimeScope="cloud" onSave={onSave} onCancel={vi.fn()} />);
 
-    await screen.findByText("Engine 凭据");
-    fireEvent.click(screen.getByLabelText("Codex Provider"));
+    await screen.findByRole("heading", { name: "CLI 凭据" });
+    fireEvent.click(screen.getByLabelText("Codex 提供方"));
     fireEvent.click(screen.getByRole("option", { name: "自定义 OpenAI 兼容中转" }));
     fireEvent.change(screen.getByLabelText("codex-api-key"), { target: { value: "custom-relay-key" } });
-    fireEvent.change(screen.getByLabelText("Base URL"), { target: { value: "https://relay.example.com/v1" } });
+    fireEvent.change(screen.getByLabelText("服务地址"), { target: { value: "https://relay.example.com/v1" } });
     fireEvent.change(screen.getByLabelText("模型"), { target: { value: "relay-codex" } });
-    fireEvent.change(screen.getByLabelText("review_model"), { target: { value: "relay-codex-review" } });
-    fireEvent.click(screen.getByRole("button", { name: "保存" }));
-
+    fireEvent.change(screen.getByLabelText("审查模型"), { target: { value: "relay-codex-review" } });
     await waitFor(() => expect(apiMocks.saveCliCredential).toHaveBeenCalledWith("codex", expect.objectContaining({
       providerType: "proxy",
       providerId: "OpenAI",
@@ -347,7 +352,7 @@ describe("AgentCliForm", () => {
         networkAccess: "enabled",
         disableResponseStorage: true,
       }),
-    })));
+    })), { timeout: 2500 });
   });
 
   it("云端 OpenCode 只通过厂商、模型和 API Key 生成真实 Provider 配置", async () => {
@@ -363,15 +368,13 @@ describe("AgentCliForm", () => {
     };
     render(<AgentCliForm initial={openCodeEngine} runtimeScope="cloud" onSave={onSave} onCancel={vi.fn()} />);
 
-    await screen.findByText("Engine 凭据");
-    fireEvent.click(screen.getByLabelText("OpenCode Provider"));
+    await screen.findByRole("heading", { name: "CLI 凭据" });
+    fireEvent.click(screen.getByLabelText("OpenCode 提供方"));
     fireEvent.click(screen.getByRole("option", { name: "DeepSeek" }));
     await screen.findByText("模型目录：models.dev");
     fireEvent.click(screen.getByLabelText("OpenCode 模型"));
     fireEvent.click(screen.getByRole("option", { name: /DeepSeek V4 Pro/ }));
     fireEvent.change(screen.getByLabelText("opencode-api-key"), { target: { value: "deepseek-key" } });
-    fireEvent.click(screen.getByRole("button", { name: "保存" }));
-
     await waitFor(() => expect(apiMocks.saveCliCredential).toHaveBeenCalledWith("opencode", expect.objectContaining({
       scope: "user",
       providerType: "proxy",
@@ -381,7 +384,7 @@ describe("AgentCliForm", () => {
       model: "deepseek-v4-pro",
       authEnvKey: "DEEPSEEK_API_KEY",
       apiKey: "deepseek-key",
-    })));
+    })), { timeout: 2500 });
     expect(apiMocks.fetchCliCredentialModels).toHaveBeenCalledWith("opencode", "deepseek");
   });
 
@@ -398,13 +401,11 @@ describe("AgentCliForm", () => {
     };
     render(<AgentCliForm initial={claudeEngine} runtimeScope="cloud" onSave={onSave} onCancel={vi.fn()} />);
 
-    await screen.findByText("Engine 凭据");
+    await screen.findByRole("heading", { name: "CLI 凭据" });
     fireEvent.change(screen.getByLabelText("claude_code-api-key"), {
       target: { value: "https://api.deepseek.com/anthropic" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "保存" }));
-
-    expect(await screen.findByText("API Key 不能填写 URL，请填写供应商控制台生成的密钥")).toBeInTheDocument();
+    expect(await screen.findByText("API 密钥不能填写网址，请填写供应商控制台生成的密钥", {}, { timeout: 2500 })).toBeInTheDocument();
     expect(apiMocks.saveCliCredential).not.toHaveBeenCalled();
     expect(onSave).not.toHaveBeenCalled();
   });

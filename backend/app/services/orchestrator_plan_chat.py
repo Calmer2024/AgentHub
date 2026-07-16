@@ -348,7 +348,7 @@ class OrchestratorPlanChat:
             if workspace_changes:
                 validation["ok"] = False
                 validation["errors"].append(
-                    "Orchestrator 调度器在 plan-only 阶段写入了工作区文件，请撤销这些变更后重新生成计划"
+                    "项目Leader在 plan-only 阶段写入了工作区文件，请撤销这些变更后重新生成计划"
                 )
         except ValueError as exc:
             await self._persist_orchestrator_message(

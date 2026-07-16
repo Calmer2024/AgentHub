@@ -1,4 +1,4 @@
-"""可见 Orchestrator 调度器管家回合。
+"""可见项目 Leader 管家回合。
 
 群聊无 @ 消息必须交给真实 Orchestrator Agent 判断分流：
 context_only / single_agent / direct_dialog / mini_collab / draft_plan。这里不做隐藏规则路由，
@@ -35,7 +35,7 @@ StewardRouteType = Literal["context_only", "single_agent", "direct_dialog", "min
 
 @dataclass(frozen=True)
 class StewardAgentDecision:
-    """Orchestrator 调度器给出的无 @ 路由决策。"""
+    """项目 Leader 给出的无 @ 路由决策。"""
 
     route_type: StewardRouteType
     reply: str
@@ -138,7 +138,7 @@ class OrchestratorStewardChat:
                 orchestrator_agent,
                 message_id,
                 call_key,
-                "Orchestrator 调度器正在判断该记录上下文、分派 Agent，还是生成计划...",
+                "项目Leader正在判断该记录上下文、分派 Agent，还是生成计划...",
             ),
             message_id,
         )
@@ -448,7 +448,7 @@ class OrchestratorStewardChat:
             "risk_level": "low | medium | high",
         }
         return (
-            "你是 AgentHub 群聊中的 Orchestrator 调度器。用户没有 @ 任何成员时，"
+            "你是 AgentHub 群聊中的项目Leader。用户没有 @ 任何成员时，"
             "这条消息默认就是发给你的。你必须先作为可见群聊成员判断下一步。\n\n"
             "只输出一个 JSON 对象，不要输出 Markdown，不要修改文件，不要执行子任务。\n"
             "四档含义（当前已扩展 direct_dialog 分流档位）：\n"

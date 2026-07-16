@@ -70,7 +70,7 @@ async def test_generate_orchestrator_plan_is_not_available_on_cli_baseline(test_
     })
 
     assert res.status_code == 501
-    assert "@Orchestrator" in res.json()["detail"]
+    assert "@项目Leader" in res.json()["detail"]
 
 
 @pytest.mark.asyncio

@@ -10,6 +10,7 @@
 docs/
 ├── README.md                       ← 本文件
 ├── documentation-governance.md     ← 文档治理规范
+├── UI-UX设计标准.md                ← 产品界面与交互设计标准
 ├── GIT_PROTOCOL.md                 ← Git 协作规范
 ├── TEST_PROTOCOL.md                ← 通用测试协议
 ├── PRD/                            ← 产品需求拆解文档
@@ -34,6 +35,7 @@ docs/
 | 当前系统实际长什么样 | [architecture/README.md](architecture/README.md) |
 | 关键架构决策和开发约束是什么 | [adr/README.md](adr/README.md) |
 | 文档应该写在哪里、怎么归档 | [documentation-governance.md](documentation-governance.md) |
+| 界面与交互应该遵循什么标准 | [UI-UX设计标准.md](UI-UX设计标准.md) |
 | 项目现在状态 | [../CONTEXT.md](../CONTEXT.md) |
 | 课程/挑战赛提交材料 | [submission/00-交付总入口.md](submission/00-交付总入口.md) |
 | 测试与验收规范 | [TEST_PROTOCOL.md](TEST_PROTOCOL.md) + [testing/UX_TEST_SPEC.md](testing/UX_TEST_SPEC.md) |
