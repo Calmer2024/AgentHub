@@ -160,7 +160,7 @@ describe("MessageBubble", () => {
       />,
     );
 
-    fireEvent.contextMenu(screen.getByText("const ok = true"));
+    fireEvent.contextMenu(screen.getByRole("button", { name: "复制代码" }).closest(".agenthub-message-bubble")!);
     expect(screen.getByRole("menuitem", { name: "引用回复" })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "重新生成" })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "Pin 消息" })).toBeInTheDocument();

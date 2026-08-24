@@ -13,7 +13,7 @@ export function ToastViewport() {
   const toasts = useToastStore((state) => state.toasts);
 
   return (
-    <div className="agenthub-toast-viewport fixed right-4 top-4 z-[1600] flex w-[min(360px,calc(100vw-2rem))] flex-col gap-2">
+    <div className="agenthub-toast-viewport fixed bottom-[22px] right-6 z-[1600] flex w-[min(360px,calc(100vw-2rem))] flex-col-reverse gap-2">
       {toasts.map((toast) => (
         <ToastCard key={toast.id} toast={toast} />
       ))}
@@ -32,12 +32,12 @@ function ToastCard({ toast }: { toast: ToastItem }) {
   }, [removeToast, toast.durationMs, toast.id]);
 
   return (
-    <div className={`agenthub-toast agenthub-toast-${toast.kind} flex items-start gap-3 rounded-2xl border px-3 py-3 shadow-lg`}>
-      <span className="agenthub-toast-icon mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full">
+    <div className={`agenthub-toast agenthub-toast-${toast.kind} flex min-h-[46px] items-center gap-2 rounded-[11px] border px-3 py-2.5 shadow-lg`} role={toast.kind === "error" ? "alert" : "status"}>
+      <span className="agenthub-toast-icon inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full">
         <Icon size={15} aria-hidden="true" />
       </span>
       <span className="min-w-0 flex-1">
-        <span className="agenthub-strong block text-sm font-semibold">{toast.title}</span>
+        <span className="agenthub-strong block text-sm font-medium">{toast.title}</span>
         {toast.description && (
           <span className="agenthub-muted mt-0.5 block text-xs leading-5">{toast.description}</span>
         )}

@@ -40,12 +40,11 @@ function applyTheme(theme: ThemeMode, animated = true) {
     return;
   }
   root.classList.add(TRANSITION_CLASS);
-  root.getBoundingClientRect();
   root.dataset.theme = theme;
   transitionTimer = window.setTimeout(() => {
     root.classList.remove(TRANSITION_CLASS);
     transitionTimer = null;
-  }, 140);
+  }, 90);
 }
 
 function syncNativeWindowTheme(preference: ThemePreference) {

@@ -259,9 +259,9 @@ describe("ProjectSidebar", () => {
     renderSidebar({
       agents: [
         makeAgent("custom-1", "前端工程师", { cliTool: "codex", executable: "codex" }),
-        makeAgent("native-open", "OpenCode", { cliTool: "opencode", executable: "opencode" }),
-        makeAgent("native-codex", "Codex", { cliTool: "codex", executable: "codex" }),
-        makeAgent("native-claude", "Claude Code", { cliTool: "claude_code", executable: "claude" }),
+        makeAgent("native-open", "OpenCode", { cliTool: "opencode", executable: "opencode", isBuiltIn: true }),
+        makeAgent("native-codex", "Codex", { cliTool: "codex", executable: "codex", isBuiltIn: true }),
+        makeAgent("native-claude", "Claude Code", { cliTool: "claude_code", executable: "claude", isBuiltIn: true }),
       ],
     });
 
@@ -270,6 +270,18 @@ describe("ProjectSidebar", () => {
     expect(listText.indexOf("Claude Code")).toBeLessThan(listText.indexOf("Codex"));
     expect(listText.indexOf("Codex")).toBeLessThan(listText.indexOf("OpenCode"));
     expect(listText.indexOf("OpenCode")).toBeLessThan(listText.indexOf("前端工程师"));
+  });
+
+  it("自定义 Agent 即使命名为 Codex 也不会进入原生 CLI 分类", () => {
+    renderSidebar({
+      agents: [
+        makeAgent("custom-codex-name", "Codex", { cliTool: "codex", executable: "codex" }),
+      ],
+    });
+
+    const listText = screen.getByLabelText("好友列表").textContent ?? "";
+    expect(listText).toContain("自定义 Agent");
+    expect(listText).not.toContain("原生 CLI");
   });
 
   it("local 壳隐藏团队空间和云端项目入口", () => {

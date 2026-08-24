@@ -188,7 +188,7 @@ export function AgentAvatar({
   return (
     <span className={`inline-flex shrink-0 ${SIZE_CLASS[size]} ${className}`}>
       <span
-        className={`flex h-full w-full items-center justify-center overflow-hidden rounded-full border shadow-[inset_0_1px_0_rgba(255,255,255,0.12)] ${customAvatar?.className ?? look.className}`}
+        className={`flex h-full w-full items-center justify-center overflow-hidden rounded-full ${kind === "group" ? "shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]" : "border shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]"} ${customAvatar?.className ?? look.className}`}
         title={displayName || customAvatar?.label || look.label}
         aria-label={displayName || customAvatar?.label || look.label}
       >
@@ -262,7 +262,7 @@ function resolveLook(
   if (kind === "group") {
     return {
       icon: MessagesSquare,
-      className: "border-[color:var(--ah-border-strong)] bg-[color:var(--ah-card-soft)] text-[color:var(--ah-text-strong)]",
+      className: "bg-[color:var(--ah-card-soft)] text-[color:var(--ah-text-strong)]",
       label: "群聊",
     };
   }

@@ -100,6 +100,7 @@ async def _seed_default_cli_agents(db: AsyncSession, owner_user_id: str | None) 
         if existing:
             _upgrade_legacy_defaults(existing, cli_tool, defaults)
             existing.agent_type = "cli_wrapper"
+            existing.is_builtin = True
             existing.env_vars = _clean_env_vars(existing.env_vars, cli_tool)
             _ensure_skill_profile(existing)
             defaults_by_tool[cli_tool] = existing
@@ -124,6 +125,7 @@ async def _seed_default_cli_agents(db: AsyncSession, owner_user_id: str | None) 
             toolset="[]",
             context_policy="workspace_coding",
             avatar="",
+            is_builtin=True,
         )
         db.add(agent)
         defaults_by_tool[cli_tool] = agent

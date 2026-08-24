@@ -465,7 +465,11 @@ export function AgentHubWorkbench() {
               canCreateCloudProject={edition !== "local"}
               onSelectSession={handleSelectSession}
               onNewSession={(agentId) => runCrudAction(
-                () => handleNewSession(agentId),
+                async () => {
+                  await handleNewSession(agentId);
+                  setSidebarTab("sessions");
+                  setActivityPanel("sessions");
+                },
                 "私聊已创建",
                 "创建私聊失败",
               )}
@@ -533,7 +537,11 @@ export function AgentHubWorkbench() {
                 "创建私聊失败",
               )}
               onStartAgentChat={(agentId) => runCrudAction(
-                () => handleNewSession(agentId),
+                async () => {
+                  await handleNewSession(agentId);
+                  setSidebarTab("sessions");
+                  setActivityPanel("sessions");
+                },
                 "私聊已创建",
                 "创建私聊失败",
               )}

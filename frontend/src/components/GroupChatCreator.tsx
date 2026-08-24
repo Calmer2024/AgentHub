@@ -3,7 +3,7 @@
 自动化优先: 链式协作由编排器自动触发，用户只需选择智能体。
 */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Check, Users, X } from "lucide-react";
 import type { AgentConfig } from "../types";
 import { AgentAvatar } from "./AgentAvatar";
@@ -18,21 +18,27 @@ interface Props {
 }
 
 export function GroupChatCreator({ agents, onConfirm, onCancel }: Props) {
-  const defaultSelected = useMemo(
-    () => agents.filter((agent) => agent.primarySkill === "orchestrator_planner").map((agent) => agent.id),
+  const leader = useMemo(
+    () => agents.find((agent) => agent.name === "项目Leader" || agent.primarySkill === "orchestrator_planner") ?? null,
     [agents],
   );
-  const [selected, setSelected] = useState<Set<string>>(new Set(defaultSelected));
+  const [selected, setSelected] = useState<Set<string>>(() => new Set(leader ? [leader.id] : []));
   const [title, setTitle] = useState("");
 
+  useEffect(() => {
+    if (!leader) return;
+    setSelected((current) => current.has(leader.id) ? current : new Set([...current, leader.id]));
+  }, [leader]);
+
   const toggle = (id: string) => {
+    if (leader?.id === id) return;
     const next = new Set(selected);
     if (next.has(id)) next.delete(id); else next.add(id);
     setSelected(next);
   };
 
   const selectedList = [...selected];
-  const canCreate = selectedList.length >= 2 && selectedList.length <= MAX_GROUP_AGENTS;
+  const canCreate = Boolean(leader && selected.has(leader.id) && selectedList.length >= 2 && selectedList.length <= MAX_GROUP_AGENTS);
 
   return (
     <GlobalModal
@@ -76,7 +82,7 @@ export function GroupChatCreator({ agents, onConfirm, onCancel }: Props) {
         <div className="grid max-h-[54dvh] gap-2 overflow-y-auto pr-1 md:grid-cols-2">
           {agents.map((a) => (
             <label key={a.id} className={`flex cursor-pointer items-center gap-2 rounded-2xl px-3 py-2.5 transition-colors ${selected.has(a.id) ? "agenthub-nav-active" : "agenthub-nav-idle"}`}>
-              <input type="checkbox" checked={selected.has(a.id)} onChange={() => toggle(a.id)}
+              <input type="checkbox" checked={selected.has(a.id)} onChange={() => toggle(a.id)} disabled={leader?.id === a.id}
                 className="h-4 w-4 rounded accent-[color:var(--ah-accent-strong)]" />
               <AgentAvatar agent={a} size="sm" />
               <div className="min-w-0">

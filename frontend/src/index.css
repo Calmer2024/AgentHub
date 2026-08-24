@@ -2402,8 +2402,8 @@ body {
 :root.agenthub-theme-switching *::before,
 :root.agenthub-theme-switching *::after {
   transition-delay: 0ms !important;
-  transition-duration: 110ms !important;
-  transition-property: background, background-color, border-color, box-shadow, color, fill, opacity, stroke !important;
+  transition-duration: 80ms !important;
+  transition-property: background, background-color, border-color, color !important;
   transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1) !important;
 }
 
@@ -3052,7 +3052,7 @@ body {
   border-color: var(--ah-border-hover);
   background: color-mix(in srgb, var(--ah-composer-bg) 86%, var(--ah-card-soft));
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.1);
-  transform: translateY(-1px);
+  transform: none;
 }
 
 .agenthub-select-trigger:active:not(:disabled) {
@@ -3085,7 +3085,6 @@ body {
   color: var(--ah-text);
   font-weight: 400;
   transition:
-    transform 130ms ease,
     background 130ms ease,
     border-color 130ms ease,
     color 130ms ease;
@@ -3095,14 +3094,14 @@ body {
   background: color-mix(in srgb, var(--ah-panel-muted) 84%, var(--ah-card-soft));
   border-color: var(--ah-border);
   color: var(--ah-text-strong);
-  transform: translateX(1px);
+  transform: none;
 }
 
 .agenthub-select-option:hover:not(:disabled) {
   background: color-mix(in srgb, var(--ah-panel-muted) 92%, var(--ah-card-soft));
   border-color: var(--ah-border-hover);
   color: var(--ah-text-strong);
-  transform: translateX(1px);
+  transform: none;
 }
 
 .agenthub-select-option-selected {
@@ -3123,11 +3122,12 @@ body {
 
 .agenthub-toast {
   pointer-events: auto;
+  min-width: 240px;
   background: var(--ah-menu-bg);
   border-color: var(--ah-border);
   color: var(--ah-text);
   backdrop-filter: blur(18px) saturate(140%);
-  animation: agenthub-popover-in 150ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: agenthub-slide-in 180ms ease-out both;
 }
 
 .agenthub-toast-icon {
@@ -3300,6 +3300,100 @@ body {
   transition: border-color 160ms ease;
 }
 
+.agenthub-message-code-block {
+  margin: 16px 0;
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--ah-code-bg, var(--ah-panel-muted));
+}
+
+.agenthub-message-code-banner {
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 14px;
+  color: var(--ah-muted);
+  font: 13px/20px var(--ah-code-ui-font, "SF Mono"), "JetBrains Mono", "Fira Code", Consolas, monospace;
+}
+
+.agenthub-message-code-banner button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
+.agenthub-message-code-banner button:hover { color: var(--ah-text-strong); }
+
+.agenthub-message-code-block .agenthub-code-block {
+  margin: 0;
+  overflow-x: auto;
+  border: 0;
+  border-radius: 0;
+  padding: 16px;
+  background: transparent;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font: 13px/22px ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.agenthub-message-code-block .agenthub-message-code-syntax {
+  margin: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.agenthub-message-code-syntax code {
+  display: block;
+  border: 0 !important;
+  border-radius: 0 !important;
+  padding: 0 !important;
+  background: transparent !important;
+  color: var(--ah-code-text);
+  font: inherit;
+  font-family: "SF Mono", "JetBrains Mono", "Fira Code", Consolas, monospace !important;
+  font-size: 15px !important;
+  line-height: 1.8;
+  text-decoration: none !important;
+}
+
+.agenthub-message-code-syntax .token.comment,
+.agenthub-message-code-syntax .token.prolog,
+.agenthub-message-code-syntax .token.doctype,
+.agenthub-message-code-syntax .token.cdata {
+  color: var(--ah-code-muted);
+}
+
+.agenthub-message-code-syntax .token.keyword,
+.agenthub-message-code-syntax .token.operator,
+.agenthub-message-code-syntax .token.atrule {
+  color: var(--ah-code-keyword, #ef3e78);
+}
+
+.agenthub-message-code-syntax .token.function,
+.agenthub-message-code-syntax .token.class-name {
+  color: var(--ah-code-function, #684cff);
+}
+
+.agenthub-message-code-syntax .token.string,
+.agenthub-message-code-syntax .token.char,
+.agenthub-message-code-syntax .token.regex {
+  color: var(--ah-code-string, #bd6b00);
+}
+
+.agenthub-message-code-syntax .token.number,
+.agenthub-message-code-syntax .token.boolean {
+  color: var(--ah-code-number, #1479e8);
+}
+
 .agenthub-global-modal {
   width: min(calc(100vw - 48px), 680px) !important;
   max-height: min(82dvh, 720px);
@@ -3420,6 +3514,11 @@ body {
   border: 0;
   background: var(--ah-sidebar-bg);
   box-shadow: none;
+}
+
+.agenthub-agent-settings-content > .min-h-0.flex-1.overflow-y-auto {
+  scroll-behavior: smooth;
+  scroll-padding-top: 1.25rem;
 }
 
 .agenthub-artifact-message-bubble {
@@ -3980,6 +4079,7 @@ body {
 
 .agenthub-menu :is(button, a, [role="menuitem"], .agenthub-floating-row, .agenthub-select-option) {
   border: 0 !important;
+  transform: none !important;
 }
 
 /* 更多按钮的居中位移属于布局，不允许全局交互规则覆盖。 */

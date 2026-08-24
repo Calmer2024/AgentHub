@@ -27,6 +27,7 @@ class AgentConfig(Base):
     toolset = Column(Text, nullable=False, default="[]")
     context_policy = Column(String, nullable=False, default="workspace_coding")
     avatar = Column(Text, nullable=False, default="")
+    is_builtin = Column(Boolean, nullable=False, default=False)
     is_active = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime, nullable=False, default=_utcnow)
     updated_at = Column(DateTime, nullable=False, default=_utcnow, onupdate=_utcnow)

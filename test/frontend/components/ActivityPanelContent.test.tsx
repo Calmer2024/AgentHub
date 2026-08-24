@@ -190,7 +190,7 @@ describe("项目列表拖拽", () => {
     expect(onPinSession).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByLabelText("删除 发布准备"));
-    fireEvent.click(screen.getByLabelText("确认删除 发布准备"));
+    fireEvent.click(screen.getByLabelText("确认 发布准备"));
     expect(onDeleteSession).toHaveBeenCalledWith("pinned-session");
 
     fireEvent.click(collapseProject);

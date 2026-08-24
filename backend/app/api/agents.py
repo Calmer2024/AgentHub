@@ -111,6 +111,7 @@ class AgentConfigRead(BaseModel):
     auxiliary_skills: list[str] = Field(alias="auxiliarySkills")
     context_policy: str = Field(alias="contextPolicy")
     avatar: str = ""
+    is_builtin: bool = Field(alias="isBuiltIn")
     status: str = "not_found"
     version: str | None = None
     executable_path: str | None = Field(None, alias="executablePath")
@@ -139,6 +140,7 @@ class AgentConfigRead(BaseModel):
             auxiliary_skills=decode_json_list(agent.auxiliary_skills),
             context_policy=agent.context_policy or "workspace_coding",
             avatar=getattr(agent, "avatar", "") or "",
+            is_builtin=bool(getattr(agent, "is_builtin", False)),
             status=status.status,
             version=status.version,
             executable_path=status.executable_path,

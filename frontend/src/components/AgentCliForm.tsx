@@ -399,7 +399,11 @@ export function AgentCliForm({
   const selectTool = (next: CliTool) => {
     const nextPreset = CLI_PRESETS[next];
     setCliTool(next);
-    if (runtimeScope === "local") {
+    // 编辑已有 Agent 时，切换 CLI 只应更换执行器相关配置；
+    // 名称、描述、提示词、规则、工具集和上下文策略属于 Agent Profile，不能被重置。
+    // 只有完全空白的新建本地 Agent 才使用 CLI 的默认资料。
+    // 已编辑的 Agent，以及已经套用模板的新建 Agent，都必须保留 Profile。
+    if (runtimeScope === "local" && !initial && !selectedTemplateName) {
       setName(nextPreset.name);
       setNote(nextPreset.description);
       setSystemPrompt("");
@@ -436,13 +440,12 @@ export function AgentCliForm({
     }
     setCheckResult(null);
     setFormError(null);
-    setSelectedTemplateName(null);
   };
 
   const applyTemplate = (template: AgentTemplatePreset) => {
-    const codexPreset = CLI_PRESETS.codex;
+    const defaultPreset = CLI_PRESETS.claude_code;
     setSelectedTemplateName(template.name);
-    setCliTool("codex");
+    setCliTool("claude_code");
     setName(template.name);
     setNote(template.description);
     setSystemPrompt(template.systemPrompt);
@@ -450,9 +453,9 @@ export function AgentCliForm({
     setToolset(template.toolset);
     setContextPolicy(template.contextPolicy);
     setAvatar(template.avatar);
-    setExecutable(codexPreset.executable);
-    setArgsText(codexPreset.initArgs.join(" "));
-    setEnvText(formatEnv(codexPreset.envVars));
+    setExecutable(defaultPreset.executable);
+    setArgsText(defaultPreset.initArgs.join(" "));
+    setEnvText(formatEnv(defaultPreset.envVars));
     setCheckResult(null);
     setFormError(null);
   };
@@ -635,7 +638,11 @@ export function AgentCliForm({
                 key={item.id}
                 href={`#${item.id}`}
                 data-active={activeSectionId === item.id}
-                onClick={() => setActiveSectionId(item.id)}
+                onClick={(event) => {
+                  event.preventDefault();
+                  setActiveSectionId(item.id);
+                  document.getElementById(item.id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+                }}
                 className="agenthub-agent-settings-link flex items-center gap-2.5 rounded-[10px] px-3 py-2.5 text-sm"
               >
                 <Icon size={16} strokeWidth={1.8} aria-hidden="true" />

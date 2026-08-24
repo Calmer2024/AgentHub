@@ -177,6 +177,11 @@ export function ChatWindow({
   const cancelRunLocally = useChatStore((state) => state.cancelRunLocally);
   const pushToast = useToastStore((state) => state.pushToast);
 
+  // 切换会话的同一渲染帧内，旧会话消息可能还未被 Zustand 选择器替换。
+  // 在确认消息归属当前会话前保持骨架，避免先闪出旧对话 UI。
+  const hasForeignMessages = messages.some((message) => message.sessionId !== currentSessionId);
+  const viewHydrating = hydrating || hasForeignMessages;
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
@@ -833,7 +838,9 @@ export function ChatWindow({
           ref={scrollRef}
           className="agenthub-message-area relative min-h-0 min-w-0 w-full overflow-y-auto p-4 pb-40 md:p-6 md:pb-40"
         >
-          {messages.length === 0 && collabTasks.length === 0 && hydrating ? (
+          {messages.length === 0 && collabTasks.length === 0 && viewHydrating ? (
+            <MessageListSkeleton />
+          ) : viewHydrating ? (
             <MessageListSkeleton />
           ) : messages.length === 0 && collabTasks.length === 0 ? (
             <ChatEmptyState
@@ -865,7 +872,7 @@ export function ChatWindow({
                     tasks={messageRun ? tasksByRun[messageRun.id] ?? EMPTY_TASKS : EMPTY_TASKS}
                     relatedApprovals={relatedApprovals}
                     artifactById={relatedApprovals.length > 0 ? artifactById : undefined}
-                    agent={messageAgent}
+                    agent={messageAgent ?? (!isGroup ? currentAgent : null)}
                     currentUser={currentUser}
                     parentMessage={msg.parentMessageId ? messageById.get(msg.parentMessageId) ?? null : null}
                     highlighted={highlightedMessageId === msg.id}
@@ -1243,7 +1250,7 @@ function ChatEmptyState({
 
   return (
     <div className="flex h-full items-center justify-center py-4">
-      <section className="agenthub-empty-state w-full max-w-3xl rounded-[28px] border px-5 py-5 md:px-6 md:py-6">
+      <section className="agenthub-empty-state w-full max-w-3xl rounded-[28px] px-5 py-5 md:px-6 md:py-6">
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div className="min-w-0">
             <div className="flex items-center gap-3">

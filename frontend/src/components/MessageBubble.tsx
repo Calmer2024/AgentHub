@@ -1,7 +1,8 @@
 import { memo, useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Info, Pin } from "lucide-react";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { Check, Copy, Info, Pin } from "lucide-react";
 import type {
   AgentConfig, ApprovalCheckpoint, Artifact, CurrentUser, Message, ReplyReference, RunRead, TaskRead,
 } from "../types";
@@ -82,6 +83,10 @@ function MarkdownContent({ content }: { content: string }) {
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
+          pre({ children }) {
+            // react-markdown 默认会再包一层 <pre>；代码块自身已经提供完整表面，避免双卡片嵌套。
+            return <>{children}</>;
+          },
           code({ className, children, ...props }) {
             const match = /language-(\w+)/.exec(className || "");
             const codeStr = String(children).replace(/\n$/, "");
@@ -89,18 +94,54 @@ function MarkdownContent({ content }: { content: string }) {
             if (isInline) {
               return <code className="agenthub-inline-code" {...props}>{children}</code>;
             }
-            return (
-              <pre className="agenthub-code-block min-w-0 max-w-full overflow-x-auto rounded-2xl border p-0 text-xs leading-5">
-                <code className={match ? `language-${match[1]}` : undefined} {...props}>
-                  {codeStr}
-                </code>
-              </pre>
-            );
+            return <MessageCodeBlock code={codeStr} language={match?.[1]} className={className} />;
           },
         }}
       >
         {content}
       </ReactMarkdown>
+    </div>
+  );
+}
+
+function MessageCodeBlock({ code, language, className }: { code: string; language?: string; className?: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1200);
+    } catch { /* clipboard unavailable */ }
+  };
+  return (
+    <div className="agenthub-message-code-block">
+      <div className="agenthub-message-code-banner">
+        <span>{language ?? ""}</span>
+        <button type="button" onClick={() => void copy()} aria-label={copied ? "复制成功" : "复制代码"}>
+          {copied ? <Check size={13} /> : <Copy size={13} />}
+          {copied ? "已复制" : "复制"}
+        </button>
+      </div>
+      <SyntaxHighlighter
+        language={language || "text"}
+        PreTag="div"
+        style={{}}
+        className="agenthub-message-code-syntax"
+        customStyle={{
+          margin: 0,
+          padding: "16px 18px",
+          background: "transparent",
+          color: "var(--ah-code-text)",
+          fontFamily: '"SF Mono", "JetBrains Mono", "Fira Code", Consolas, monospace',
+          fontSize: "15px",
+          lineHeight: 1.8,
+          whiteSpace: "pre-wrap",
+          overflowX: "auto",
+        }}
+        codeTagProps={{ className: className ?? "" }}
+      >
+        {code}
+      </SyntaxHighlighter>
     </div>
   );
 }

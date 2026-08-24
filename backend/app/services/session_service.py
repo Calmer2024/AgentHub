@@ -372,6 +372,11 @@ class SessionService:
                 self._agent_owner_filter(),
                 AgentConfig.primary_skill == "orchestrator_planner",
                 AgentConfig.is_active == True,
+            ).order_by(
+                # 群聊的固定入口是“项目Leader”；仅在旧数据缺少该名称时
+                # 才回退到同技能的历史调度器，避免把自定义调度器误当成群聊 Leader。
+                (AgentConfig.name == "项目Leader").desc(),
+                AgentConfig.updated_at.desc(),
             ).limit(1)
         )
         orchestrator = row.scalars().first()

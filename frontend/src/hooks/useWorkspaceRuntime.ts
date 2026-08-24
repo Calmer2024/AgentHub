@@ -555,6 +555,8 @@ export function useWorkspaceRuntime(options: WorkspaceRuntimeOptions = {}) {
   const handleSelectSession = async (id: string) => {
     if (id === useChatStore.getState().currentSessionId) return;
     const selectedSession = sessions.find((s) => s.id === id);
+    // 先进入加载态再切换会话，避免空消息状态先渲染一帧初始卡片造成闪烁。
+    setSessionHydrating(true);
     setCurrentSessionId(id);
     setStreamingError(null, id);
     void hydrateSession(id);

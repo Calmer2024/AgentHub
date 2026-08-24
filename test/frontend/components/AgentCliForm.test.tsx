@@ -160,13 +160,51 @@ describe("AgentCliForm", () => {
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
       name: "前端工程师",
-      cliTool: "codex",
-      executable: "codex",
+      cliTool: "claude_code",
+      executable: "claude",
       toolset: ["react_typescript", "state_management", "responsive_ui"],
       contextPolicy: "workspace_coding",
       avatar: "preset:blue",
     }));
     expect(onSave.mock.calls[0][0].systemPrompt).toContain("内置模板「前端工程师」");
+  });
+
+  it("套用模板后切换 CLI 底座仍保留模板 Profile", async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    render(<AgentCliForm presentation="dialog" onSave={onSave} onCancel={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /产品经理/ }));
+    fireEvent.click(screen.getByLabelText("CLI 类型"));
+    fireEvent.click(screen.getByRole("option", { name: "Claude Code" }));
+    fireEvent.click(screen.getByRole("button", { name: "确定添加" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+      name: "产品经理",
+      cliTool: "claude_code",
+      toolset: expect.arrayContaining(["product_strategy"]),
+    }));
+    expect(onSave.mock.calls[0][0].systemPrompt).toContain("内置模板「产品经理」");
+  });
+
+  it("模板 Agent 连续切换多个 CLI 底座仍保留 Profile", async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    render(<AgentCliForm presentation="dialog" onSave={onSave} onCancel={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /产品经理/ }));
+    fireEvent.click(screen.getByLabelText("CLI 类型"));
+    fireEvent.click(screen.getByRole("option", { name: "Claude Code" }));
+    fireEvent.click(screen.getByLabelText("CLI 类型"));
+    fireEvent.click(screen.getByRole("option", { name: "OpenCode" }));
+    fireEvent.click(screen.getByRole("button", { name: "确定添加" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+      name: "产品经理",
+      cliTool: "opencode",
+      toolset: expect.arrayContaining(["product_strategy"]),
+    }));
+    expect(onSave.mock.calls[0][0].systemPrompt).toContain("内置模板「产品经理」");
   });
 
   it("编辑已有 Agent 时不展示模板区", () => {
@@ -181,6 +219,34 @@ describe("AgentCliForm", () => {
     expect(screen.queryByText("返回好友")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "保存" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "取消" })).not.toBeInTheDocument();
+  });
+
+  it("编辑已有 Agent 切换 CLI 类型时保留 Profile 配置", async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const agent: AgentConfig = {
+      ...existingAgent,
+      description: "保留的描述",
+      systemPrompt: "保留的系统提示词",
+      rules: "保留的规则",
+      toolset: ["react_typescript"],
+      contextPolicy: "review_only",
+    };
+    render(<AgentCliForm initial={agent} presentation="dialog" onSave={onSave} onCancel={vi.fn()} />);
+
+    fireEvent.click(screen.getByLabelText("CLI 类型"));
+    fireEvent.click(screen.getByRole("option", { name: "Codex" }));
+    fireEvent.click(screen.getByRole("button", { name: "确定添加" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+      name: "已有 Agent",
+      description: "保留的描述",
+      systemPrompt: "保留的系统提示词",
+      rules: "保留的规则",
+      toolset: ["react_typescript"],
+      contextPolicy: "review_only",
+      cliTool: "codex",
+    }));
   });
 
   it("切换到自定义 CLI 时默认使用自定义头像", async () => {

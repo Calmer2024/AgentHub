@@ -30,12 +30,6 @@ import { FloatingMenu } from "./FloatingMenu";
 
 export type ActivityPanel = "sessions" | "agents" | "projects";
 
-const BUILT_IN_CLI_AGENT_NAMES: Partial<Record<AgentConfig["cliTool"], string>> = {
-  claude_code: "Claude Code",
-  codex: "Codex",
-  opencode: "OpenCode",
-};
-
 const BUILT_IN_CLI_AGENT_ORDER: Partial<Record<AgentConfig["cliTool"], number>> = {
   claude_code: 0,
   codex: 1,
@@ -489,7 +483,7 @@ function AgentsActivityPanel({
               className={`agenthub-floating-row ${deleteConfirm === activeMenuAgent.id ? "agenthub-danger-row" : ""}`}
             >
               {deleteConfirm === activeMenuAgent.id ? <Check size={14} aria-hidden="true" /> : <Trash2 size={14} aria-hidden="true" />}
-              {deleteConfirm === activeMenuAgent.id ? "确认删除" : "删除"}
+              {deleteConfirm === activeMenuAgent.id ? "确认" : "删除"}
             </button>
           </>
         )}
@@ -823,7 +817,7 @@ function ProjectsActivityPanel({
               className={`agenthub-floating-row ${deleteConfirm === activeMenuProject.id ? "agenthub-danger-row" : ""}`}
             >
               {deleteConfirm === activeMenuProject.id ? <Check size={14} aria-hidden="true" /> : <Trash2 size={14} aria-hidden="true" />}
-              {deleteConfirm === activeMenuProject.id ? "确认删除" : "删除"}
+              {deleteConfirm === activeMenuProject.id ? "确认" : "删除"}
             </button>
           </>
         )}
@@ -1108,8 +1102,8 @@ function ProjectSessionRow({
           }}
           onBlur={() => setConfirmDelete(false)}
           className={confirmDelete ? "agenthub-project-session-delete-confirm" : ""}
-          aria-label={`${confirmDelete ? "确认删除" : "删除"} ${session.title}`}
-          title={confirmDelete ? "再次点击确认删除" : "删除"}
+          aria-label={`${confirmDelete ? "确认" : "删除"} ${session.title}`}
+          title={confirmDelete ? "再次点击确认" : "删除"}
         >
           {confirmDelete ? <Check size={12} aria-hidden="true" /> : <Trash2 size={12} aria-hidden="true" />}
         </button>
@@ -1329,7 +1323,7 @@ function SessionActivityRow({
           className={`agenthub-floating-row ${deleteConfirm ? "agenthub-danger-row" : ""}`}
         >
           {deleteConfirm ? <Check size={14} aria-hidden="true" /> : <Trash2 size={14} aria-hidden="true" />}
-          {deleteConfirm ? "确认删除" : "删除"}
+          {deleteConfirm ? "确认" : "删除"}
         </button>
       </FloatingMenu>
     </div>
@@ -1384,7 +1378,7 @@ function SearchInput({
 }
 
 function isBuiltInCliAgent(agent: AgentConfig) {
-  return BUILT_IN_CLI_AGENT_NAMES[agent.cliTool] === agent.name;
+  return agent.isBuiltIn === true;
 }
 
 function builtInCliAgentRank(agent: AgentConfig) {

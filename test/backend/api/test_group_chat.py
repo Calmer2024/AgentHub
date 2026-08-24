@@ -102,6 +102,25 @@ class TestGroupSession:
         assert {f"A{index}" for index in range(11)}.issubset(names)
         assert "项目Leader" in names
 
+    async def test_group_session_prefers_project_leader_over_custom_planner(
+        self, test_client, test_agent, db_session,
+    ):
+        """群聊固定包含项目Leader，不应被同技能的自定义调度器替代。"""
+        custom_planner = make_test_cli_agent("自定义调度器")
+        custom_planner.primary_skill = "orchestrator_planner"
+        db_session.add(custom_planner)
+        await db_session.commit()
+
+        response = await test_client.post("/api/sessions", json={
+            "mode": "group",
+            "agentConfigIds": [test_agent.id, custom_planner.id],
+        })
+        assert response.status_code == 201
+        members = (await test_client.get(f"/api/sessions/{response.json()['id']}/members")).json()
+        names = {member["agentName"] for member in members}
+        assert "项目Leader" in names
+        assert "自定义调度器" in names
+
     async def test_single_mode_still_works(self, test_client, test_agent):
         res = await test_client.post("/api/sessions", json={
             "agentConfigId": test_agent.id, "mode": "single"

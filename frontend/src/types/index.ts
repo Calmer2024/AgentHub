@@ -178,6 +178,7 @@ export interface AgentConfig {
   auxiliarySkills: string[];
   contextPolicy: string;
   avatar: string;
+  isBuiltIn?: boolean;
   status: "ready" | "not_found" | "running" | "error";
   version?: string | null;
   executablePath?: string | null;

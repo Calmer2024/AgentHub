@@ -74,12 +74,6 @@ interface Props {
 
 type DeleteConfirmTarget = { kind: "project" | "agent"; id: string };
 
-const NATIVE_CLI_AGENT_NAMES: Partial<Record<AgentConfig["cliTool"], string>> = {
-  claude_code: "Claude Code",
-  codex: "Codex",
-  opencode: "OpenCode",
-};
-
 const NATIVE_CLI_AGENT_ORDER: Partial<Record<AgentConfig["cliTool"], number>> = {
   claude_code: 0,
   codex: 1,
@@ -795,7 +789,7 @@ export function ProjectSidebar({
 }
 
 function isNativeCliAgent(agent: AgentConfig) {
-  return NATIVE_CLI_AGENT_NAMES[agent.cliTool] === agent.name;
+  return agent.isBuiltIn === true;
 }
 
 function nativeCliAgentRank(agent: AgentConfig) {

@@ -953,8 +953,8 @@ export function ProjectFileWorkspaceModal({
                           onClick={commitPendingAction}
                           disabled={actionBusy}
                           className="agenthub-file-mini-action inline-flex h-6 items-center justify-center rounded px-2 text-[11px] disabled:opacity-45"
-                          aria-label={`确认删除 ${entry.path}`}
-                          title="确认删除"
+                          aria-label={`确认 ${entry.path}`}
+                          title="确认"
                         >
                           {actionBusy ? <BusyDot /> : "确认"}
                         </button>
