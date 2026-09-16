@@ -138,14 +138,13 @@ function TaskTimeline({ plan }: { plan: OrchestratorPlan }) {
                     <p className="agenthub-muted mt-1 text-xs leading-5">{task.goal}</p>
                   </div>
                   <span className="agenthub-status rounded px-2 py-1 text-[11px]">
-                    {task.is_blocking ? "阻塞" : "普通"}
+                    最多 {task.max_attempts} 次
                   </span>
                 </div>
                 <div className="agenthub-muted mt-2 grid gap-2 text-[11px] md:grid-cols-2">
                   <InfoLine label="Agent" value={task.assigned_agent_name || task.assigned_agent_id || "待分配"} />
                   <InfoLine label="依赖" value={task.depends_on.length ? task.depends_on.join(" / ") : "无"} />
-                  <InfoLine label="能力" value={task.required_skills.join(" / ") || "未声明"} />
-                  <InfoLine label="审批" value={task.needs_approval ? "需要确认" : "无需单独确认"} />
+                  <InfoLine label="分配理由" value={task.assignment_reason || "由 Orchestrator 语义分配"} />
                 </div>
                 {task.assignment_reason && (
                   <p className="agenthub-status mt-2 rounded px-2 py-1.5 text-[11px] leading-5">

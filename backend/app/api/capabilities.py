@@ -38,7 +38,6 @@ def _feature_matrix(edition: str, surface: str) -> RuntimeFeatureFlags:
         deployment=is_saas_desktop,
         audit_logs=is_saas_desktop,
         notifications=is_saas_desktop or is_mobile,
-        mobile_approvals=is_mobile,
     )
 
 

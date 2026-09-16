@@ -17,7 +17,6 @@ from ..event_bus.event_types import EventType
 from ..models import (
     AgentConfig,
     AgentTemplateSession,
-    ApprovalCheckpoint,
     Artifact,
     ArtifactReference,
     Attachment,
@@ -32,7 +31,6 @@ from ..models import (
     User,
 )
 from .artifact_preview import artifact_preview_payload, infer_artifact_preview
-from .approval_service import ApprovalService
 from .audit_service import AuditService
 from .message_service_sqlalchemy import message_to_read
 from .phase12_schemas import (
@@ -304,42 +302,15 @@ class CollaborationService:
             latest = await self.db.execute(
                 select(func.max(Message.created_at)).where(Message.session_id == session.id)
             )
-            pending = await self.db.execute(
-                select(func.count(ApprovalCheckpoint.id)).where(
-                    ApprovalCheckpoint.session_id == session.id,
-                    ApprovalCheckpoint.status == "pending_review",
-                )
-            )
             summaries.append(MobileSessionSummary(
                 id=session.id,
                 project_id=session.project_id,
                 title=session.title,
                 unread_count=int(session.unread_count or 0),
                 latest_message_at=latest.scalar_one_or_none(),
-                pending_approval_count=int(pending.scalar_one() or 0),
             ))
         return summaries
 
-    async def decide_mobile_approval(
-        self,
-        approval_id: str,
-        *,
-        decision: str,
-        comment: str | None,
-        actor: User,
-    ):
-        checkpoint = await self.db.get(ApprovalCheckpoint, approval_id)
-        if not checkpoint:
-            raise CollaborationNotFoundError("approval not found")
-        session = await self.db.get(Session, checkpoint.session_id)
-        if not session or not session.project_id:
-            raise CollaborationNotFoundError("approval session not found")
-        project = await self._get_project(session.project_id)
-        await self.team_service.assert_workspace_write_allowed(project, actor)
-        service = ApprovalService(self.db, event_bus=self.event_bus)
-        if decision == "approve":
-            return await service.approve(approval_id, comment=comment)
-        return await service.reject(approval_id, reason=comment or "移动端拒绝")
 
     async def render_artifact(self, artifact_id: str, *, fmt: str, actor: User) -> RenderedArtifactRead:
         artifact = await self.db.get(Artifact, artifact_id)

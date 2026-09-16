@@ -11,12 +11,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..domain.context_manager import ContextManager
 from ..event_bus.event_types import EventType
-from ..models import ApprovalCheckpoint, Artifact, ContextPackSnapshot, Session as DBSession
+from ..models import Artifact, ContextPackSnapshot, Session as DBSession
 from .message_service_sqlalchemy import SqlAlchemyMessageService
 from .phase8_schemas import ContextPackBlockRead, ContextPackPreviewRead
 
 
-VALID_CONTEXT_PURPOSES = {"send", "approval_resume", "artifact_edit"}
+VALID_CONTEXT_PURPOSES = {"send", "artifact_edit"}
 
 
 class ContextPackNotFoundError(LookupError):
@@ -55,8 +55,7 @@ class ContextPackService:
 
         history, pinned_ids = await self.messages.history_for_session(session_id)
         artifact_count = await self._artifact_count(session_id)
-        approval_count = await self._pending_approval_count(session_id)
-        blocks = self._blocks(history, pinned_ids, artifact_count, approval_count, purpose)
+        blocks = self._blocks(history, pinned_ids, artifact_count, purpose)
         warnings = self._warnings(session, history, artifact_count, purpose)
         payload = {
             "sessionId": session_id,
@@ -64,7 +63,6 @@ class ContextPackService:
             "history": history,
             "pinnedMessageIds": pinned_ids,
             "artifactCount": artifact_count,
-            "pendingApprovalCount": approval_count,
             "blocks": [block.model_dump(by_alias=True) for block in blocks],
             "warnings": warnings,
         }
@@ -114,7 +112,6 @@ class ContextPackService:
         history: list[dict],
         pinned_ids: list[str],
         artifact_count: int,
-        approval_count: int,
         purpose: str,
     ) -> list[ContextPackBlockRead]:
         message_tokens = self.context_manager.estimate_tokens(history)
@@ -132,12 +129,6 @@ class ContextPackService:
                 type="artifacts",
                 title=f"{artifact_count} 个会话产物",
                 token_estimate=max(1, artifact_count * 120),
-            ))
-        if approval_count or purpose == "approval_resume":
-            blocks.append(ContextPackBlockRead(
-                type="approval",
-                title="审批恢复上下文",
-                token_estimate=max(80, approval_count * 80),
             ))
         if purpose == "artifact_edit":
             blocks.append(ContextPackBlockRead(
@@ -169,14 +160,6 @@ class ContextPackService:
         )
         return int(result.scalar_one() or 0)
 
-    async def _pending_approval_count(self, session_id: str) -> int:
-        result = await self.db.execute(
-            select(func.count(ApprovalCheckpoint.id)).where(
-                ApprovalCheckpoint.session_id == session_id,
-                ApprovalCheckpoint.status == "pending_review",
-            )
-        )
-        return int(result.scalar_one() or 0)
 
     async def _publish(self, event_type: EventType, payload: dict[str, Any]) -> None:
         if self.event_bus:

@@ -12,16 +12,18 @@ import {
 } from "../../../frontend/src/api/client";
 
 vi.mock("../../../frontend/src/api/client", () => ({
-  approveCheckpoint: vi.fn(),
   cancelRun: vi.fn(() => new Promise(() => {})),
-  fetchApprovals: vi.fn(() => Promise.resolve([])),
   fetchArtifacts: vi.fn(() => Promise.resolve([])),
   fetchMessages: vi.fn(() => Promise.resolve([])),
   forwardMessages: vi.fn(() => Promise.resolve({ messages: [] })),
   fetchRuns: vi.fn(() => Promise.resolve([])),
-  fetchSystemHealth: vi.fn(() => Promise.resolve(null)),
+  fetchSessionDiagnosticLogs: vi.fn(() => Promise.resolve({
+    session: { id: "s-cancel", title: "当前对话", mode: "single", projectId: "p1", createdAt: "", updatedAt: "" },
+    generatedAt: "2026-09-16T20:00:00+08:00",
+    counts: { entries: 1, messages: 0, runs: 0, tasks: 0, processes: 0, artifacts: 0, plans: 0 },
+    entries: [{ id: "session:s-cancel", timestamp: "2026-09-16T20:00:00+08:00", level: "info", category: "session", source: "AgentHub", title: "会话已创建", message: "当前对话", details: { sessionId: "s-cancel" } }],
+  })),
   interruptOrchestratorExecution: vi.fn(() => Promise.resolve({ status: "interrupted" })),
-  rejectCheckpoint: vi.fn(),
   replyToInteractivePrompt: vi.fn(),
   resumeOrchestratorExecution: vi.fn(() => Promise.resolve({ status: "running" })),
 }));
@@ -86,13 +88,11 @@ function resetStore() {
     interactivePrompts: [],
     runs: [],
     tasksByRun: {},
-    approvals: [],
     systemHealth: null,
     healthBlockingError: null,
     messagesBySession: {},
     artifactsBySession: {},
     runsBySession: {},
-    approvalsBySession: {},
     runtimeBySession: {},
     streamingErrorBySession: {},
     activeStreamsByKey: {},
@@ -175,16 +175,10 @@ function Harness({
       agents={[agent]}
       mode="single"
       routeAgents={null}
-      orchestratorIntent={null}
-      planSummary={null}
+      routeType={null}
+      routeReason={null}
       mentionableAgents={[agent]}
       groupMembers={[]}
-      collabTasks={[]}
-      dagPhases={[]}
-      chainSteps={[]}
-      collabCompleted={false}
-      collabSummary={null}
-      draftPlan={null}
       onSend={onSend}
       onDismissError={vi.fn()}
       onReply={vi.fn()}
@@ -382,7 +376,6 @@ describe("ChatWindow runtime cancel", () => {
             assignedAgentName: "后端工程师",
             dependsOn: [],
             requiredSkills: [],
-            needsApproval: false,
             isBlocking: false,
             expectedOutputs: [],
             acceptanceCriteria: [],
@@ -445,14 +438,26 @@ describe("ChatWindow runtime cancel", () => {
     expect(copyToasts[copyToasts.length - 1]?.title).toBe("已复制到剪贴板");
   });
 
-  it("项目资源管理器入口位于会话文件按钮左侧，环境体检保持圆点入口", () => {
+  it("日志按钮切换会话诊断视图，再次点击回到对话", async () => {
     const onToggleProjectFiles = vi.fn();
     resetStore();
 
     render(<Harness onToggleProjectFiles={onToggleProjectFiles} />);
 
-    const healthTrigger = screen.getByLabelText("刷新环境体检：环境未检查");
-    expect(healthTrigger).toHaveClass("agenthub-health-dot");
+    const logButton = screen.getByRole("button", { name: "查看会话诊断日志" });
+    expect(logButton).toHaveTextContent("");
+    fireEvent.click(logButton);
+    expect(await screen.findByRole("region", { name: "会话诊断日志" })).toBeInTheDocument();
+    expect(screen.getByText("s-cancel")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("搜索内容、来源或任意关联 ID")).toHaveClass("agenthub-search-field");
+
+    const levelFilter = screen.getByRole("button", { name: "日志级别" });
+    expect(levelFilter).toHaveClass("agenthub-filter-trigger");
+    fireEvent.click(levelFilter);
+    expect(await screen.findByRole("option", { name: "输入" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "返回对话" }));
+    expect(screen.queryByRole("region", { name: "会话诊断日志" })).not.toBeInTheDocument();
 
     const projectFilesButton = screen.getByRole("button", { name: "打开项目资源管理器" });
     const artifactsButton = screen.getByRole("button", { name: "会话文件，0 个产物" });

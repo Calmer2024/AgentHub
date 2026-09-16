@@ -94,14 +94,8 @@ class MobileSessionSummary(BaseModel):
     title: str
     unread_count: int = Field(alias="unreadCount")
     latest_message_at: datetime | None = Field(default=None, alias="latestMessageAt")
-    pending_approval_count: int = Field(alias="pendingApprovalCount")
 
     model_config = {"populate_by_name": True}
-
-
-class MobileApprovalDecision(BaseModel):
-    decision: Literal["approve", "reject"]
-    comment: str | None = None
 
 
 class RenderedArtifactRead(BaseModel):

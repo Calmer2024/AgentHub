@@ -1,9 +1,4 @@
-"""Plan-first Orchestrator helpers.
-
-The Orchestrator Agent is an Agent Profile that returns a draft plan. This
-module keeps parsing, normalization, validation, and UI projection independent
-from CLI execution.
-"""
+"""Orchestrator 静态 DAG 的解析、规范化、校验与界面投影。"""
 
 from __future__ import annotations
 
@@ -25,19 +20,13 @@ PLAN_SCHEMA: dict[str, Any] = {
         "task_id": "T1",
         "title": "任务标题",
         "goal": "任务目标",
-        "required_skills": ["frontend", "react"],
         "assigned_agent_id": "agent_id",
         "assigned_agent_name": "Agent 显示名称",
         "assignment_reason": "为什么分配给它",
         "depends_on": [],
         "expected_outputs": ["交付物类型或建议位置，不要强制精确文件名"],
         "acceptance_criteria": ["可验证的完成标准"],
-        "interaction_policy": "auto_run | ask_user_once | ask_user_until_confirmed | approval_after_output",
-        "handoff_policy": "auto | manual_confirm",
-        "awaits_user_input": False,
-        "blocks_downstream_until": "task_completed | user_confirms",
-        "needs_approval": False,
-        "is_blocking": True,
+        "max_attempts": 3,
     }],
     "execution_strategy": {
         "parallelizable_groups": [["T2", "T3"]],
@@ -53,9 +42,7 @@ def build_plan_prompt(content: str, candidate_agents: list[dict[str, Any]]) -> s
             "- "
             f"id={agent.get('id')}; "
             f"name={agent.get('name')}; "
-            f"engine={agent.get('engine')}; "
-            f"primary_skill={agent.get('primary_skill')}; "
-            f"auxiliary_skills={agent.get('auxiliary_skills')}"
+            f"description={agent.get('description') or ''}"
         )
     return (
         "请作为 AgentHub Orchestrator Agent，把用户需求拆成 plan-only DAG。\n"
@@ -65,9 +52,9 @@ def build_plan_prompt(content: str, candidate_agents: list[dict[str, Any]]) -> s
         "输出必须符合这个最小结构，字段可扩展但不要缺少关键字段：\n"
         f"{json.dumps(PLAN_SCHEMA, ensure_ascii=False, indent=2)}\n\n"
         "要求：\n"
-        "1. 每个任务必须有 task_id/title/goal/required_skills/depends_on。\n"
-        "2. 优先按 required_skills 解释任务需要什么能力。\n"
-        "3. 可以填写 assigned_agent_id 和 assigned_agent_name，但必须写 assignment_reason。\n"
+        "1. 每个任务必须有 task_id/title/goal/depends_on/assigned_agent_id。\n"
+        "2. 把候选 Agent 当作可调用的专业工具，只根据 name 和 description 做语义分配。\n"
+        "3. assigned_agent_id 必须来自候选列表，并填写 assigned_agent_name 和 assignment_reason。\n"
         "4. depends_on 必须引用已有 task_id，整体必须是 DAG。\n"
         "5. status 固定为 draft，execution_policy.mode 固定为 plan_only。\n"
         "6. expected_outputs 只描述交付物类型、目录层级或建议位置；除非用户明确指定，"
@@ -75,10 +62,10 @@ def build_plan_prompt(content: str, candidate_agents: list[dict[str, Any]]) -> s
         "如果用户要求 PRD、架构设计、接口说明、测试清单等正式项目文档，"
         "expected_outputs 应明确建议写入项目 `docs/`，不要只写“document”。\n"
         "7. acceptance_criteria 写成可验收的行为/质量标准，不要把语言要求重复塞进每个任务。\n"
-        "8. 需求澄清、产品访谈、UX 访谈、架构对齐等需要用户持续回答的任务，"
-        "interaction_policy 应设为 ask_user_until_confirmed，handoff_policy 设为 manual_confirm，"
-        "blocks_downstream_until 设为 user_confirms；这类任务先提问，不得自动交接给下游。\n"
-        "9. 输出语言遵循用户输入语言；用户用中文时，计划标题、目标、交接说明和后续执行要求都用中文。\n\n"
+        "8. Worker 不得直接向用户申请确认。缺少用户决策时，任务结果必须把问题交给 Orchestrator，"
+        "由 Orchestrator 统一协调用户。\n"
+        "9. max_attempts 默认 3，表示首次执行加最多两次 Orchestrator 反馈重做。\n"
+        "10. 输出语言遵循用户输入语言；用户用中文时，计划标题、目标和后续执行要求都用中文。\n\n"
         f"用户需求：\n{content.strip()}\n"
     )
 
@@ -103,15 +90,6 @@ def build_plan_followup_prompt(
         '  "target_plan_id": "上一版 plan_id",\n'
         '  "reason": "为什么判断用户是在放弃这版计划"\n'
         "}\n\n"
-        "如果用户明确希望绕开/暂停当前计划，直接和某个候选 Agent 单独交流、访谈或需求对齐，"
-        "请输出控制 JSON。不要生成只有该 Agent 一个任务的新计划：\n"
-        "{\n"
-        '  "action": "start_direct_dialog",\n'
-        '  "target_plan_id": "上一版 plan_id",\n'
-        '  "selected_agent_id": "候选 Agent id",\n'
-        '  "dialog_goal": "本次单独交流要对齐什么",\n'
-        '  "reason": "为什么判断用户要切到直接对话"\n'
-        "}\n\n"
         "如果用户提出修改、补充、删除、合并、重新分配等意见，请输出一份新的 draft plan JSON，"
         "结构仍必须符合 Plan JSON / DAG schema，不要输出 approve_plan。\n\n"
         "如果用户只是开启了一个和上一版计划无关的新话题，也应输出 discard_plan，"
@@ -134,9 +112,7 @@ def _agent_lines(candidate_agents: list[dict[str, Any]]) -> str:
             "- "
             f"id={agent.get('id')}; "
             f"name={agent.get('name')}; "
-            f"engine={agent.get('engine')}; "
-            f"primary_skill={agent.get('primary_skill')}; "
-            f"auxiliary_skills={agent.get('auxiliary_skills')}"
+            f"description={agent.get('description') or ''}"
         )
     return chr(10).join(agent_lines) if agent_lines else "- 无候选 Agent"
 
@@ -159,7 +135,7 @@ def extract_json_object(raw: str) -> dict[str, Any]:
 
 
 def _repair_approve_action_json(text: str) -> dict[str, Any] | None:
-    """Repair the narrow common case where only approve reason has raw quotes."""
+    """修复批准理由中包含未转义引号的常见输出。"""
     if '"action"' not in text or "approve_plan" not in text:
         return None
     action = _extract_json_string_field(text, "action")
@@ -207,26 +183,19 @@ def normalize_plan(raw_plan: dict[str, Any]) -> dict[str, Any]:
         task = item if isinstance(item, dict) else {}
         task_id = str(task.get("task_id") or task.get("id") or f"T{index}")
         title = str(task.get("title") or task.get("name") or f"任务 {index}")
-        required = _string_list(task.get("required_skills") or task.get("required_skill"))
         depends_on = _string_list(task.get("depends_on") or task.get("dependencies"))
         normalized_tasks.append({
             **task,
             "task_id": task_id,
             "title": title,
             "goal": str(task.get("goal") or task.get("description") or title),
-            "required_skills": required,
             "assigned_agent_id": _optional_str(task.get("assigned_agent_id")),
             "assigned_agent_name": _optional_str(task.get("assigned_agent_name") or task.get("agent_name")),
             "assignment_reason": str(task.get("assignment_reason") or ""),
             "depends_on": depends_on,
             "expected_outputs": _string_list(task.get("expected_outputs")),
             "acceptance_criteria": _string_list(task.get("acceptance_criteria")),
-            "interaction_policy": _interaction_policy(task.get("interaction_policy")),
-            "handoff_policy": _handoff_policy(task.get("handoff_policy")),
-            "awaits_user_input": bool(task.get("awaits_user_input") or False),
-            "blocks_downstream_until": _blocks_downstream_until(task.get("blocks_downstream_until")),
-            "needs_approval": bool(task.get("needs_approval") or task.get("requires_human_approval") or False),
-            "is_blocking": bool(task.get("is_blocking") if "is_blocking" in task else True),
+            "max_attempts": _max_attempts(task.get("max_attempts")),
         })
     plan["tasks"] = normalized_tasks
 
@@ -259,11 +228,13 @@ def validate_plan(plan: dict[str, Any], candidate_agent_ids: set[str] | None = N
         for dep in _string_list(task.get("depends_on")):
             if dep not in id_set:
                 errors.append(f"{task_id}.depends_on 引用了不存在的任务: {dep}")
-        if not _string_list(task.get("required_skills")):
-            warnings.append(f"{task_id} 未填写 required_skills")
         assigned = task.get("assigned_agent_id")
-        if assigned and candidate_agent_ids is not None and str(assigned) not in candidate_agent_ids:
-            warnings.append(f"{task_id}.assigned_agent_id 不在候选 Agent 中: {assigned}")
+        if not assigned:
+            errors.append(f"{task_id} 缺少 assigned_agent_id")
+        elif candidate_agent_ids is not None and str(assigned) not in candidate_agent_ids:
+            errors.append(f"{task_id}.assigned_agent_id 不在 Agent Scope 中: {assigned}")
+        if not str(task.get("assignment_reason") or "").strip():
+            errors.append(f"{task_id} 缺少 assignment_reason")
 
     if tasks and not any(not _string_list(task.get("depends_on")) for task in tasks if isinstance(task, dict)):
         errors.append("DAG 至少需要一个起点任务")
@@ -281,7 +252,7 @@ def plan_to_collab_payload(plan: dict[str, Any]) -> tuple[list[dict[str, Any]], 
             continue
         task_payloads.append({
             "name": str(task.get("title") or task.get("task_id")),
-            "role": _role_from_skills(_string_list(task.get("required_skills"))),
+            "role": "executor",
             "agent": str(task.get("assigned_agent_name") or task.get("assigned_agent_id") or "待分配"),
             "agentId": task.get("assigned_agent_id"),
             "status": "pending",
@@ -336,20 +307,12 @@ def _optional_str(value: Any) -> str | None:
     return text or None
 
 
-def _interaction_policy(value: Any) -> str:
-    text = str(value or "auto_run").strip()
-    allowed = {"auto_run", "ask_user_once", "ask_user_until_confirmed", "approval_after_output"}
-    return text if text in allowed else "auto_run"
-
-
-def _handoff_policy(value: Any) -> str:
-    text = str(value or "auto").strip()
-    return text if text in {"auto", "manual_confirm"} else "auto"
-
-
-def _blocks_downstream_until(value: Any) -> str:
-    text = str(value or "task_completed").strip()
-    return text if text in {"task_completed", "user_confirms"} else "task_completed"
+def _max_attempts(value: Any) -> int:
+    try:
+        parsed = int(value or 3)
+    except (TypeError, ValueError):
+        return 3
+    return min(5, max(1, parsed))
 
 
 def _critical_path(tasks: list[dict[str, Any]]) -> list[str]:
@@ -416,10 +379,3 @@ def _group_by_phase(tasks: list[dict[str, Any]]) -> dict[int, list[dict[str, Any
     return grouped
 
 
-def _role_from_skills(skills: list[str]) -> str:
-    joined = " ".join(skills).lower()
-    if any(word in joined for word in ("review", "test", "security", "审查", "测试")):
-        return "reviewer"
-    if any(word in joined for word in ("architect", "plan", "schema", "requirements", "架构", "需求")):
-        return "planner"
-    return "executor"

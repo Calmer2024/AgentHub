@@ -109,20 +109,11 @@ class GroupMemberCreate(BaseModel):
     model_config = {"populate_by_name": True}
 
 
-class ChainConfigSchema(BaseModel):
-    """链式协作配置 (运行时参数，不持久化)。"""
-    chain_name: str | None = Field(default=None, alias="chainName")
-    agent_order: list[str] | None = Field(default=None, alias="agentOrder")
-
-    model_config = {"populate_by_name": True}
-
-
 class ChatRequest(BaseModel):
-    """聊天请求 (含可选链式配置)。"""
+    """聊天请求。群聊协作方式只由 @ 范围和 Orchestrator 决策。"""
     content: str
     mentions: list[str] | None = None
     parent_message_id: str | None = Field(default=None, alias="parentMessageId")
-    chain_config: ChainConfigSchema | None = Field(default=None, alias="chainConfig")
     attachment_ids: list[str] | None = Field(default=None, alias="attachmentIds")
 
     model_config = {"populate_by_name": True}

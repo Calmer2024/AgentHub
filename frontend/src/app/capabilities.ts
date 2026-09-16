@@ -25,7 +25,6 @@ export const DEFAULT_FEATURES: RuntimeFeatureFlags = {
   deployment: false,
   auditLogs: false,
   notifications: false,
-  mobileApprovals: false,
 };
 
 export function localDesktopCapabilities(apiBaseUrl = "http://127.0.0.1:8000"): RuntimeCapabilities {
@@ -75,7 +74,6 @@ export function mobileCapabilities(apiBaseUrl = "/api"): RuntimeCapabilities {
       cloudWorkspace: true,
       cloudPreview: true,
       notifications: true,
-      mobileApprovals: true,
     },
     limits: { maxUploadBytes: 10 * 1024 * 1024 },
   };

@@ -24,17 +24,7 @@ from ..agents.cli_defaults import DEFAULT_CLI_AGENTS
 from ..agents.cli_runtime_registry import cli_runtime_registry
 from ..core.timezone import china_now
 from ..domain.context_manager import ContextManager, PromptAssemblyInput
-from ..domain.orchestrator_v2 import OrchestratorV2
-from ..domain.orchestrator_plan import (
-    build_plan_followup_prompt,
-    build_plan_prompt,
-    extract_json_object,
-    normalize_plan,
-    validate_plan,
-    visualize_mermaid,
-)
 from ..event_bus.event_types import EventType
-from ..infrastructure.domain_event_publisher import domain_event_publisher_from_event_bus
 from ..models import (
     AgentConfig,
     Message,
@@ -47,18 +37,15 @@ from ..models import (
     User,
 )
 from .artifact_output_bridge import ArtifactOutputBridge, artifact_to_event_payload
-from .chat_service_impl import _approval_requested
 from .cli_agent_service import CliAgentService
 from .cli_agent_executor import CliAgentCallRunner
 from .cli_credential_service import CliCredentialRequiredError, CliCredentialService
 from .collaboration_service import CollaborationNotFoundError, attachment_context_metadata
 from .context_pack_service import ContextPackService
-from .agent_executor import AgentExecutor
 from .execution_trace import ExecutionTraceBuilder, merge_trace_metadata
 from .file_change_detector import FileChangeDetector
-from .group_chat_finalizer import GroupChatFinalizer
 from .group_chat_stream import GroupChatStream
-from .group_direct_dialog import GroupDirectDialog
+from .group_direct_turn import GroupDirectTurn
 from .cloud_cli_agent_service import CloudCliAgentService
 from .message_service_sqlalchemy import SqlAlchemyMessageService, build_reply_reference_metadata
 from .phase10_schemas import RuntimeLogsRead, RuntimeLogChunkRead, SessionRunCreate, SessionRunQueuedRead
@@ -76,7 +63,7 @@ from .session_service import SessionService
 from .single_cli_chat_stream import _split_system_prompt
 from .orchestrator_plan_chat import OrchestratorPlanChat
 from .orchestrator_execution import CloudCliTaskRunner
-from .orchestrator_steward_chat import OrchestratorStewardChat, StewardAgentDecision
+from .orchestrator_steward_chat import OrchestratorStewardChat
 from .streaming_text import iter_stream_pieces
 
 
@@ -206,7 +193,6 @@ class CloudAgentRuntimeService:
             metadata=metadata or None,
         )
         run_service = RunService(self.db, event_bus=self.event_bus)
-        approval_required = _approval_requested(content)
         run = await run_service.create_run(
             session,
             mode="orchestrated",
@@ -214,7 +200,6 @@ class CloudAgentRuntimeService:
                 "runtimeMode": "cloud",
                 "workspaceId": project.workspace_id,
                 "userMessageId": user_message.id,
-                "requiresHumanApproval": approval_required,
             },
         )
         yield self._sse({
@@ -236,15 +221,13 @@ class CloudAgentRuntimeService:
         ).runtime_context(session.id, purpose="send")
         group_stream = self._cloud_group_stream(actor=actor, project=project)
         async for item in group_stream.send(
-            session.id,
-            content,
-            mentions,
-            history,
-            pinned_ids,
-            session,
-            None,
+            session_id=session.id,
+            content=content,
+            mentions=mentions,
+            history=history,
+            pinned_message_ids=pinned_ids,
+            session=session,
             run_id=run.id,
-            approval_required=approval_required,
         ):
             yield item
 
@@ -261,16 +244,7 @@ class CloudAgentRuntimeService:
             event_bus=self.event_bus,
             cli_agents=cloud_cli_agents,
         )
-        executor = AgentExecutor(
-            self.db,
-            event_bus=self.event_bus,
-            cli_runner=cli_runner,
-        )
-        pipeline = OrchestratorV2(
-            context_manager=self.context_manager,
-            event_bus=domain_event_publisher_from_event_bus(self.event_bus),
-        )
-        direct_dialog = GroupDirectDialog(
+        direct_turn = GroupDirectTurn(
             self.db,
             event_bus=self.event_bus,
             cli_runner=cli_runner,
@@ -283,7 +257,6 @@ class CloudAgentRuntimeService:
         plan_chat = OrchestratorPlanChat(
             self.db,
             cli_agents=cloud_cli_agents,
-            direct_dialog=direct_dialog,
             execution_task_runner=execution_task_runner,
         )
         steward_chat = OrchestratorStewardChat(
@@ -297,13 +270,10 @@ class CloudAgentRuntimeService:
 
         return GroupChatStream(
             self.db,
-            pipeline,
-            executor,
             event_bus=self.event_bus,
-            finalizer=GroupChatFinalizer(self.db, pipeline, event_bus=self.event_bus),
             plan_chat=plan_chat,
             steward_chat=steward_chat,
-            direct_dialog=direct_dialog,
+            direct_turn=direct_turn,
             workspace_path_resolver=workspace_resolver,
         )
 
@@ -521,7 +491,6 @@ class CloudAgentRuntimeService:
         replace_existing = replace_assistant is not None
         previous_content = replace_assistant.content if replace_assistant else None
         run_service = RunService(self.db, event_bus=self.event_bus)
-        approval_required = _approval_requested(content)
         run = await run_service.create_run(
             session,
             mode="cloud",
@@ -530,7 +499,6 @@ class CloudAgentRuntimeService:
                 "sandboxId": sandbox.id,
                 "workspaceId": project.workspace_id,
                 "userMessageId": user_message.id,
-                "requiresHumanApproval": approval_required,
             },
         )
         task = await run_service.create_task(
@@ -1023,8 +991,6 @@ class CloudAgentRuntimeService:
             visible = transformed.visible
             metadata.update(transformed.metadata)
             transformed_emit_visible = transformed.emit_visible
-        elif (agent.primary_skill or "") == "orchestrator_planner":
-            metadata.update(_cloud_orchestrator_plan_metadata(visible))
         if raw_output and raw_output != visible:
             metadata["rawOutputPreview"] = raw_output[-4000:]
         final_metadata = self._run_metadata(
@@ -1179,333 +1145,8 @@ class CloudAgentRuntimeService:
         )
         return result.scalars().first()
 
-    async def _stream_group_agents(
-        self,
-        *,
-        session: DBSession,
-        project: Project,
-        actor: User,
-        agents: list[AgentConfig],
-        user_message: Message,
-        content: str,
-        task_brief: str,
-    ) -> AsyncGenerator[str, None]:
-        tasks = [
-            self._cloud_task_payload(agent, index, task_brief, status="pending")
-            for index, agent in enumerate(agents)
-        ]
-        yield self._sse({
-            "type": "orchestrator.route",
-            "agents": [self._cloud_route_agent(agent) for agent in agents],
-            "sessionId": session.id,
-            "mode": "cloud",
-            "token": "",
-            "done": False,
-        })
-        yield self._sse({
-            "type": "orchestrator.task_started",
-            "sessionId": session.id,
-            "intent": "cloud_group_direct",
-            "plan_summary": "",
-            "tasks": tasks,
-            "token": "",
-            "done": False,
-        })
-        for index, agent in enumerate(agents):
-            task_name = task_brief or content or "primary"
-            async for item in self._stream_message_run(
-                session=session,
-                project=project,
-                actor=actor,
-                agent_id=agent.id,
-                user_message=user_message,
-                content=content,
-                emit_agent_start=True,
-                task_name=task_name,
-                task_role="executor",
-                task_phase=index,
-                metadata_patch={
-                    "isCollaborating": True,
-                    "agentRole": "executor",
-                    "taskName": task_name,
-                    "phase": index,
-                },
-            ):
-                yield self._group_stream_item(item, agent)
-        yield self._sse({
-            "type": "orchestrator.task_completed",
-            "sessionId": session.id,
-            "summary": f"{len(agents)} 个 Agent 已完成",
-            "token": "",
-            "done": False,
-        })
-
-    async def _stream_cloud_steward(
-        self,
-        *,
-        session: DBSession,
-        project: Project,
-        actor: User,
-        orchestrator_agent: AgentConfig,
-        member_agents: list[AgentConfig],
-        user_message: Message,
-        content: str,
-        decision_ref: dict[str, StewardAgentDecision | None],
-    ) -> AsyncGenerator[str, None]:
-        steward = OrchestratorStewardChat(self.db, event_bus=self.event_bus)
-        prompt = steward._build_prompt(content, member_agents, orchestrator_agent.id)
-
-        def transform(visible: str, raw_output: str) -> RuntimeOutputTransform:
-            decision = steward._parse_decision(raw_output, member_agents, orchestrator_agent.id, content)
-            decision_ref["decision"] = decision
-            display = decision.reply if decision else (raw_output.strip() or "我已收到，但暂时无法判断下一步。")
-            metadata: dict[str, Any] = {
-                "isCollaborating": True,
-                "agentRole": "planner",
-                "taskName": "steward",
-                "phase": 0,
-                "orchestratorStewardRawOutput": raw_output,
-            }
-            if decision:
-                metadata["stewardDecision"] = decision.to_payload()
-            return RuntimeOutputTransform(display, metadata, emit_visible=True)
-
-        async for item in self._stream_message_run(
-            session=session,
-            project=project,
-            actor=actor,
-            agent_id=orchestrator_agent.id,
-            user_message=user_message,
-            content=content,
-            runtime_user_content=prompt,
-            stream_text_output=False,
-            completion_transform=transform,
-            emit_agent_start=True,
-            task_name="steward",
-            task_role="planner",
-            task_phase=0,
-            metadata_patch={
-                "isCollaborating": True,
-                "agentRole": "planner",
-                "taskName": "steward",
-                "phase": 0,
-            },
-        ):
-            yield self._group_stream_item(item, orchestrator_agent)
-        decision = decision_ref["decision"]
-        if decision:
-            yield self._steward_decision_event(decision)
-
-    async def _stream_cloud_orchestrator_plan(
-        self,
-        *,
-        session: DBSession,
-        project: Project,
-        actor: User,
-        orchestrator_agent: AgentConfig,
-        member_agents: list[AgentConfig],
-        user_message: Message,
-        content: str,
-    ) -> AsyncGenerator[str, None]:
-        candidate_agents = [
-            self._agent_snapshot(agent)
-            for agent in member_agents
-            if agent.id != orchestrator_agent.id
-            and (agent.primary_skill or "") != "orchestrator_planner"
-        ]
-        plan_chat = OrchestratorPlanChat(self.db)
-        latest_plan = await plan_chat._latest_orchestrator_plan(session.id)
-        prompt = (
-            build_plan_followup_prompt(content, candidate_agents, latest_plan)
-            if latest_plan
-            else build_plan_prompt(content, candidate_agents)
-        )
-        candidate_ids = {str(agent["id"]) for agent in candidate_agents}
-
-        def transform(visible: str, raw_output: str) -> RuntimeOutputTransform:
-            return RuntimeOutputTransform(
-                raw_output.strip() or visible,
-                _cloud_orchestrator_plan_metadata(raw_output or visible, candidate_ids),
-                emit_visible=False,
-            )
-
-        async for item in self._stream_message_run(
-            session=session,
-            project=project,
-            actor=actor,
-            agent_id=orchestrator_agent.id,
-            user_message=user_message,
-            content=content,
-            runtime_user_content=prompt,
-            stream_text_output=False,
-            completion_transform=transform,
-            emit_agent_start=True,
-            task_name="draft plan",
-            task_role="planner",
-            task_phase=0,
-            metadata_patch={
-                "isCollaborating": True,
-                "agentRole": "planner",
-                "taskName": "draft plan",
-                "phase": 0,
-                "orchestratorIntent": "orchestrator_plan",
-            },
-        ):
-            yield self._group_stream_item(item, orchestrator_agent)
-
-    async def _group_member_agents(self, session: DBSession, *, actor: User | None) -> list[AgentConfig]:
-        result = await self.db.execute(
-            select(SessionMember)
-            .where(SessionMember.session_id == session.id)
-            .order_by(SessionMember.joined_at.asc())
-        )
-        member_ids = [member.agent_config_id for member in result.scalars().all()]
-        if not member_ids and session.agent_config_id:
-            member_ids = [session.agent_config_id]
-
-        agents: list[AgentConfig] = []
-        seen: set[str] = set()
-        for agent_id in member_ids:
-            agent = await self.db.get(AgentConfig, agent_id)
-            if not agent or not agent.is_active or agent.id in seen:
-                continue
-            agents.append(agent)
-            seen.add(agent.id)
-        if any((agent.primary_skill or "") == "orchestrator_planner" for agent in agents):
-            return agents
-
-        owner_id = getattr(actor, "id", None)
-        filters = [
-            AgentConfig.primary_skill == "orchestrator_planner",
-            AgentConfig.is_active == True,
-        ]
-        if owner_id:
-            filters.append(AgentConfig.owner_user_id == owner_id)
-        fallback = await self.db.execute(select(AgentConfig).where(*filters).limit(1))
-        orchestrator = fallback.scalars().first()
-        if not orchestrator and owner_id:
-            fallback = await self.db.execute(
-                select(AgentConfig).where(
-                    AgentConfig.primary_skill == "orchestrator_planner",
-                    AgentConfig.is_active == True,
-                    AgentConfig.owner_user_id.is_(None),
-                ).limit(1)
-            )
-            orchestrator = fallback.scalars().first()
-        if orchestrator and orchestrator.id not in seen:
-            agents.append(orchestrator)
-        return agents
-
-    def _group_stream_item(self, item: str, agent: AgentConfig) -> str:
-        payload = _parse_sse(item)
-        if not payload:
-            return item
-        if payload.get("done") is True and not payload.get("type"):
-            payload["type"] = "agent.turn_completed"
-            payload["agentId"] = agent.id
-            payload["agentName"] = agent.name
-            payload["done"] = False
-            return self._sse(payload)
-        if payload.get("type") == "error":
-            payload["type"] = "agent.output"
-            payload["agentId"] = agent.id
-            payload["agentName"] = agent.name
-            payload.setdefault("callKey", self._call_key(agent.id, payload.get("task"), payload.get("phase")))
-            payload.setdefault("role", "executor")
-            payload.setdefault("phase", 0)
-            payload.setdefault("task", "primary")
-            payload["chunkType"] = "error"
-            payload["chunk"] = payload.get("error") or payload.get("token") or "Agent 执行失败"
-            payload["token"] = payload["chunk"]
-            payload["done"] = False
-            return self._sse(payload)
-        return item
-
-    def _steward_decision_event(self, decision: StewardAgentDecision) -> str:
-        return self._sse({
-            "type": "orchestrator.steward_decision",
-            "decision": decision.to_payload(),
-            "routeType": decision.route_type,
-            "confidence": decision.confidence,
-            "reason": decision.reason,
-            "selectedAgents": [
-                {"id": agent.id, "name": agent.name}
-                for agent in decision.selected_agents
-            ],
-            "taskBrief": decision.task_brief,
-            "riskLevel": decision.risk_level,
-            "token": "",
-            "done": False,
-        })
-
     @staticmethod
-    def _cloud_route_agent(agent: AgentConfig) -> dict[str, str]:
-        return {
-            "id": agent.id,
-            "name": agent.name,
-            "agentId": agent.id,
-            "agentName": agent.name,
-        }
-
-    @staticmethod
-    def _cloud_task_payload(agent: AgentConfig, phase: int, task: str, *, status: str) -> dict[str, Any]:
-        return {
-            "name": task or "primary",
-            "role": "executor",
-            "agent": agent.name,
-            "agentId": agent.id,
-            "status": status,
-            "depends_on": [],
-            "phase": phase,
-        }
-
-    @staticmethod
-    def _agent_snapshot(agent: AgentConfig) -> dict[str, Any]:
-        return {
-            "id": agent.id,
-            "name": agent.name,
-            "engine": agent.cli_tool or agent.agent_type or "custom",
-            "primary_skill": agent.primary_skill or "general_coding",
-            "auxiliary_skills": agent.auxiliary_skills,
-            "description": agent.description or "",
-        }
-
-    @staticmethod
-    def _orchestrator(agents: list[AgentConfig]) -> AgentConfig | None:
-        for agent in agents:
-            if (agent.primary_skill or "") == "orchestrator_planner":
-                return agent
-        return None
-
-    @staticmethod
-    def _plan_content_for_steward_decision(content: str, decision: StewardAgentDecision) -> str:
-        if decision.route_type != "mini_collab":
-            return content
-        selected = "、".join(f"@{agent.name}" for agent in decision.selected_agents) or "管家选择的 Agent"
-        task_brief = decision.task_brief.strip() or content.strip()
-        return (
-            f"{content.strip()}\n\n"
-            "[调度器管家预判]\n"
-            "route_type=mini_collab。不要直接启动多个 Agent 执行；请复用 plan-first DAG 契约，"
-            "生成一份小型 draft plan，等待用户确认后再由 Scheduler 执行。\n"
-            f"候选协作 Agent: {selected}\n"
-            f"任务摘要: {task_brief}\n"
-            "计划约束: 任务数量控制在 2-3 个；优先按上述 Agent 顺序和职责分配；"
-            "每个任务都要写清 goal、expected_outputs、acceptance_criteria 和 depends_on；"
-            "前序 Agent 只交付本节点产物与交接说明，不代做下游 Agent 的职责。"
-        )
-
-    @staticmethod
-    def _cloud_group_done(session_id: str) -> str:
-        return CloudAgentRuntimeService._sse({
-            "token": "",
-            "done": True,
-            "sessionId": session_id,
-            "mode": "cloud",
-        })
-
-    @staticmethod
-    def _call_key(agent_id: str, task: str | None, phase: int | None) -> str:
+    def _call_key(agent_id: str, task: str | None = None, phase: int | None = None) -> str:
         return f"{agent_id}:{phase if phase is not None else 0}:{task or 'primary'}"
 
     async def _reply_metadata(self, session_id: str, parent_message_id: str | None) -> dict | None:
@@ -2157,22 +1798,6 @@ def _append_cloud_runtime_context(system_prompt: str) -> str:
     if not clean:
         return DOCUMENT_RUNTIME_CONTEXT
     return f"{clean}\n\n{DOCUMENT_RUNTIME_CONTEXT}"
-
-
-def _cloud_orchestrator_plan_metadata(output: str, candidate_agent_ids: set[str] | None = None) -> dict:
-    try:
-        plan = normalize_plan(extract_json_object(output))
-        validation = validate_plan(plan, candidate_agent_ids)
-    except ValueError as exc:
-        return {"orchestratorPlanError": str(exc)}
-    return {
-        "orchestratorPlan": {
-            "ok": validation["ok"],
-            "normalizedPlan": plan,
-            "validation": validation,
-            "visualization": {"mermaid": visualize_mermaid(plan)},
-        }
-    }
 
 
 def _cloud_failure_diagnostic(

@@ -15,6 +15,7 @@ interface Props<T extends string> {
   ariaLabel: string;
   disabled?: boolean;
   className?: string;
+  variant?: "default" | "filter";
 }
 
 export function MenuSelect<T extends string>({
@@ -24,6 +25,7 @@ export function MenuSelect<T extends string>({
   ariaLabel,
   disabled = false,
   className = "",
+  variant = "default",
 }: Props<T>) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -49,7 +51,7 @@ export function MenuSelect<T extends string>({
         aria-expanded={open}
         disabled={disabled}
         onClick={() => setOpen((value) => !value)}
-        className="agenthub-composer flex h-full min-h-9 w-full items-center justify-between gap-2 rounded-lg border px-3 text-left text-sm outline-none disabled:cursor-not-allowed disabled:opacity-60"
+        className={`${variant === "filter" ? "agenthub-filter-trigger" : "agenthub-composer border"} flex h-full min-h-9 w-full items-center justify-between gap-2 rounded-lg px-3 text-left text-sm outline-none disabled:cursor-not-allowed disabled:opacity-60`}
       >
         <span className="min-w-0 truncate">{selected?.label ?? ""}</span>
         <ChevronDown size={14} className="agenthub-muted shrink-0" />
@@ -63,7 +65,7 @@ export function MenuSelect<T extends string>({
         ariaLabel={ariaLabel}
         role="presentation"
       >
-        <div role="listbox">
+        <div role="listbox" className="space-y-1">
           {options.map((option) => (
             <button
               key={option.value}
@@ -76,7 +78,7 @@ export function MenuSelect<T extends string>({
                 onChange(option.value);
                 setOpen(false);
               }}
-              className="agenthub-nav-idle flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-sm disabled:cursor-not-allowed disabled:opacity-45"
+              className="agenthub-nav-idle flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-sm transition disabled:cursor-not-allowed disabled:opacity-45"
             >
               <span className="min-w-0 truncate">{option.label}</span>
               {option.value === value && <Check size={14} className="agenthub-muted shrink-0" />}

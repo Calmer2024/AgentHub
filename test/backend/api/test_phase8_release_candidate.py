@@ -193,47 +193,30 @@ async def test_session_context_pack_preview_persists_snapshot(test_client, db_se
 
 
 @pytest.mark.asyncio
-async def test_orchestrator_plan_resume_contract(test_client, test_session, test_agent):
-    plan_id = f"phase8_plan_{uuid.uuid4().hex[:8]}"
+async def test_orchestrator_plan_execution_requires_group_leader(test_client, test_session, test_agent):
     response = await test_client.post(
         "/api/orchestrator/plans/execute",
         json={
             "sessionId": test_session,
             "normalizedPlan": {
-                "plan_id": plan_id,
+                "plan_id": f"phase8_plan_{uuid.uuid4().hex[:8]}",
                 "status": "draft",
-                "tasks": [
-                    {
-                        "task_id": "T1",
-                        "title": "等待审批的任务",
-                        "goal": "验证 resume 契约",
-                        "required_skills": ["general_coding"],
-                        "assigned_agent_id": test_agent.id,
-                        "assigned_agent_name": test_agent.name,
-                        "depends_on": [],
-                        "expected_outputs": ["resume"],
-                        "acceptance_criteria": ["plan can resume"],
-                        "needs_approval": True,
-                    },
-                ],
+                "tasks": [{
+                    "task_id": "T1",
+                    "title": "执行任务",
+                    "goal": "验证统一计划入口",
+                    "assigned_agent_id": test_agent.id,
+                    "assigned_agent_name": test_agent.name,
+                    "assignment_reason": "会话唯一可用 Worker",
+                    "depends_on": [],
+                    "expected_outputs": ["result"],
+                    "acceptance_criteria": ["result exists"],
+                }],
             },
         },
     )
-    assert response.status_code == 200, response.text
-    execution = response.json()
-
-    resume_response = await test_client.post(
-        f"/api/orchestrator/plans/{plan_id}/resume",
-        json={"approvalId": "approval-phase8", "message": "继续执行"},
-    )
-
-    assert resume_response.status_code == 200, resume_response.text
-    plan = resume_response.json()
-    assert plan["id"] == plan_id
-    assert plan["status"] == "running"
-    assert plan["currentStepId"] == "T1"
-    assert plan["steps"][0]["status"] == "running"
-    await _wait_execution_done(test_client, execution["executionId"])
+    assert response.status_code == 400
+    assert "项目Leader" in response.text
 
 
 async def _session(db_session, session_id: str):

@@ -71,14 +71,8 @@ function readActivityPanelWidth() {
 function emptyCollab(): CollabSnapshot {
   return {
     routeAgents: null,
-    collabTasks: [],
-    dagPhases: [],
-    chainSteps: [],
-    orchestratorIntent: null,
-    planSummary: null,
-    collabCompleted: false,
-    collabSummary: null,
-    draftPlan: null,
+    routeType: null,
+    routeReason: null,
   };
 }
 
@@ -123,14 +117,8 @@ export function AgentHubWorkbench() {
   const collab = activeCollab ?? EMPTY_COLLAB;
 
   const routeAgents = collab.routeAgents;
-  const collabTasks = collab.collabTasks;
-  const dagPhases = collab.dagPhases;
-  const chainSteps = collab.chainSteps;
-  const orchestratorIntent = collab.orchestratorIntent;
-  const planSummary = collab.planSummary;
-  const collabCompleted = collab.collabCompleted;
-  const collabSummary = collab.collabSummary;
-  const draftPlan = collab.draftPlan;
+  const routeType = collab.routeType;
+  const routeReason = collab.routeReason;
 
   const [showGroupCreator, setShowGroupCreator] = useState(false);
   const [agentModal, setAgentModal] = useState<{ mode: "create" | "edit"; agentId?: string } | null>(null);
@@ -348,18 +336,12 @@ export function AgentHubWorkbench() {
       currentUser={currentUser}
       sessions={sessions}
       agents={agents} mode={currentMode}
-      routeAgents={routeAgents} orchestratorIntent={orchestratorIntent}
-      planSummary={planSummary}
+      routeAgents={routeAgents} routeType={routeType}
+      routeReason={routeReason}
       mentionableAgents={currentMode === "group" ? sessionMembers : agents}
       mentionLoading={currentMode === "group" ? sessionMembersLoading : false}
       groupMembers={sessionMembers}
       groupMembersLoading={sessionMembersLoading}
-      collabTasks={collabTasks}
-      dagPhases={dagPhases}
-      chainSteps={chainSteps}
-      collabCompleted={collabCompleted}
-      collabSummary={collabSummary}
-      draftPlan={draftPlan}
       onSend={handleSend}
       onDismissError={() => setStreamingError(null, currentSessionId)}
       onReply={setReplyTarget}

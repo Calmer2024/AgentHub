@@ -1,9 +1,4 @@
-"""Execution registry for approved Orchestrator plans.
-
-This bridge owns backend execution state for a chat-rendered draft plan. The
-current scheduler advances the DAG and can run a limited number of tasks through
-real CLI agents while simulating the rest.
-"""
+"""已审批 Orchestrator 静态 DAG 的唯一执行引擎。"""
 
 from __future__ import annotations
 
@@ -16,12 +11,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..agents.cli_runtime_registry import cli_runtime_registry
 from ..database import AsyncSessionLocal
-from ..domain.orchestrator_plan import normalize_plan, validate_plan
+from ..domain.orchestrator_plan import extract_json_object, normalize_plan, validate_plan
 from ..models import AgentConfig, Message as DBMessage, Project, Session as DBSession, User
 from ..agents.cli_trace import trace_text
 from .artifact_output_bridge import ArtifactOutputBridge, artifact_to_event_payload
@@ -30,6 +24,7 @@ from .cloud_storage import ensure_cloud_workspace
 from .cli_agent_service import CliAgentService
 from .execution_trace import ExecutionTraceBuilder, merge_trace_metadata
 from .run_service import RunService, run_to_read, task_to_read
+from .orchestrator_plan_service import OrchestratorPlanNotFoundError, OrchestratorPlanService
 from .session_service import SessionService
 from .streaming_text import iter_stream_pieces
 
@@ -57,6 +52,139 @@ class TaskRunner(Protocol):
         """Run one scheduled task and return its user-visible summary."""
 
 
+class PhaseReviewer(Protocol):
+    async def review(
+        self,
+        execution: dict[str, Any],
+        phase: int,
+        tasks: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """由 Orchestrator 对一个批次的 Worker 提交做统一验收。"""
+
+
+class AcceptingPhaseReviewer:
+    """仅供显式 mock 执行使用的确定性验收器。"""
+
+    async def review(
+        self,
+        execution: dict[str, Any],
+        phase: int,
+        tasks: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        return {
+            "phaseSummary": f"Phase {phase + 1} 的 {len(tasks)} 个任务已通过测试验收器。",
+            "tasks": [
+                {"taskId": task["taskId"], "decision": "accepted", "feedback": ""}
+                for task in tasks
+            ],
+        }
+
+
+class OrchestratorPhaseReviewer:
+    """调用群聊项目 Leader，对 Worker 结果进行语义验收。"""
+
+    def __init__(
+        self,
+        session_factory: Callable[[], AsyncSession],
+        cli_agents: CliAgentService | None = None,
+    ):
+        self._session_factory = session_factory
+        self._cli_agents = cli_agents or CliAgentService()
+
+    async def review(
+        self,
+        execution: dict[str, Any],
+        phase: int,
+        tasks: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        orchestrator_id = str(execution.get("orchestratorAgentId") or "")
+        if not orchestrator_id:
+            raise RuntimeError("执行缺少 orchestratorAgentId，无法验收 Worker 结果")
+        async with self._session_factory() as db:
+            orchestrator = await db.get(AgentConfig, orchestrator_id)
+            if not orchestrator or not orchestrator.is_active:
+                raise RuntimeError("Orchestrator 不存在或未启用")
+            cloud_project = getattr(self._cli_agents, "project", None)
+            if cloud_project is not None and getattr(cloud_project, "workspace_mode", None) == "cloud":
+                workspace_path = (
+                    cloud_project.workspace_path
+                    or f"cloud://agenthub/workspaces/{cloud_project.workspace_id}"
+                )
+            else:
+                workspace_path = await SessionService(db).get_workspace_path(execution["sessionId"])
+
+        raw = ""
+        prompt = self._prompt(execution, phase, tasks)
+        async for event in self._cli_agents.stream(
+            agent=orchestrator,
+            session_id=execution["sessionId"],
+            workspace_path=workspace_path,
+            messages=[
+                *(execution.get("groupContext") or []),
+                {"role": "user", "content": prompt},
+            ],
+            system_prompt=orchestrator.system_prompt or "",
+        ):
+            if event.type == "agent.output" and event.chunk_type in {"text", "artifact_signal"}:
+                raw += event.chunk
+            elif event.type in {"agent.process.timeout", "error"}:
+                raise RuntimeError(event.error or "Orchestrator 验收失败")
+            elif event.type in {"agent.process.completed", "agent.process.turn_completed"}:
+                if event.exit_code not in (0, None):
+                    raise RuntimeError(f"Orchestrator 验收进程异常退出：{event.exit_code}")
+
+        result = extract_json_object(raw)
+        decisions = result.get("tasks")
+        if not isinstance(decisions, list):
+            raise RuntimeError("Orchestrator 验收输出缺少 tasks")
+        expected = {str(task["taskId"]) for task in tasks}
+        actual = {
+            str(item.get("taskId") or item.get("task_id"))
+            for item in decisions if isinstance(item, dict)
+        }
+        if expected != actual:
+            raise RuntimeError("Orchestrator 验收结果未覆盖当前 Phase 的全部任务")
+        for item in decisions:
+            decision = str(item.get("decision") or "")
+            if decision not in {"accepted", "retry", "blocked"}:
+                raise RuntimeError(f"无效验收结论：{decision}")
+        return result
+
+    @staticmethod
+    def _prompt(
+        execution: dict[str, Any],
+        phase: int,
+        tasks: list[dict[str, Any]],
+    ) -> str:
+        payload = [{
+            "taskId": task.get("taskId"),
+            "title": task.get("title"),
+            "goal": task.get("goal"),
+            "acceptanceCriteria": task.get("acceptanceCriteria") or [],
+            "attempt": task.get("attempt"),
+            "summary": task.get("summary"),
+            "resultMessageId": task.get("resultMessageId"),
+            "upstreamResults": task.get("upstreamResults") or [],
+        } for task in tasks]
+        schema = {
+            "phaseSummary": "给用户看的阶段验收汇报",
+            "tasks": [{
+                "taskId": "T1",
+                "decision": "accepted | retry | blocked",
+                "feedback": "不通过时给 Worker 的可执行修改意见",
+                "decisionRequired": None,
+            }],
+        }
+        return (
+            "你是 AgentHub 群聊唯一的 Orchestrator。请验收当前 Phase 的 Worker 提交。\n"
+            "只输出 JSON，不修改文件。逐条对照 acceptanceCriteria；CLI 退出不代表验收通过。\n"
+            "accepted 表示可释放下游；retry 表示原节点按反馈重做；blocked 表示必须由你统一询问用户。\n\n"
+            f"Plan:\n{json.dumps(execution.get('plan') or {}, ensure_ascii=False, indent=2)}\n\n"
+            f"Phase: {phase}\nWorker submissions:\n{json.dumps(payload, ensure_ascii=False, indent=2)}\n\n"
+            f"输出结构:\n{json.dumps(schema, ensure_ascii=False, indent=2)}"
+        )
+
+
 class MockTaskRunner:
     def __init__(self, delay_seconds: float = 0.12):
         self.delay_seconds = delay_seconds
@@ -69,8 +197,7 @@ class MockTaskRunner:
     ) -> str:
         await asyncio.sleep(self.delay_seconds)
         agent = task.get("assignedAgentName") or task.get("assignedAgentId") or "未分配 Agent"
-        skills = ", ".join(task.get("requiredSkills") or []) or "none"
-        return f"{task['taskId']} 已完成：模拟执行 {agent} / required_skills={skills}"
+        return f"{task['taskId']} 已完成：模拟执行 {agent}"
 
 
 class CliTaskRunner:
@@ -144,16 +271,19 @@ class CliTaskRunner:
             agent=agent,
             session_id=execution["sessionId"],
             workspace_path=workspace_path,
-            messages=[{
-                "role": "user",
-                "content": self._task_prompt(
+            messages=[
+                *(execution.get("groupContext") or []),
+                {
+                    "role": "user",
+                    "content": self._task_prompt(
                     execution,
                     task,
                     upstream_results,
                     project_workspace_path=workspace_path,
                     task_workspace_path=task_workspace_path,
                 ),
-            }],
+                },
+            ],
             system_prompt=agent.system_prompt or "",
         ):
             process_id = event.process_id or process_id
@@ -417,21 +547,6 @@ class CliTaskRunner:
             "phase": task.get("phase"),
             "taskName": task.get("title"),
         }
-        if OrchestratorExecutionRegistry._task_waits_for_user(task):
-            metadata.update({
-                "dialogMode": "direct",
-                "awaitingUserInput": True,
-                "groupDialog": {
-                    "mode": "direct_dialog",
-                    "status": "awaiting_user_input",
-                    "activeAgentId": task.get("assignedAgentId"),
-                    "activeAgentName": task.get("assignedAgentName"),
-                    "goal": task.get("goal") or task.get("title") or "",
-                    "source": "orchestrator_task",
-                    "executionId": execution.get("executionId"),
-                    "taskId": task.get("taskId"),
-                },
-            })
         if execution.get("runId"):
             metadata["runId"] = execution["runId"]
             metadata["runStatus"] = "running"
@@ -570,14 +685,12 @@ class CliTaskRunner:
             f"当前任务 ID: {task.get('taskId')}\n"
             f"当前任务标题: {task.get('title')}\n"
             f"当前任务目标: {task.get('goal')}\n"
-            f"所需能力: {', '.join(task.get('requiredSkills') or []) or '未声明'}\n"
             f"期望输出: {', '.join(task.get('expectedOutputs') or []) or '未声明'}\n"
             f"验收标准: {', '.join(task.get('acceptanceCriteria') or []) or '未声明'}\n\n"
-            f"互动策略: {task.get('interactionPolicy') or 'auto_run'}\n"
-            f"交接策略: {task.get('handoffPolicy') or 'auto'}\n"
-            f"下游释放条件: {task.get('blocksDownstreamUntil') or 'task_completed'}\n"
-            "如果互动策略要求用户回答或确认，你本轮应优先向用户提出清晰问题或整理待确认事项，"
-            "不要擅自代替用户确认，也不要把任务交给下游 Agent。\n\n"
+            f"当前尝试: {int(task.get('attempt') or 0) + 1}/{int(task.get('maxAttempts') or 3)}\n"
+            f"Orchestrator 重做反馈: {task.get('retryFeedback') or '无'}\n"
+            "你是 Worker，不能直接向用户申请批准。若缺少用户决策，请在结果中清楚列出阻塞问题，"
+            "由 Orchestrator 统一协调用户。\n\n"
             "上游任务结果:\n"
             f"{upstream}\n\n"
             "完整计划 JSON:\n"
@@ -632,7 +745,6 @@ class CliTaskRunner:
             f"- Task workspace: `{task_workspace_path}`\n"
             f"- Project workspace: `{project_workspace_path}`\n"
             f"- Assigned Agent: {task.get('assignedAgentName') or task.get('assignedAgentId') or '未分配'}\n"
-            f"- Required skills: {', '.join(task.get('requiredSkills') or []) or '未声明'}\n\n"
             "## Deliverable Boundary\n\n"
             "- Project workspace 是正式交付区；用户要的文档、代码、配置和测试应沉淀在项目目录。\n"
             "- Task workspace 是临时追溯区；只保存任务卡、草稿、过程笔记和下游 HANDOFF 副本。\n\n"
@@ -750,16 +862,19 @@ class CloudCliTaskRunner(CliTaskRunner):
                 agent=agent,
                 session_id=execution["sessionId"],
                 workspace_path=project.workspace_path or "",
-                messages=[{
-                    "role": "user",
-                    "content": self._task_prompt(
+                messages=[
+                    *(execution.get("groupContext") or []),
+                    {
+                        "role": "user",
+                        "content": self._task_prompt(
                         execution,
                         task,
                         upstream_results,
                         project_workspace_path=".",
                         task_workspace_path=task_workspace_rel,
                     ),
-                }],
+                    },
+                ],
                 system_prompt=agent.system_prompt or "",
             ):
                 process_id = event.process_id or process_id
@@ -1057,9 +1172,11 @@ class OrchestratorExecutionRegistry:
     ):
         self._executions: dict[str, dict[str, Any]] = {}
         self._execution_task_runners: dict[str, TaskRunner] = {}
+        self._execution_phase_reviewers: dict[str, PhaseReviewer] = {}
         self._task_runner = task_runner or MockTaskRunner()
         self._session_factory = session_factory or AsyncSessionLocal
         self._cli_runner = CliTaskRunner(self._session_factory)
+        self._phase_reviewer = OrchestratorPhaseReviewer(self._session_factory)
 
     def create_execution(
         self,
@@ -1069,6 +1186,9 @@ class OrchestratorExecutionRegistry:
         active_agent_ids: set[str],
         auto_start: bool = True,
         task_runner: TaskRunner | None = None,
+        phase_reviewer: PhaseReviewer | None = None,
+        orchestrator_agent_id: str | None = None,
+        group_context: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         normalized = normalize_plan(plan)
         validation = validate_plan(normalized, active_agent_ids)
@@ -1084,10 +1204,15 @@ class OrchestratorExecutionRegistry:
             for task in normalized.get("tasks", [])
             if isinstance(task, dict)
         ]
+        phase_by_task = self._phase_depths(tasks)
+        for task in tasks:
+            task["phase"] = phase_by_task.get(task["taskId"], 0)
         execution = {
             "executionId": execution_id,
             "sessionId": session_id,
             "planId": normalized.get("plan_id"),
+            "orchestratorAgentId": orchestrator_agent_id,
+            "groupContext": self._normalize_group_context(group_context or []),
             "status": "running",
             "createdAt": now,
             "updatedAt": now,
@@ -1115,6 +1240,8 @@ class OrchestratorExecutionRegistry:
         self._executions[execution_id] = execution
         if task_runner is not None:
             self._execution_task_runners[execution_id] = task_runner
+        if phase_reviewer is not None:
+            self._execution_phase_reviewers[execution_id] = phase_reviewer
         if auto_start:
             self._start_background_scheduler(execution_id)
         return copy.deepcopy(execution)
@@ -1180,6 +1307,162 @@ class OrchestratorExecutionRegistry:
     def start_execution(self, execution_id: str) -> None:
         if execution_id in self._executions:
             self._start_background_scheduler(execution_id)
+
+    async def request_worker_revision(
+        self,
+        *,
+        session_id: str,
+        agent_id: str,
+        feedback: str,
+        run_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """将用户对 Worker 的点名反馈映射为原静态 DAG 节点的新一次尝试。"""
+        candidates = sorted(
+            (
+                execution for execution in self._executions.values()
+                if execution.get("sessionId") == session_id
+                and execution.get("status") in {"running", "completed", "failed", "waiting_user", "interrupted"}
+            ),
+            key=lambda item: str(item.get("createdAt") or ""),
+            reverse=True,
+        )
+        for execution in candidates:
+            target = next(
+                (
+                    task for task in execution.get("tasks") or []
+                    if task.get("assignedAgentId") == agent_id
+                    and task.get("status") not in {"cancelled"}
+                ),
+                None,
+            )
+            if target is None:
+                continue
+            reset_ids = self._task_and_descendants(execution, str(target["taskId"]))
+            if execution.get("status") == "running":
+                reset_ids.update(
+                    str(task.get("taskId"))
+                    for task in execution.get("tasks") or []
+                    if task.get("status") in {"running", "submitted", "reviewing"}
+                )
+                execution["revisionGeneration"] = int(execution.get("revisionGeneration") or 0) + 1
+                await cli_runtime_registry.terminate_session(session_id)
+            revised_at = self._now()
+            runtime_ids: dict[str, str] = {}
+            if run_id:
+                async with self._session_factory() as db:
+                    run_service = RunService(db)
+                    run = await run_service.get_run(run_id)
+                    for task in execution.get("tasks") or []:
+                        if task.get("taskId") not in reset_ids:
+                            continue
+                        runtime_task = await run_service.create_task(
+                            run,
+                            agent_id=task.get("assignedAgentId"),
+                            name=f"{task.get('taskId')} · {task.get('title')}",
+                            role="executor",
+                            phase=task.get("phase"),
+                            depends_on=task.get("dependsOn") or [],
+                            metadata={
+                                "executionId": execution["executionId"],
+                                "planId": execution["planId"],
+                                "orchestratorTaskId": task.get("taskId"),
+                                "revision": True,
+                            },
+                        )
+                        runtime_ids[str(task["taskId"])] = runtime_task.id
+
+            for task in execution.get("tasks") or []:
+                if task.get("taskId") not in reset_ids:
+                    continue
+                for attempt in reversed(task.get("attempts") or []):
+                    if attempt.get("status") == "superseded":
+                        continue
+                    attempt["status"] = "superseded"
+                    attempt["supersededAt"] = revised_at
+                    attempt["supersededReason"] = feedback.strip()
+                    break
+                task["status"] = "pending"
+                task["completedAt"] = None
+                task["updatedAt"] = revised_at
+                task["summary"] = None
+                task["resultMessageId"] = None
+                task["orchestratorReview"] = None
+                task["retryFeedback"] = (
+                    feedback.strip()
+                    if task is target
+                    else f"上游任务 {target['taskId']} 因用户反馈返工，本节点旧结果已失效，请基于新上游结果重做。"
+                )
+                task["maxAttempts"] = max(
+                    int(task.get("maxAttempts") or 3),
+                    int(task.get("attempt") or 0) + 1,
+                )
+                if task.get("taskId") in runtime_ids:
+                    task["runTaskId"] = runtime_ids[str(task["taskId"])]
+                    task["runId"] = run_id
+
+            execution["status"] = "running"
+            execution["completedAt"] = None
+            execution["updatedAt"] = revised_at
+            execution["cancelRequested"] = False
+            execution["interruptRequested"] = False
+            if run_id:
+                execution["runId"] = run_id
+                execution.setdefault("runtime", {})["runId"] = run_id
+            execution.setdefault("events", []).append({
+                "type": "user_revision_requested",
+                "status": "running",
+                "timestamp": revised_at,
+                "taskId": target["taskId"],
+                "taskIds": sorted(reset_ids),
+                "message": f"用户要求 @{target.get('assignedAgentName') or agent_id} 返工；目标节点及下游结果已失效。",
+            })
+            await self._persist_execution_snapshot(execution)
+            self.start_execution(execution["executionId"])
+            return copy.deepcopy(execution)
+        return None
+
+    @staticmethod
+    def _task_and_descendants(execution: dict[str, Any], task_id: str) -> set[str]:
+        affected = {task_id}
+        changed = True
+        while changed:
+            changed = False
+            for task in execution.get("tasks") or []:
+                current_id = str(task.get("taskId"))
+                if current_id in affected:
+                    continue
+                if any(str(dep) in affected for dep in task.get("dependsOn") or []):
+                    affected.add(current_id)
+                    changed = True
+        return affected
+
+    @staticmethod
+    def _normalize_group_context(messages: list[dict[str, Any]]) -> list[dict[str, str]]:
+        context: list[dict[str, str]] = []
+        for message in messages:
+            if not isinstance(message, dict):
+                continue
+            role = str(message.get("role") or "user")
+            content = str(message.get("content") or "").strip()
+            if role not in {"user", "assistant", "system"} or not content:
+                continue
+            context.append({"role": role, "content": content})
+        return context
+
+    @staticmethod
+    def _phase_depths(tasks: list[dict[str, Any]]) -> dict[str, int]:
+        by_id = {str(task["taskId"]): task for task in tasks}
+        cache: dict[str, int] = {}
+
+        def depth(task_id: str) -> int:
+            if task_id in cache:
+                return cache[task_id]
+            dependencies = by_id[task_id].get("dependsOn") or []
+            value = 0 if not dependencies else 1 + max(depth(str(dep)) for dep in dependencies)
+            cache[task_id] = value
+            return value
+
+        return {task_id: depth(task_id) for task_id in by_id}
 
     async def interrupt_execution(
         self,
@@ -1304,156 +1587,6 @@ class OrchestratorExecutionRegistry:
         await self._persist_execution_snapshot(execution)
         return copy.deepcopy(execution)
 
-    async def confirm_waiting_task(
-        self,
-        execution_id: str,
-        task_id: str,
-        *,
-        note: str | None = None,
-    ) -> dict[str, Any] | None:
-        execution = self._executions.get(execution_id)
-        if execution is None:
-            return None
-        target = next(
-            (task for task in execution.get("tasks") or [] if task.get("taskId") == task_id),
-            None,
-        )
-        if not target or target.get("status") != "awaiting_user_input":
-            return None
-        confirmed_at = self._now()
-        target["status"] = "completed"
-        target["completedAt"] = confirmed_at
-        target["updatedAt"] = confirmed_at
-        summary = await self._confirmed_handoff_summary(execution, target, note=note)
-        target["summary"] = summary
-        await self._write_confirmed_handoff(execution, target, summary=summary)
-        if not target.get("resultMessageId"):
-            target["resultMessageId"] = await self._persist_task_result(execution, target, summary)
-        await self._mark_runtime_task_status(
-            execution,
-            target,
-            "completed",
-            message_id=target.get("visibleMessageId"),
-            metadata_patch={
-                "awaitingUserInput": False,
-                "userConfirmed": True,
-                "confirmationNote": note,
-                "confirmationSummary": summary,
-            },
-        )
-        execution["status"] = "running"
-        execution["updatedAt"] = confirmed_at
-        execution["events"].append({
-            "type": "task_user_confirmed",
-            "status": "completed",
-            "timestamp": confirmed_at,
-            "taskId": task_id,
-            "message": f"{task_id} 已由用户确认，Scheduler 将继续释放下游任务。",
-        })
-        await self._append_dialog_closed_message(
-            execution,
-            target,
-            status="handoff_confirmed",
-            content=f"{target.get('title') or task_id} 已确认，继续后续调度。",
-        )
-        await self._mark_runtime_run_status(execution, "running")
-        await self._persist_execution_snapshot(execution)
-        self.start_execution(execution_id)
-        return copy.deepcopy(execution)
-
-    async def _confirmed_handoff_summary(
-        self,
-        execution: dict[str, Any],
-        task: dict[str, Any],
-        *,
-        note: str | None,
-    ) -> str:
-        note_text = (note or "").strip()
-        original_summary = str(task.get("summary") or "").strip()
-        transcript = await self._confirmed_dialog_transcript(execution, task)
-
-        parts: list[str] = ["用户已确认该访谈节点，以下内容作为下游任务的最终交接依据。"]
-        if note_text:
-            parts.append(f"确认说明：{note_text}")
-        if transcript:
-            parts.append("确认前对齐记录：\n" + transcript)
-        if original_summary:
-            parts.append("原任务输出摘要：\n" + original_summary)
-        return _summary_text("\n\n".join(parts), limit=2400)
-
-    async def _confirmed_dialog_transcript(
-        self,
-        execution: dict[str, Any],
-        task: dict[str, Any],
-    ) -> str:
-        visible_message_id = task.get("visibleMessageId")
-        execution_id = execution.get("executionId")
-        task_id = task.get("taskId")
-        async with self._session_factory() as db:
-            result = await db.execute(
-                select(DBMessage)
-                .where(DBMessage.session_id == execution["sessionId"])
-                .order_by(DBMessage.created_at.asc(), DBMessage.id.asc())
-            )
-            messages = list(result.scalars().all())
-
-        started = visible_message_id is None
-        entries: list[str] = []
-        for message in messages:
-            if message.id == visible_message_id:
-                started = True
-            if not started or message.content_type != "text":
-                continue
-            content = (message.content or "").strip()
-            if not content:
-                continue
-            metadata = _loads_metadata(message.metadata_json)
-            dialog = metadata.get("groupDialog") if isinstance(metadata.get("groupDialog"), dict) else {}
-            belongs_to_task = (
-                dialog.get("executionId") == execution_id
-                and dialog.get("taskId") == task_id
-            )
-            if message.role == "user":
-                label = "用户"
-            elif message.id == visible_message_id or belongs_to_task:
-                label = message.agent_name or message.source_name or task.get("assignedAgentName") or "Agent"
-            else:
-                continue
-            entries.append(f"{label}: {_summary_text(content, limit=900)}")
-
-        return "\n\n".join(entries[-12:])
-
-    async def _write_confirmed_handoff(
-        self,
-        execution: dict[str, Any],
-        task: dict[str, Any],
-        *,
-        summary: str,
-    ) -> None:
-        task_workspace = task.get("taskWorkspacePath")
-        if not task_workspace:
-            return
-        task_dir = Path(str(task_workspace))
-        try:
-            task_dir.mkdir(parents=True, exist_ok=True)
-            handoff = task_dir / "HANDOFF.md"
-            previous = handoff.read_text(encoding="utf-8") if handoff.exists() else ""
-            content = (
-                "# 用户确认后的最终交接\n\n"
-                f"- Plan: {execution.get('planId')}\n"
-                f"- Execution: {execution.get('executionId')}\n"
-                f"- Task: {task.get('taskId')} · {task.get('title')}\n"
-                "- 优先级：本文件中的用户确认结果优先于本任务早期草稿、待确认版文档和旧交接内容。\n\n"
-                "## 最终确认摘要\n\n"
-                f"{summary.strip()}\n"
-            )
-            if previous.strip():
-                content += "\n## 原 HANDOFF 备份\n\n" + previous.strip() + "\n"
-            handoff.write_text(content, encoding="utf-8")
-            task["confirmedHandoffPath"] = str(handoff)
-        except OSError:
-            return
-
     async def _merge_visible_message_metadata(
         self,
         message_id: str,
@@ -1520,16 +1653,18 @@ class OrchestratorExecutionRegistry:
         tasks = execution["tasks"]
         completed: set[str] = {
             task["taskId"] for task in tasks
-            if task.get("status") == "completed"
+            if task.get("status") in {"accepted", "completed"}
         }
         pending = {
             task["taskId"] for task in tasks
-            if task.get("status") not in {"completed", "cancelled", "failed", "awaiting_user_input"}
+            if task.get("status") not in {"accepted", "completed", "cancelled", "failed", "blocked"}
         }
         task_by_id = {task["taskId"]: task for task in tasks}
+        scheduler_generation = int(execution.get("revisionGeneration") or 0)
 
-        phase = 0
         while pending:
+            if scheduler_generation != int(execution.get("revisionGeneration") or 0):
+                return
             if self._is_interrupted(execution):
                 await self._persist_execution_snapshot(execution)
                 return
@@ -1539,12 +1674,12 @@ class OrchestratorExecutionRegistry:
                 await self._mark_cancelled_visible_messages(execution, "调度执行已停止")
                 await self._persist_execution_snapshot(execution)
                 return
-            ready = sorted(
+            ready_candidates = sorted(
                 task_id
                 for task_id in pending
                 if all(dep in completed for dep in task_by_id[task_id]["dependsOn"])
             )
-            if not ready:
+            if not ready_candidates:
                 failed_at = self._now()
                 execution["status"] = "failed"
                 execution["updatedAt"] = failed_at
@@ -1559,6 +1694,19 @@ class OrchestratorExecutionRegistry:
                 await self._persist_execution_snapshot(execution)
                 return
 
+            phase = min(int(task_by_id[task_id].get("phase") or 0) for task_id in ready_candidates)
+            ready: list[str] = []
+            assigned_agents: set[str] = set()
+            for task_id in ready_candidates:
+                task = task_by_id[task_id]
+                if int(task.get("phase") or 0) != phase:
+                    continue
+                agent_id = str(task.get("assignedAgentId") or "")
+                if agent_id and agent_id in assigned_agents:
+                    continue
+                ready.append(task_id)
+                if agent_id:
+                    assigned_agents.add(agent_id)
             running_at = self._now()
             execution["updatedAt"] = running_at
             execution["events"].append({
@@ -1574,7 +1722,6 @@ class OrchestratorExecutionRegistry:
                 task["upstreamResults"] = self._upstream_results_for(task, task_by_id)
                 task["runnerType"] = self._runner_type_for(execution)
                 task["status"] = "running"
-                task["phase"] = phase
                 task["startedAt"] = running_at
                 task["updatedAt"] = running_at
                 await self._mark_runtime_task_status(
@@ -1598,6 +1745,8 @@ class OrchestratorExecutionRegistry:
                     for task_id in ready
                 ])
             except Exception as exc:
+                if scheduler_generation != int(execution.get("revisionGeneration") or 0):
+                    return
                 if self._is_interrupted(execution):
                     await self._persist_execution_snapshot(execution)
                     return
@@ -1631,105 +1780,160 @@ class OrchestratorExecutionRegistry:
                     )
                 await self._persist_execution_snapshot(execution)
                 return
+            if scheduler_generation != int(execution.get("revisionGeneration") or 0):
+                return
             if self._is_interrupted(execution):
                 await self._persist_execution_snapshot(execution)
                 return
-            completed_at = self._now()
-            execution["updatedAt"] = completed_at
+            submitted_at = self._now()
+            execution["updatedAt"] = submitted_at
             for task_id, summary in zip(ready, summaries):
                 task = task_by_id[task_id]
-                if self._task_waits_for_user(task):
-                    task["status"] = "awaiting_user_input"
-                    task["summary"] = summary
-                    task["updatedAt"] = completed_at
-                    if task.get("visibleMessageId"):
-                        await self._merge_visible_message_metadata(
-                            task["visibleMessageId"],
-                            metadata={
-                                "runStatus": "paused",
-                                "awaitingUserInput": True,
-                                "groupDialog": {
-                                    "mode": "direct_dialog",
-                                    "status": "awaiting_user_input",
-                                    "activeAgentId": task.get("assignedAgentId"),
-                                    "activeAgentName": task.get("assignedAgentName"),
-                                    "goal": task.get("goal") or task.get("title") or "",
-                                    "source": "orchestrator_task",
-                                    "executionId": execution.get("executionId"),
-                                    "taskId": task.get("taskId"),
-                                },
-                            },
-                        )
+                task["attempt"] = int(task.get("attempt") or 0) + 1
+                task["status"] = "submitted"
+                task["updatedAt"] = submitted_at
+                task["summary"] = summary
+                task["resultMessageId"] = await self._persist_task_result(execution, task, summary)
+                task.setdefault("attempts", []).append({
+                    "attempt": task["attempt"],
+                    "status": "submitted",
+                    "summary": summary,
+                    "resultMessageId": task["resultMessageId"],
+                    "submittedAt": submitted_at,
+                })
+                await self._mark_runtime_task_status(
+                    execution,
+                    task,
+                    "submitted",
+                    message_id=task.get("visibleMessageId"),
+                    metadata_patch={
+                        "attempt": task["attempt"],
+                        "taskResultMessageId": task["resultMessageId"],
+                    },
+                )
+                execution["events"].append({
+                    "type": "task_submitted",
+                    "status": "submitted",
+                    "timestamp": submitted_at,
+                    "phase": phase,
+                    "taskId": task_id,
+                    "message": summary,
+                })
+
+            try:
+                review = await self._review_phase(execution, phase, [task_by_id[item] for item in ready])
+            except Exception as exc:
+                review = {
+                    "phaseSummary": f"Orchestrator 验收失败：{exc}",
+                    "tasks": [
+                        {"taskId": item, "decision": "retry", "feedback": str(exc)}
+                        for item in ready
+                    ],
+                }
+            if scheduler_generation != int(execution.get("revisionGeneration") or 0):
+                return
+            decisions = {
+                str(item.get("taskId") or item.get("task_id")): item
+                for item in review.get("tasks") or []
+                if isinstance(item, dict)
+            }
+            blocked_items: list[dict[str, Any]] = []
+            failed_items: list[str] = []
+            reviewed_at = self._now()
+            for task_id in ready:
+                task = task_by_id[task_id]
+                decision = decisions.get(task_id) or {
+                    "decision": "retry",
+                    "feedback": "Orchestrator 未返回该任务的验收结论",
+                }
+                verdict = str(decision.get("decision") or "retry")
+                feedback = str(decision.get("feedback") or "").strip()
+                attempt_entry = task["attempts"][-1]
+                attempt_entry["reviewedAt"] = reviewed_at
+                attempt_entry["decision"] = verdict
+                attempt_entry["feedback"] = feedback
+                task["orchestratorReview"] = decision
+                if verdict == "accepted":
+                    task["status"] = "accepted"
+                    task["completedAt"] = reviewed_at
+                    attempt_entry["status"] = "accepted"
+                    pending.remove(task_id)
+                    completed.add(task_id)
+                    await self._mark_runtime_task_status(
+                        execution,
+                        task,
+                        "accepted",
+                        message_id=task.get("visibleMessageId"),
+                        metadata_patch={"orchestratorReview": decision},
+                    )
+                    event_type = "task_accepted"
+                elif verdict == "blocked":
+                    task["status"] = "blocked"
+                    attempt_entry["status"] = "blocked"
+                    blocked_items.append(decision)
                     await self._mark_runtime_task_status(
                         execution,
                         task,
                         "paused",
                         message_id=task.get("visibleMessageId"),
-                        metadata_patch={
-                            "interactionPolicy": task.get("interactionPolicy"),
-                            "handoffPolicy": task.get("handoffPolicy"),
-                            "awaitingUserInput": True,
-                            "blocksDownstreamUntil": task.get("blocksDownstreamUntil"),
-                        },
+                        metadata_patch={"orchestratorReview": decision},
                     )
-                    execution["status"] = "awaiting_user_input"
-                    execution["updatedAt"] = completed_at
-                    execution["events"].append({
-                        "type": "task_awaiting_user_input",
-                        "status": "awaiting_user_input",
-                        "timestamp": completed_at,
-                        "phase": phase,
-                        "taskId": task_id,
-                        "message": f"{task_id} 等待用户回答或确认后再继续下游任务。",
-                    })
-                    await self._mark_runtime_run_status(
+                    event_type = "task_blocked"
+                elif int(task.get("attempt") or 0) >= int(task.get("maxAttempts") or 3):
+                    task["status"] = "failed"
+                    task["completedAt"] = reviewed_at
+                    attempt_entry["status"] = "failed"
+                    failed_items.append(task_id)
+                    await self._mark_runtime_task_status(
                         execution,
-                        "paused",
-                        current_message_id=task.get("visibleMessageId"),
+                        task,
+                        "failed",
+                        message_id=task.get("visibleMessageId"),
+                        metadata_patch={"orchestratorReview": decision},
                     )
-                    await self._persist_execution_snapshot(execution)
-                    await _broadcast_ws(execution["sessionId"], {
-                        "type": "task.awaiting_user_input",
-                        "executionId": execution["executionId"],
-                        "planId": execution["planId"],
-                        "taskId": task_id,
-                        "messageId": task.get("visibleMessageId"),
-                        "agentId": task.get("assignedAgentId"),
-                        "agentName": task.get("assignedAgentName"),
-                        "task": task,
-                        "token": "",
-                        "done": False,
-                    })
-                    return
-                task["status"] = "completed"
-                task["completedAt"] = completed_at
-                task["updatedAt"] = completed_at
-                task["summary"] = summary
-                task["resultMessageId"] = await self._persist_task_result(execution, task, summary)
-                await self._mark_runtime_task_status(
-                    execution,
-                    task,
-                    "completed",
-                    message_id=task.get("visibleMessageId"),
-                )
+                    event_type = "task_retry_exhausted"
+                else:
+                    task["status"] = "pending"
+                    task["retryFeedback"] = feedback
+                    attempt_entry["status"] = "retry"
+                    await self._mark_runtime_task_status(
+                        execution,
+                        task,
+                        "pending",
+                        message_id=task.get("visibleMessageId"),
+                        metadata_patch={"orchestratorReview": decision, "retryFeedback": feedback},
+                    )
+                    event_type = "task_retry_requested"
+                task["updatedAt"] = reviewed_at
                 execution["events"].append({
-                    "type": "task_completed",
-                    "status": "completed",
-                    "timestamp": completed_at,
+                    "type": event_type,
+                    "status": task["status"],
+                    "timestamp": reviewed_at,
                     "phase": phase,
                     "taskId": task_id,
-                    "message": summary,
+                    "attempt": task.get("attempt"),
+                    "message": feedback or verdict,
                 })
-                pending.remove(task_id)
-                completed.add(task_id)
+
+            await self._persist_phase_review(execution, phase, review, [task_by_id[item] for item in ready])
+            if blocked_items:
+                execution["status"] = "waiting_user"
+                execution["updatedAt"] = reviewed_at
+                await self._mark_runtime_run_status(execution, "paused")
+                await self._persist_execution_snapshot(execution)
+                return
+            if failed_items:
+                execution["status"] = "failed"
+                execution["updatedAt"] = reviewed_at
+                await self._mark_runtime_run_status(execution, "failed")
+                await self._persist_execution_snapshot(execution)
+                return
             if self._is_cancelled(execution):
                 self._mark_cancelled(execution)
                 await self._cancel_runtime_execution(execution)
                 await self._mark_cancelled_visible_messages(execution, "调度执行已停止")
                 await self._persist_execution_snapshot(execution)
                 return
-
-            phase += 1
 
         completed_at = self._now()
         final_execution = copy.deepcopy(execution)
@@ -1747,6 +1951,7 @@ class OrchestratorExecutionRegistry:
             "timestamp": completed_at,
             "message": "Scheduler 已按 DAG 完成全部任务。",
         })
+        await self._persist_completion_summary(final_execution)
         await self._persist_execution_snapshot(final_execution)
         execution.clear()
         execution.update(final_execution)
@@ -1809,7 +2014,6 @@ class OrchestratorExecutionRegistry:
                 "assignedAgentId": task.get("assignedAgentId"),
                 "assignedAgentName": task.get("assignedAgentName"),
                 "dependsOn": task.get("dependsOn") or [],
-                "requiredSkills": task.get("requiredSkills") or [],
                 "upstreamResults": task.get("upstreamResults") or [],
             }
         }
@@ -1829,40 +2033,12 @@ class OrchestratorExecutionRegistry:
             await db.commit()
         return message_id
 
-    async def _append_dialog_closed_message(
-        self,
-        execution: dict[str, Any],
-        task: dict[str, Any],
-        *,
-        status: str,
-        content: str,
-    ) -> None:
-        metadata = {
-            "groupDialog": {
-                "mode": "direct_dialog",
-                "status": status,
-                "activeAgentId": task.get("assignedAgentId"),
-                "activeAgentName": task.get("assignedAgentName"),
-                "goal": task.get("goal") or task.get("title") or "",
-                "source": "orchestrator_task",
-                "executionId": execution.get("executionId"),
-                "taskId": task.get("taskId"),
-            }
-        }
-        async with self._session_factory() as db:
-            db.add(DBMessage(
-                id=f"msg_system_{uuid.uuid4().hex[:12]}",
-                session_id=execution["sessionId"],
-                role="system",
-                content=content,
-                content_type="text",
-                source_type="system",
-                source_name="调度控制",
-                metadata_json=json.dumps(metadata, ensure_ascii=False),
-            ))
-            await db.commit()
-
     async def _persist_execution_snapshot(self, execution: dict[str, Any]) -> None:
+        async with self._session_factory() as db:
+            try:
+                await OrchestratorPlanService(db).persist_execution_snapshot(execution)
+            except OrchestratorPlanNotFoundError:
+                pass
         message_id = execution.get("controlMessageId")
         if not message_id:
             return
@@ -2037,6 +2213,11 @@ class OrchestratorExecutionRegistry:
             "completedAt": None,
             "updatedAt": None,
             "summary": None,
+            "attempt": 0,
+            "maxAttempts": int(task.get("max_attempts") or 3),
+            "attempts": [],
+            "retryFeedback": None,
+            "orchestratorReview": None,
             "resultMessageId": None,
             "visibleMessageId": None,
             "runnerType": "mock",
@@ -2044,15 +2225,8 @@ class OrchestratorExecutionRegistry:
             "assignedAgentId": task.get("assigned_agent_id"),
             "assignedAgentName": task.get("assigned_agent_name"),
             "dependsOn": list(task.get("depends_on") or []),
-            "requiredSkills": list(task.get("required_skills") or []),
-            "needsApproval": bool(task.get("needs_approval")),
-            "isBlocking": bool(task.get("is_blocking")),
             "expectedOutputs": list(task.get("expected_outputs") or []),
             "acceptanceCriteria": list(task.get("acceptance_criteria") or []),
-            "interactionPolicy": str(task.get("interaction_policy") or "auto_run"),
-            "handoffPolicy": str(task.get("handoff_policy") or "auto"),
-            "awaitsUserInput": bool(task.get("awaits_user_input")),
-            "blocksDownstreamUntil": str(task.get("blocks_downstream_until") or "task_completed"),
             "taskWorkspacePath": None,
         }
 
@@ -2063,6 +2237,128 @@ class OrchestratorExecutionRegistry:
         if runner is None:
             runner = self._cli_runner if task.get("runnerType") == "cli" else self._task_runner
         return await runner.run(task, execution, task.get("upstreamResults") or [])
+
+    async def _review_phase(
+        self,
+        execution: dict[str, Any],
+        phase: int,
+        tasks: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        execution_id = str(execution.get("executionId") or "")
+        reviewer = self._execution_phase_reviewers.get(execution_id)
+        if reviewer is None:
+            reviewer = (
+                AcceptingPhaseReviewer()
+                if self._runner_type_for(execution) == "mock"
+                else self._phase_reviewer
+            )
+        for task in tasks:
+            task["status"] = "reviewing"
+            await self._mark_runtime_task_status(
+                execution,
+                task,
+                "reviewing",
+                message_id=task.get("visibleMessageId"),
+            )
+        execution["events"].append({
+            "type": "orchestrator_review_started",
+            "status": "reviewing",
+            "timestamp": self._now(),
+            "phase": phase,
+            "taskIds": [task["taskId"] for task in tasks],
+            "message": "Worker 已提交，Orchestrator 正在统一验收。",
+        })
+        return await reviewer.review(execution, phase, tasks)
+
+    async def _persist_phase_review(
+        self,
+        execution: dict[str, Any],
+        phase: int,
+        review: dict[str, Any],
+        tasks: list[dict[str, Any]],
+    ) -> str:
+        summary = str(review.get("phaseSummary") or "Orchestrator 已完成阶段验收。").strip()
+        message_id = f"msg_review_{uuid.uuid4().hex[:12]}"
+        metadata = {
+            "orchestratorPhaseReview": {
+                "executionId": execution.get("executionId"),
+                "planId": execution.get("planId"),
+                "phase": phase,
+                "taskIds": [task.get("taskId") for task in tasks],
+                "review": review,
+            },
+            "agentRole": "orchestrator",
+            "phase": phase,
+            "taskName": "phase review",
+        }
+        async with self._session_factory() as db:
+            orchestrator = await db.get(AgentConfig, execution.get("orchestratorAgentId"))
+            db.add(DBMessage(
+                id=message_id,
+                session_id=execution["sessionId"],
+                role="assistant",
+                content=summary,
+                content_type="orchestrator_summary",
+                agent_name=orchestrator.name if orchestrator else "项目Leader",
+                source_type="orchestrator",
+                source_id=execution.get("orchestratorAgentId"),
+                source_name=orchestrator.name if orchestrator else "项目Leader",
+                metadata_json=json.dumps(metadata, ensure_ascii=False),
+            ))
+            await db.commit()
+        await _broadcast_ws(execution["sessionId"], {
+            "type": "orchestrator.phase_review_completed",
+            "sessionId": execution["sessionId"],
+            "executionId": execution.get("executionId"),
+            "planId": execution.get("planId"),
+            "phase": phase,
+            "messageId": message_id,
+            "review": review,
+            "token": "",
+            "done": False,
+        })
+        return message_id
+
+    async def _persist_completion_summary(self, execution: dict[str, Any]) -> str:
+        lines = ["全部 DAG 节点已通过 Orchestrator 验收。"]
+        for task in execution.get("tasks") or []:
+            summary = _summary_text(str(task.get("summary") or "已完成"), limit=500)
+            lines.append(
+                f"- {task.get('taskId')} · {task.get('title')} · "
+                f"@{task.get('assignedAgentName') or task.get('assignedAgentId')}: {summary}"
+            )
+        message_id = f"msg_summary_{uuid.uuid4().hex[:12]}"
+        async with self._session_factory() as db:
+            orchestrator = await db.get(AgentConfig, execution.get("orchestratorAgentId"))
+            name = orchestrator.name if orchestrator else "项目Leader"
+            db.add(DBMessage(
+                id=message_id,
+                session_id=execution["sessionId"],
+                role="assistant",
+                content="\n".join(lines),
+                content_type="orchestrator_summary",
+                agent_name=name,
+                source_type="orchestrator",
+                source_id=execution.get("orchestratorAgentId"),
+                source_name=name,
+                metadata_json=json.dumps({
+                    "orchestratorCompletionSummary": {
+                        "executionId": execution.get("executionId"),
+                        "planId": execution.get("planId"),
+                        "taskIds": [task.get("taskId") for task in execution.get("tasks") or []],
+                    },
+                }, ensure_ascii=False),
+            ))
+            await db.commit()
+        await _broadcast_ws(execution["sessionId"], {
+            "type": "orchestrator.execution_summary_completed",
+            "sessionId": execution["sessionId"],
+            "executionId": execution.get("executionId"),
+            "messageId": message_id,
+            "token": "",
+            "done": False,
+        })
+        return message_id
 
     async def _mark_runtime_run_status(
         self,
@@ -2149,14 +2445,6 @@ class OrchestratorExecutionRegistry:
     def _runner_type_for(execution: dict[str, Any]) -> str:
         runner_type = str(execution.get("runnerType") or "cli").strip().lower()
         return "mock" if runner_type == "mock" else "cli"
-
-    @staticmethod
-    def _task_waits_for_user(task: dict[str, Any]) -> bool:
-        if task.get("awaitsUserInput"):
-            return True
-        if task.get("blocksDownstreamUntil") == "user_confirms":
-            return True
-        return task.get("interactionPolicy") in {"ask_user_once", "ask_user_until_confirmed"}
 
     @staticmethod
     def _now() -> str:

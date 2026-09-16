@@ -54,22 +54,3 @@ class ProcessRead(BaseModel):
     exit_code: int | None = Field(default=None, alias="exitCode")
 
     model_config = {"from_attributes": True, "populate_by_name": True}
-
-
-class ApprovalCheckpointRead(BaseModel):
-    id: str
-    run_id: str = Field(alias="runId")
-    task_id: str = Field(alias="taskId")
-    session_id: str = Field(alias="sessionId")
-    message_id: str | None = Field(default=None, alias="messageId")
-    artifact_id: str | None = Field(default=None, alias="artifactId")
-    artifact_version: int | None = Field(default=None, alias="artifactVersion")
-    title: str
-    summary: str
-    status: str
-    reason: str | None = None
-    created_at: datetime = Field(alias="createdAt")
-    decided_at: datetime | None = Field(default=None, alias="decidedAt")
-    metadata: dict | None = None
-
-    model_config = {"from_attributes": True, "populate_by_name": True}

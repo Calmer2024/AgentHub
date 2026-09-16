@@ -12,8 +12,8 @@ def test_parse_normalize_validate_and_project_plan():
         """```json
         {
           "tasks": [
-            {"task_id": "T1", "title": "设计数据模型", "required_skills": ["architect"], "depends_on": []},
-            {"task_id": "T2", "title": "实现接口", "required_skills": ["backend"], "depends_on": ["T1"]}
+            {"task_id": "T1", "title": "设计数据模型", "assigned_agent_id": "architect", "assignment_reason": "负责架构", "depends_on": []},
+            {"task_id": "T2", "title": "实现接口", "assigned_agent_id": "backend", "assignment_reason": "负责后端", "depends_on": ["T1"]}
           ]
         }
         ```"""
@@ -49,9 +49,9 @@ def test_extract_json_object_repairs_fenced_approve_action_with_cn_quotes():
 def test_validate_plan_rejects_missing_dependency_and_cycle():
     plan = normalize_plan({
         "tasks": [
-            {"task_id": "T1", "depends_on": ["T2"], "required_skills": ["a"]},
-            {"task_id": "T2", "depends_on": ["T1"], "required_skills": ["b"]},
-            {"task_id": "T3", "depends_on": ["T9"], "required_skills": ["c"]},
+            {"task_id": "T1", "depends_on": ["T2"], "assigned_agent_id": "a", "assignment_reason": "a"},
+            {"task_id": "T2", "depends_on": ["T1"], "assigned_agent_id": "b", "assignment_reason": "b"},
+            {"task_id": "T3", "depends_on": ["T9"], "assigned_agent_id": "c", "assignment_reason": "c"},
         ],
     })
 

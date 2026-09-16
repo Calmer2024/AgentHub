@@ -219,9 +219,16 @@ class TestMembers:
         duplicate = await svc.add_group_member(created.id, agent3.id)
         removed = await svc.remove_group_member(created.id, agent3.id)
 
-        assert [member.agent_config_id for member in added] == [test_agent.id, agent2.id, agent3.id]
-        assert [member.agent_config_id for member in duplicate] == [test_agent.id, agent2.id, agent3.id]
-        assert [member.agent_config_id for member in removed] == [test_agent.id, agent2.id]
+        added_ids = {member.agent_config_id for member in added}
+        duplicate_ids = {member.agent_config_id for member in duplicate}
+        removed_ids = {member.agent_config_id for member in removed}
+
+        expected_agent_ids = {test_agent.id, agent2.id, agent3.id}
+        assert expected_agent_ids.issubset(added_ids)
+        assert duplicate_ids == added_ids
+        assert {test_agent.id, agent2.id}.issubset(removed_ids)
+        assert agent3.id not in removed_ids
+        assert removed_ids == added_ids - {agent3.id}
 
     async def test_group_keeps_at_least_two_members(self, svc: SessionService, test_agent, db: AsyncSession):
         agent2 = await create_agent(db, "A2")

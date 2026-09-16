@@ -13,16 +13,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.timezone import china_now
 from ..domain.context_manager import ContextManager, PromptAssemblyInput
-from ..domain.orchestrator_plan import (
-    extract_json_object,
-    normalize_plan,
-    validate_plan,
-    visualize_mermaid,
-)
 from ..models import AgentConfig, Message as DBMessage, Session as DBSession
-from ..agents.cli_trace import trace_text
+from ..agents.cli_trace import process_start_trace, trace_text
 from .artifact_output_bridge import ArtifactOutputBridge, artifact_to_event_payload
-from .approval_service import ApprovalService, approval_to_read
 from .cli_agent_service import CliAgentService
 from .execution_trace import ExecutionTraceBuilder, merge_trace_metadata
 from .file_change_detector import FileChangeDetector
@@ -142,7 +135,6 @@ class SingleCliChatStream:
         engine_session_remembered = False
         snapshot_id = None
         run_service = RunService(self.db, event_bus=self.event_bus) if run_id else None
-        approval_service = ApprovalService(self.db, event_bus=self.event_bus) if run_id else None
 
         try:
             snapshot = self._file_changes.create_snapshot(workspace_path, f"chat:{session_id}:{assistant_msg_id}")
@@ -500,8 +492,6 @@ class SingleCliChatStream:
 
         if raw_output and raw_output != visible:
             metadata["rawOutputPreview"] = raw_output[-4000:]
-        if (agent_config.primary_skill or "") == "orchestrator_planner":
-            metadata.update(_orchestrator_plan_metadata(visible))
         if (
             not engine_session_remembered
             and engine_invocation.assigned_by_agenthub
@@ -549,47 +539,19 @@ class SingleCliChatStream:
             yield bridge_event
 
         if run_service and run_id:
-            if task_id and approval_service:
-                checkpoint = await approval_service.create_for_completed_task_if_needed(
-                    task_id=task_id,
-                    message_id=assistant_msg_id,
-                    summary=_approval_summary(visible),
-                )
-                if checkpoint:
-                    yield self._approval_created(checkpoint)
-                    task = await run_service.mark_task_status(
-                        task_id,
-                        "paused",
-                        message_id=assistant_msg_id,
-                        metadata_patch={"approvalCheckpointId": checkpoint.id},
-                    )
-                    yield self._task_status_changed(run_id, task)
-                    run = await run_service.mark_run_status(
-                        run_id,
-                        "paused",
-                        current_message_id=assistant_msg_id,
-                    )
-                    yield self._run_status_changed(run)
-                else:
-                    task = await run_service.mark_task_status(
-                        task_id,
-                        "completed",
-                        message_id=assistant_msg_id,
-                    )
-                    yield self._task_status_changed(run_id, task)
-                    run = await run_service.mark_run_status(
-                        run_id,
-                        "completed",
-                        current_message_id=assistant_msg_id,
-                    )
-                    yield self._run_status_changed(run)
-            else:
-                run = await run_service.mark_run_status(
-                    run_id,
+            if task_id:
+                task = await run_service.mark_task_status(
+                    task_id,
                     "completed",
-                    current_message_id=assistant_msg_id,
+                    message_id=assistant_msg_id,
                 )
-                yield self._run_status_changed(run)
+                yield self._task_status_changed(run_id, task)
+            run = await run_service.mark_run_status(
+                run_id,
+                "completed",
+                current_message_id=assistant_msg_id,
+            )
+            yield self._run_status_changed(run)
 
         await _broadcast_ws(self.realtime, session_id, {
             "type": "message.completed",
@@ -602,6 +564,36 @@ class SingleCliChatStream:
             "messageId": assistant_msg_id,
             "agentName": agent_config.name,
         })
+    async def _persist_message(
+        self,
+        session: DBSession,
+        session_id: str,
+        message_id: str,
+        agent: AgentConfig,
+        content: str,
+        metadata: dict,
+    ) -> None:
+        message = await self.db.get(DBMessage, message_id)
+        if message is None:
+            message = DBMessage(
+                id=message_id,
+                session_id=session_id,
+                role="assistant",
+                content=content,
+                content_type="text",
+                agent_name=agent.name,
+                source_type="agent",
+                source_id=agent.id,
+                source_name=agent.name,
+                metadata_json=json.dumps(metadata, ensure_ascii=False),
+            )
+            self.db.add(message)
+            SessionService.increment_unread(session, 1)
+        else:
+            message.content = content
+            message.metadata_json = json.dumps(metadata, ensure_ascii=False)
+        session.updated_at = china_now()
+        await self.db.commit()
 
     async def _agent_for_session(self, session: DBSession) -> AgentConfig | None:
         if not session.agent_config_id:
@@ -770,46 +762,6 @@ class SingleCliChatStream:
             "token": "",
             "done": False,
         })
-
-    def _approval_created(self, checkpoint) -> str:
-        return self._sse({
-            "type": "approval.created",
-            "checkpointId": checkpoint.id,
-            "runId": checkpoint.run_id,
-            "taskId": checkpoint.task_id,
-            "sessionId": checkpoint.session_id,
-            "messageId": checkpoint.message_id,
-            "artifactId": checkpoint.artifact_id,
-            "approval": approval_to_read(checkpoint).model_dump(by_alias=True, mode="json"),
-            "token": "",
-            "done": False,
-        })
-
-    async def _persist_message(
-        self,
-        session: DBSession,
-        session_id: str,
-        message_id: str,
-        agent: AgentConfig,
-        content: str,
-        metadata: dict,
-    ) -> None:
-        self.db.add(DBMessage(
-            id=message_id,
-            session_id=session_id,
-            role="assistant",
-            content=content,
-            content_type="text",
-            agent_name=agent.name,
-            source_type="agent",
-            source_id=agent.id,
-            source_name=agent.name,
-            metadata_json=json.dumps(metadata, ensure_ascii=False),
-        ))
-        session.updated_at = china_now()
-        SessionService.increment_unread(session)
-        await self.db.commit()
-
     @staticmethod
     def _run_metadata(
         metadata: dict,
@@ -924,6 +876,30 @@ class SingleCliChatStream:
             data["messageId"] = message_id
         return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
 
+async def _broadcast_ws(
+    realtime: RealtimePublisher,
+    session_id: str,
+    payload: dict,
+) -> None:
+    try:
+        await realtime.broadcast(session_id, payload)
+    except Exception:
+        pass
+
+
+def _process_started_trace(agent_name: str, metadata: dict) -> dict:
+    return process_start_trace(
+        agent_name,
+        command=None,
+        cwd=None,
+        pid=None,
+        persistent=bool(metadata.get("persistentProcess")),
+        reused=bool(metadata.get("reused")),
+        recovered=bool(metadata.get("recovered")),
+        engine_session_mode=metadata.get("engineSessionMode"),
+        engine_session_id=metadata.get("engineSessionId"),
+    )
+
 
 def _split_system_prompt(messages: list[dict], fallback: str) -> tuple[list[dict], str]:
     if messages and messages[0].get("role") == "system":
@@ -974,80 +950,3 @@ def _engine_event_metadata(metadata: dict, previous: object | None = None) -> di
         result["engineSession"]["usage"] = usage
     return result
 
-
-def _orchestrator_plan_metadata(output: str) -> dict:
-    try:
-        plan = normalize_plan(extract_json_object(output))
-        validation = validate_plan(plan)
-    except ValueError as exc:
-        return {"orchestratorPlanError": str(exc)}
-    return {
-        "orchestratorPlan": {
-            "ok": validation["ok"],
-            "normalizedPlan": plan,
-            "validation": validation,
-            "visualization": {"mermaid": visualize_mermaid(plan)},
-        }
-    }
-
-
-def _approval_summary(content: str) -> str:
-    clean = " ".join(str(content or "").split())
-    if not clean:
-        return "本轮产出没有可见文本，请基于关联产物确认是否继续。"
-    return clean[:240]
-
-
-def _process_started_trace(agent_name: str, runtime_metadata: dict) -> dict:
-    persistent = bool(runtime_metadata.get("persistentProcess"))
-    reused = bool(runtime_metadata.get("reused"))
-    recovered = bool(runtime_metadata.get("recovered"))
-    engine_session_mode = str(runtime_metadata.get("engineSessionMode") or "")
-    if recovered:
-        title = f"恢复 {agent_name} 常驻进程"
-        action = "recover"
-        detail = "常驻进程已恢复，继续当前 AgentHub 对话。"
-    elif reused:
-        title = f"复用 {agent_name} 常驻进程"
-        action = "reuse"
-        detail = "同一个 AgentHub 对话继续复用已存在的 CLI 进程。"
-    elif persistent:
-        title = f"启动 {agent_name} 常驻进程"
-        action = "start"
-        detail = "已为当前 AgentHub 对话启动会话级 CLI 进程。"
-    elif engine_session_mode == "resume":
-        title = f"恢复 {agent_name} 会话"
-        action = "resume"
-        detail = "已通过底层 CLI 原生会话 ID 续聊；本轮仍是一次新的 CLI invocation。"
-    elif engine_session_mode == "start":
-        title = f"创建 {agent_name} 会话"
-        action = "start"
-        detail = "已创建底层 CLI 原生会话 ID，后续轮次会用 resume 续聊。"
-    else:
-        title = f"启动 {agent_name}"
-        action = "start"
-        detail = ""
-    return {
-        "kind": "process",
-        "title": title,
-        "detail": detail,
-        "action": action,
-        "level": "info",
-        "provider": "AgentHub",
-        "persistentProcess": persistent,
-        "reused": reused,
-        "recovered": recovered,
-        "engineSessionMode": engine_session_mode or None,
-        "engineSessionId": runtime_metadata.get("engineSessionId"),
-    }
-
-
-async def _broadcast_ws(
-    realtime: RealtimePublisher,
-    session_id: str,
-    payload: dict,
-) -> None:
-    try:
-        await realtime.broadcast(session_id, payload)
-    except Exception:
-        pass

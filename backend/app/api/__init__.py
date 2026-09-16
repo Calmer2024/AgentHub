@@ -9,7 +9,6 @@ from .skills import router as skills_router
 from .debug import router as debug_router
 from .orchestrator import router as orchestrator_router
 from .runs import router as runs_router
-from .approvals import router as approvals_router
 from .context import router as context_router
 from .system import router as system_router
 from .auth import router as auth_router
@@ -48,7 +47,6 @@ api_router.include_router(messages_router)
 api_router.include_router(debug_router)
 api_router.include_router(orchestrator_router)
 api_router.include_router(runs_router)
-api_router.include_router(approvals_router)
 api_router.include_router(context_router)
 api_router.include_router(system_router)
 

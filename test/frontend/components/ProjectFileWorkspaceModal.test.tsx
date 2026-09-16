@@ -351,7 +351,7 @@ describe("ProjectFileWorkspaceModal", () => {
 
     const secondRow = screen.getByText("app.ts").closest(".agenthub-file-tree-row") as HTMLElement;
     fireEvent.click(within(secondRow).getByRole("button", { name: "删除" }));
-    fireEvent.click(screen.getByRole("button", { name: "确认删除 src/app.ts" }));
+    fireEvent.click(screen.getByRole("button", { name: "确认 src/app.ts" }));
 
     await waitFor(() => {
       expect(apiMocks.deleteProjectPaths).toHaveBeenCalledWith("p1", ["src/app.ts"], true);

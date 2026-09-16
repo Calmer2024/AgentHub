@@ -85,13 +85,12 @@ def _cloud_group_orchestrator_cli() -> Path:
         "match = re.search(r'\"id\"\\s*:\\s*\"([^\"]+)\"', data)\n"
         "selected = match.group(1) if match else ''\n"
         "payload = {\n"
-        "    'route_type': 'direct_dialog',\n"
+        "    'route_type': 'direct_turn',\n"
         "    'reply': '我先请群成员出来和你连续对齐。',\n"
         "    'reason': '用户想与具体成员进行连续沟通。',\n"
         "    'selected_agent_ids': [selected] if selected else [],\n"
         "    'task_brief': '云端群聊直接对话验证',\n"
         "    'confidence': 0.95,\n"
-        "    'requires_approval': False,\n"
         "    'risk_level': 'low',\n"
         "}\n"
         "sys.stdout.write(json.dumps(payload, ensure_ascii=False))\n",
@@ -125,13 +124,9 @@ def _cloud_group_plan_orchestrator_cli(worker: dict) -> Path:
     script.write_text(
         "import json, os, sys\n"
         "data = os.read(sys.stdin.fileno(), 65536).decode('utf-8', errors='replace')\n"
-        "if '确认' in data or '开始执行' in data or 'approve_plan' in data:\n"
-        "    payload = {\n"
-        "        'action': 'approve_plan',\n"
-        "        'target_plan_id': 'cloud_plan_approval_001',\n"
-        "        'reason': '用户明确确认执行',\n"
-        "    }\n"
-        "else:\n"
+        "if 'Worker submissions:' in data:\n"
+        "    payload = {'phaseSummary': '验收通过', 'tasks': [{'taskId': 'T1', 'decision': 'accepted', 'feedback': '符合标准'}]}\n"
+        "elif '用户跟进消息' not in data:\n"
         "    payload = {\n"
         "        'plan_id': 'cloud_plan_approval_001',\n"
         "        'tasks': [{\n"
@@ -141,8 +136,15 @@ def _cloud_group_plan_orchestrator_cli(worker: dict) -> Path:
         "            'required_skills': ['frontend'],\n"
         f"            'assigned_agent_id': {worker['id']!r},\n"
         f"            'assigned_agent_name': {worker['name']!r},\n"
+        "            'assignment_reason': '负责生成云端前端产物',\n"
         "            'depends_on': [],\n"
         "        }],\n"
+        "    }\n"
+        "else:\n"
+        "    payload = {\n"
+        "        'action': 'approve_plan',\n"
+        "        'target_plan_id': 'cloud_plan_approval_001',\n"
+        "        'reason': '用户明确确认执行',\n"
         "    }\n"
         "sys.stdout.write(json.dumps(payload, ensure_ascii=False))\n",
         encoding="utf-8",
@@ -359,7 +361,7 @@ async def test_cloud_chat_creates_sandbox_artifact_logs_and_persistent_snapshot(
 
 
 @pytest.mark.asyncio
-async def test_cloud_group_chat_uses_desktop_direct_dialog_contract(test_client):
+async def test_cloud_group_chat_uses_desktop_direct_turn_contract(test_client):
     worker, orchestrator, _project, session = await _create_cloud_group_session(test_client)
 
     response = await test_client.post(
@@ -372,15 +374,12 @@ async def test_cloud_group_chat_uses_desktop_direct_dialog_contract(test_client)
     events = _events(response.text)
     types = [event.get("type") for event in events]
     assert "run.started" in types
-    assert "orchestrator.steward_decision" in types
-    assert "group.direct_dialog_started" in types
-    assert "group.direct_dialog_waiting" in types
-    assert "orchestrator.route" not in types
-    assert "orchestrator.task_started" not in types
+    assert "orchestrator.route_decided" in types
+    assert "group.direct_turn_started" in types
     agent_starts = [event for event in events if event.get("type") == "agent.start"]
     assert agent_starts[0]["agentId"] == orchestrator["id"]
     assert any(
-        event["agentId"] == worker["id"] and event.get("task") == "direct dialog"
+        event["agentId"] == worker["id"] and event.get("task") == "direct turn"
         for event in agent_starts
     )
 
@@ -391,7 +390,7 @@ async def test_cloud_group_chat_uses_desktop_direct_dialog_contract(test_client)
         if item["role"] == "assistant" and item["sourceId"] == worker["id"]
     )
     metadata = direct_message["metadata"]
-    assert metadata["groupDialog"]["status"] == "awaiting_user_input"
+    assert metadata["routeMode"] == "direct_turn"
     assert metadata["workspacePath"].startswith("cloud://agenthub/workspaces/")
     assert "artifactWorkspacePath" not in metadata
     assert "D:\\" not in json.dumps(metadata)
@@ -449,6 +448,9 @@ async def test_cloud_group_plan_approval_executes_cloud_task_and_scans_artifacts
     draft_events = _events(draft.text)
     assert "agent.start" in [event.get("type") for event in draft_events]
     assert any(event.get("done") and event.get("messageId") for event in draft_events)
+    draft_messages = (await test_client.get(f"/api/sessions/{session['id']}/messages", headers=OWNER)).json()
+    draft_plan = next(message["metadata"]["orchestratorPlan"]["normalizedPlan"] for message in draft_messages if message.get("metadata") and "orchestratorPlan" in message["metadata"])
+    assert draft_plan["tasks"]
 
     approval = await test_client.post(
         f"/api/sessions/{session['id']}/chat",
@@ -460,10 +462,9 @@ async def test_cloud_group_plan_approval_executes_cloud_task_and_scans_artifacts
     )
     assert approval.status_code == 200, approval.text
     approval_events = _events(approval.text)
-    execution_event = next(
-        event for event in approval_events
-        if event.get("type") == "orchestrator.plan_execution_created"
-    )
+    execution_events = [event for event in approval_events if event.get("type") == "orchestrator.plan_execution_created"]
+    assert execution_events, approval.text
+    execution_event = execution_events[0]
     execution_id = execution_event["executionId"]
 
     completed = None
@@ -476,7 +477,7 @@ async def test_cloud_group_plan_approval_executes_cloud_task_and_scans_artifacts
             break
         await asyncio.sleep(0.05)
     assert completed is not None
-    assert completed["status"] == "completed"
+    assert completed["status"] == "completed", completed
     assert completed["tasks"][0]["runnerType"] == "cli"
     assert completed["tasks"][0]["visibleMessageId"]
 

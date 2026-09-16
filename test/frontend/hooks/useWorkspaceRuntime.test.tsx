@@ -17,7 +17,6 @@ const apiMocks = vi.hoisted(() => ({
   deleteSession: vi.fn(),
   fetchAgents: vi.fn(),
   fetchCurrentUser: vi.fn(),
-  fetchApprovals: vi.fn(),
   fetchArtifacts: vi.fn(),
   fetchMessages: vi.fn(),
   fetchProjects: vi.fn(),
@@ -68,13 +67,11 @@ function resetStores() {
     interactivePrompts: [],
     runs: [],
     tasksByRun: {},
-    approvals: [],
     systemHealth: null,
     healthBlockingError: null,
     messagesBySession: {},
     artifactsBySession: {},
     runsBySession: {},
-    approvalsBySession: {},
     runtimeBySession: {},
     streamingErrorBySession: {},
     activeStreamsByKey: {},
@@ -193,7 +190,6 @@ describe("useWorkspaceRuntime hydration", () => {
     apiMocks.fetchMessages.mockResolvedValue([hydratedMessage]);
     apiMocks.fetchArtifacts.mockResolvedValue([]);
     apiMocks.fetchRuns.mockResolvedValue([]);
-    apiMocks.fetchApprovals.mockResolvedValue([]);
     apiMocks.fetchSystemHealth.mockResolvedValue(null);
     apiMocks.markSessionRead.mockResolvedValue(sessionA);
 
@@ -234,7 +230,6 @@ describe("useWorkspaceRuntime hydration", () => {
     apiMocks.fetchMessages.mockResolvedValue([hydratedMessage]);
     apiMocks.fetchArtifacts.mockResolvedValue([]);
     apiMocks.fetchRuns.mockResolvedValue([]);
-    apiMocks.fetchApprovals.mockResolvedValue([]);
     apiMocks.fetchSystemHealth.mockResolvedValue(null);
     apiMocks.markSessionRead.mockResolvedValue(sessionA);
 
@@ -284,7 +279,6 @@ describe("useWorkspaceRuntime hydration", () => {
     apiMocks.fetchMessages.mockResolvedValue([hydratedMessage]);
     apiMocks.fetchArtifacts.mockResolvedValue([]);
     apiMocks.fetchRuns.mockResolvedValue([]);
-    apiMocks.fetchApprovals.mockResolvedValue([]);
     apiMocks.fetchSystemHealth.mockResolvedValue(null);
 
     const { result } = renderHook(() => useWorkspaceRuntime());

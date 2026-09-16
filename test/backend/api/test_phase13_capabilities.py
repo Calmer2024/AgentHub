@@ -34,6 +34,5 @@ async def test_capabilities_saas_mobile_matrix(test_client, monkeypatch):
     assert body["apiBaseUrl"] == "https://api.agenthub.example"
     assert body["features"]["cloudWorkspace"] is True
     assert body["features"]["notifications"] is True
-    assert body["features"]["mobileApprovals"] is True
     assert body["features"]["localWorkspace"] is False
     assert body["features"]["deployment"] is False

@@ -1,4 +1,4 @@
-"""Bridge CLI adapter events into AgentExecutor TokenEvent streams."""
+"""把 CLI 适配器事件转换为群聊直接回合使用的 TokenEvent。"""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from typing import AsyncIterator
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..domain.execution_planner import AgentCall
+from ..domain.agent_call import AgentCall
 from ..agents.cli_trace import trace_text
 from .engine_session_service import EngineSessionService
 from .execution_trace import utc_iso

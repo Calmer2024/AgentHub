@@ -17,11 +17,11 @@ export function OrchestratorExecutionPanel({ initialExecution }: Props) {
   const [showEvents, setShowEvents] = useState(false);
   const [pollingLost, setPollingLost] = useState(false);
   const [controlBusy, setControlBusy] = useState<"interrupt" | "resume" | "cancel" | null>(null);
-  const isLive = !pollingLost && ["pending", "running", "cancelling"].includes(execution.status);
-  const canInterrupt = !pollingLost && !controlBusy && ["pending", "running", "cancelling"].includes(execution.status);
+  const isLive = !pollingLost && ["pending", "running", "cancelling", "waiting_user"].includes(execution.status);
+  const canInterrupt = !pollingLost && !controlBusy && ["pending", "running", "cancelling", "waiting_user"].includes(execution.status);
   const canResume = !pollingLost && !controlBusy && execution.status === "interrupted";
   const canAbandon = !pollingLost && !controlBusy && execution.status === "interrupted";
-  const completed = execution.tasks.filter((task) => task.status === "completed").length;
+  const completed = execution.tasks.filter((task) => ["accepted", "completed"].includes(task.status)).length;
   const progress = execution.tasks.length ? Math.round((completed / execution.tasks.length) * 100) : 0;
   const phases = useMemo(() => groupTasksByPhase(execution.tasks), [execution.tasks]);
 
@@ -242,7 +242,7 @@ function TaskRow({ task }: { task: OrchestratorExecutionTask }) {
 }
 
 function StatusBadge({ status, live, stale }: { status: string; live: boolean; stale: boolean }) {
-  const cls = status === "completed"
+  const cls = status === "completed" || status === "accepted"
     ? "agenthub-status-success"
     : status === "failed" || status === "error"
       ? "agenthub-status-error"
@@ -262,7 +262,7 @@ function StatusBadge({ status, live, stale }: { status: string; live: boolean; s
 }
 
 function TaskStatus({ status }: { status: string }) {
-  const cls = status === "completed"
+  const cls = status === "completed" || status === "accepted"
     ? "text-[color:var(--ah-success)]"
     : status === "failed" || status === "error"
       ? "text-[color:var(--ah-danger)]"
@@ -270,12 +270,12 @@ function TaskStatus({ status }: { status: string }) {
         ? "text-[color:var(--ah-warning)]"
       : status === "cancelled"
         ? "agenthub-faint"
-      : status === "running"
+      : status === "running" || status === "reviewing"
         ? "text-[color:var(--ah-info)]"
         : "agenthub-faint";
-  const icon = status === "completed"
+  const icon = status === "completed" || status === "accepted"
     ? <CheckCircle2 size={13} />
-    : status === "running"
+    : status === "running" || status === "reviewing"
       ? <Clock3 size={13} className="animate-pulse" />
       : status === "failed" || status === "error" || status === "cancelled"
         ? <XCircle size={13} />
@@ -290,6 +290,10 @@ function TaskStatus({ status }: { status: string }) {
 
 function statusLabel(status: string) {
   if (status === "completed") return "completed";
+  if (status === "accepted") return "accepted";
+  if (status === "submitted") return "submitted";
+  if (status === "reviewing") return "reviewing";
+  if (status === "blocked" || status === "waiting_user") return "waiting for orchestrator";
   if (status === "running") return "running";
   if (status === "cancelling") return "cancelling";
   if (status === "interrupted") return "interrupted";

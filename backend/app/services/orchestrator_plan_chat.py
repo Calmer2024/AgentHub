@@ -7,6 +7,7 @@ from typing import AsyncGenerator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..database import AsyncSessionLocal
 from ..agents.cli_trace import trace_text
 from ..domain.orchestrator_plan import (
     build_plan_followup_prompt,
@@ -16,7 +17,6 @@ from ..domain.orchestrator_plan import (
     validate_plan,
     visualize_mermaid,
 )
-from ..domain.agent_selector import AgentSelector
 from ..models import AgentConfig, Message as DBMessage, Session as DBSession, SessionMember
 from .cli_agent_service import CliAgentService
 from .cli_session_runtime import (
@@ -29,8 +29,12 @@ from .cli_session_runtime import (
 )
 from .execution_trace import ExecutionTraceBuilder, merge_trace_metadata
 from .file_change_detector import FileChangeDetector
-from .group_direct_dialog import GroupDirectDialog
-from .orchestrator_execution import PlanExecutionError, execution_registry
+from .orchestrator_execution import (
+    OrchestratorPhaseReviewer,
+    PlanExecutionError,
+    execution_registry,
+)
+from .orchestrator_plan_service import OrchestratorPlanNotFoundError, OrchestratorPlanService
 from .run_service import RunService, run_to_read, task_to_read
 
 
@@ -40,14 +44,11 @@ class OrchestratorPlanChat:
         db: AsyncSession,
         detector: FileChangeDetector | None = None,
         cli_agents: CliAgentService | None = None,
-        direct_dialog: GroupDirectDialog | None = None,
         execution_task_runner=None,
     ):
         self.db = db
-        self._agent_selector = AgentSelector()
         self._detector = detector or FileChangeDetector()
         self._cli_agents = cli_agents or CliAgentService()
-        self._direct_dialog = direct_dialog
         self._execution_task_runner = execution_task_runner
 
     async def send(
@@ -310,6 +311,7 @@ class OrchestratorPlanChat:
                         metadata=metadata,
                         trace=trace,
                         run_id=run_id,
+                        history=history,
                     ):
                         yield item
                     return
@@ -320,23 +322,6 @@ class OrchestratorPlanChat:
                         agent=orchestrator_agent,
                         plan=latest_plan,
                         action=parsed,
-                        metadata=metadata,
-                        trace=trace,
-                        run_id=run_id,
-                    ):
-                        yield item
-                    return
-                if action == "start_direct_dialog":
-                    async for item in self._start_direct_dialog_from_action(
-                        session_id=session_id,
-                        content=content,
-                        history=history,
-                        workspace_path=workspace_path,
-                        agent=orchestrator_agent,
-                        member_agents=member_agents,
-                        plan=latest_plan,
-                        action=parsed,
-                        message_id=message_id,
                         metadata=metadata,
                         trace=trace,
                         run_id=run_id,
@@ -392,6 +377,13 @@ class OrchestratorPlanChat:
                 }
             }, trace),
         )
+        await OrchestratorPlanService(self.db).create_or_update_from_normalized_plan(
+            session_id=session_id,
+            normalized_plan=plan,
+            run_id=run_id,
+            orchestrator_agent_id=orchestrator_agent.id,
+            agent_scope=[str(item["id"]) for item in candidate_agents],
+        )
         if is_followup and latest_plan:
             previous_plan_id = str(latest_plan.get("plan_id") or "")
             next_plan_id = str(plan.get("plan_id") or "")
@@ -421,20 +413,32 @@ class OrchestratorPlanChat:
         metadata: dict,
         trace: ExecutionTraceBuilder,
         run_id: str | None = None,
+        history: list[dict] | None = None,
     ) -> AsyncGenerator[str, None]:
         member_agents = await self._member_agents(session_id)
-        executable_agents = [
+        worker_agents = [
             member for member in member_agents
             if member.id != agent.id and (member.primary_skill or "") != "orchestrator_planner"
         ]
-        plan, assignment_fixups = self._fill_missing_assignments(plan, executable_agents)
+        assigned_scope = {
+            str(task.get("assigned_agent_id") or "")
+            for task in plan.get("tasks") or []
+            if isinstance(task, dict) and task.get("assigned_agent_id")
+        }
+        active_worker_ids = {member.id for member in worker_agents}
         try:
             execution = execution_registry.create_execution(
                 session_id=session_id,
                 plan=plan,
-                active_agent_ids={member.id for member in member_agents},
+                active_agent_ids=assigned_scope & active_worker_ids,
                 auto_start=False,
                 task_runner=self._execution_task_runner,
+                phase_reviewer=OrchestratorPhaseReviewer(
+                    AsyncSessionLocal,
+                    self._cli_agents,
+                ),
+                orchestrator_agent_id=agent.id,
+                group_context=history,
             )
         except PlanExecutionError as exc:
             content = "计划暂时无法进入执行：\n" + "\n".join(f"- {error}" for error in exc.errors)
@@ -493,11 +497,6 @@ class OrchestratorPlanChat:
             f"已确认计划 {execution['planId']}，创建执行 {execution['executionId']}。\n"
             f"Scheduler 已启动，{len(execution['tasks'])} 个任务将按 DAG 异步推进。"
         )
-        if assignment_fixups:
-            content += "\n" + "；".join(
-                f"已自动将 {item['taskId']} 分配给 @{item['agentName']}"
-                for item in assignment_fixups
-            )
         await self._persist_orchestrator_message(
             session_id=session_id,
             message_id=message_id,
@@ -507,8 +506,14 @@ class OrchestratorPlanChat:
                 **metadata,
                 "orchestratorAction": action,
                 "orchestratorExecution": execution,
-                "orchestratorAssignmentFixups": assignment_fixups,
             }, trace),
+        )
+        await OrchestratorPlanService(self.db).create_or_update_from_normalized_plan(
+            session_id=session_id,
+            normalized_plan=plan,
+            run_id=run_id,
+            orchestrator_agent_id=agent.id,
+            agent_scope=sorted(assigned_scope),
         )
         await self._mark_plan_status(
             session_id=session_id,
@@ -616,135 +621,6 @@ class OrchestratorPlanChat:
         })
         yield self._sse({"token": "", "done": True, "messageId": message_id})
 
-    async def _start_direct_dialog_from_action(
-        self,
-        *,
-        session_id: str,
-        content: str,
-        history: list[dict],
-        workspace_path: str,
-        agent: AgentConfig,
-        member_agents: list[AgentConfig],
-        plan: dict,
-        action: dict,
-        message_id: str,
-        metadata: dict,
-        trace: ExecutionTraceBuilder,
-        run_id: str | None = None,
-        pinned_message_ids: list[str] | None = None,
-    ) -> AsyncGenerator[str, None]:
-        selected_id = str(action.get("selected_agent_id") or action.get("selectedAgentId") or "")
-        target = next(
-            (
-                member for member in member_agents
-                if member.id == selected_id and member.id != agent.id
-                and (member.primary_skill or "") != "orchestrator_planner"
-            ),
-            None,
-        )
-        if not target:
-            content_text = "无法切换到直接对话：调度器没有选择有效的群成员 Agent。"
-            await self._persist_orchestrator_message(
-                session_id=session_id,
-                message_id=message_id,
-                agent=agent,
-                content=content_text,
-                metadata=merge_trace_metadata({
-                    **metadata,
-                    "orchestratorAction": action,
-                    "orchestratorActionError": "selected_agent_id 无效",
-                }, trace),
-            )
-            yield self._sse({
-                "type": "agent.output",
-                "agentId": agent.id,
-                "agentName": agent.name,
-                "token": content_text,
-                "messageId": message_id,
-                "role": "planner",
-                "phase": 0,
-                "task": "start direct dialog",
-                "callKey": self._call_key(agent.id, "start direct dialog", 0),
-                "chunk": content_text,
-                "chunkType": "text",
-                "done": False,
-            })
-            if run_id:
-                async for item in self._mark_run_failed(
-                    run_id=run_id,
-                    message_id=message_id,
-                    error="selected_agent_id 无效",
-                ):
-                    yield item
-            yield self._sse({"token": "", "done": True, "messageId": message_id})
-            return
-
-        plan_id = str(action.get("target_plan_id") or plan.get("plan_id") or "")
-        reason = str(action.get("reason") or "用户切换为直接对话")
-        dialog_goal = str(action.get("dialog_goal") or action.get("dialogGoal") or content)
-        content_text = f"已暂停计划 {plan_id}，切换到 @{target.name} 单独对齐。"
-        await self._persist_orchestrator_message(
-            session_id=session_id,
-            message_id=message_id,
-            agent=agent,
-            content=content_text,
-            metadata=merge_trace_metadata({
-                **metadata,
-                "orchestratorAction": {
-                    **action,
-                    "action": "start_direct_dialog",
-                    "target_plan_id": plan_id,
-                    "selected_agent_id": target.id,
-                    "selected_agent_name": target.name,
-                    "dialog_goal": dialog_goal,
-                    "reason": reason,
-                },
-                "orchestratorPlanState": {
-                    "planId": plan_id,
-                    "status": "suspended_for_direct_dialog",
-                    "reason": reason,
-                },
-            }, trace),
-        )
-        await self._mark_plan_status(
-            session_id=session_id,
-            plan_id=plan_id,
-            status="discarded",
-            action_message_id=message_id,
-        )
-        yield self._sse({
-            "type": "agent.output",
-            "agentId": agent.id,
-            "agentName": agent.name,
-            "token": content_text,
-            "messageId": message_id,
-            "role": "planner",
-            "phase": 0,
-            "task": "start direct dialog",
-            "callKey": self._call_key(agent.id, "start direct dialog", 0),
-            "chunk": content_text,
-            "chunkType": "text",
-            "done": False,
-        })
-
-        session = await self.db.get(DBSession, session_id)
-        if not session:
-            yield self._sse({"token": "", "done": True, "messageId": message_id, "error": "Session 不存在"})
-            return
-        direct_dialog = self._direct_dialog or GroupDirectDialog(self.db)
-        async for item in direct_dialog.send(
-            session=session,
-            content=content,
-            history=history,
-            workspace_path=workspace_path,
-            agent=target,
-            run_id=run_id,
-            pinned_message_ids=pinned_message_ids,
-            goal=dialog_goal,
-            source="plan_followup",
-        ):
-            yield item
-
     async def _bind_planner_runtime(
         self,
         *,
@@ -802,8 +678,7 @@ class OrchestratorPlanChat:
                     "executionId": execution["executionId"],
                     "planId": execution["planId"],
                     "orchestratorTaskId": task.get("taskId"),
-                    "requiresHumanApproval": bool(task.get("needsApproval")),
-                    "approvalTitle": f"确认 {task.get('title') or task.get('taskId')}",
+                    "maxAttempts": int(task.get("maxAttempts") or 3),
                 },
             )
             runtime_task_ids[str(task.get("taskId"))] = runtime_task.id
@@ -899,71 +774,8 @@ class OrchestratorPlanChat:
         except Exception:
             return []
 
-    def _fill_missing_assignments(
-        self,
-        plan: dict,
-        candidates: list[AgentConfig],
-    ) -> tuple[dict, list[dict]]:
-        next_plan = json.loads(json.dumps(plan, ensure_ascii=False))
-        fixups: list[dict] = []
-        tasks = next_plan.get("tasks")
-        if not isinstance(tasks, list) or not candidates:
-            return next_plan, fixups
-
-        for task in tasks:
-            if not isinstance(task, dict) or task.get("assigned_agent_id"):
-                continue
-            scored = self._agent_selector.select(
-                [str(skill) for skill in task.get("required_skills") or []],
-                candidates,
-            )
-            if not scored:
-                continue
-            selected = scored[0].agent
-            task["assigned_agent_id"] = selected.id
-            task["assigned_agent_name"] = selected.name
-            task["assignment_reason"] = (
-                task.get("assignment_reason")
-                or f"执行前按 required_skills 自动匹配给 {selected.name}"
-            )
-            fixups.append({
-                "taskId": str(task.get("task_id") or ""),
-                "agentId": selected.id,
-                "agentName": selected.name,
-                "requiredSkills": [str(skill) for skill in task.get("required_skills") or []],
-            })
-        return next_plan, fixups
-
     async def _latest_orchestrator_plan(self, session_id: str) -> dict | None:
-        terminal_plan_ids: set[str] = set()
-        rows = await self.db.execute(
-            select(DBMessage)
-            .where(DBMessage.session_id == session_id, DBMessage.role == "assistant")
-            .order_by(DBMessage.created_at.desc(), DBMessage.id.desc())
-            .limit(20)
-        )
-        for message in rows.scalars().all():
-            try:
-                metadata = json.loads(message.metadata_json or "{}")
-            except json.JSONDecodeError:
-                continue
-            action_meta = metadata.get("orchestratorAction")
-            if isinstance(action_meta, dict):
-                action = str(action_meta.get("action") or "")
-                target_plan_id = str(action_meta.get("target_plan_id") or action_meta.get("targetPlanId") or "")
-                if action in {"approve_plan", "discard_plan"} and target_plan_id:
-                    terminal_plan_ids.add(target_plan_id)
-            plan_meta = metadata.get("orchestratorPlan")
-            if not isinstance(plan_meta, dict):
-                continue
-            plan = plan_meta.get("normalizedPlan")
-            if isinstance(plan, dict):
-                plan_id = str(plan.get("plan_id") or "")
-                status = str(plan.get("status") or "draft")
-                if plan_id in terminal_plan_ids or status in {"approved", "discarded", "revised", "cancelled"}:
-                    return None
-                return plan
-        return None
+        return await OrchestratorPlanService(self.db).latest_draft(session_id)
 
     async def has_latest_orchestrator_plan(self, session_id: str) -> bool:
         return await self._latest_orchestrator_plan(session_id) is not None
@@ -1000,6 +812,10 @@ class OrchestratorPlanChat:
         action_message_id: str,
     ) -> None:
         if not plan_id:
+            return
+        try:
+            await OrchestratorPlanService(self.db).update_status(plan_id, status)
+        except OrchestratorPlanNotFoundError:
             return
         rows = await self.db.execute(
             select(DBMessage)
@@ -1052,17 +868,10 @@ class OrchestratorPlanChat:
 
     @staticmethod
     def _agent_snapshot(agent: AgentConfig) -> dict:
-        try:
-            auxiliary = json.loads(agent.auxiliary_skills or "[]")
-        except json.JSONDecodeError:
-            auxiliary = []
         return {
             "id": agent.id,
             "name": agent.name,
-            "engine": agent.cli_tool or "custom",
-            "primary_skill": agent.primary_skill or "general_coding",
-            "auxiliary_skills": auxiliary if isinstance(auxiliary, list) else [],
-            "context_policy": agent.context_policy or "workspace_coding",
+            "description": agent.description or "",
         }
 
     @staticmethod

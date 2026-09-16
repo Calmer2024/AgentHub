@@ -32,13 +32,11 @@ function resetChatStore() {
     interactivePrompts: [],
     runs: [],
     tasksByRun: {},
-    approvals: [],
     systemHealth: null,
     healthBlockingError: null,
     messagesBySession: {},
     artifactsBySession: {},
     runsBySession: {},
-    approvalsBySession: {},
     runtimeBySession: {},
     streamingErrorBySession: {},
     activeStreamsByKey: {},
@@ -556,25 +554,15 @@ describe("Chat Store (split)", () => {
     expect(state.messages.some((message) => message.content.includes("本次运行已中止成功"))).toBe(true);
   });
 
-  it("chatStore 保存 DAG 协作快照", () => {
-    useChatStore.getState().saveCollab("s-dag", {
+  it("chatStore 保存统一路由快照", () => {
+    useChatStore.getState().saveCollab("s-route", {
       routeAgents: [{ id: "a1", name: "架构师" }],
-      collabTasks: [{ name: "planning", role: "planner", agent: "架构师", status: "running", phase: 0 }],
-      dagPhases: [{
-        phase: 0,
-        mode: "serial",
-        status: "running",
-        tasks: [{ name: "planning", role: "planner", agent: "架构师", status: "running", phase: 0 }],
-      }],
-      chainSteps: [],
-      orchestratorIntent: "code_gen",
-      planSummary: "已安排: 先由@架构师规划。",
-      collabCompleted: false,
-      collabSummary: null,
-      draftPlan: null,
+      routeType: "orchestrated_run",
+      routeReason: "项目Leader将生成协作计划",
     });
-    expect(useChatStore.getState().getCollab("s-dag").dagPhases[0].phase).toBe(0);
-    expect(useChatStore.getState().getCollab("s-dag").planSummary).toContain("架构师");
+    const route = useChatStore.getState().getCollab("s-route");
+    expect(route.routeType).toBe("orchestrated_run");
+    expect(route.routeAgents?.[0].id).toBe("a1");
   });
 
   it("服务端结构化调度计划水合后替换本地 planner 占位气泡", () => {

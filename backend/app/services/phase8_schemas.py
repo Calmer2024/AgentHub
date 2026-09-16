@@ -89,13 +89,6 @@ class ContextPackPreviewRead(BaseModel):
     model_config = {"populate_by_name": True}
 
 
-class OrchestratorPlanResumeRequest(BaseModel):
-    approval_id: str | None = Field(default=None, alias="approvalId")
-    message: str | None = None
-
-    model_config = {"populate_by_name": True}
-
-
 class OrchestratorPlanStepRead(BaseModel):
     id: str
     title: str

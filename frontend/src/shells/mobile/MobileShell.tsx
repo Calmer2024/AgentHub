@@ -4,7 +4,6 @@ import {
   ArrowLeft,
   Bell,
   BellOff,
-  CheckCircle2,
   FileCode2,
   FileImage,
   FileText,
@@ -18,7 +17,6 @@ import {
   RotateCcw,
   Search,
   Send,
-  ShieldCheck,
   User,
   Users,
   X,
@@ -28,8 +26,6 @@ import {
 import {
   archiveSession,
   createChatStream,
-  decideMobileApproval,
-  fetchApprovals,
   fetchArtifacts,
   fetchCurrentUser,
   fetchMessages,
@@ -44,7 +40,6 @@ import {
   renderArtifact,
 } from "../../api/client";
 import type {
-  ApprovalCheckpoint,
   Artifact,
   CurrentUser,
   Message,
@@ -59,7 +54,7 @@ import { getArtifactPreviewInfo } from "../../utils/artifactPreview";
 import { ProjectFileWorkspaceModal } from "../../components/ProjectFileWorkspaceModal";
 import { BrandLogo } from "../../components/BrandLogo";
 
-type MobilePane = "inbox" | "chat" | "artifacts" | "approvals" | "notifications";
+type MobilePane = "inbox" | "chat" | "artifacts" | "notifications";
 type SessionsByProject = Record<string, Session[]>;
 
 export function MobileShell() {
@@ -72,7 +67,6 @@ export function MobileShell() {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
-  const [approvals, setApprovals] = useState<ApprovalCheckpoint[]>([]);
   const [members, setMembers] = useState<SessionMember[]>([]);
   const [renderedArtifact, setRenderedArtifact] = useState<RenderedArtifact | null>(null);
   const [search, setSearch] = useState("");
@@ -85,7 +79,6 @@ export function MobileShell() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [streamingSessionId, setStreamingSessionId] = useState<string | null>(null);
   const [streamProgress, setStreamProgress] = useState<string | null>(null);
-  const [busyApprovalId, setBusyApprovalId] = useState<string | null>(null);
   const [busySessionAction, setBusySessionAction] = useState<string | null>(null);
   const [busyNotificationId, setBusyNotificationId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -117,7 +110,6 @@ export function MobileShell() {
     : activeProject;
   const unreadTotal = allSessions.reduce((total, session) => total + (session.unreadCount ?? 0), 0);
   const unreadNotifications = notifications.filter((notification) => !notification.readAt).length;
-  const pendingApprovals = approvals.filter((approval) => approval.status === "pending_review");
   const isStreaming = Boolean(activeSessionId && streamingSessionId === activeSessionId);
 
   const patchSession = useCallback((nextSession: Session) => {
@@ -191,15 +183,13 @@ export function MobileShell() {
     setDetailLoading(true);
     setError(null);
     try {
-      const [messageItems, artifactItems, approvalItems, memberItems] = await Promise.all([
+      const [messageItems, artifactItems, memberItems] = await Promise.all([
         fetchMessages(sessionId),
         fetchArtifacts(sessionId),
-        fetchApprovals(sessionId),
         sessionMode === "group" ? fetchSessionMembers(sessionId).catch(() => []) : Promise.resolve([]),
       ]);
       setMessages(messageItems);
       setArtifacts(artifactItems);
-      setApprovals(approvalItems);
       setMembers(memberItems);
       setRenderedArtifact(null);
       markSessionRead(sessionId)
@@ -223,7 +213,6 @@ export function MobileShell() {
     }
     setMessages([]);
     setArtifacts([]);
-    setApprovals([]);
     setMembers([]);
     setRenderedArtifact(null);
   }, [activeSession?.id, activeSession?.mode, loadSessionDetail]);
@@ -259,22 +248,6 @@ export function MobileShell() {
     }
   };
 
-  const decideApproval = async (approval: ApprovalCheckpoint, decision: "approve" | "reject") => {
-    setBusyApprovalId(approval.id);
-    setError(null);
-    try {
-      await decideMobileApproval(approval.id, {
-        decision,
-        comment: decision === "approve" ? "移动端同意" : "移动端驳回",
-      });
-      if (activeSession) await loadSessionDetail(activeSession.id, activeSession.mode);
-      await loadOverview(true);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "审批操作失败");
-    } finally {
-      setBusyApprovalId(null);
-    }
-  };
 
   const runSessionAction = async (key: string, action: () => Promise<Session>) => {
     setBusySessionAction(key);
@@ -314,13 +287,6 @@ export function MobileShell() {
     setArtifacts((current) => {
       const exists = current.some((item) => item.id === artifact.id);
       return exists ? current.map((item) => (item.id === artifact.id ? artifact : item)) : [artifact, ...current];
-    });
-  }, []);
-
-  const upsertApproval = useCallback((approval: ApprovalCheckpoint) => {
-    setApprovals((current) => {
-      const exists = current.some((item) => item.id === approval.id);
-      return exists ? current.map((item) => (item.id === approval.id ? approval : item)) : [approval, ...current];
     });
   }, []);
 
@@ -377,8 +343,6 @@ export function MobileShell() {
         if (item.title || item.text) setStreamProgress(item.title ?? item.text);
       },
       onArtifactCreated: upsertArtifact,
-      onApprovalCreated: upsertApproval,
-      onApprovalStatusChanged: upsertApproval,
       onSessionTitleUpdated: patchSession,
       onDone: (_messageId, streamError) => {
         abortStreamRef.current = null;
@@ -396,7 +360,6 @@ export function MobileShell() {
         Promise.all([
           fetchMessages(activeSessionId).then(setMessages),
           fetchArtifacts(activeSessionId).then(setArtifacts),
-          fetchApprovals(activeSessionId).then(setApprovals),
           markSessionRead(activeSessionId).then(patchSession).catch(() => undefined),
           loadOverview(true),
         ]).catch((err) => {
@@ -455,7 +418,6 @@ export function MobileShell() {
             project={activeSessionProject}
             messages={messages}
             artifacts={artifacts}
-            approvals={pendingApprovals}
             members={members}
             composer={composer}
             loading={detailLoading}
@@ -467,7 +429,6 @@ export function MobileShell() {
             onSend={sendMessage}
             onStopStreaming={stopStreaming}
             onOpenArtifact={(artifact) => void openArtifact(artifact)}
-            onOpenApprovals={() => setPane("approvals")}
             onPin={(session) => void runSessionAction(
               "pin",
               () => pinSession(session.id, !session.isPinned),
@@ -490,15 +451,6 @@ export function MobileShell() {
             onBack={() => setPane("chat")}
             onOpenArtifact={(artifact) => void openArtifact(artifact)}
           />
-        ) : pane === "approvals" ? (
-          <ApprovalPane
-            approvals={pendingApprovals}
-            session={activeSession}
-            busyApprovalId={busyApprovalId}
-            onBack={() => setPane("chat")}
-            onApprove={(approval) => void decideApproval(approval, "approve")}
-            onReject={(approval) => void decideApproval(approval, "reject")}
-          />
         ) : (
           <NotificationPane
             notifications={notifications}
@@ -508,11 +460,10 @@ export function MobileShell() {
         )}
       </section>
 
-      <nav className="grid shrink-0 grid-cols-5 border-t bg-[color:var(--ah-header-bg)] px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur" style={{ borderColor: "var(--ah-border)" }}>
+      <nav className="grid shrink-0 grid-cols-4 border-t bg-[color:var(--ah-header-bg)] px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur" style={{ borderColor: "var(--ah-border)" }}>
         <MobileNavButton icon={Inbox} label="项目" active={pane === "inbox"} count={unreadTotal} onClick={() => setPane("inbox")} />
         <MobileNavButton icon={MessageCircle} label="对话" active={pane === "chat"} disabled={!activeSession} onClick={() => setPane("chat")} />
         <MobileNavButton icon={FileText} label="产物" active={pane === "artifacts"} count={artifacts.length} disabled={!activeSession} onClick={() => setPane("artifacts")} />
-        <MobileNavButton icon={ShieldCheck} label="审批" active={pane === "approvals"} count={pendingApprovals.length} disabled={!activeSession} onClick={() => setPane("approvals")} />
         <MobileNavButton icon={Bell} label="通知" active={pane === "notifications"} count={unreadNotifications} onClick={() => setPane("notifications")} />
       </nav>
 
@@ -768,7 +719,6 @@ function ChatPane({
   project,
   messages,
   artifacts,
-  approvals,
   members,
   composer,
   loading,
@@ -780,7 +730,6 @@ function ChatPane({
   onSend,
   onStopStreaming,
   onOpenArtifact,
-  onOpenApprovals,
   onPin,
   onMute,
   onArchive,
@@ -789,7 +738,6 @@ function ChatPane({
   project: Project | null;
   messages: Message[];
   artifacts: Artifact[];
-  approvals: ApprovalCheckpoint[];
   members: SessionMember[];
   composer: string;
   loading: boolean;
@@ -801,7 +749,6 @@ function ChatPane({
   onSend: (event: FormEvent<HTMLFormElement>) => void;
   onStopStreaming: () => void;
   onOpenArtifact: (artifact: Artifact) => void;
-  onOpenApprovals: () => void;
   onPin: (session: Session) => void;
   onMute: (session: Session) => void;
   onArchive: (session: Session) => void;
@@ -825,23 +772,13 @@ function ChatPane({
           <IconButton icon={session.isMuted ? Bell : BellOff} label={session.isMuted ? "关闭免打扰" : "开启免打扰"} busy={busyAction === "mute"} onClick={() => onMute(session)} />
           <IconButton icon={session.archivedAt ? RotateCcw : Archive} label={session.archivedAt ? "恢复对话" : "归档对话"} busy={busyAction === "archive"} onClick={() => onArchive(session)} />
         </div>
-        {(members.length > 0 || approvals.length > 0 || artifacts.length > 0) && (
+        {(members.length > 0 || artifacts.length > 0) && (
           <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
             {members.slice(0, 6).map((member) => (
               <span key={member.agentConfigId} className="shrink-0 rounded-full border px-2 py-1 text-[11px] text-[color:var(--ah-muted)]" style={{ borderColor: "var(--ah-border)" }}>
                 {member.agentName}
               </span>
             ))}
-            {approvals.length > 0 && (
-              <button
-                type="button"
-                onClick={onOpenApprovals}
-                className="shrink-0 rounded-full border px-2 py-1 text-[11px] text-[color:var(--ah-warning)]"
-                style={{ borderColor: "color-mix(in srgb, var(--ah-warning) 40%, transparent)" }}
-              >
-                {approvals.length} 个待审批
-              </button>
-            )}
             {artifacts.length > 0 && (
               <span className="shrink-0 rounded-full border px-2 py-1 text-[11px] text-[color:var(--ah-muted)]" style={{ borderColor: "var(--ah-border)" }}>
                 {artifacts.length} 个产物
@@ -1078,65 +1015,6 @@ function ArtifactPane({
   );
 }
 
-function ApprovalPane({
-  approvals,
-  session,
-  busyApprovalId,
-  onBack,
-  onApprove,
-  onReject,
-}: {
-  approvals: ApprovalCheckpoint[];
-  session: Session | null;
-  busyApprovalId: string | null;
-  onBack: () => void;
-  onApprove: (approval: ApprovalCheckpoint) => void;
-  onReject: (approval: ApprovalCheckpoint) => void;
-}) {
-  return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden">
-      <PaneHeader icon={ArrowLeft} title="移动审批" subtitle={session?.title ?? "当前对话"} onIconClick={onBack} />
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-        {approvals.length === 0 ? (
-          <EmptyState title="暂无待审批" detail="需要你处理的运行确认会显示在这里。" compact />
-        ) : (
-          <div className="space-y-3">
-            {approvals.map((approval) => {
-              const busy = busyApprovalId === approval.id;
-              return (
-                <article key={approval.id} className="rounded-lg border bg-[color:var(--ah-card-bg)] px-3 py-3" style={{ borderColor: "var(--ah-border)" }}>
-                  <p className="text-sm font-semibold text-[color:var(--ah-text-strong)]">{approval.title}</p>
-                  <p className="mt-1 text-sm leading-6 text-[color:var(--ah-muted)]">{approval.summary}</p>
-                  <div className="mt-3 grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => onReject(approval)}
-                      disabled={busy}
-                      className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border text-sm text-[color:var(--ah-danger)] disabled:opacity-50"
-                      style={{ borderColor: "color-mix(in srgb, var(--ah-danger) 34%, transparent)" }}
-                    >
-                      {busy ? <Loader2 size={15} className="animate-spin" /> : <XCircle size={15} />}
-                      驳回
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onApprove(approval)}
-                      disabled={busy}
-                      className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-[color:var(--ah-primary-bg)] text-sm font-medium text-[color:var(--ah-primary-text)] disabled:opacity-50"
-                    >
-                      {busy ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle2 size={15} />}
-                      同意
-                    </button>
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
 
 function NotificationPane({
   notifications,

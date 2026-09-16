@@ -43,7 +43,6 @@ class EngineSessionService:
     ) -> EngineSessionInvocation:
         if not supported:
             return EngineSessionInvocation()
-
         active = await self.get_active(
             session_id=session_id,
             agent_config_id=agent_config_id,

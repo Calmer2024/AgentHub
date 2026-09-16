@@ -1,14 +1,9 @@
-import json
-
 import pytest
 
 from app.models import (
-    ApprovalCheckpoint,
     Artifact,
     Message,
     Project,
-    Run,
-    RunTask,
     Session,
 )
 
@@ -188,60 +183,14 @@ async def test_attachment_context_forward_reference_and_local_chat_regression(te
 
 
 @pytest.mark.asyncio
-async def test_mobile_sessions_approval_decision_and_advanced_artifacts(test_client, db_session):
+async def test_mobile_sessions_and_advanced_artifacts(test_client, db_session):
     project, session = await _cloud_project_session(test_client, title="Phase12 Mobile")
     message, artifact = await _persist_message_and_artifact(db_session, project["id"], session["id"])
-    run = Run(
-        id="phase12-run",
-        session_id=session["id"],
-        project_id=project["id"],
-        mode="single",
-        status="waiting_input",
-    )
-    task = RunTask(
-        id="phase12-task",
-        run_id=run.id,
-        session_id=session["id"],
-        agent_id=None,
-        name="primary",
-        status="waiting_input",
-    )
-    approval = ApprovalCheckpoint(
-        id="phase12-approval",
-        run_id=run.id,
-        task_id=task.id,
-        session_id=session["id"],
-        message_id=message.id,
-        artifact_id=artifact.id,
-        title="移动端审批",
-        summary="确认后继续",
-        status="pending_review",
-        metadata_json=json.dumps({"source": "test"}, ensure_ascii=False),
-    )
-    db_session.add(run)
-    db_session.add(task)
-    db_session.add(approval)
     await db_session.commit()
 
     mobile = await test_client.get("/api/mobile/sessions", headers=OWNER)
     assert mobile.status_code == 200
-    summary = next(item for item in mobile.json() if item["id"] == session["id"])
-    assert summary["pendingApprovalCount"] == 1
-
-    decided = await test_client.post(
-        f"/api/mobile/approvals/{approval.id}/decision",
-        json={"decision": "approve", "comment": "移动端同意"},
-        headers=OWNER,
-    )
-    assert decided.status_code == 202, decided.text
-    assert decided.json()["status"] == "approved"
-
-    duplicate = await test_client.post(
-        f"/api/mobile/approvals/{approval.id}/decision",
-        json={"decision": "reject", "comment": "重复操作"},
-        headers=OWNER,
-    )
-    assert duplicate.status_code == 409
+    assert any(item["id"] == session["id"] for item in mobile.json())
 
     rendered = await test_client.get(f"/api/artifacts/{artifact.id}/render?format=html", headers=OWNER)
     assert rendered.status_code == 200

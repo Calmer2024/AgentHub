@@ -77,7 +77,7 @@ describe("createChatStream", () => {
     createChatStream("s1", "hello", [], {
       onToken: vi.fn(),
       onDone: vi.fn(),
-    }, undefined, null, ["att-1"]);
+    }, undefined, ["att-1"]);
 
     await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
     const init = vi.mocked(globalThis.fetch).mock.calls[0][1] as RequestInit;
@@ -87,68 +87,11 @@ describe("createChatStream", () => {
     });
   });
 
-  it("把带 done 的 orchestrator.task_completed 视为群聊正常结束", async () => {
-    const onDone = vi.fn();
-    const onTaskCompleted = vi.fn();
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(sseResponse([
-      JSON.stringify({ type: "orchestrator.task_completed", summary: "4 agents completed", done: true }),
-    ]));
-
-    createChatStream("s1", "hello", [], {
-      onToken: vi.fn(),
-      onDone,
-      onTaskCompleted,
-    });
-
-    await vi.waitFor(() => expect(onDone).toHaveBeenCalled());
-    expect(onTaskCompleted).toHaveBeenCalledWith("4 agents completed");
-    expect(onDone).toHaveBeenCalledWith(undefined, undefined);
-  });
-
-  it("不会把云端单个 Agent 的 task_completed 当作整轮结束", async () => {
-    const onDone = vi.fn();
-    const onTaskCompleted = vi.fn();
-    const onAgentToken = vi.fn();
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(sseResponse([
-      JSON.stringify({ type: "orchestrator.task_completed", summary: "产品经理 completed" }),
-      JSON.stringify({
-        type: "agent.output",
-        agentId: "designer",
-        agentName: "UI 设计师",
-        messageId: "m-designer",
-        callKey: "designer:1:primary",
-        token: "后续设计输出",
-        chunkType: "text",
-      }),
-      JSON.stringify({ token: "", done: true, messageId: "m-final" }),
-    ]));
-
-    createChatStream("s1", "hello", [], {
-      onToken: vi.fn(),
-      onDone,
-      onTaskCompleted,
-      onAgentToken,
-    });
-
-    await vi.waitFor(() => expect(onDone).toHaveBeenCalled());
-    expect(onTaskCompleted).toHaveBeenCalledWith("产品经理 completed");
-    expect(onAgentToken).toHaveBeenCalledWith(
-      "designer",
-      "UI 设计师",
-      "后续设计输出",
-      "m-designer",
-      undefined,
-      undefined,
-      undefined,
-    );
-    expect(onDone).toHaveBeenCalledWith("m-final", undefined);
-  });
-
   it("群聊完成后继续读取会话标题更新事件", async () => {
     const onDone = vi.fn();
     const onSessionTitleUpdated = vi.fn();
     vi.spyOn(globalThis, "fetch").mockResolvedValue(sseResponse([
-      JSON.stringify({ type: "orchestrator.task_completed", summary: "done", done: true }),
+      JSON.stringify({ token: "", done: true, messageId: "m-final" }),
       JSON.stringify({
         type: "session.title_updated",
         sessionId: "s1",
@@ -167,7 +110,6 @@ describe("createChatStream", () => {
     createChatStream("s1", "hello", [], {
       onToken: vi.fn(),
       onDone,
-      onTaskCompleted: vi.fn(),
       onSessionTitleUpdated,
     });
 
@@ -180,21 +122,6 @@ describe("createChatStream", () => {
     });
   });
 
-  it("没有任务完成回调时也会把群聊完成视为正常结束", async () => {
-    const onDone = vi.fn();
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(sseResponse([
-      JSON.stringify({ type: "orchestrator.task_completed", summary: "done", done: true }),
-    ]));
-
-    createChatStream("s1", "hello", [], {
-      onToken: vi.fn(),
-      onDone,
-    });
-
-    await vi.waitFor(() => expect(onDone).toHaveBeenCalled());
-    expect(onDone).toHaveBeenCalledWith(undefined, undefined);
-  });
-
   it("收到 Agent done 后自然 EOF 不误报连接中断", async () => {
     const onDone = vi.fn();
     vi.spyOn(globalThis, "fetch").mockResolvedValue(sseResponse([
@@ -203,14 +130,14 @@ describe("createChatStream", () => {
         agentId: "agent-product",
         agentName: "产品经理",
         messageId: "m1",
-        callKey: "agent-product:0:direct_dialog",
+        callKey: "agent-product:0:direct_turn",
       }),
       JSON.stringify({
         type: "agent.output",
         agentId: "agent-product",
         agentName: "产品经理",
         messageId: "m1",
-        callKey: "agent-product:0:direct_dialog",
+        callKey: "agent-product:0:direct_turn",
         token: "页面信息顺序、视觉风格",
         chunkType: "text",
       }),
@@ -219,7 +146,7 @@ describe("createChatStream", () => {
         agentName: "产品经理",
         done: true,
         messageId: "m1",
-        callKey: "agent-product:0:direct_dialog",
+        callKey: "agent-product:0:direct_turn",
       }),
     ]));
 
@@ -232,29 +159,6 @@ describe("createChatStream", () => {
 
     await vi.waitFor(() => expect(onDone).toHaveBeenCalled());
     expect(onDone).toHaveBeenCalledWith(undefined, undefined);
-  });
-
-  it("从 task_started 读取后端生成的分工解释", async () => {
-    const onTaskStarted = vi.fn();
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(sseResponse([
-      JSON.stringify({
-        type: "orchestrator.task_started",
-        intent: "code_gen",
-        plan_summary: "已安排: 先由@架构师规划。",
-        tasks: [],
-      }),
-      JSON.stringify({ token: "", done: true }),
-    ]));
-
-    createChatStream("s1", "hello", [], {
-      onToken: vi.fn(),
-      onDone: vi.fn(),
-      onTaskStarted,
-      onTaskCompleted: vi.fn(),
-    });
-
-    await vi.waitFor(() => expect(onTaskStarted).toHaveBeenCalled());
-    expect(onTaskStarted.mock.calls[0][3]).toBe("已安排: 先由@架构师规划。");
   });
 
   it("解析计划执行创建事件并保留消息绑定", async () => {
@@ -298,21 +202,18 @@ describe("createChatStream", () => {
   });
 
   it("解析 Orchestrator 调度器的无 @ 分流决策", async () => {
-    const onStewardDecision = vi.fn();
+    const onRouteDecided = vi.fn();
     vi.spyOn(globalThis, "fetch").mockResolvedValue(sseResponse([
       JSON.stringify({
-        type: "orchestrator.steward_decision",
-        decision: {
-          routeType: "single_agent",
+        type: "orchestrator.route_decided",
+          routeType: "direct_turn",
           confidence: 0.74,
           reason: "识别为单 Agent 快速响应",
           selectedAgents: [{ id: "backend", name: "后端专家" }],
           taskBrief: "后端看看这个 API",
-          requiresApproval: false,
           riskLevel: "low",
           intent: "code_gen",
           requiredTags: ["API", "后端"],
-        },
       }),
       JSON.stringify({ token: "", done: true }),
     ]));
@@ -320,18 +221,16 @@ describe("createChatStream", () => {
     createChatStream("s1", "后端看看这个 API", [], {
       onToken: vi.fn(),
       onDone: vi.fn(),
-      onStewardDecision,
-      onTaskCompleted: vi.fn(),
+      onRouteDecided,
     });
 
-    await vi.waitFor(() => expect(onStewardDecision).toHaveBeenCalled());
-    expect(onStewardDecision).toHaveBeenCalledWith({
-      routeType: "single_agent",
+    await vi.waitFor(() => expect(onRouteDecided).toHaveBeenCalled());
+    expect(onRouteDecided).toHaveBeenCalledWith({
+      routeType: "direct_turn",
       confidence: 0.74,
       reason: "识别为单 Agent 快速响应",
       selectedAgents: [{ id: "backend", name: "后端专家" }],
       taskBrief: "后端看看这个 API",
-      requiresApproval: false,
       riskLevel: "low",
       intent: "code_gen",
       requiredTags: ["API", "后端"],
@@ -398,7 +297,7 @@ describe("createChatStream", () => {
     createChatStream("s1", "hello", [], {
       onToken: vi.fn(),
       onDone: vi.fn(),
-    }, undefined, "m-parent");
+    }, "m-parent");
 
     await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
     const init = vi.mocked(globalThis.fetch).mock.calls[0][1] as RequestInit;
@@ -407,42 +306,6 @@ describe("createChatStream", () => {
       parentMessageId: "m-parent",
     });
     expect((init.headers as Record<string, string>)["X-AgentHub-User-Email"]).toBeUndefined();
-  });
-
-  it("解析 Orchestrator 中枢总结流", async () => {
-    const onStart = vi.fn();
-    const onToken = vi.fn();
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(sseResponse([
-      JSON.stringify({
-        type: "orchestrator.summary_started",
-        messageId: "sum-1",
-        sourceName: "Orchestrator 中枢",
-        contentType: "orchestrator_summary",
-      }),
-      JSON.stringify({
-        type: "orchestrator.summary_delta",
-        messageId: "sum-1",
-        token: "综合结论",
-      }),
-      JSON.stringify({ type: "orchestrator.summary_completed", messageId: "sum-1" }),
-      JSON.stringify({ token: "", done: true }),
-    ]));
-
-    createChatStream("s1", "hello", [], {
-      onToken: vi.fn(),
-      onDone: vi.fn(),
-      onOrchestratorSummaryStart: onStart,
-      onOrchestratorSummaryToken: onToken,
-      onTaskCompleted: vi.fn(),
-    });
-
-    await vi.waitFor(() => expect(onToken).toHaveBeenCalled());
-    expect(onStart.mock.calls[0][0]).toMatchObject({
-      messageId: "sum-1",
-      sourceType: "orchestrator",
-      contentType: "orchestrator_summary",
-    });
-    expect(onToken).toHaveBeenCalledWith("sum-1", "综合结论");
   });
 
   it("agent.output 文本事件即使缺少 token 字段也会进入回复流", async () => {

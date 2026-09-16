@@ -4,7 +4,7 @@ import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { Check, Copy, Info, Pin } from "lucide-react";
 import type {
-  AgentConfig, ApprovalCheckpoint, Artifact, CurrentUser, Message, ReplyReference, RunRead, TaskRead,
+  AgentConfig, Artifact, CurrentUser, Message, ReplyReference, RunRead, TaskRead,
 } from "../types";
 import { MessageActions } from "./MessageActions";
 import { ReplyPreview } from "./ReplyPreview";
@@ -14,7 +14,6 @@ import { OrchestratorPlanPanel } from "./OrchestratorPlanPanel";
 import { OrchestratorExecutionPanel } from "./OrchestratorExecutionPanel";
 import { MessageArtifactStrip } from "./MessageArtifactStrip";
 import { RuntimeControlStrip } from "./RuntimeControlStrip";
-import { ApprovalCard } from "./ApprovalCard";
 
 interface Props {
   message: Message;
@@ -23,9 +22,6 @@ interface Props {
   relatedArtifacts?: Artifact[];
   run?: RunRead | null;
   tasks?: TaskRead[];
-  approvals?: ApprovalCheckpoint[];
-  relatedApprovals?: ApprovalCheckpoint[];
-  artifactById?: Map<string, Artifact>;
   agent?: AgentConfig | null;
   currentUser?: CurrentUser | null;
   parentMessage?: Message | null;
@@ -43,10 +39,6 @@ interface Props {
   onArtifactsChanged?: () => void;
   onCancelRun?: (runId: string) => void;
   cancellingRunId?: string | null;
-  onApprove?: (approval: ApprovalCheckpoint) => void;
-  onReject?: (approval: ApprovalCheckpoint) => void;
-  onOpenApprovalArtifact?: (artifact: Artifact) => void;
-  busyApprovalId?: string | null;
   onOpenAgentSettings?: (agentId: string) => void;
 }
 
@@ -158,12 +150,11 @@ function messageDisplayTime(value: string) {
 
 function MessageBubbleBase({
   message, artifacts = [], relatedArtifacts, run = null, tasks = [],
-  approvals = [], relatedApprovals, artifactById,
   isStreaming = false,
   agent, currentUser, parentMessage, highlighted = false, selectionMode = false, selected = false,
   onReply, onRegenerate, onTogglePin, onForward, onMultiSelect, onToggleSelect,
   onCopy, onJumpToMessage, onArtifactsChanged,
-  onCancelRun, cancellingRunId, onApprove, onReject, onOpenApprovalArtifact, busyApprovalId,
+  onCancelRun, cancellingRunId,
   onOpenAgentSettings,
 }: Props) {
   const [contextMenuPosition, setContextMenuPosition] = useState<{ x: number; y: number } | null>(null);
@@ -206,8 +197,6 @@ function MessageBubbleBase({
     : message.agentName ?? message.sourceName ?? "AI";
   const displayName = isUser ? userDisplayName : message.agentName ?? message.sourceName ?? "AI";
   const displayTime = messageDisplayTime(message.createdAt);
-  const messageApprovals = relatedApprovals ?? approvals.filter((approval) => approval.messageId === message.id);
-  const artifactsById = artifactById ?? new Map(artifacts.map((artifact) => [artifact.id, artifact]));
 
   useEffect(() => {
     if (!contextMenuPosition) return;
@@ -340,17 +329,6 @@ function MessageBubbleBase({
               onChanged={onArtifactsChanged}
             />
           )}
-          {!isUser && messageApprovals.map((approval) => (
-            <ApprovalCard
-              key={approval.id}
-              approval={approval}
-              artifact={approval.artifactId ? artifactsById.get(approval.artifactId) ?? null : null}
-              busy={busyApprovalId === approval.id}
-              onApprove={(item) => onApprove?.(item)}
-              onReject={(item) => onReject?.(item)}
-              onOpenArtifact={(artifact) => onOpenApprovalArtifact?.(artifact)}
-            />
-          ))}
           </div>
         </div>
         {!isUser && (

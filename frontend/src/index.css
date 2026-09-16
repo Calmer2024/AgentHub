@@ -1717,10 +1717,10 @@ body {
 }
 
 .agenthub-file-entry-active {
-  background: var(--ah-highlight-bg);
-  border-color: var(--ah-border-hover);
+  background: var(--ah-activity-selected);
+  border-color: transparent;
   color: var(--ah-text-strong);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ah-accent-strong) 24%, transparent);
+  box-shadow: none;
 }
 
 .agenthub-artifact-dock {
@@ -2543,7 +2543,7 @@ body {
 
 .agenthub-icon-button {
   background: transparent;
-  border: 1px solid transparent;
+  border: 0;
   color: var(--ah-muted);
   transition:
     transform 160ms ease,
@@ -2553,9 +2553,38 @@ body {
 }
 
 .agenthub-icon-button:hover {
-  background: var(--ah-panel-muted);
-  border-color: var(--ah-border);
+  background: var(--ah-activity-hover);
+  border-color: transparent;
   color: var(--ah-text-strong);
+}
+
+.agenthub-icon-button.agenthub-file-entry-active,
+.agenthub-icon-button.agenthub-file-entry-active:hover,
+.agenthub-icon-button.agenthub-file-entry-active:focus-visible {
+  border: 0;
+  background: var(--ah-activity-selected) !important;
+  color: var(--ah-text-strong);
+  box-shadow: none !important;
+}
+
+.agenthub-search-field,
+.agenthub-filter-trigger {
+  border: 0 !important;
+  background: var(--ah-activity-subtle);
+  color: var(--ah-text);
+  box-shadow: none !important;
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.agenthub-search-field:hover,
+.agenthub-filter-trigger:hover:not(:disabled),
+.agenthub-search-field:focus,
+.agenthub-filter-trigger:focus-visible {
+  border: 0 !important;
+  background: var(--ah-activity-hover);
+  color: var(--ah-text-strong);
+  outline: none;
+  box-shadow: none !important;
 }
 
 .agenthub-icon-button:active {

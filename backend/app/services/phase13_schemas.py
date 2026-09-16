@@ -20,7 +20,6 @@ class RuntimeFeatureFlags(BaseModel):
     deployment: bool
     audit_logs: bool = Field(alias="auditLogs")
     notifications: bool
-    mobile_approvals: bool = Field(alias="mobileApprovals")
 
     model_config = {"populate_by_name": True}
 

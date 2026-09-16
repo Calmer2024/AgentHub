@@ -1,4 +1,4 @@
-"""TokenEvent —— AgentExecutor 输出的结构化流事件。"""
+"""CLI Agent 输出的结构化流事件。"""
 
 
 class TokenEvent:
@@ -15,14 +15,6 @@ class TokenEvent:
         self.error = error
         self.event_type = event_type
         self.metadata = metadata or {}
-
-    @property
-    def is_chain_step(self) -> bool:
-        return self.event_type == "chain_step"
-
-    @property
-    def is_phase_change(self) -> bool:
-        return self.event_type == "phase_change"
 
     @property
     def is_structured(self) -> bool:

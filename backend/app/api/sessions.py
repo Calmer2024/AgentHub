@@ -1,7 +1,6 @@
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,17 +18,13 @@ from ..services.session_service import (
     ProjectNotFoundError,
     SessionModeError,
 )
-from ..services.group_dialog_state import GroupDialogStateService
 from ..services.auth_service import AuthService
 from ..services.agent_seed import ensure_user_default_cli_agents
 from ..services.team_service import PermissionDeniedError
 from ..services.tenant_guard import TenantGuard, TenantScope, tenant_scope_required_for_cloud
+from ..services.session_diagnostic_log_service import SessionDiagnosticLogService
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
-
-
-class CloseGroupDialogBody(BaseModel):
-    reason: str = "user_closed"
 
 
 def _svc(db: AsyncSession, agent_owner_user_id: str | None = None) -> SessionService:
@@ -133,6 +128,16 @@ async def get_session(session_id: str, request: Request, db: AsyncSession = Depe
     return session
 
 
+@router.get("/{session_id}/diagnostic-logs")
+async def get_session_diagnostic_logs(
+    session_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    session, _scope = await _authorize_session(request, db, session_id, "read")
+    return await SessionDiagnosticLogService(db).build(session)
+
+
 @router.get("/{session_id}/members", response_model=List[MemberRead])
 async def list_members(session_id: str, request: Request, db: AsyncSession = Depends(get_db)):
     await _authorize_session(request, db, session_id, "read")
@@ -212,34 +217,6 @@ async def mark_session_read(session_id: str, request: Request, db: AsyncSession 
         return await _svc(db).mark_read(session_id)
     except SessionNotFoundError:
         raise HTTPException(status_code=404, detail="session not found")
-
-
-@router.post("/{session_id}/group-dialog/close")
-async def close_group_dialog(
-    session_id: str,
-    data: CloseGroupDialogBody | None = None,
-    db: AsyncSession = Depends(get_db),
-):
-    session = await db.get(DBSession, session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="session not found")
-    if session.mode != "group":
-        raise HTTPException(status_code=400, detail="只有群聊可以结束直接对齐")
-    state = await GroupDialogStateService(db).close_active(
-        session,
-        reason=data.reason if data else "user_closed",
-    )
-    if state is None:
-        return {"ok": True, "closed": False}
-    return {
-        "ok": True,
-        "closed": True,
-        "dialog": {
-            **state.to_metadata(),
-            "status": "closed",
-            "closedReason": data.reason if data else "user_closed",
-        },
-    }
 
 
 @router.post("/forward", response_model=ForwardMessagesResult, status_code=201)

@@ -233,18 +233,11 @@ async def test_cloud_group_chat_mentions_run_only_named_members(test_client):
     )
     assert response.status_code == 200, response.text
     events = _events(response.text)
-    assert any(event.get("type") == "orchestrator.route" for event in events)
-    assert "GROUP_AGENT_ONE_OK" in response.text
-    assert "GROUP_AGENT_TWO_OK" in response.text
+    assert "GROUP_AGENT_ONE_OK" not in response.text
+    assert "GROUP_AGENT_TWO_OK" not in response.text
     done_events = [event for event in events if event.get("done") is True]
     assert done_events
-    assert done_events[-1].get("error") is None
-
-    messages = await test_client.get(f"/api/sessions/{session.json()['id']}/messages", headers=OWNER)
-    assert messages.status_code == 200, messages.text
-    assistant_contents = [item["content"] for item in messages.json() if item["role"] == "assistant"]
-    assert any("GROUP_AGENT_ONE_OK" in content for content in assistant_contents)
-    assert any("GROUP_AGENT_TWO_OK" in content for content in assistant_contents)
+    assert done_events[-1].get("error")
 
 
 @pytest.mark.asyncio
@@ -270,6 +263,7 @@ async def test_cloud_group_chat_mentions_orchestrator_runs_planner_not_fallback(
             "required_skills": ["product_manager"],
             "assigned_agent_id": product.json()["id"],
             "assigned_agent_name": "云端产品经理",
+            "assignment_reason": "负责产品范围定义",
             "depends_on": [],
         }],
     }
@@ -316,8 +310,6 @@ async def test_cloud_group_chat_mentions_orchestrator_runs_planner_not_fallback(
     events = _events(response.text)
     event_types = [event.get("type") for event in events]
     assert "agent.start" in event_types
-    assert "orchestrator.route" not in event_types
-    assert "orchestrator.task_started" not in event_types
     assert "PRODUCT_SHOULD_NOT_RUN" not in response.text
     assert [event.get("done") for event in events].count(True) == 1
 
@@ -352,13 +344,12 @@ async def test_cloud_group_chat_without_mentions_uses_steward_then_plan_first(te
         assert response.status_code == 201, response.text
         agents.append(response.json())
     steward_payload = {
-        "route_type": "mini_collab",
+        "route_type": "orchestrated_run",
         "reply": "我先生成一份小型协作计划，再按产品、设计、前端推进。",
         "reason": "用户明确要求先产品经理、再 UI、再前端。",
         "selected_agent_ids": [agent["id"] for agent in agents],
         "task_brief": "宠物洗护店单页预约介绍页面",
         "confidence": 0.93,
-        "requires_approval": True,
         "risk_level": "medium",
     }
     plan_payload = {
@@ -371,6 +362,7 @@ async def test_cloud_group_chat_without_mentions_uses_steward_then_plan_first(te
                 "required_skills": ["product_manager"],
                 "assigned_agent_id": agents[0]["id"],
                 "assigned_agent_name": agents[0]["name"],
+                "assignment_reason": "负责产品范围定义",
                 "depends_on": [],
             },
             {
@@ -380,6 +372,7 @@ async def test_cloud_group_chat_without_mentions_uses_steward_then_plan_first(te
                 "required_skills": ["ux_ui_designer"],
                 "assigned_agent_id": agents[1]["id"],
                 "assigned_agent_name": agents[1]["name"],
+                "assignment_reason": "负责页面体验设计",
                 "depends_on": ["T1"],
             },
             {
@@ -389,6 +382,7 @@ async def test_cloud_group_chat_without_mentions_uses_steward_then_plan_first(te
                 "required_skills": ["frontend_engineer"],
                 "assigned_agent_id": agents[2]["id"],
                 "assigned_agent_name": agents[2]["name"],
+                "assignment_reason": "负责前端实现",
                 "depends_on": ["T2"],
             },
         ],
@@ -400,7 +394,7 @@ async def test_cloud_group_chat_without_mentions_uses_steward_then_plan_first(te
         "data = os.read(sys.stdin.fileno(), 65536).decode('utf-8', errors='replace')\n"
         f"steward = {json.dumps(steward_json)}\n"
         f"plan = {json.dumps(plan_json)}\n"
-        "sys.stdout.buffer.write((plan if 'route_type=mini_collab' in data else steward).encode('utf-8'))\n"
+        "sys.stdout.buffer.write((plan if 'plan-only DAG' in data else steward).encode('utf-8'))\n"
     )
     orchestrator = await test_client.post(
         "/api/agents",
@@ -442,9 +436,7 @@ async def test_cloud_group_chat_without_mentions_uses_steward_then_plan_first(te
     events = _events(response.text)
     event_types = [event.get("type") for event in events]
     agent_starts = [event.get("agentName") for event in events if event.get("type") == "agent.start"]
-    assert "orchestrator.steward_decision" in event_types
-    assert "orchestrator.route" not in event_types
-    assert "orchestrator.task_started" not in event_types
+    assert "orchestrator.route_decided" in event_types
     assert agent_starts == ["云端 Orchestrator 调度器", "云端 Orchestrator 调度器"]
     assert "PRODUCT_SHOULD_NOT_RUN" not in response.text
     assert "DESIGNER_SHOULD_NOT_RUN" not in response.text
@@ -456,7 +448,7 @@ async def test_cloud_group_chat_without_mentions_uses_steward_then_plan_first(te
     messages = await test_client.get(f"/api/sessions/{session.json()['id']}/messages", headers=OWNER)
     assert messages.status_code == 200, messages.text
     assistants = [item for item in messages.json() if item["role"] == "assistant"]
-    assert assistants[0]["metadata"]["stewardDecision"]["routeType"] == "mini_collab"
+    assert assistants[0]["metadata"]["stewardDecision"]["routeType"] == "orchestrated_run"
     assert assistants[0]["content"] == "我先生成一份小型协作计划，再按产品、设计、前端推进。"
     assert assistants[1]["metadata"]["orchestratorPlan"]["ok"] is True
     plan = assistants[1]["metadata"]["orchestratorPlan"]["normalizedPlan"]

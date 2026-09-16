@@ -11,7 +11,6 @@ import {
   deleteSession,
   fetchAgents,
   fetchCurrentUser,
-  fetchApprovals,
   fetchArtifacts,
   fetchMessages,
   fetchProjects,
@@ -34,7 +33,7 @@ import { WSClient } from "../api/wsClient";
 import { useChatStore } from "../stores/chatStore";
 import { useSessionStore } from "../stores/sessionStore";
 import type {
-  AgentConfig, ApprovalCheckpoint, Artifact, CurrentUser, ExecutionTraceItem, ProjectCreateInput, RunRead, Session, TaskRead, Team,
+  AgentConfig, Artifact, CurrentUser, ExecutionTraceItem, ProjectCreateInput, RunRead, Session, TaskRead, Team,
 } from "../types";
 import { chinaNowIso, formatChinaDateTime } from "../utils/time";
 
@@ -91,12 +90,10 @@ export function useWorkspaceRuntime(options: WorkspaceRuntimeOptions = {}) {
   const setMessagesForSession = useChatStore((state) => state.setMessagesForSession);
   const setArtifacts = useChatStore((state) => state.setArtifacts);
   const setArtifactsForSession = useChatStore((state) => state.setArtifactsForSession);
-  const setApprovalsForSession = useChatStore((state) => state.setApprovalsForSession);
   const setRunsForSession = useChatStore((state) => state.setRunsForSession);
   const setTasksForRun = useChatStore((state) => state.setTasksForRun);
   const upsertRun = useChatStore((state) => state.upsertRun);
   const upsertTask = useChatStore((state) => state.upsertTask);
-  const upsertApproval = useChatStore((state) => state.upsertApproval);
   const upsertArtifact = useChatStore((state) => state.upsertArtifact);
   const clearRuntimeState = useChatStore((state) => state.clearRuntimeState);
   const setSystemHealth = useChatStore((state) => state.setSystemHealth);
@@ -162,11 +159,10 @@ export function useWorkspaceRuntime(options: WorkspaceRuntimeOptions = {}) {
   }, [replaceSessionEverywhere]);
 
   const refreshRealtimeSession = useCallback(async (sessionId: string) => {
-    const [messages, artifacts, runs, approvals] = await Promise.allSettled([
+    const [messages, artifacts, runs] = await Promise.allSettled([
       fetchMessages(sessionId),
       fetchArtifacts(sessionId),
       fetchRuns(sessionId),
-      fetchApprovals(sessionId),
     ]);
 
     if (messages.status === "fulfilled") {
@@ -181,11 +177,7 @@ export function useWorkspaceRuntime(options: WorkspaceRuntimeOptions = {}) {
         setTasksForRun(run.id, await fetchRunTasks(run.id));
       }));
     }
-    if (approvals.status === "fulfilled") {
-      setApprovalsForSession(sessionId, approvals.value);
-    }
   }, [
-    setApprovalsForSession,
     setArtifactsForSession,
     setMessagesForSession,
     setRunsForSession,
@@ -223,21 +215,6 @@ export function useWorkspaceRuntime(options: WorkspaceRuntimeOptions = {}) {
     ws.on("task.status_changed", (data) => {
       const task = normalizeTaskEvent(data.task);
       if (task) upsertTask(task);
-    });
-    ws.on("task.awaiting_user_input", (data) => {
-      const eventSessionId = typeof data.sessionId === "string" ? data.sessionId : currentSessionId;
-      if (eventSessionId !== currentSessionId) return;
-      const task = normalizeTaskEvent(data.task);
-      if (task) upsertTask(task);
-      void refreshRealtimeSession(eventSessionId);
-    });
-    ws.on("approval.created", (data) => {
-      const approval = normalizeApprovalEvent(data.approval);
-      if (approval) upsertApproval(approval);
-    });
-    ws.on("approval.status_changed", (data) => {
-      const approval = normalizeApprovalEvent(data.approval);
-      if (approval) upsertApproval(approval);
     });
     ws.on("artifact.created", (data) => {
       const artifact = normalizeArtifactEvent(data.artifact ?? data);
@@ -304,7 +281,6 @@ export function useWorkspaceRuntime(options: WorkspaceRuntimeOptions = {}) {
     ensureAgentMessage,
     finalizeExecutionTrace,
     setTasksForRun,
-    upsertApproval,
     upsertArtifact,
     upsertRun,
     upsertTask,
@@ -323,11 +299,10 @@ export function useWorkspaceRuntime(options: WorkspaceRuntimeOptions = {}) {
     const requestId = (sessionRequestRef.current[id] ?? 0) + 1;
     sessionRequestRef.current[id] = requestId;
     setSessionHydrating(true);
-    const [messages, artifacts, runs, approvals] = await Promise.allSettled([
+    const [messages, artifacts, runs] = await Promise.allSettled([
       fetchMessages(id),
       fetchArtifacts(id),
       fetchRuns(id),
-      fetchApprovals(id),
     ]);
     if (sessionRequestRef.current[id] !== requestId) return;
     if (messages.status === "fulfilled") setMessagesForSession(id, messages.value);
@@ -338,14 +313,11 @@ export function useWorkspaceRuntime(options: WorkspaceRuntimeOptions = {}) {
         setTasksForRun(run.id, await fetchRunTasks(run.id));
       }));
     }
-    if (approvals.status === "fulfilled") setApprovalsForSession(id, approvals.value);
     if (messages.status === "rejected") setMessagesForSession(id, []);
     if (artifacts.status === "rejected") setArtifactsForSession(id, []);
     if (runs.status === "rejected") setRunsForSession(id, []);
-    if (approvals.status === "rejected") setApprovalsForSession(id, []);
     if (useChatStore.getState().currentSessionId === id) setSessionHydrating(false);
   }, [
-    setApprovalsForSession,
     setArtifactsForSession,
     setMessagesForSession,
     setRunsForSession,
@@ -729,7 +701,6 @@ export function useWorkspaceRuntime(options: WorkspaceRuntimeOptions = {}) {
     setMessagesForSession(s.id, []);
     setArtifactsForSession(s.id, []);
     setRunsForSession(s.id, []);
-    setApprovalsForSession(s.id, []);
     setStreamingError(null, s.id);
     setSessionMembers([]);
     setSessionMembersLoading(false);
@@ -746,7 +717,6 @@ export function useWorkspaceRuntime(options: WorkspaceRuntimeOptions = {}) {
     setMessagesForSession(s.id, []);
     setArtifactsForSession(s.id, []);
     setRunsForSession(s.id, []);
-    setApprovalsForSession(s.id, []);
     setStreamingError(null, s.id);
     clearCollab(s.id);
     try {
@@ -928,34 +898,6 @@ function normalizeTaskEvent(raw: unknown): TaskRead | null {
   };
 }
 
-function normalizeApprovalEvent(raw: unknown): ApprovalCheckpoint | null {
-  if (!raw || typeof raw !== "object") return null;
-  const data = raw as Record<string, unknown>;
-  if (
-    typeof data.id !== "string"
-    || typeof data.runId !== "string"
-    || typeof data.taskId !== "string"
-    || typeof data.sessionId !== "string"
-  ) return null;
-  const status = normalizeApprovalStatus(data.status);
-  if (!status) return null;
-  return {
-    id: data.id,
-    runId: data.runId,
-    taskId: data.taskId,
-    sessionId: data.sessionId,
-    messageId: typeof data.messageId === "string" ? data.messageId : null,
-    artifactId: typeof data.artifactId === "string" ? data.artifactId : null,
-    artifactVersion: typeof data.artifactVersion === "number" ? data.artifactVersion : null,
-    title: typeof data.title === "string" ? data.title : "等待确认",
-    summary: typeof data.summary === "string" ? data.summary : "",
-    status,
-    reason: typeof data.reason === "string" ? data.reason : null,
-    createdAt: typeof data.createdAt === "string" ? data.createdAt : chinaNowIso(),
-    decidedAt: typeof data.decidedAt === "string" ? data.decidedAt : null,
-    metadata: isRecord(data.metadata) ? data.metadata : null,
-  };
-}
 
 function normalizeSessionEvent(raw: unknown): Session | null {
   if (!raw || typeof raw !== "object") return null;
@@ -1023,10 +965,6 @@ function normalizeTaskStatus(value: unknown): TaskRead["status"] | null {
   return null;
 }
 
-function normalizeApprovalStatus(value: unknown): ApprovalCheckpoint["status"] | null {
-  if (value === "pending_review" || value === "approved" || value === "rejected") return value;
-  return null;
-}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);

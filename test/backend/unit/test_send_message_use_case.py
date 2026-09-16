@@ -4,7 +4,7 @@ import pytest
 
 from app.application import send_message
 from app.application.send_message import SendMessageCommand, SendMessageUseCase
-from app.services.schemas import ChainConfigSchema, ChatRequest
+from app.services.schemas import ChatRequest
 
 
 class FakeLocalChat:
@@ -26,7 +26,6 @@ class FakeLocalChat:
         mentions=None,
         *,
         parent_message_id=None,
-        chain_config=None,
         attachment_ids=None,
     ):
         type(self).calls.append({
@@ -34,7 +33,6 @@ class FakeLocalChat:
             "content": content,
             "mentions": mentions,
             "parent_message_id": parent_message_id,
-            "chain_config": chain_config,
             "attachment_ids": attachment_ids,
         })
         return self._stream()
@@ -111,12 +109,10 @@ async def _collect(stream):
 async def test_local_workspace_routes_to_local_chat_service():
     db = object()
     event_bus = object()
-    chain_config = ChainConfigSchema(chain_name="review", agent_order=["a", "b"])
     request = ChatRequest(
         content="hello",
         mentions=["agent-a"],
         parent_message_id="parent-1",
-        chain_config=chain_config,
         attachment_ids=["attachment-1"],
     )
 
@@ -137,7 +133,6 @@ async def test_local_workspace_routes_to_local_chat_service():
         "content": "hello",
         "mentions": ["agent-a"],
         "parent_message_id": "parent-1",
-        "chain_config": chain_config,
         "attachment_ids": ["attachment-1"],
     }]
 

@@ -197,10 +197,8 @@ class TestChatPersistence:
         resp = await test_client.get(f"/api/sessions/{session_id}/messages")
         assistant = [message for message in resp.json() if message["role"] == "assistant"][0]
 
-        assert "orchestratorPlan" in assistant["metadata"], assistant
-        assert assistant["metadata"]["orchestratorPlan"]["ok"] is True
-        assert assistant["metadata"]["orchestratorPlan"]["normalizedPlan"]["tasks"][0]["title"] == "需求澄清"
-        assert "mermaid" in assistant["metadata"]["orchestratorPlan"]["visualization"]
+        assert "orchestratorPlan" not in assistant["metadata"], assistant
+        assert assistant["contentType"] == "text"
 
     async def test_single_chat_generates_title_for_default_agent_title(
         self, test_client, test_agent, monkeypatch,

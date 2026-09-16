@@ -8,8 +8,9 @@
     "build:backend": "node scripts/build-backend-sidecar.mjs",
     "build:tauri": "node scripts/build-tauri-release.mjs",
     "package:portable": "node scripts/package-portable.mjs",
-    "build": "npm run smoke && npm run build:backend && npm run build:frontend && npm run build:tauri && npm run package:portable",
-    "build:installer": "npm run smoke && npm run build:backend && npx tauri build"
+    "release": "npm run smoke && npm run build:backend && npx tauri build",
+    "build:installer": "npm run release",
+    "build": "npm run release"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0"

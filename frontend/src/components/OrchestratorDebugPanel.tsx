@@ -715,13 +715,13 @@ function TaskList({ tasks }: { tasks: OrchestratorPlanTask[] }) {
                 <p className="mt-1 text-xs leading-5 text-[#697166]">{task.goal}</p>
               </div>
               <span className="shrink-0 bg-[#e7eadf] px-2 py-1 text-[11px] font-semibold text-[#384438]">
-                {task.is_blocking ? "阻塞" : "普通"}
+                最多 {task.max_attempts} 次
               </span>
             </div>
             <p className="mt-2 text-[11px] text-[#6f766d]">
               @{task.assigned_agent_name ?? "未分配"} · 依赖：{task.depends_on.length ? task.depends_on.join(" / ") : "无"}
             </p>
-            <TagRow tags={task.required_skills} />
+            {task.assignment_reason && <p className="mt-1 text-[11px] text-[#6f766d]">{task.assignment_reason}</p>}
           </div>
         ))}
       </div>

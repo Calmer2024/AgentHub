@@ -1,9 +1,7 @@
-import json
-
 import pytest
 
 from app.config import settings
-from app.models import ApprovalCheckpoint, Message, Run, RunTask
+from app.models import Message
 
 
 def _enable_saas_production(monkeypatch):
@@ -226,35 +224,7 @@ async def test_team_viewer_can_read_but_cannot_write_cloud_resources(test_client
         source_type="agent",
         source_name="Codex",
     )
-    run = Run(
-        id="phase14-run",
-        session_id=session_id,
-        project_id=project_id,
-        mode="single",
-        status="waiting_input",
-    )
-    task = RunTask(
-        id="phase14-task",
-        run_id=run.id,
-        session_id=session_id,
-        name="primary",
-        status="waiting_input",
-    )
-    approval = ApprovalCheckpoint(
-        id="phase14-approval",
-        run_id=run.id,
-        task_id=task.id,
-        session_id=session_id,
-        message_id=message.id,
-        title="Phase14 审批",
-        summary="viewer 不能审批",
-        status="pending_review",
-        metadata_json=json.dumps({"phase": 14}, ensure_ascii=False),
-    )
     db_session.add(message)
-    db_session.add(run)
-    db_session.add(task)
-    db_session.add(approval)
     await db_session.commit()
 
     forward = await test_client.post(
@@ -263,20 +233,6 @@ async def test_team_viewer_can_read_but_cannot_write_cloud_resources(test_client
         headers=viewer_headers,
     )
     assert forward.status_code == 403
-
-    viewer_decision = await test_client.post(
-        f"/api/mobile/approvals/{approval.id}/decision",
-        json={"decision": "approve", "comment": "viewer approve"},
-        headers=viewer_headers,
-    )
-    assert viewer_decision.status_code == 403
-
-    owner_decision = await test_client.post(
-        f"/api/mobile/approvals/{approval.id}/decision",
-        json={"decision": "approve", "comment": "owner approve"},
-        headers=owner_headers,
-    )
-    assert owner_decision.status_code == 202, owner_decision.text
 
 
 @pytest.mark.asyncio

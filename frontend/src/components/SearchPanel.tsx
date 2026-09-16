@@ -64,7 +64,7 @@ export function SearchPanel({ sessionId, open, currentUser, onClose, onJump }: P
               <X size={16} />
             </button>
           </div>
-          <div className="agenthub-composer agenthub-focus-ring flex min-w-0 flex-1 items-center gap-2 rounded-full border px-3 py-2">
+          <div className="agenthub-search-field flex min-w-0 flex-1 items-center gap-2 rounded-full px-3 py-2">
             <Search size={15} className="agenthub-muted shrink-0" />
             <input
               autoFocus={open}

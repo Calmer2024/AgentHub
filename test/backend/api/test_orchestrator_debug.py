@@ -6,7 +6,7 @@ import pytest
 VALID_PLAN = {
     "plan_id": "plan_001",
     "status": "draft",
-    "execution_policy": "manual_approval_required",
+    "execution_policy": {"mode": "plan_only", "requires_approval_before_execution": True},
     "tasks": [
         {
             "task_id": "T1",
@@ -19,8 +19,6 @@ VALID_PLAN = {
             "depends_on": [],
             "expected_outputs": ["document"],
             "acceptance_criteria": ["列出角色权限"],
-            "needs_approval": True,
-            "is_blocking": True,
         },
         {
             "task_id": "T2",
@@ -33,8 +31,6 @@ VALID_PLAN = {
             "depends_on": ["T1"],
             "expected_outputs": ["document"],
             "acceptance_criteria": ["产出接口列表"],
-            "needs_approval": True,
-            "is_blocking": True,
         },
     ],
     "execution_strategy": {
@@ -147,7 +143,7 @@ async def test_parse_orchestrator_output_reports_cycle(test_client):
 
 
 @pytest.mark.asyncio
-async def test_parse_orchestrator_output_warns_unknown_agent(test_client):
+async def test_parse_orchestrator_output_rejects_unknown_agent(test_client):
     plan = {
         **VALID_PLAN,
         "tasks": [{**VALID_PLAN["tasks"][0], "assigned_agent_id": "missing_agent"}],
@@ -159,5 +155,5 @@ async def test_parse_orchestrator_output_warns_unknown_agent(test_client):
 
     assert res.status_code == 200
     data = res.json()
-    assert data["validation"]["ok"] is True
-    assert any("不在候选 Agent" in w for w in data["validation"]["warnings"])
+    assert data["validation"]["ok"] is False
+    assert any("不在 Agent Scope" in error for error in data["validation"]["errors"])

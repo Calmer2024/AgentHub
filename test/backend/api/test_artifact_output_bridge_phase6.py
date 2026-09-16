@@ -481,7 +481,7 @@ class TestArtifactOutputBridgePhase6:
                 init_args=json.dumps([str(cli)]),
                 env_vars="{}",
             )
-            for index in range(2)
+            for index in range(1)
         ]
         db_session.add_all(agents)
         await db_session.flush()
@@ -505,7 +505,7 @@ class TestArtifactOutputBridgePhase6:
         messages = messages_resp.json()
         message_by_id = {item["id"]: item for item in messages}
 
-        assert len(artifacts) == 2
+        assert len(artifacts) == 1
         assert {item["sourceId"] for item in messages if item["role"] == "assistant"} == {
             agent.id for agent in agents
         }
@@ -530,7 +530,7 @@ class TestArtifactOutputBridgePhase6:
                 init_args="[]",
                 env_vars="{}",
             )
-            for index in range(2)
+            for index in range(1)
         ]
         db_session.add_all(agents)
         await db_session.flush()

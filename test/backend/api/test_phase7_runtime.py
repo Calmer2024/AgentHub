@@ -127,32 +127,15 @@ async def test_cancel_run_appends_visible_cancel_message(db_session, test_sessio
 
 
 @pytest.mark.asyncio
-async def test_approval_checkpoint_created_from_explicit_approval_request(test_client, test_session):
+async def test_single_chat_approval_language_does_not_pause_run(test_client, test_session):
     resp = await test_client.post(
         f"/api/sessions/{test_session}/chat",
         json={"content": "Hello，需要审批后确认继续"},
     )
     events = await _collect_sse(resp)
 
-    approval_events = [event for event in events if event.get("type") == "approval.created"]
-    assert approval_events
-
-    approvals_resp = await test_client.get(f"/api/sessions/{test_session}/approvals")
-    assert approvals_resp.status_code == 200
-    approvals = approvals_resp.json()
-    assert len(approvals) == 1
-    assert approvals[0]["status"] == "pending_review"
-    assert approvals[0]["messageId"]
-
-    approve_resp = await test_client.post(f"/api/approvals/{approvals[0]['id']}/approve", json={})
-    assert approve_resp.status_code == 200
-    assert approve_resp.json()["status"] == "approved"
-
     runs = (await test_client.get(f"/api/sessions/{test_session}/runs")).json()
     assert runs[0]["status"] == "completed"
-
-    repeat_resp = await test_client.post(f"/api/approvals/{approvals[0]['id']}/reject", json={"reason": "重来"})
-    assert repeat_resp.status_code == 409
 
 
 @pytest.mark.asyncio

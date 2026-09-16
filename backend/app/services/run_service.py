@@ -16,7 +16,7 @@ from .runtime_schemas import ProcessRead, RunRead, TaskRead
 
 
 TERMINAL_RUN_STATUSES = {"completed", "failed", "cancelled"}
-TERMINAL_TASK_STATUSES = {"completed", "failed", "cancelled", "rejected"}
+TERMINAL_TASK_STATUSES = {"accepted", "completed", "failed", "cancelled", "rejected"}
 
 
 class RunNotFoundError(LookupError):
@@ -353,7 +353,7 @@ class RunService:
             return await self.mark_run_status(run_id, "completed")
         if any(task.status in {"paused", "pending_review"} for task in tasks):
             return await self.mark_run_status(run_id, "paused")
-        if all(task.status in {"completed", "approved"} for task in tasks):
+        if all(task.status in {"accepted", "completed", "approved"} for task in tasks):
             return await self.mark_run_status(run_id, "completed")
         return await self.mark_run_status(run_id, "running")
 

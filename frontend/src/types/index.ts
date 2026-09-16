@@ -139,7 +139,6 @@ export interface Message {
     orchestratorPlan?: OrchestratorPlanMetadata;
     orchestratorPlanError?: string;
     orchestratorExecution?: OrchestratorExecution;
-    groupDialog?: GroupDialogMetadata;
   }) | null;
   agentRole?: string | null;
   phase?: number | null;
@@ -149,17 +148,6 @@ export interface Message {
   isPinned?: boolean;
   highlight?: string | null;
   createdAt: string;
-}
-
-export interface GroupDialogMetadata {
-  mode: "direct_dialog";
-  status: string;
-  activeAgentId: string;
-  activeAgentName: string;
-  goal?: string;
-  source?: string;
-  executionId?: string;
-  taskId?: string;
 }
 
 export interface AgentConfig {
@@ -428,7 +416,6 @@ export interface MobileSessionSummary {
   title: string;
   unreadCount: number;
   latestMessageAt?: string | null;
-  pendingApprovalCount: number;
 }
 
 export interface RenderedArtifact {
@@ -477,8 +464,7 @@ export type FeatureKey =
   | "cloudPreview"
   | "deployment"
   | "auditLogs"
-  | "notifications"
-  | "mobileApprovals";
+  | "notifications";
 
 export type RuntimeFeatureFlags = Record<FeatureKey, boolean>;
 
@@ -868,25 +854,6 @@ export interface TaskRead {
   metadata?: Record<string, unknown> | null;
 }
 
-export type ApprovalStatus = "pending_review" | "approved" | "rejected";
-
-export interface ApprovalCheckpoint {
-  id: string;
-  runId: string;
-  taskId: string;
-  sessionId: string;
-  messageId?: string | null;
-  artifactId?: string | null;
-  artifactVersion?: number | null;
-  title: string;
-  summary: string;
-  status: ApprovalStatus;
-  reason?: string | null;
-  createdAt: string;
-  decidedAt?: string | null;
-  metadata?: Record<string, unknown> | null;
-}
-
 export type HealthStatus = "ok" | "warning" | "error" | "missing";
 export type HealthSeverity = "info" | "warning" | "blocking";
 
@@ -912,6 +879,53 @@ export interface SystemHealthRead {
   items: SystemHealthItem[];
 }
 
+export type SessionDiagnosticLogLevel =
+  | "input"
+  | "output"
+  | "info"
+  | "success"
+  | "warning"
+  | "error"
+  | "debug";
+
+export interface SessionDiagnosticLogEntry {
+  id: string;
+  timestamp: string;
+  level: SessionDiagnosticLogLevel;
+  category: string;
+  source: string;
+  title: string;
+  message: string;
+  runId?: string | null;
+  taskId?: string | null;
+  processId?: string | null;
+  messageId?: string | null;
+  agentId?: string | null;
+  details: Record<string, unknown>;
+}
+
+export interface SessionDiagnosticLogPayload {
+  session: {
+    id: string;
+    title: string;
+    mode: string;
+    projectId?: string | null;
+    createdAt: string;
+    updatedAt: string;
+  };
+  generatedAt: string;
+  counts: {
+    entries: number;
+    messages: number;
+    runs: number;
+    tasks: number;
+    processes: number;
+    artifacts: number;
+    plans: number;
+  };
+  entries: SessionDiagnosticLogEntry[];
+}
+
 // === Orchestrator / Collaboration types ===
 
 export interface RouteAgent {
@@ -919,15 +933,14 @@ export interface RouteAgent {
   name: string;
 }
 
-export type StewardRouteType = "context_only" | "single_agent" | "direct_dialog" | "mini_collab" | "draft_plan";
+export type StewardRouteType = "context_only" | "direct_turn" | "orchestrated_run";
 
-export interface StewardDecisionEvent {
+export interface RouteDecisionEvent {
   routeType: StewardRouteType;
   confidence: number;
   reason: string;
   selectedAgents: RouteAgent[];
   taskBrief: string;
-  requiresApproval: boolean;
   riskLevel: "low" | "medium" | "high";
   intent: string;
   requiredTags: string[];
@@ -974,13 +987,6 @@ export interface DraftOrchestratorPlan {
   error?: string;
 }
 
-export interface PhaseChangeEvent {
-  phase: number;
-  status: "pending" | "running" | "completed" | "error";
-  agents: string[];
-  tasks: string[];
-}
-
 export interface AgentStartEvent {
   agentId: string;
   agentName: string;
@@ -999,20 +1005,6 @@ export interface InteractivePrompt {
   processId: string;
   content: string;
   promptType: "confirm";
-}
-
-export interface OrchestratorSummaryStartEvent {
-  messageId: string;
-  sourceType: "orchestrator";
-  sourceId?: string;
-  sourceName: string;
-  contentType: "orchestrator_summary";
-  metadata?: Record<string, unknown>;
-}
-
-export interface ChainConfigInput {
-  chainName?: string;
-  agentOrder?: string[];
 }
 
 export interface OrchestratorPlanMetadata {
@@ -1067,15 +1059,13 @@ export interface OrchestratorPlanTask {
   task_id: string;
   title: string;
   goal: string;
-  required_skills: string[];
   assigned_agent_id: string | null;
   assigned_agent_name: string | null;
   assignment_reason: string;
   depends_on: string[];
   expected_outputs: string[];
   acceptance_criteria: string[];
-  needs_approval: boolean;
-  is_blocking: boolean;
+  max_attempts: number;
 }
 
 export interface OrchestratorPlanPhase {
@@ -1165,9 +1155,11 @@ export interface OrchestratorExecutionTask {
   assignedAgentId?: string | null;
   assignedAgentName?: string | null;
   dependsOn: string[];
-  requiredSkills: string[];
-  needsApproval: boolean;
-  isBlocking: boolean;
+  attempt: number;
+  maxAttempts: number;
+  attempts: Array<Record<string, unknown>>;
+  retryFeedback?: string | null;
+  orchestratorReview?: Record<string, unknown> | null;
   expectedOutputs: string[];
   acceptanceCriteria: string[];
 }

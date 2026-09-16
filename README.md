@@ -12,11 +12,11 @@ AgentHub 是一个以 IM 聊天为核心交互范式的多 Agent 协作平台。
 
 | 入口 | 位置 |
 | --- | --- |
-| 交付总入口 | [docs/submission/00-交付总入口.md](docs/submission/00-交付总入口.md) |
-| 产品设计文档 | [docs/submission/01-产品设计文档.md](docs/submission/01-产品设计文档.md) |
-| 技术设计文档 | [docs/submission/02-技术设计文档.md](docs/submission/02-技术设计文档.md) |
-| AI 协作开发记录 | [docs/submission/03-AI协作开发记录.md](docs/submission/03-AI协作开发记录.md) |
-| 项目答辩核心掌握指南 | [docs/submission/04-项目答辩核心掌握指南.md](docs/submission/04-项目答辩核心掌握指南.md) |
+| 交付总入口 | [docs/README.md](docs/README.md) |
+| 产品设计文档 | [docs/PRD/00-collaboration-model.md](docs/PRD/00-collaboration-model.md) |
+| 技术设计文档 | [docs/architecture/overview.md](docs/architecture/overview.md) |
+| AI 协作开发记录 | [docs/archive/README.md](docs/archive/README.md) |
+| 项目答辩核心掌握指南 | [docs/adr/0013-unified-collaboration-runtime.md](docs/adr/0013-unified-collaboration-runtime.md) |
 | 全局上下文与文档索引 | [CONTEXT.md](CONTEXT.md) |
 | 文档中心 | [docs/README.md](docs/README.md) |
 | 当前架构事实 | [docs/architecture/overview.md](docs/architecture/overview.md) |
@@ -34,7 +34,7 @@ AgentHub 是一个以 IM 聊天为核心交互范式的多 Agent 协作平台。
 | Artifact | 代码、文件、网页预览、Diff、版本、编辑、部署状态以消息级卡片回流。 |
 | 桌面端 | Tauri 桌面壳，一键启动本地后端和前端，管理本机 CLI 进程生命周期。 |
 | SaaS 云端 | 云端 workspace、团队、仓库导入、快照恢复、云端 runtime、预览和部署链接。 |
-| 移动端 | 轻量查看、审批、产物预览的产品壳和能力矩阵。 |
+| 移动端 | 轻量查看、运行状态和产物预览的产品壳和能力矩阵。 |
 | AI 协作沉淀 | Rules、PRD、ADR、阶段归档、历史 Skill、Dev Log 和测试协议。 |
 
 ## 4. Demo 路线
@@ -122,13 +122,15 @@ npm install
 npm run build
 ```
 
-构建产物会输出到桌面端 release/portable 目录，具体路径以命令输出为准。
-当前 portable demo 包默认输出到：
+`npm run build` 是桌面端唯一正式发布入口，会依次执行 smoke 检查、重建 Python 后端 sidecar，并调用 Tauri 生成 Windows NSIS 安装包。它不会生成 portable ZIP。
+
+当前 Windows 安装包输出到：
 
 ```text
-deploy/desktop-demo/AgentHub-Local-Desktop-Demo-0.1.0-win-x64/
-deploy/desktop-demo/AgentHub-Local-Desktop-Demo-0.1.0-win-x64.zip
+desktop/src-tauri/target/release/bundle/nsis/AgentHub_1.0.0_x64-setup.exe
 ```
+
+`npm run build:installer` 是同一流程的兼容别名；`package:portable` 仅保留给需要便携版的专项场景，不属于正式发布流程。
 
 ## 6. 项目结构
 
@@ -175,13 +177,13 @@ SQLite / Cloud Workspace Metadata
 
 | 课题要求 | 对应实现 | 文档位置 |
 | --- | --- | --- |
-| IM 聊天式交互 | Project、单聊、群聊、消息操作、上下文连续。 | `docs/PRD/03-User_Experience.md` |
-| 主 Agent 协调器 | Orchestrator、DAG、调度状态、人机确认。 | `docs/adr/0007-Orchestrator 架构设计.md` |
-| 多 Agent 接入 | Claude Code、Codex、OpenCode CLI Adapter。 | `docs/PRD/01-Architecture_Adapter.md` |
+| IM 聊天式交互 | Project、单聊、群聊、消息操作、上下文连续。 | `docs/PRD/00-collaboration-model.md` |
+| 主 Agent 协调器 | Orchestrator、DAG、调度状态、人机确认。 | `docs/adr/0013-unified-collaboration-runtime.md` |
+| 多 Agent 接入 | Claude Code、Codex、OpenCode CLI Adapter。 | `docs/architecture/overview.md` |
 | 产物预览与编辑 | Artifact 卡片、预览、编辑、Diff、版本。 | `docs/archive/adr/0010-message-level-artifact-experience.md` |
 | 部署发布 | SaaS 云端 deployment、访问链接。 | `docs/archive/phases/specs/phase11/README.md` |
 | 多端支持 | Local Desktop、SaaS Web、Mobile。 | `docs/archive/phases/specs/phase13/README.md` |
-| AI 协作能力 | Rules、Spec、Skill、Dev Log。 | `docs/submission/03-AI协作开发记录.md` |
+| AI 协作能力 | Rules、Spec、Skill、Dev Log。 | `docs/archive/README.md` |
 
 ## 9. 测试
 
@@ -207,16 +209,16 @@ cd desktop
 npm run build
 ```
 
-完整测试策略见 [docs/TEST_PROTOCOL.md](docs/TEST_PROTOCOL.md) 和 [docs/testing/UX_TEST_SPEC.md](docs/testing/UX_TEST_SPEC.md)。
+完整测试策略见后端 pytest、前端 Vitest 和 TypeScript 检查；历史测试协议位于 docs/archive/。
 
 ## 10. 文档导航
 
 | 想了解 | 阅读 |
 | --- | --- |
-| 产品是什么 | [docs/submission/01-产品设计文档.md](docs/submission/01-产品设计文档.md) |
-| 技术怎么实现 | [docs/submission/02-技术设计文档.md](docs/submission/02-技术设计文档.md) |
-| AI 协作怎么沉淀 | [docs/submission/03-AI协作开发记录.md](docs/submission/03-AI协作开发记录.md) |
-| 答辩怎么准备 | [docs/submission/04-项目答辩核心掌握指南.md](docs/submission/04-项目答辩核心掌握指南.md) |
+| 产品是什么 | [docs/PRD/00-collaboration-model.md](docs/PRD/00-collaboration-model.md) |
+| 技术怎么实现 | [docs/architecture/overview.md](docs/architecture/overview.md) |
+| AI 协作怎么沉淀 | [docs/archive/README.md](docs/archive/README.md) |
+| 答辩怎么准备 | [docs/adr/0013-unified-collaboration-runtime.md](docs/adr/0013-unified-collaboration-runtime.md) |
 | 完整文档索引 | [CONTEXT.md](CONTEXT.md) |
 | PRD | [docs/PRD/](docs/PRD/) |
 | ADR 状态与决策 | [docs/adr/README.md](docs/adr/README.md) |

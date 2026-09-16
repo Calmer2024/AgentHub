@@ -2,7 +2,6 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
-from ..services.approval_service import ApprovalNotFoundError, InvalidApprovalStateError, approval_to_read
 from ..services.collaboration_service import (
     AttachmentTooLargeError,
     CollaborationNotFoundError,
@@ -23,12 +22,10 @@ from ..services.phase12_schemas import (
     GitSyncJobRead,
     MessageForwardRead,
     MessageForwardRequest,
-    MobileApprovalDecision,
     MobileSessionSummary,
     NotificationListRead,
     RenderedArtifactRead,
 )
-from ..services.runtime_schemas import ApprovalCheckpointRead
 from ..services.team_service import PermissionDeniedError
 from .agents import AgentConfigRead
 from .auth import require_current_user
@@ -166,28 +163,6 @@ async def mobile_sessions(
 ):
     return await _svc(db).mobile_sessions(user)
 
-
-@router.post("/mobile/approvals/{approval_id}/decision", response_model=ApprovalCheckpointRead, status_code=202)
-async def mobile_approval_decision(
-    approval_id: str,
-    data: MobileApprovalDecision,
-    db: AsyncSession = Depends(get_db),
-    user=Depends(require_current_user),
-):
-    try:
-        checkpoint = await _svc(db).decide_mobile_approval(
-            approval_id,
-            decision=data.decision,
-            comment=data.comment,
-            actor=user,
-        )
-        return approval_to_read(checkpoint)
-    except ApprovalNotFoundError:
-        raise HTTPException(status_code=404, detail="approval not found")
-    except InvalidApprovalStateError:
-        raise HTTPException(status_code=409, detail="APPROVAL_ALREADY_DECIDED")
-    except PermissionDeniedError as exc:
-        raise HTTPException(status_code=403, detail=str(exc))
 
 
 @router.get("/artifacts/{artifact_id}/render", response_model=RenderedArtifactRead)

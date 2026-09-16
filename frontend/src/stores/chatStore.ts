@@ -1,8 +1,7 @@
 import { create } from "zustand";
 import type {
-  Message, RouteAgent, CollabTask, ChainStep, DAGPhase, Artifact, CodeReference,
-  InteractivePrompt, ExecutionTraceItem, RunRead, TaskRead, ApprovalCheckpoint,
-  SystemHealthRead, DraftOrchestratorPlan,
+  Message, RouteAgent, Artifact, CodeReference,
+  InteractivePrompt, ExecutionTraceItem, RunRead, TaskRead, SystemHealthRead,
 } from "../types";
 import { chinaNowIso } from "../utils/time";
 
@@ -14,14 +13,8 @@ const MAX_EXECUTION_TRACE_ITEMS = 300;
 /** 每个会话的协作状态快照，切换会话时保留。 */
 export interface CollabSnapshot {
   routeAgents: RouteAgent[] | null;
-  collabTasks: CollabTask[];
-  dagPhases: DAGPhase[];
-  chainSteps: ChainStep[];
-  orchestratorIntent: string | null;
-  planSummary: string | null;
-  collabCompleted: boolean;
-  collabSummary: string | null;
-  draftPlan: DraftOrchestratorPlan | null;
+  routeType: "context_only" | "direct_turn" | "orchestrated_run" | null;
+  routeReason: string | null;
 }
 
 interface SessionRuntimeState {
@@ -35,14 +28,8 @@ interface SessionRuntimeState {
 function emptyCollab(): CollabSnapshot {
   return {
     routeAgents: null,
-    collabTasks: [],
-    dagPhases: [],
-    chainSteps: [],
-    orchestratorIntent: null,
-    planSummary: null,
-    collabCompleted: false,
-    collabSummary: null,
-    draftPlan: null,
+    routeType: null,
+    routeReason: null,
   };
 }
 
@@ -243,14 +230,12 @@ interface ChatState {
   interactivePrompts: InteractivePrompt[];
   runs: RunRead[];
   tasksByRun: Record<string, TaskRead[]>;
-  approvals: ApprovalCheckpoint[];
   systemHealth: SystemHealthRead | null;
   healthBlockingError: string | null;
 
   messagesBySession: Record<string, Message[]>;
   artifactsBySession: Record<string, Artifact[]>;
   runsBySession: Record<string, RunRead[]>;
-  approvalsBySession: Record<string, ApprovalCheckpoint[]>;
   runtimeBySession: Record<string, SessionRuntimeState>;
   streamingErrorBySession: Record<string, string | null>;
   activeStreamsByKey: Record<string, { sessionId: string; abort: (() => void) | null }>;
@@ -274,8 +259,6 @@ interface ChatState {
   upsertRun: (run: RunRead) => void;
   setTasksForRun: (runId: string, tasks: TaskRead[]) => void;
   upsertTask: (task: TaskRead) => void;
-  setApprovalsForSession: (sessionId: string, approvals: ApprovalCheckpoint[]) => void;
-  upsertApproval: (approval: ApprovalCheckpoint) => void;
   clearRuntimeState: (sessionId?: string) => void;
   setSystemHealth: (health: SystemHealthRead | null) => void;
   setHealthBlockingError: (error: string | null) => void;
@@ -354,13 +337,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
   interactivePrompts: [],
   runs: [],
   tasksByRun: {},
-  approvals: [],
   systemHealth: null,
   healthBlockingError: null,
   messagesBySession: {},
   artifactsBySession: {},
   runsBySession: {},
-  approvalsBySession: {},
   runtimeBySession: {},
   streamingErrorBySession: {},
   activeStreamsByKey: {},
@@ -380,7 +361,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
         messages: id ? s.messagesBySession[id] ?? [] : [],
         artifacts: id ? s.artifactsBySession[id] ?? [] : [],
         runs: id ? s.runsBySession[id] ?? [] : [],
-        approvals: id ? s.approvalsBySession[id] ?? [] : [],
         isStreaming: runtime.isStreaming,
         activeStreamKey: runtime.activeStreamKey,
         activeRunId: runtime.activeRunId,
@@ -398,7 +378,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
         messages: target ? s.messagesBySession[target] ?? [] : [],
         artifacts: target ? s.artifactsBySession[target] ?? [] : [],
         runs: target ? s.runsBySession[target] ?? [] : [],
-        approvals: target ? s.approvalsBySession[target] ?? [] : [],
         isStreaming: runtime.isStreaming,
         activeStreamKey: runtime.activeStreamKey,
         activeRunId: runtime.activeRunId,
@@ -412,13 +391,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
       messagesBySession: withoutSession(s.messagesBySession, sessionId),
       artifactsBySession: withoutSession(s.artifactsBySession, sessionId),
       runsBySession: withoutSession(s.runsBySession, sessionId),
-      approvalsBySession: withoutSession(s.approvalsBySession, sessionId),
       runtimeBySession: withoutSession(s.runtimeBySession, sessionId),
       streamingErrorBySession: withoutSession(s.streamingErrorBySession, sessionId),
       messages: s.currentSessionId === sessionId ? [] : s.messages,
       artifacts: s.currentSessionId === sessionId ? [] : s.artifacts,
       runs: s.currentSessionId === sessionId ? [] : s.runs,
-      approvals: s.currentSessionId === sessionId ? [] : s.approvals,
       streamingError: s.currentSessionId === sessionId ? null : s.streamingError,
       ...(s.currentSessionId === sessionId ? emptyRuntime() : {}),
     })),
@@ -552,32 +529,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
         .sort((left, right) => (left.phase ?? 0) - (right.phase ?? 0));
       return { tasksByRun: { ...s.tasksByRun, [task.runId]: next } };
     }),
-  setApprovalsForSession: (sessionId, approvals) =>
-    set((s) => ({
-      approvalsBySession: { ...s.approvalsBySession, [sessionId]: approvals },
-      ...applyCurrentSession(s, sessionId, { approvals }),
-    })),
-  upsertApproval: (approval) =>
-    set((s) => {
-      const current = s.approvalsBySession[approval.sessionId] ?? (s.currentSessionId === approval.sessionId ? s.approvals : []);
-      const approvals = [approval, ...current.filter((item) => item.id !== approval.id)]
-        .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
-      return {
-        approvalsBySession: { ...s.approvalsBySession, [approval.sessionId]: approvals },
-        ...applyCurrentSession(s, approval.sessionId, { approvals }),
-      };
-    }),
   clearRuntimeState: (sessionId) =>
     set((s) => {
       const target = sessionId ?? s.currentSessionId;
-      if (!target) return { runs: [], tasksByRun: {}, approvals: [] };
+      if (!target) return { runs: [], tasksByRun: {} };
       return {
         runsBySession: { ...s.runsBySession, [target]: [] },
-        approvalsBySession: { ...s.approvalsBySession, [target]: [] },
         runtimeBySession: { ...s.runtimeBySession, [target]: emptyRuntime() },
         ...applyCurrentSession(s, target, {
           runs: [],
-          approvals: [],
           ...emptyRuntime(),
         }),
       };

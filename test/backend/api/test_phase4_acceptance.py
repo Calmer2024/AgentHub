@@ -87,5 +87,5 @@ async def test_phase4_acceptance_single_and_group_flow(test_client, test_agent, 
             data = json.loads(line[6:])
             if data.get("type"):
                 events.append(data["type"])
-    assert "orchestrator.task_started" in events
-    assert "orchestrator.task_completed" in events
+    assert "agent.start" in events
+    assert any(event in events for event in {"agent.process.completed", "run.status_changed"})

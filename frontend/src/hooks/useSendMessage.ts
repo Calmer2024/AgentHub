@@ -4,7 +4,6 @@ import { useSessionStore } from "../stores/sessionStore";
 import {
   checkSystemHealth,
   createChatStream,
-  fetchApprovals,
   fetchArtifacts,
   fetchMessages,
   fetchRuns,
@@ -12,7 +11,7 @@ import {
   markSessionRead,
 } from "../api/client";
 import type {
-  Message, CollabTask, DAGPhase, PhaseChangeEvent, AgentStartEvent, Artifact, StewardDecisionEvent,
+  Message, AgentStartEvent, Artifact, RouteDecisionEvent,
   OrchestratorExecution, Session,
 } from "../types";
 import { chinaNowIso } from "../utils/time";
@@ -20,41 +19,14 @@ import { chinaNowIso } from "../utils/time";
 function emptyCollab(): CollabSnapshot {
   return {
     routeAgents: null,
-    collabTasks: [],
-    dagPhases: [],
-    chainSteps: [],
-    orchestratorIntent: null,
-    planSummary: null,
-    collabCompleted: false,
-    collabSummary: null,
-    draftPlan: null,
+    routeType: null,
+    routeReason: null,
   };
 }
 
 const taskKey = (agentId?: string, phase?: number, task?: string) =>
   `${agentId ?? ""}:${phase ?? 0}:${task ?? "primary"}`;
 
-const updatePhases = (phases: DAGPhase[], event: PhaseChangeEvent): DAGPhase[] =>
-  phases.map((phase) => {
-    if (phase.phase !== event.phase) return phase;
-    return {
-      ...phase,
-      status: event.status,
-      tasks: phase.tasks.map((task) => ({ ...task, status: event.status })),
-    };
-  });
-
-const findPhaseTasks = (phases: DAGPhase[], event: PhaseChangeEvent): CollabTask[] => {
-  const phase = phases.find((p) => p.phase === event.phase);
-  if (phase) return phase.tasks;
-  return event.tasks.map((name) => ({
-    name,
-    role: "executor",
-    agent: event.agents.join(", "),
-    status: event.status,
-    phase: event.phase,
-  }));
-};
 
 function publishSessionUpdated(session: Session) {
   useSessionStore.getState().updateSession(session);
@@ -65,19 +37,14 @@ function publishSessionUpdated(session: Session) {
   }
 }
 
-function stewardSummary(decision: StewardDecisionEvent): string {
+function stewardSummary(decision: RouteDecisionEvent): string {
   if (decision.routeType === "context_only") return "项目Leader已记录到群聊上下文";
-  if (decision.routeType === "direct_dialog") {
+  if (decision.routeType === "direct_turn") {
     const first = decision.selectedAgents[0];
     return first ? `已切换到和 @${first.name} 直接对话` : "已切换到直接对话";
   }
-  if (decision.routeType === "draft_plan") return "项目Leader建议先生成计划，等待确认后再执行";
-  if (decision.routeType === "mini_collab") {
-    const names = decision.selectedAgents.map((agent) => `@${agent.name}`).join("、");
-    return `项目Leader建议先生成小型协作计划${names ? `：${names}` : ""}`;
-  }
-  const first = decision.selectedAgents[0];
-  return first ? `项目Leader已分派给 @${first.name}` : "项目Leader已完成分流";
+  const names = decision.selectedAgents.map((agent) => `@${agent.name}`).join("、");
+  return `项目Leader将生成协作计划${names ? `：${names}` : ""}`;
 }
 
 export function useSendMessage() {
@@ -95,8 +62,6 @@ export function useSendMessage() {
   const setRunsForSession = useChatStore((state) => state.setRunsForSession);
   const upsertRun = useChatStore((state) => state.upsertRun);
   const upsertTask = useChatStore((state) => state.upsertTask);
-  const setApprovalsForSession = useChatStore((state) => state.setApprovalsForSession);
-  const upsertApproval = useChatStore((state) => state.upsertApproval);
   const setSystemHealth = useChatStore((state) => state.setSystemHealth);
   const setHealthBlockingError = useChatStore((state) => state.setHealthBlockingError);
   const setStreamingError = useChatStore((state) => state.setStreamingError);
@@ -174,7 +139,7 @@ export function useSendMessage() {
     const agentPlaceholders = new Map<string, string>();
     const messagePlaceholders = new Map<string, string>();
 
-    const createTaskPlaceholder = (task: CollabTask): string => {
+    const createTaskPlaceholder = (task: { name: string; role: string; agent: string; agentId?: string; status: string; phase?: number }): string => {
       const key = taskKey(task.agentId, task.phase, task.name);
       const existing = agentPlaceholders.get(key);
       if (existing) return existing;
@@ -259,28 +224,20 @@ export function useSendMessage() {
         fetchRuns(currentSessionId)
           .then((runs) => setRunsForSession(currentSessionId, runs))
           .catch(() => {});
-        fetchApprovals(currentSessionId)
-          .then((approvals) => setApprovalsForSession(currentSessionId, approvals))
-          .catch(() => {});
         fetchSession(currentSessionId)
           .then(publishSessionUpdated)
           .catch(() => {});
         markSessionRead(currentSessionId).catch(() => {});
       },
-      onRoute: (agents) => {
-        if (!isLiveStream()) return;
-        const snap = getCollab(collabKey);
-        saveCollab(collabKey, { ...(snap ?? emptyCollab()), routeAgents: agents });
-      },
-      onStewardDecision: (decision) => {
+      onRouteDecided: (decision) => {
         if (!isLiveStream()) return;
         const summary = stewardSummary(decision);
         setActiveProgress(summary, currentSessionId);
         saveCollab(collabKey, {
           ...emptyCollab(),
           routeAgents: decision.selectedAgents.length > 0 ? decision.selectedAgents : null,
-          orchestratorIntent: decision.intent,
-          planSummary: `${summary}。${decision.reason}`,
+          routeType: decision.routeType,
+          routeReason: `${summary}。${decision.reason}`,
         });
       },
       onProgress: (progress) => {
@@ -300,12 +257,6 @@ export function useSendMessage() {
       },
       onTaskStatusChanged: (task) => {
         upsertTask(task);
-      },
-      onApprovalCreated: (approval) => {
-        upsertApproval(approval);
-      },
-      onApprovalStatusChanged: (approval) => {
-        upsertApproval(approval);
       },
       onSessionTitleUpdated: (session) => {
         publishSessionUpdated(session);
@@ -355,70 +306,7 @@ export function useSendMessage() {
           completedAt: chinaNowIso(),
         });
       },
-      onTaskStarted: (tasks, intent, nextPhases, planSummary) => {
-        if (!isLiveStream()) return;
-        const snap = getCollab(collabKey);
-        saveCollab(collabKey, {
-          ...(snap ?? emptyCollab()),
-          collabTasks: tasks,
-          dagPhases: nextPhases,
-          orchestratorIntent: intent,
-          planSummary,
-        });
-        if (nextPhases.length === 0) tasks.forEach(createTaskPlaceholder);
-      },
-      onChainStep: (step) => {
-        if (!isLiveStream()) return;
-        const snap = getCollab(collabKey);
-        const existing = (snap?.chainSteps ?? []).filter((s) => s.step !== step.step);
-        const updatedSteps = [...existing, step].sort((a, b) => a.step - b.step);
-        const updatedTasks = (snap?.collabTasks ?? []).map((t, i) => (
-          i === step.step ? {
-            ...t,
-            status: step.status === "interrupted" ? "error" as const
-              : step.status === "completed" ? "completed" as const : "running" as const,
-          } : t
-        ));
-        saveCollab(collabKey, {
-          ...(snap ?? emptyCollab()),
-          chainSteps: updatedSteps,
-          collabTasks: updatedTasks,
-        });
-      },
-      onPhaseChange: (event) => {
-        if (!isLiveStream()) return;
-        const base = getCollab(collabKey) ?? emptyCollab();
-        const phaseTasks = findPhaseTasks(base.dagPhases, event);
-        saveCollab(collabKey, {
-          ...base,
-          collabTasks: base.collabTasks.map((task) => (
-            task.phase === event.phase ? { ...task, status: event.status } : task
-          )),
-          dagPhases: updatePhases(base.dagPhases, event),
-        });
-        if (event.status === "running") phaseTasks.forEach(createTaskPlaceholder);
-      },
-      onTaskCompleted: (summary) => {
-        if (!isLiveStream()) return;
-        const snap = getCollab(collabKey);
-        saveCollab(collabKey, {
-          ...(snap ?? emptyCollab()),
-          collabCompleted: true,
-          collabSummary: summary,
-          collabTasks: (snap?.collabTasks ?? []).map((t) => (
-            t.status === "error" ? t : { ...t, status: "completed" as const }
-          )),
-          dagPhases: (snap?.dagPhases ?? []).map((p) => (
-            p.status === "error" ? p : {
-              ...p,
-              status: "completed" as const,
-              tasks: p.tasks.map((t) => (
-                t.status === "error" ? t : { ...t, status: "completed" as const }
-              )),
-            }
-          )),
-        });
-      },
+
       onPlanExecutionCreated: (execution: OrchestratorExecution, messageId) => {
         if (!isLiveStream() || !messageId) return;
         const targetId = localMessageForServer(messageId);
@@ -449,27 +337,6 @@ export function useSendMessage() {
         agentPlaceholders.set(key, localId);
         messagePlaceholders.set(event.messageId, localId);
       },
-      onOrchestratorSummaryStart: (event) => {
-        if (!isLiveStream()) return;
-        appendMessageToSession(currentSessionId, {
-          id: event.messageId,
-          sessionId: currentSessionId,
-          role: "assistant",
-          content: "",
-          contentType: event.contentType,
-          agentName: null,
-          sourceType: event.sourceType,
-          sourceId: event.sourceId ?? "orchestrator",
-          sourceName: event.sourceName,
-          metadata: event.metadata ?? null,
-          isCollaborating: true,
-          createdAt: chinaNowIso(),
-        });
-      },
-      onOrchestratorSummaryToken: (messageId, token) => {
-        if (!isLiveStream()) return;
-        appendAgentStreamingTokenToSession(currentSessionId, messageId, "Orchestrator 中枢", token);
-      },
       onAgentToken: (agentId, agentName, token, messageId, _role, phase, task) => {
         if (!isLiveStream()) return;
         const key = taskKey(agentId, phase, task);
@@ -478,7 +345,7 @@ export function useSendMessage() {
           ?? agentPlaceholders.get(agentId);
         if (localId) appendAgentStreamingTokenToSession(currentSessionId, localId, agentName, token);
       },
-    }, undefined, parentMessageId, attachmentIds);
+    }, parentMessageId, attachmentIds);
     setActiveStreamAbort(streamKey, abortStream);
 
   }, [
@@ -487,7 +354,7 @@ export function useSendMessage() {
     finalizeExecutionTraceInSession, setArtifactsForSession, setMessagesForSession, setStreamingError,
     setActiveProgress, addInteractivePrompt, updateSessionMessage, clearRuntimeNotices,
     replaceSessionMessageWithServer,
-    setRunsForSession, upsertRun, upsertTask, setApprovalsForSession, upsertApproval,
+    setRunsForSession, upsertRun, upsertTask,
     setSystemHealth, setHealthBlockingError,
     appendStreamingTokenToSessionMessage, startStreamRun, finishStreamRun,
     setActiveRunId, setActiveStreamAbort, getCollab, saveCollab, replyTarget, setReplyTarget,

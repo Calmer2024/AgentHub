@@ -7,9 +7,7 @@ from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Session as DBSession, Message as DBMessage
-from ..domain.orchestrator_v2 import OrchestratorV2
 from ..domain.context_manager import ContextManager
-from ..services.agent_executor import AgentExecutor
 from ..services.group_chat_stream import GroupChatStream
 from .message_service_sqlalchemy import (
     SqlAlchemyMessageService,
@@ -21,7 +19,6 @@ from .run_service import RunService, run_to_read, task_to_read
 from .session_service import SessionService
 from .session_title_service import SessionTitleService
 from .single_cli_chat_stream import SingleCliChatStream
-from ..infrastructure.domain_event_publisher import domain_event_publisher_from_event_bus
 from ..infrastructure.realtime import RealtimePublisher, manager as realtime_manager
 
 class ChatServiceImpl:
@@ -37,12 +34,7 @@ class ChatServiceImpl:
         self.event_bus = event_bus
         self.realtime = realtime or realtime_manager
         self._context_manager = ContextManager()
-        self._pipeline = OrchestratorV2(
-            context_manager=self._context_manager,
-            event_bus=domain_event_publisher_from_event_bus(event_bus),
-        )
-        self._executor = AgentExecutor(db, event_bus=event_bus)
-        self._group_stream = GroupChatStream(db, self._pipeline, self._executor, event_bus=event_bus)
+        self._group_stream = GroupChatStream(db, event_bus=event_bus)
         self._single_stream = SingleCliChatStream(
             db,
             self._context_manager,
@@ -57,7 +49,6 @@ class ChatServiceImpl:
         content: str,
         mentions: list[str] | None = None,
         parent_message_id: str | None = None,
-        chain_config: object = None,  # ChainConfigSchema | None
         attachment_ids: list[str] | None = None,
     ) -> AsyncGenerator[str, None]:
         session = await self.db.get(DBSession, session_id)
@@ -102,13 +93,11 @@ class ChatServiceImpl:
 
         run_service = RunService(self.db, event_bus=self.event_bus)
         run_mode = "orchestrated" if session.mode == "group" else "single"
-        approval_required = _approval_requested(content)
         run = await run_service.create_run(
             session,
             mode=run_mode,
             metadata={
                 "userMessageId": user_msg_id,
-                "requiresHumanApproval": approval_required,
             },
         )
         yield self._sse({
@@ -129,13 +118,12 @@ class ChatServiceImpl:
             context_manager=self._context_manager,
         ).runtime_context(session_id, purpose="send")
 
-        # 群聊: 通过 Pipeline 决定路由和执行计划
+        # 群聊统一进入 Orchestrator 路由。
         if session.mode == "group":
             async for ev in self._with_title_generation(
                 self._group_chat(
-                    session_id, content, mentions, history, pinned_ids, session, chain_config,
+                    session_id, content, mentions, history, pinned_ids, session,
                     run_id=run.id,
-                    approval_required=approval_required,
                 ),
                 session_id=session_id,
                 user_content=content,
@@ -149,10 +137,6 @@ class ChatServiceImpl:
             name="primary",
             role="executor",
             phase=0,
-            metadata={
-                "requiresHumanApproval": approval_required,
-                "approvalTitle": "确认本轮产出",
-            },
         )
         yield self._sse({
             "type": "task.status_changed",
@@ -182,12 +166,10 @@ class ChatServiceImpl:
     # ---- 群聊 ----
 
     async def _group_chat(self, session_id, content, mentions, history, pinned_ids, session,
-                          chain_config=None, run_id: str | None = None,
-                          approval_required: bool = False):
+                          run_id: str | None = None):
         async for ev in self._group_stream.send(
-            session_id, content, mentions, history, pinned_ids, session, chain_config,
+            session_id, content, mentions, history, pinned_ids, session,
             run_id=run_id,
-            approval_required=approval_required,
         ):
             yield ev
 
@@ -207,8 +189,6 @@ class ChatServiceImpl:
                 if piece:
                     assistant_content += piece
                 if payload.get("done") is True and not payload.get("error"):
-                    completed_without_error = True
-                if payload.get("type") == "orchestrator.task_completed":
                     completed_without_error = True
                 if _is_successful_agent_completion(payload):
                     completed_without_error = True
@@ -245,20 +225,6 @@ class ChatServiceImpl:
         return f"data: {json.dumps({'type': 'error', 'token': '', 'done': True, 'error': msg}, ensure_ascii=False)}\n\n"
 
 
-def _approval_requested(content: str) -> bool:
-    lowered = content.lower()
-    markers = (
-        "requireshumanapproval",
-        "human approval",
-        "人工确认",
-        "人工审批",
-        "需要审批",
-        "审批后",
-        "确认继续",
-        "审核后",
-    )
-    return any(marker in lowered for marker in markers)
-
 
 def _parse_sse_payload(event: str) -> dict | None:
     if not event.startswith("data: "):
@@ -277,8 +243,7 @@ def _assistant_text_piece(payload: dict) -> str:
         chunk = payload.get("chunk")
         if isinstance(chunk, str):
             return chunk
-    summary = payload.get("summary") if payload.get("type") == "orchestrator.task_completed" else None
-    return summary if isinstance(summary, str) else ""
+    return ""
 
 
 def _is_successful_agent_completion(payload: dict) -> bool:

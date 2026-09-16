@@ -60,6 +60,5 @@ class SendMessageUseCase:
             data.content,
             data.mentions,
             parent_message_id=data.parent_message_id,
-            chain_config=data.chain_config,
             attachment_ids=data.attachment_ids,
         )

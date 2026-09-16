@@ -1,7 +1,6 @@
 import type {
   Session, SessionMember, Message, AgentConfig, AgentConfigCreate, AgentConfigUpdate,
-  RouteAgent, CollabTask, ChainStep, ChainConfigInput,
-  DAGPhase, PhaseChangeEvent, AgentStartEvent, OrchestratorSummaryStartEvent,
+  RouteAgent, AgentStartEvent,
   Artifact, ArtifactDiff, ArtifactEditRequest, ArtifactEditResult, ArtifactVersion,
   ArtifactScanResult,
   Project, ProjectCreateInput, ProjectUpdateInput, ProjectDeleteResult, FolderPickResult,
@@ -17,14 +16,14 @@ import type {
   GenerateOrchestratorPlanRequest, GenerateOrchestratorPlanResult,
   ParseOrchestratorOutputRequest, ParseOrchestratorOutputResult,
   OrchestratorExecution,
-  RunRead, TaskRead, ApprovalCheckpoint, SystemHealthRead, CodeReference,
-  StewardDecisionEvent,
+  RunRead, TaskRead, SystemHealthRead,
+  RouteDecisionEvent,
   Comment, Attachment, ArtifactReference, Notification, MobileSessionSummary,
   RenderedArtifact, AgentTemplateSession, GitSyncJob,
   RuntimeCapabilities, AuthProvider, AuthSession,
   CliCredentialConfig, CliCredentialTool, CliCredentialUpdateInput, CliModelList,
+  SessionDiagnosticLogPayload,
 } from "../types";
-import { parseDagPhases, parseTasks } from "./orchestratorEvents";
 import { chinaNowIso } from "../utils/time";
 
 type ApiAuthProvider = () => Record<string, string>;
@@ -794,18 +793,6 @@ export async function fetchMobileSessions(): Promise<MobileSessionSummary[]> {
   return res.json();
 }
 
-export async function decideMobileApproval(
-  approvalId: string,
-  input: { decision: "approve" | "reject"; comment?: string | null },
-): Promise<ApprovalCheckpoint> {
-  const res = await fetch(`${API_BASE}/mobile/approvals/${approvalId}/decision`, {
-    method: "POST",
-    headers: cloudJsonHeaders(),
-    body: JSON.stringify(input),
-  });
-  if (!res.ok) throw new Error(await readApiError(res, "Failed to decide approval"));
-  return res.json();
-}
 
 export async function renderArtifact(
   artifactId: string,
@@ -1298,19 +1285,6 @@ export async function markSessionRead(sessionId: string): Promise<Session> {
   return res.json();
 }
 
-export async function closeGroupDialog(sessionId: string, reason = "user_closed"): Promise<{
-  ok: boolean;
-  closed: boolean;
-}> {
-  const res = await fetch(`${API_BASE}/sessions/${sessionId}/group-dialog/close`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ reason }),
-  });
-  if (!res.ok) throw new Error(await readApiError(res, "Failed to close group dialog"));
-  return res.json();
-}
-
 export async function forwardMessages(
   messageIds: string[],
   targetSessionIds: string[],
@@ -1355,6 +1329,12 @@ export async function fetchMessages(sessionId: string): Promise<Message[]> {
   return res.json();
 }
 
+export async function fetchSessionDiagnosticLogs(sessionId: string): Promise<SessionDiagnosticLogPayload> {
+  const res = await fetch(`${API_BASE}/sessions/${sessionId}/diagnostic-logs`, { headers: cloudHeaders() });
+  if (!res.ok) throw new Error(await readApiError(res, "Failed to fetch session diagnostic logs"));
+  return res.json();
+}
+
 export async function fetchRuns(sessionId: string): Promise<RunRead[]> {
   const res = await fetch(`${API_BASE}/sessions/${sessionId}/runs`, { headers: cloudHeaders() });
   if (!res.ok) throw new Error("Failed to fetch runs");
@@ -1383,42 +1363,6 @@ export async function fetchRunTasks(runId: string): Promise<TaskRead[]> {
   return res.json();
 }
 
-export async function fetchApprovals(sessionId: string): Promise<ApprovalCheckpoint[]> {
-  const res = await fetch(`${API_BASE}/sessions/${sessionId}/approvals`, { headers: cloudHeaders() });
-  if (!res.ok) throw new Error("Failed to fetch approvals");
-  return res.json();
-}
-
-export async function approveCheckpoint(
-  checkpointId: string,
-  input: { artifactId?: string | null; artifactVersion?: number | null; comment?: string | null } = {},
-): Promise<ApprovalCheckpoint> {
-  const res = await fetch(`${API_BASE}/approvals/${checkpointId}/approve`, {
-    method: "POST",
-    headers: cloudJsonHeaders(),
-    body: JSON.stringify(input),
-  });
-  if (!res.ok) throw new Error("Failed to approve checkpoint");
-  return res.json();
-}
-
-export async function rejectCheckpoint(
-  checkpointId: string,
-  input: {
-    reason: string;
-    artifactId?: string | null;
-    artifactVersion?: number | null;
-    codeReference?: CodeReference | null;
-  },
-): Promise<ApprovalCheckpoint> {
-  const res = await fetch(`${API_BASE}/approvals/${checkpointId}/reject`, {
-    method: "POST",
-    headers: cloudJsonHeaders(),
-    body: JSON.stringify(input),
-  });
-  if (!res.ok) throw new Error("Failed to reject checkpoint");
-  return res.json();
-}
 
 export async function fetchSystemHealth(input: {
   projectId?: string | null;
@@ -1456,18 +1400,9 @@ export async function checkSystemHealth(input: {
 export interface StreamCallbacks {
   onToken: (token: string) => void;
   onDone: (messageId?: string, error?: string) => void;
-  onRoute?: (agents: RouteAgent[]) => void;
-  onTaskStarted?: (
-    tasks: CollabTask[], intent: string, dagPhases: DAGPhase[], planSummary: string,
-  ) => void;
-  onStewardDecision?: (decision: StewardDecisionEvent) => void;
-  onChainStep?: (step: ChainStep) => void;
-  onPhaseChange?: (event: PhaseChangeEvent) => void;
-  onTaskCompleted?: (summary: string) => void;
+  onRouteDecided?: (decision: RouteDecisionEvent) => void;
   onPlanExecutionCreated?: (execution: OrchestratorExecution, messageId?: string) => void;
   onAgentStart?: (event: AgentStartEvent) => void;
-  onOrchestratorSummaryStart?: (event: OrchestratorSummaryStartEvent) => void;
-  onOrchestratorSummaryToken?: (messageId: string, token: string) => void;
   onAgentToken?: (
     agentId: string,
     agentName: string,
@@ -1503,8 +1438,6 @@ export interface StreamCallbacks {
   onRunStarted?: (run: RunRead) => void;
   onRunStatusChanged?: (run: RunRead) => void;
   onTaskStatusChanged?: (task: TaskRead) => void;
-  onApprovalCreated?: (approval: ApprovalCheckpoint) => void;
-  onApprovalStatusChanged?: (approval: ApprovalCheckpoint) => void;
   onSessionTitleUpdated?: (session: Session) => void;
 }
 
@@ -1513,18 +1446,15 @@ export function createChatStream(
   content: string,
   mentions: string[],
   callbacks: StreamCallbacks,
-  chainConfig?: ChainConfigInput,
   parentMessageId?: string | null,
   attachmentIds?: string[],
 ): () => void {
   const {
-    onToken, onDone, onRoute, onTaskStarted, onStewardDecision, onChainStep, onPhaseChange,
-    onTaskCompleted, onPlanExecutionCreated, onAgentStart, onOrchestratorSummaryStart,
-    onOrchestratorSummaryToken, onAgentToken, onProgress, onInteractivePrompt,
+    onToken, onDone, onRouteDecided,
+    onPlanExecutionCreated, onAgentStart, onAgentToken, onProgress, onInteractivePrompt,
     onTraceDelta, onTraceCompleted, onArtifactScanStarted, onArtifactCreated,
     onArtifactScanCompleted, onArtifactDetectionFailed,
     onRunStarted, onRunStatusChanged, onTaskStatusChanged,
-    onApprovalCreated, onApprovalStatusChanged,
     onSessionTitleUpdated,
   } = callbacks;
   const url = `${API_BASE}/sessions/${sessionId}/chat`;
@@ -1535,12 +1465,6 @@ export function createChatStream(
     if (mentions.length > 0) body.mentions = mentions;
     if (parentMessageId) body.parentMessageId = parentMessageId;
     if (attachmentIds && attachmentIds.length > 0) body.attachmentIds = attachmentIds;
-    if (chainConfig) {
-      body.chainConfig = {
-        chainName: chainConfig.chainName,
-        agentOrder: chainConfig.agentOrder,
-      };
-    }
     const response = await fetch(url, {
       method: "POST",
       headers: cloudJsonHeaders(),
@@ -1590,33 +1514,14 @@ export function createChatStream(
               continue;
             }
 
-            if (data.type === "approval.created" && onApprovalCreated) {
-              const approval = normalizeApproval(data.approval);
-              if (approval) onApprovalCreated(approval);
-              continue;
-            }
-
-            if (data.type === "approval.status_changed" && onApprovalStatusChanged) {
-              const approval = normalizeApproval(data.approval);
-              if (approval) onApprovalStatusChanged(approval);
-              continue;
-            }
-
             if (data.type === "session.title_updated" && onSessionTitleUpdated) {
               const session = normalizeSession(data.session);
               if (session) onSessionTitleUpdated(session);
               continue;
             }
-
-            // orchestrator.route
-            if (data.type === "orchestrator.route" && onRoute) {
-              onRoute(data.agents);
-              continue;
-            }
-
-            if (data.type === "orchestrator.steward_decision") {
-              const decision = normalizeStewardDecision(data.decision ?? data);
-              if (decision && onStewardDecision) onStewardDecision(decision);
+            if (data.type === "orchestrator.route_decided") {
+              const decision = normalizeRouteDecision(data);
+              if (decision && onRouteDecided) onRouteDecided(decision);
               continue;
             }
 
@@ -1631,74 +1536,6 @@ export function createChatStream(
               continue;
             }
 
-            // orchestrator.task_started (new)
-            if (data.type === "orchestrator.task_started" && onTaskStarted) {
-              onTaskStarted(
-                parseTasks(data.tasks),
-                data.intent || "general_qa",
-                parseDagPhases(data.dag),
-                typeof data.plan_summary === "string" ? data.plan_summary : "",
-              );
-              continue;
-            }
-
-            // orchestrator.chain_step (new)
-            if (data.type === "orchestrator.chain_step" && onChainStep) {
-              onChainStep({
-                step: data.step ?? 0,
-                agent: data.agent ?? "",
-                role: data.role ?? "executor",
-                total: data.total ?? 0,
-                status: data.status ?? "running",
-              });
-              continue;
-            }
-
-            // orchestrator.phase_change
-            if (data.type === "orchestrator.phase_change" && onPhaseChange) {
-              const status = typeof data.status === "string" ? data.status : "running";
-              onPhaseChange({
-                phase: data.phase ?? 0,
-                status: status === "pending" || status === "completed" || status === "error" ? status : "running",
-                agents: Array.isArray(data.agents) ? data.agents.map(String) : [],
-                tasks: Array.isArray(data.tasks) ? data.tasks.map(String) : [],
-              });
-              continue;
-            }
-
-            if (data.type === "orchestrator.summary_started") {
-              if (onOrchestratorSummaryStart) {
-                onOrchestratorSummaryStart({
-                  messageId: data.messageId ?? "",
-                  sourceType: "orchestrator",
-                  sourceId: data.sourceId,
-                  sourceName: data.sourceName ?? "Orchestrator 中枢",
-                  contentType: "orchestrator_summary",
-                  metadata: data.metadata,
-                });
-              }
-              continue;
-            }
-
-            if (data.type === "orchestrator.summary_delta") {
-              if (onOrchestratorSummaryToken && data.token) {
-                onOrchestratorSummaryToken(data.messageId ?? "", data.token);
-              }
-              continue;
-            }
-
-            if (data.type === "orchestrator.summary_completed") {
-              continue;
-            }
-
-            if (data.type === "orchestrator.task_completed") {
-              if (onTaskCompleted) onTaskCompleted(data.summary ?? "");
-              if (data.done === true && !completed) {
-                completed = true;
-                onDone(data.messageId, data.error);
-              }
-              continue;
-            }
 
             // agent.start
             if (data.type === "agent.start") {
@@ -2067,34 +1904,6 @@ function normalizeTask(raw: unknown): TaskRead | null {
   };
 }
 
-function normalizeApproval(raw: unknown): ApprovalCheckpoint | null {
-  if (!raw || typeof raw !== "object") return null;
-  const data = raw as Record<string, unknown>;
-  if (
-    typeof data.id !== "string"
-    || typeof data.runId !== "string"
-    || typeof data.taskId !== "string"
-    || typeof data.sessionId !== "string"
-  ) return null;
-  const status = normalizeApprovalStatus(data.status);
-  if (!status) return null;
-  return {
-    id: data.id,
-    runId: data.runId,
-    taskId: data.taskId,
-    sessionId: data.sessionId,
-    messageId: typeof data.messageId === "string" ? data.messageId : null,
-    artifactId: typeof data.artifactId === "string" ? data.artifactId : null,
-    artifactVersion: typeof data.artifactVersion === "number" ? data.artifactVersion : null,
-    title: typeof data.title === "string" ? data.title : "等待确认",
-    summary: typeof data.summary === "string" ? data.summary : "",
-    status,
-    reason: typeof data.reason === "string" ? data.reason : null,
-    createdAt: typeof data.createdAt === "string" ? data.createdAt : chinaNowIso(),
-    decidedAt: typeof data.decidedAt === "string" ? data.decidedAt : null,
-    metadata: isRecord(data.metadata) ? data.metadata : null,
-  };
-}
 
 function normalizeSession(raw: unknown): Session | null {
   if (!raw || typeof raw !== "object") return null;
@@ -2119,10 +1928,10 @@ function normalizeSession(raw: unknown): Session | null {
   };
 }
 
-function normalizeStewardDecision(raw: unknown): StewardDecisionEvent | null {
+function normalizeRouteDecision(raw: unknown): RouteDecisionEvent | null {
   if (!raw || typeof raw !== "object") return null;
   const data = raw as Record<string, unknown>;
-  const routeType = normalizeStewardRouteType(data.routeType ?? data.route_type);
+  const routeType = normalizeRouteType(data.routeType ?? data.route_type);
   if (!routeType) return null;
   return {
     routeType,
@@ -2132,7 +1941,6 @@ function normalizeStewardDecision(raw: unknown): StewardDecisionEvent | null {
     taskBrief: typeof data.taskBrief === "string"
       ? data.taskBrief
       : typeof data.task_brief === "string" ? data.task_brief : "",
-    requiresApproval: Boolean(data.requiresApproval ?? data.requires_approval),
     riskLevel: normalizeRiskLevel(data.riskLevel ?? data.risk_level),
     intent: typeof data.intent === "string" ? data.intent : "general_qa",
     requiredTags: Array.isArray(data.requiredTags)
@@ -2169,23 +1977,18 @@ function normalizeTaskStatus(value: unknown): TaskRead["status"] | null {
   return null;
 }
 
-function normalizeStewardRouteType(value: unknown): StewardDecisionEvent["routeType"] | null {
+function normalizeRouteType(value: unknown): RouteDecisionEvent["routeType"] | null {
   if (
-    value === "context_only" || value === "single_agent"
-    || value === "direct_dialog" || value === "mini_collab" || value === "draft_plan"
+    value === "context_only" || value === "direct_turn" || value === "orchestrated_run"
   ) return value;
   return null;
 }
 
-function normalizeRiskLevel(value: unknown): StewardDecisionEvent["riskLevel"] {
+function normalizeRiskLevel(value: unknown): RouteDecisionEvent["riskLevel"] {
   if (value === "medium" || value === "high") return value;
   return "low";
 }
 
-function normalizeApprovalStatus(value: unknown): ApprovalCheckpoint["status"] | null {
-  if (value === "pending_review" || value === "approved" || value === "rejected") return value;
-  return null;
-}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -2236,9 +2039,11 @@ function normalizeOrchestratorExecutionTasks(raw: unknown): OrchestratorExecutio
       assignedAgentId: nullableString(item.assignedAgentId ?? item.assigned_agent_id),
       assignedAgentName: nullableString(item.assignedAgentName ?? item.assigned_agent_name),
       dependsOn: stringArray(item.dependsOn ?? item.depends_on),
-      requiredSkills: stringArray(item.requiredSkills ?? item.required_skills),
-      needsApproval: Boolean(item.needsApproval ?? item.needs_approval),
-      isBlocking: Boolean(item.isBlocking ?? item.is_blocking),
+      attempt: Number(item.attempt ?? 0),
+      maxAttempts: Number(item.maxAttempts ?? item.max_attempts ?? 3),
+      attempts: Array.isArray(item.attempts) ? item.attempts.filter(isRecord) : [],
+      retryFeedback: nullableString(item.retryFeedback ?? item.retry_feedback),
+      orchestratorReview: isRecord(item.orchestratorReview) ? item.orchestratorReview : null,
       expectedOutputs: stringArray(item.expectedOutputs ?? item.expected_outputs),
       acceptanceCriteria: stringArray(item.acceptanceCriteria ?? item.acceptance_criteria),
     }];
@@ -2421,26 +2226,6 @@ export async function resumeOrchestratorExecution(executionId: string): Promise<
   const res = await fetch(`${API_BASE}/orchestrator/executions/${encodeURIComponent(executionId)}/resume`, {
     method: "POST",
   });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(text || `HTTP ${res.status}`);
-  }
-  return res.json();
-}
-
-export async function confirmOrchestratorTask(
-  executionId: string,
-  taskId: string,
-  note?: string,
-): Promise<OrchestratorExecution> {
-  const res = await fetch(
-    `${API_BASE}/orchestrator/executions/${encodeURIComponent(executionId)}/tasks/${encodeURIComponent(taskId)}/confirm`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ note: note ?? null }),
-    },
-  );
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(text || `HTTP ${res.status}`);

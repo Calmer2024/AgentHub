@@ -1,28 +1,20 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CheckSquare, Files, Forward, PanelLeftClose, Search, Users, X } from "lucide-react";
+import { CheckSquare, FileText, Files, Forward, PanelLeftClose, Search, Users, X } from "lucide-react";
 import type {
-  Message, AgentConfig, CollabTask, ChainStep, DAGPhase, Artifact,
-  ApprovalCheckpoint, TaskRead, DraftOrchestratorPlan, Session, OrchestratorExecution, CurrentUser,
+  Message, AgentConfig, Artifact, TaskRead, Session, OrchestratorExecution, CurrentUser,
 } from "../types";
 import { MessageBubble } from "./MessageBubble";
 import { ArtifactMessage } from "./MessageArtifactStrip";
 import { ChatInput } from "./ChatInput";
-import { CollaborationPanel } from "./CollaborationPanel";
 import { SearchPanel } from "./SearchPanel";
 import { RuntimeControlStrip } from "./RuntimeControlStrip";
 import {
-  approveCheckpoint,
   cancelRun,
-  closeGroupDialog,
-  confirmOrchestratorTask,
-  fetchApprovals,
   fetchArtifacts,
   fetchMessages,
   forwardMessages,
   fetchRuns,
-  fetchSystemHealth,
   interruptOrchestratorExecution,
-  rejectCheckpoint,
   resumeOrchestratorExecution,
   replyToInteractivePrompt,
 } from "../api/client";
@@ -30,11 +22,10 @@ import { useChatStore } from "../stores/chatStore";
 import { InteractivePromptCard } from "./InteractivePromptCard";
 import { AgentAvatar } from "./AgentAvatar";
 import { SessionArtifactManager } from "./SessionArtifactManager";
-import { HealthCheckCard } from "./HealthCheckCard";
-import { ArtifactReviewModal } from "./ArtifactReviewModal";
 import { GroupManagementDialog } from "./GroupManagementDialog";
 import { useToastStore } from "../stores/toastStore";
 import { GlobalModal } from "./GlobalModal";
+import { SessionDiagnosticLogPanel } from "./SessionDiagnosticLogPanel";
 
 interface Props {
   messages: Message[];
@@ -49,19 +40,12 @@ interface Props {
   agents: AgentConfig[];
   mode: string;
   routeAgents: Array<{ id: string; name: string }> | null;
-  orchestratorIntent: string | null;
-  planSummary: string | null;
+  routeType: "context_only" | "direct_turn" | "orchestrated_run" | null;
+  routeReason: string | null;
   mentionableAgents: AgentConfig[];
   mentionLoading?: boolean;
   groupMembers: AgentConfig[];
   groupMembersLoading?: boolean;
-  // CollaborationView props (inline in message flow)
-  collabTasks: CollabTask[];
-  dagPhases: DAGPhase[];
-  chainSteps: ChainStep[];
-  collabCompleted: boolean;
-  collabSummary: string | null;
-  draftPlan: DraftOrchestratorPlan | null;
   onSend: (content: string, mentions: string[], attachmentIds?: string[]) => void;
   onDismissError: () => void;
   onReply: (message: Message) => void;
@@ -76,17 +60,15 @@ interface Props {
   onOpenAgentSettings?: (agentId: string) => void;
 }
 
-const INTENT_LABELS: Record<string, string> = {
-  code_gen: "代码生成",
-  research: "调研分析",
-  design_ui: "UI 设计",
-  general_qa: "通用问答",
+const ROUTE_LABELS: Record<string, string> = {
+  context_only: "记录上下文",
+  direct_turn: "直接回合",
+  orchestrated_run: "协作计划",
 };
 
 const ACTIVE_RUN_STATUSES = new Set(["queued", "running", "pausing", "cancelling"]);
 const EMPTY_TASKS: TaskRead[] = [];
 const EMPTY_ARTIFACTS: Artifact[] = [];
-const EMPTY_APPROVALS: ApprovalCheckpoint[] = [];
 
 export async function copyTextToClipboard(content: string): Promise<void> {
   const clipboard = typeof navigator === "undefined" ? undefined : navigator.clipboard;
@@ -124,11 +106,10 @@ export async function copyTextToClipboard(content: string): Promise<void> {
 export function ChatWindow({
   messages, artifacts, isStreaming, streamingError,
   hydrating = false,
-  currentAgent, currentUser, currentSessionId, sessions, agents, mode, routeAgents, orchestratorIntent, planSummary, mentionableAgents,
+  currentAgent, currentUser, currentSessionId, sessions, agents, mode, routeAgents, routeType, routeReason, mentionableAgents,
   mentionLoading = false,
   groupMembers,
   groupMembersLoading = false,
-  collabTasks, dagPhases, collabCompleted, collabSummary, draftPlan,
   onSend, onDismissError, onReply, onRegenerate, onTogglePin, onArtifactsChanged,
   onToggleProjectFiles, projectFilesOpen = false,
   onRenameSession, onAddGroupMember, onRemoveGroupMember,
@@ -140,19 +121,15 @@ export function ChatWindow({
   const autoScrollUserSignatureRef = useRef<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [artifactManagerOpen, setArtifactManagerOpen] = useState(false);
-  const [reviewArtifact, setReviewArtifact] = useState<Artifact | null>(null);
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
   const [cancellingRunId, setCancellingRunId] = useState<string | null>(null);
-  const [busyApprovalId, setBusyApprovalId] = useState<string | null>(null);
-  const [healthLoading, setHealthLoading] = useState(false);
+  const [diagnosticOpen, setDiagnosticOpen] = useState(false);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedMessageIds, setSelectedMessageIds] = useState<Set<string>>(() => new Set());
   const [forwardingIds, setForwardingIds] = useState<string[] | null>(null);
   const [forwardTargetIds, setForwardTargetIds] = useState<Set<string>>(() => new Set());
   const [forwardingBusy, setForwardingBusy] = useState(false);
   const [groupManagementOpen, setGroupManagementOpen] = useState(false);
-  const [confirmingDialog, setConfirmingDialog] = useState(false);
-  const [closingDialog, setClosingDialog] = useState(false);
   const [blockedSend, setBlockedSend] = useState<{
     content: string;
     mentions: string[];
@@ -163,17 +140,11 @@ export function ChatWindow({
   const removeInteractivePrompt = useChatStore((state) => state.removeInteractivePrompt);
   const runs = useChatStore((state) => state.runs);
   const tasksByRun = useChatStore((state) => state.tasksByRun);
-  const approvals = useChatStore((state) => state.approvals);
-  const systemHealth = useChatStore((state) => state.systemHealth);
-  const setApprovalsForSession = useChatStore((state) => state.setApprovalsForSession);
   const setArtifactsForSession = useChatStore((state) => state.setArtifactsForSession);
   const setMessagesForSession = useChatStore((state) => state.setMessagesForSession);
   const appendMessageToSession = useChatStore((state) => state.appendMessageToSession);
   const setRunsForSession = useChatStore((state) => state.setRunsForSession);
-  const setSystemHealth = useChatStore((state) => state.setSystemHealth);
   const setStreamingError = useChatStore((state) => state.setStreamingError);
-  const setReplyTarget = useChatStore((state) => state.setReplyTarget);
-  const setCodeReference = useChatStore((state) => state.setCodeReference);
   const cancelRunLocally = useChatStore((state) => state.cancelRunLocally);
   const pushToast = useToastStore((state) => state.pushToast);
 
@@ -194,7 +165,6 @@ export function ChatWindow({
   }, []);
 
   const isGroup = mode === "group";
-  const isPlanOnly = orchestratorIntent === "orchestrator_plan" || Boolean(draftPlan);
   const sessionPrompts = useMemo(
     () => interactivePrompts.filter((prompt) => prompt.sessionId === currentSessionId),
     [currentSessionId, interactivePrompts],
@@ -219,7 +189,6 @@ export function ChatWindow({
     agents.forEach((agent) => map.set(agent.name, agent));
     return map;
   }, [agents]);
-  const artifactById = useMemo(() => new Map(artifacts.map((artifact) => [artifact.id, artifact])), [artifacts]);
   const artifactsByMessageId = useMemo(() => {
     const map = new Map<string, Artifact[]>();
     artifacts.forEach((artifact) => {
@@ -229,16 +198,6 @@ export function ChatWindow({
     });
     return map;
   }, [artifacts]);
-  const approvalsByMessageId = useMemo(() => {
-    const map = new Map<string, ApprovalCheckpoint[]>();
-    approvals.forEach((approval) => {
-      if (!approval.messageId) return;
-      const list = map.get(approval.messageId) ?? [];
-      list.push(approval);
-      map.set(approval.messageId, list);
-    });
-    return map;
-  }, [approvals]);
   const latestRunByMessageId = useMemo(() => {
     const map = new Map<string, typeof runs[number]>();
     runs.forEach((run) => {
@@ -265,9 +224,7 @@ export function ChatWindow({
     () => groupMembers.map((member) => agents.find((agent) => agent.id === member.id) ?? member),
     [agents, groupMembers],
   );
-  const showCollabPanel = collabTasks.length > 0 || Boolean(draftPlan);
-  const showRouteBanner = !showCollabPanel && !isPlanOnly && routeAgents && routeAgents.length > 0;
-  const activeGroupDialog = useMemo(() => findActiveGroupDialog(messages), [messages]);
+  const showRouteBanner = Boolean(routeType);
   const friendOnline = !isGroup && currentAgent?.status === "ready";
   const headerPresence = isGroup
     ? groupMembersFull.length > 0
@@ -278,10 +235,7 @@ export function ChatWindow({
       : currentAgent
         ? "离线"
         : "未选择智能体";
-  const headerActivity = isStreaming || hasActiveRun
-    ? "对方正在输入"
-    : activeGroupDialog ? `等待你回复 @${activeGroupDialog.activeAgentName}`
-    : "";
+  const headerActivity = isStreaming || hasActiveRun ? "对方正在输入" : "";
 
   const refreshRuntime = useCallback(async () => {
     try {
@@ -293,28 +247,12 @@ export function ChatWindow({
     try {
       setRunsForSession(currentSessionId, await fetchRuns(currentSessionId));
     } catch { /* 保留已有运行状态 */ }
-    try {
-      setApprovalsForSession(currentSessionId, await fetchApprovals(currentSessionId));
-    } catch { /* 保留已有审批状态 */ }
   }, [
     currentSessionId,
-    setApprovalsForSession,
     setArtifactsForSession,
     setMessagesForSession,
     setRunsForSession,
   ]);
-
-  const refreshHealth = useCallback(async () => {
-    setHealthLoading(true);
-    try {
-      setSystemHealth(await fetchSystemHealth({ sessionId: currentSessionId }));
-    } catch {
-      setSystemHealth(null);
-      setStreamingError("环境体检暂不可用，请稍后重试", currentSessionId);
-    } finally {
-      setHealthLoading(false);
-    }
-  }, [currentSessionId, setStreamingError, setSystemHealth]);
 
   const handleCancelRun = useCallback(async (runId: string) => {
     setCancellingRunId(runId);
@@ -336,59 +274,6 @@ export function ChatWindow({
     }
   }, [cancelRunLocally, currentSessionId, messages, refreshRuntime, runs, setStreamingError]);
 
-  const handleApprove = useCallback(async (approvalId: string) => {
-    setBusyApprovalId(approvalId);
-    try {
-      await approveCheckpoint(approvalId);
-      await refreshRuntime();
-    } catch {
-      setStreamingError("审批确认失败，请刷新后重试", currentSessionId);
-    } finally {
-      setBusyApprovalId(null);
-    }
-  }, [refreshRuntime, setStreamingError]);
-
-  const handleReject = useCallback(async (approvalId: string) => {
-    const approval = approvals.find((item) => item.id === approvalId);
-    if (!approval) return;
-    const reason = window.prompt("请输入修改原因");
-    if (!reason?.trim()) return;
-    setBusyApprovalId(approvalId);
-    try {
-      const artifact = approval.artifactId ? artifactById.get(approval.artifactId) : null;
-      const codeReference = artifact ? {
-        artifactId: artifact.id,
-        projectId: artifact.projectId ?? null,
-        filePath: artifact.filePath ?? null,
-        title: artifact.title,
-        language: artifact.type === "code_diff" ? "diff" : "text",
-        content: artifact.content.slice(0, 4000),
-      } : null;
-      await rejectCheckpoint(approvalId, {
-        reason: reason.trim(),
-        artifactId: approval.artifactId ?? undefined,
-        artifactVersion: approval.artifactVersion ?? undefined,
-        codeReference,
-      });
-      if (codeReference) setCodeReference(codeReference);
-      const sourceMessage = approval.messageId ? messageById.get(approval.messageId) : null;
-      if (sourceMessage) setReplyTarget(sourceMessage);
-      window.dispatchEvent(new Event("agenthub:focus-chat-input"));
-      await refreshRuntime();
-    } catch {
-      setStreamingError("审批驳回失败，请刷新后重试", currentSessionId);
-    } finally {
-      setBusyApprovalId(null);
-    }
-  }, [
-    approvals,
-    artifactById,
-    messageById,
-    refreshRuntime,
-    setCodeReference,
-    setReplyTarget,
-    setStreamingError,
-  ]);
 
   const copyContent = useCallback((content: string) => {
     void copyTextToClipboard(content)
@@ -477,6 +362,7 @@ export function ChatWindow({
   ]);
 
   useEffect(() => {
+    setDiagnosticOpen(false);
     setSelectionMode(false);
     setSelectedMessageIds(new Set());
     closeForwardDialog();
@@ -486,43 +372,6 @@ export function ChatWindow({
     void handleCancelRun(runId);
   }, [handleCancelRun]);
 
-  const approveMessageCheckpoint = useCallback((approval: ApprovalCheckpoint) => {
-    void handleApprove(approval.id);
-  }, [handleApprove]);
-
-  const rejectMessageCheckpoint = useCallback((approval: ApprovalCheckpoint) => {
-    void handleReject(approval.id);
-  }, [handleReject]);
-
-  const confirmActiveDialog = useCallback(async () => {
-    if (!activeGroupDialog?.executionId || !activeGroupDialog.taskId) return;
-    setConfirmingDialog(true);
-    try {
-      await confirmOrchestratorTask(
-        activeGroupDialog.executionId,
-        activeGroupDialog.taskId,
-        `${activeGroupDialog.activeAgentName} 访谈节点已由用户确认`,
-      );
-      await refreshRuntime();
-    } catch {
-      setStreamingError("确认访谈节点失败，请刷新后重试", currentSessionId);
-    } finally {
-      setConfirmingDialog(false);
-    }
-  }, [activeGroupDialog, currentSessionId, refreshRuntime, setStreamingError]);
-
-  const closeActiveDialog = useCallback(async () => {
-    if (!activeGroupDialog) return;
-    setClosingDialog(true);
-    try {
-      await closeGroupDialog(currentSessionId, "user_returned_to_orchestrator");
-      await refreshRuntime();
-    } catch {
-      setStreamingError("结束直接对齐失败，请刷新后重试", currentSessionId);
-    } finally {
-      setClosingDialog(false);
-    }
-  }, [activeGroupDialog, currentSessionId, refreshRuntime, setStreamingError]);
 
   const submitMessage = useCallback((content: string, mentions: string[]) => {
     if (interruptedExecution) {
@@ -649,14 +498,16 @@ export function ChatWindow({
           </div>
         </div>
         <div className="flex items-center gap-2 sm:gap-3">
-          <div className="shrink-0">
-            <HealthCheckCard
-              health={systemHealth}
-              loading={healthLoading}
-              compact
-              onRefresh={() => void refreshHealth()}
-            />
-          </div>
+          <button
+            type="button"
+            onClick={() => setDiagnosticOpen((open) => !open)}
+            className={`agenthub-icon-button inline-flex h-9 w-9 items-center justify-center rounded-full ${diagnosticOpen ? "agenthub-file-entry-active" : ""}`}
+            aria-label={diagnosticOpen ? "返回对话" : "查看会话诊断日志"}
+            title={diagnosticOpen ? "返回对话" : "会话诊断日志"}
+            aria-pressed={diagnosticOpen}
+          >
+            <FileText size={15} />
+          </button>
           {isGroup && (
             <button
               type="button"
@@ -717,6 +568,10 @@ export function ChatWindow({
           </button>
         </div>
       </div>
+      {diagnosticOpen ? (
+        <SessionDiagnosticLogPanel sessionId={currentSessionId} />
+      ) : (
+        <>
       {hydrating && (
         <div className="h-0.5 overflow-hidden bg-transparent" aria-label="正在同步当前对话">
           <div className="h-full w-1/2 animate-[agenthub-progress_920ms_ease-in-out_infinite] rounded-full bg-[color:var(--ah-accent-strong)]" />
@@ -730,67 +585,32 @@ export function ChatWindow({
         </div>
       )}
 
-      {isGroup && activeGroupDialog && (
-        <div className="agenthub-status-info mx-6 mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3">
-          <div className="min-w-0">
-            <p className="text-sm font-medium">
-              正在和 @{activeGroupDialog.activeAgentName} 对齐
-            </p>
-            {activeGroupDialog.goal && (
-              <p className="agenthub-muted mt-0.5 truncate text-xs">{activeGroupDialog.goal}</p>
-            )}
-          </div>
-          {activeGroupDialog.executionId && activeGroupDialog.taskId ? (
-            <button
-              type="button"
-              onClick={() => void confirmActiveDialog()}
-              disabled={confirmingDialog}
-              className="agenthub-primary-button inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <CheckSquare size={14} />
-              {confirmingDialog ? "确认中" : "确认并继续调度"}
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => void closeActiveDialog()}
-              disabled={closingDialog}
-              className="agenthub-icon-button inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <X size={14} />
-              {closingDialog ? "结束中" : "交给调度器"}
-            </button>
-          )}
-        </div>
-      )}
-
       {/* Orchestrator route banner */}
       {showRouteBanner && (
         <div className="agenthub-status-info mx-6 mt-3 rounded-xl border px-4 py-3">
           <p className="mb-1 text-xs font-medium">
             编排器已路由
-            {orchestratorIntent && (
+            {routeType && (
               <span className="agenthub-status ml-1.5 rounded px-1.5 py-0.5 text-[10px]">
-                {INTENT_LABELS[orchestratorIntent] ?? orchestratorIntent}
+                {ROUTE_LABELS[routeType] ?? routeType}
               </span>
             )}
             :
           </p>
           <div className="flex flex-wrap gap-1.5">
-            {routeAgents.map((a) => (
+            {(routeAgents ?? []).map((a) => (
               <span key={a.id} className="agenthub-status inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium">
                 @{a.name}
               </span>
             ))}
           </div>
-          {planSummary && (
-            <p className="mt-2 text-xs leading-relaxed">{planSummary}</p>
+          {routeReason && (
+            <p className="mt-2 text-xs leading-relaxed">{routeReason}</p>
           )}
         </div>
       )}
 
-      {/* CollaborationPanel — inline in natural flow, below route banner */}
-      {isGroup && activeRun && !showCollabPanel && (
+      {isGroup && activeRun && (
         <div className="mx-6 mt-3">
           <RuntimeControlStrip
             run={activeRun}
@@ -799,21 +619,6 @@ export function ChatWindow({
             cancelling={cancellingRunId === activeRun.id}
           />
         </div>
-      )}
-
-      {showCollabPanel && (
-        <CollaborationPanel
-          intent={orchestratorIntent}
-          tasks={isPlanOnly ? [] : collabTasks}
-          phases={isPlanOnly ? [] : dagPhases}
-          isCompleted={collabCompleted}
-          completedSummary={collabSummary}
-          draftPlan={draftPlan}
-          run={activeRun}
-          runtimeTasks={activeRunTasks}
-          onCancelRun={cancelMessageRun}
-          cancellingRunId={cancellingRunId}
-        />
       )}
 
       {/* Error banner */}
@@ -838,11 +643,11 @@ export function ChatWindow({
           ref={scrollRef}
           className="agenthub-message-area relative min-h-0 min-w-0 w-full overflow-y-auto p-4 pb-40 md:p-6 md:pb-40"
         >
-          {messages.length === 0 && collabTasks.length === 0 && viewHydrating ? (
+          {messages.length === 0 && viewHydrating ? (
             <MessageListSkeleton />
           ) : viewHydrating ? (
             <MessageListSkeleton />
-          ) : messages.length === 0 && collabTasks.length === 0 ? (
+          ) : messages.length === 0 ? (
             <ChatEmptyState
               isGroup={isGroup}
               sessionTitle={currentSession?.title ?? null}
@@ -857,7 +662,6 @@ export function ChatWindow({
             messages.map((msg) => {
               const prompts = promptsByMessageId.get(msg.id) ?? [];
               const messageRun = latestRunByMessageId.get(msg.id) ?? null;
-              const relatedApprovals = approvalsByMessageId.get(msg.id) ?? EMPTY_APPROVALS;
               const messageRunActive = messageRun ? ACTIVE_RUN_STATUSES.has(messageRun.status) : false;
               const isPendingAssistant = msg.role === "assistant" && msg.content === "" && (isStreaming || messageRunActive);
               const relatedArtifacts = artifactsByMessageId.get(msg.id) ?? EMPTY_ARTIFACTS;
@@ -870,8 +674,6 @@ export function ChatWindow({
                     relatedArtifacts={EMPTY_ARTIFACTS}
                     run={messageRun}
                     tasks={messageRun ? tasksByRun[messageRun.id] ?? EMPTY_TASKS : EMPTY_TASKS}
-                    relatedApprovals={relatedApprovals}
-                    artifactById={relatedApprovals.length > 0 ? artifactById : undefined}
                     agent={messageAgent ?? (!isGroup ? currentAgent : null)}
                     currentUser={currentUser}
                     parentMessage={msg.parentMessageId ? messageById.get(msg.parentMessageId) ?? null : null}
@@ -889,10 +691,6 @@ export function ChatWindow({
                     onArtifactsChanged={onArtifactsChanged}
                     onCancelRun={cancelMessageRun}
                     cancellingRunId={cancellingRunId}
-                    onApprove={approveMessageCheckpoint}
-                    onReject={rejectMessageCheckpoint}
-                    onOpenApprovalArtifact={setReviewArtifact}
-                    busyApprovalId={busyApprovalId}
                     onOpenAgentSettings={onOpenAgentSettings}
                   />
                   {relatedArtifacts.map((artifact) => (
@@ -960,11 +758,6 @@ export function ChatWindow({
         currentUser={currentUser}
         onClose={() => setSearchOpen(false)}
         onJump={(_, messageId) => jumpToMessage(messageId)}
-      />
-      <ArtifactReviewModal
-        artifact={reviewArtifact}
-        onClose={() => setReviewArtifact(null)}
-        onChanged={onArtifactsChanged}
       />
       <GroupManagementDialog
         open={groupManagementOpen}
@@ -1043,6 +836,8 @@ export function ChatWindow({
         currentProjectId={currentSession?.projectId ?? null}
         currentSessionId={currentSessionId}
       />
+        </>
+      )}
     </div>
   );
 }
@@ -1312,36 +1107,6 @@ function ChatEmptyState({
       </section>
     </div>
   );
-}
-
-interface ActiveGroupDialog {
-  activeAgentId: string;
-  activeAgentName: string;
-  status: string;
-  goal?: string;
-  executionId?: string;
-  taskId?: string;
-}
-
-function findActiveGroupDialog(messages: Message[]): ActiveGroupDialog | null {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const dialog = messages[index].metadata?.groupDialog;
-    if (!dialog || dialog.mode !== "direct_dialog") continue;
-    if (["closed", "handoff_confirmed", "cancelled"].includes(dialog.status)) return null;
-    if (!["active", "awaiting_user_input", "agent_responding", "ready_for_handoff"].includes(dialog.status)) {
-      continue;
-    }
-    if (!dialog.activeAgentId || !dialog.activeAgentName) continue;
-    return {
-      activeAgentId: dialog.activeAgentId,
-      activeAgentName: dialog.activeAgentName,
-      status: dialog.status,
-      goal: dialog.goal,
-      executionId: dialog.executionId,
-      taskId: dialog.taskId,
-    };
-  }
-  return null;
 }
 
 function findInterruptedExecution(messages: Message[]): OrchestratorExecution | null {

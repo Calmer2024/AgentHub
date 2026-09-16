@@ -4,8 +4,6 @@ import { MobileShell } from "../../../../frontend/src/shells/mobile/MobileShell"
 import {
   archiveSession,
   createChatStream,
-  decideMobileApproval,
-  fetchApprovals,
   fetchArtifacts,
   fetchCurrentUser,
   fetchMessages,
@@ -19,13 +17,11 @@ import {
   pinSession,
   renderArtifact,
 } from "../../../../frontend/src/api/client";
-import type { ApprovalCheckpoint, Artifact, CurrentUser, Message, Notification, Project, Session } from "../../../../frontend/src/types";
+import type { Artifact, CurrentUser, Message, Notification, Project, Session } from "../../../../frontend/src/types";
 
 const apiMocks = vi.hoisted(() => ({
   archiveSession: vi.fn(),
   createChatStream: vi.fn(),
-  decideMobileApproval: vi.fn(),
-  fetchApprovals: vi.fn(),
   fetchArtifacts: vi.fn(),
   fetchCurrentUser: vi.fn(),
   fetchMessages: vi.fn(),
@@ -154,29 +150,15 @@ const artifact: Artifact = {
   createdAt: "2026-06-10T09:40:00+08:00",
 };
 
-const approval: ApprovalCheckpoint = {
-  id: "ap1",
-  runId: "run1",
-  taskId: "task1",
-  sessionId: "s1",
-  messageId: "m1",
-  artifactId: "a1",
-  artifactVersion: 1,
-  title: "部署前确认",
-  summary: "准备发布登录页预览",
-  status: "pending_review",
-  reason: null,
-  createdAt: "2026-06-10T09:42:00+08:00",
-};
 
 const notifications: Notification[] = [
   {
     id: "n1",
-    type: "approval",
-    resourceType: "approval",
-    resourceId: "ap1",
-    title: "有新的移动审批",
-    body: "后端联调需要确认",
+    type: "run.completed",
+    resourceType: "run",
+    resourceId: "run1",
+    title: "运行已完成",
+    body: "后端联调已完成",
     readAt: null,
     createdAt: "2026-06-10T09:43:00+08:00",
   },
@@ -191,7 +173,6 @@ describe("MobileShell", () => {
     vi.mocked(fetchNotifications).mockResolvedValue(notifications);
     vi.mocked(fetchMessages).mockImplementation((sessionId) => Promise.resolve(messages[sessionId] ?? []));
     vi.mocked(fetchArtifacts).mockImplementation((sessionId) => Promise.resolve(sessionId === "s1" ? [artifact] : []));
-    vi.mocked(fetchApprovals).mockImplementation((sessionId) => Promise.resolve(sessionId === "s1" ? [approval] : []));
     vi.mocked(fetchSessionMembers).mockResolvedValue([
       { agentConfigId: "agent-orchestrator", agentName: "Orchestrator 调度器", joinedAt: "2026-06-10T09:00:00+08:00" },
     ]);
@@ -206,7 +187,6 @@ describe("MobileShell", () => {
       content: "<main>移动端预览</main>",
       fileName: "index.html",
     });
-    vi.mocked(decideMobileApproval).mockResolvedValue({ ...approval, status: "approved" });
     vi.mocked(pinSession).mockResolvedValue({ ...sessions.p1[0], isPinned: false });
     vi.mocked(muteSession).mockResolvedValue({ ...sessions.p1[0], isMuted: true });
     vi.mocked(archiveSession).mockResolvedValue({ ...sessions.p1[0], archivedAt: "2026-06-10T10:00:00+08:00" });
@@ -253,19 +233,5 @@ describe("MobileShell", () => {
 
     await waitFor(() => expect(renderArtifact).toHaveBeenCalledWith("a1", "html"));
     expect(await screen.findByTitle("移动端 Artifact 预览")).toBeInTheDocument();
-  });
-
-  it("可从会话进入移动审批并提交同意决策", async () => {
-    render(<MobileShell />);
-
-    fireEvent.click(await screen.findByRole("button", { name: /后端联调/ }));
-    fireEvent.click(await screen.findByRole("button", { name: /1 个待审批/ }));
-    expect(await screen.findByText("部署前确认")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "同意" }));
-
-    await waitFor(() => expect(decideMobileApproval).toHaveBeenCalledWith("ap1", {
-      decision: "approve",
-      comment: "移动端同意",
-    }));
   });
 });

@@ -64,19 +64,13 @@ def test_import_event_bus():
 def test_import_services():
     from app.services import MessageService, ChatService, SessionService
     from app.services.schemas import MessageCreate, MessageRead, SessionCreate, SessionRead
-    from app.services.shared_context import SharedContext
     from app.services.token_event import TokenEvent
     from app.services.group_chat_stream import GroupChatStream
-    from app.services.group_chat_finalizer import GroupChatFinalizer
-    from app.services.orchestrator_summarizer import OrchestratorSummarizer
     assert MessageService is not None
     assert ChatService is not None
     assert SessionService is not None
-    assert SharedContext is not None
     assert TokenEvent is not None
     assert GroupChatStream is not None
-    assert GroupChatFinalizer is not None
-    assert OrchestratorSummarizer is not None
 
 
 def test_import_migration_runner():

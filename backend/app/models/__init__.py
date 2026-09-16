@@ -10,7 +10,6 @@ from .agent_config import AgentConfig
 from .session_member import SessionMember
 from .artifact import Artifact
 from .run import Run, RunTask, RunProcess
-from .approval import ApprovalCheckpoint
 from .engine_session import EngineSession
 from .build import BuildRun, BuildLog
 from .context_pack import ContextPackSnapshot
@@ -55,7 +54,6 @@ __all__ = [
     "Run",
     "RunTask",
     "RunProcess",
-    "ApprovalCheckpoint",
     "EngineSession",
     "BuildRun",
     "BuildLog",
